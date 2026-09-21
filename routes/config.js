@@ -15,6 +15,7 @@ const { createModelReferenceResolver } = require('../lib/model-reference-resolve
 const { createSignedBridgeHeaders } = require('../lib/batch-factory-v11/go-proxy');
 const { normalizeModelCatalog } = require('../lib/model-catalog');
 const { createTextVerificationCache } = require('../lib/model-catalog-verification');
+const { readModelQuotas } = require('../lib/model-quota');
 
 const LOCAL_DOUBAO_MODEL_ID = 'local-doubao-executor-video';
 
@@ -113,7 +114,8 @@ function createConfigRouter({
   accountReader,
   getExecutorPairingStatus = defaultExecutorPairingStatus,
   textVerification = createTextVerificationCache(),
-  upstreamRequest = requestUpstream
+  upstreamRequest = requestUpstream,
+  quotaReader = readModelQuotas
 } = {}) {
   const router = express.Router();
   router.use(authenticate);
@@ -205,6 +207,17 @@ function createConfigRouter({
       account: req.auth?.account,
       configReader
     }) });
+  });
+
+  router.get('/models/quotas', requireApiManager, async (req, res) => {
+    try {
+      const config = configReader(req.username) || {};
+      const catalog = normalizeModelCatalog(config.modelCatalog, config);
+      const quotas = await quotaReader(catalog);
+      return res.json({ quotas: Array.isArray(quotas) ? quotas : [] });
+    } catch (error) {
+      return res.status(502).json({ error: error?.message || '额度查询失败' });
+    }
   });
 
   router.get('/models/local-doubao-executor-video/pairing-status', requireApiManager, async (req, res) => {

@@ -572,6 +572,18 @@
 .api-config-page .ac-platform-preset-state small { color: #a7b5c6; font-size: 11px; line-height: 1.5; }
 .api-config-page .ac-platform-preset-credential { min-width: 0; }
 .api-config-page .ac-platform-preset-state { display: grid; justify-items: end; gap: 5px; }
+.api-config-page .ac-model-quota { display: grid; gap: 3px; margin-top: 7px; min-width: 0; color: #9fb0c3; font-size: 10px; line-height: 1.35; }
+.api-config-page .ac-model-quota-head { display: flex; gap: 6px; justify-content: space-between; min-width: 0; }
+.api-config-page .ac-model-quota-head span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.api-config-page .ac-model-quota-head b { color: #d7e2ef; font-size: 10px; font-weight: 600; white-space: nowrap; }
+.api-config-page .ac-model-quota-track { height: 4px; overflow: hidden; border-radius: 999px; background: rgba(255,255,255,.09); }
+.api-config-page .ac-model-quota-track i { display: block; height: 100%; border-radius: inherit; background: #43d59f; transition: width .2s ease; }
+.api-config-page .ac-model-quota.depleted .ac-model-quota-track i,
+.api-config-page .ac-model-quota.unauthorized .ac-model-quota-track i,
+.api-config-page .ac-model-quota.error .ac-model-quota-track i { background: #f47782; }
+.api-config-page .ac-model-quota.unknown,
+.api-config-page .ac-model-quota.timeout { color: #d2b56f; }
+.api-config-page .ac-model-quota small { color: #7e90a5; font-size: 9px; }
 .api-config-page .ac-model-catalog-table .ant-table { table-layout: fixed; }
 .api-config-page .ac-model-catalog-table .ant-table-cell { overflow-wrap: anywhere; }
 .api-config-page .ac-form-row {

@@ -1,8 +1,8 @@
 import { Button, Form, Input, InputNumber, Modal, Select, Skeleton, Space, Switch, Table, Tag, message } from 'antd';
-import { KeyRound, Plus, ShieldCheck, Trash2, Video } from 'lucide-react';
+import { KeyRound, Plus, RefreshCw, ShieldCheck, Trash2, Video } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { canManageModelCatalog, getConfig } from '../../shared/api/config';
-import { createManagedModel, deleteManagedModel, listManagedModels, refreshLocalDoubaoPairingStatus, testManagedTextModel, updateManagedModel } from '../../shared/api/modelCatalog';
+import { createManagedModel, deleteManagedModel, getManagedModelQuotas, listManagedModels, refreshLocalDoubaoPairingStatus, testManagedTextModel, updateManagedModel } from '../../shared/api/modelCatalog';
 import { createCustomModelId } from '../../shared/modelCatalog/customModelId';
 import { isTextModelVerified, textModelVerificationKey } from '../../shared/modelCatalog/textModelVerification';
 import { getMemberCenter } from '../../shared/api/member';
@@ -25,12 +25,29 @@ function customModels(models, kind) {
   return models.filter(model => model.kind === kind && !PLATFORM_PRESETS.some(preset => preset.id === model.id));
 }
 
-function CatalogTable({ models, onEdit, onDelete, onToggle }) {
+function quotaText(value) {
+  return Number.isFinite(Number(value)) ? Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 2 }) : '—';
+}
+
+function ModelQuotaStatus({ quota }) {
+  if (!quota) return <div className="ac-model-quota unknown"><span>额度尚未查询</span></div>;
+  const labels = { available: '额度正常', depleted: '额度已耗尽', unauthorized: '密钥无效或无权限', timeout: '额度查询超时', error: '额度查询失败', unknown: '额度未知', not_configured: '未配置 API Key', not_applicable: '无需 API 额度' };
+  const label = labels[quota.status] || '额度未知';
+  const hasBalance = Number.isFinite(Number(quota.available)) && quota.percent !== null;
+  return <div className={`ac-model-quota ${quota.status || 'unknown'}`}>
+    <div className="ac-model-quota-head"><span>{label}</span>{hasBalance ? <b>可用额度 {quotaText(quota.available)} / {quotaText(quota.total)} {quota.unit || ''}</b> : null}</div>
+    {hasBalance ? <div className="ac-model-quota-track"><i style={{ width: `${Math.max(0, Math.min(100, Number(quota.percent) || 0))}%` }} /></div> : null}
+    <small>{quota.checkedAt ? `更新于 ${new Date(quota.checkedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}` : '等待刷新'}</small>
+  </div>;
+}
+
+function CatalogTable({ models, quotas, onEdit, onDelete, onToggle }) {
   return <Table className="ac-model-catalog-table" size="small" rowKey="id" pagination={false} tableLayout="fixed" scroll={{ x: 720 }} dataSource={models} locale={{ emptyText: '尚未添加可用模型' }} columns={[
-    { title: '模型', dataIndex: 'displayName', width: '42%', render: (name, model) => <Space direction="vertical" size={0}><b>{name}</b><span className="ac-muted-copy">{model.modelId || model.adapterKind || '平台预设模型'}</span></Space> },
+    { title: '模型', dataIndex: 'displayName', width: '34%', render: (name, model) => <Space direction="vertical" size={0}><b>{name}</b><span className="ac-muted-copy">{model.modelId || model.adapterKind || '平台预设模型'}</span></Space> },
     { title: '服务商', dataIndex: 'providerType', width: '18%', render: value => value === 'platform_preset' ? '平台预设' : '自定义' },
-    { title: '状态', width: '14%', align: 'center', render: (_, model) => <Switch checked={model.enabled} onChange={checked => onToggle(model, checked)} /> },
-    { title: '操作', width: '26%', render: (_, model) => <Space><Button type="link" onClick={() => onEdit(model)}>编辑</Button><Button danger type="link" icon={<Trash2 size={14} />} onClick={() => onDelete(model)}>删除</Button></Space> }
+    { title: '额度', width: '24%', render: (_, model) => <ModelQuotaStatus quota={quotas.get(model.id)} /> },
+    { title: '状态', width: '12%', align: 'center', render: (_, model) => <Switch checked={model.enabled} onChange={checked => onToggle(model, checked)} /> },
+    { title: '操作', width: '22%', render: (_, model) => <Space><Button type="link" onClick={() => onEdit(model)}>编辑</Button><Button danger type="link" icon={<Trash2 size={14} />} onClick={() => onDelete(model)}>删除</Button></Space> }
   ]} />;
 }
 
@@ -47,12 +64,22 @@ export default function ApiConfigPage() {
   const [customForm] = Form.useForm();
   const [presetKeys, setPresetKeys] = useState({});
   const [doubaoPaired, setDoubaoPaired] = useState(false);
+  const [quotas, setQuotas] = useState([]);
+  const [quotaLoading, setQuotaLoading] = useState(false);
   const canManageApi = canManageModelCatalog(config);
   const member = center?.member;
 
+  const refreshQuotaState = useCallback(async () => {
+    if (!canManageApi) return;
+    setQuotaLoading(true);
+    try { setQuotas(await getManagedModelQuotas()); }
+    catch (error) { message.error(error.message || '额度查询失败'); }
+    finally { setQuotaLoading(false); }
+  }, [canManageApi]);
+
   const refreshModels = useCallback(async () => {
     if (!canManageApi) return;
-    const [nextModels, pairing] = await Promise.all([listManagedModels(), refreshLocalDoubaoPairingStatus()]);
+    const [nextModels, pairing, nextQuotas] = await Promise.all([listManagedModels(), refreshLocalDoubaoPairingStatus(), getManagedModelQuotas().catch(() => [])]);
     const paired = pairing.executorPaired === true;
     const doubao = nextModels.find(model => model.id === 'local-doubao-executor-video');
     if (doubao) {
@@ -60,6 +87,7 @@ export default function ApiConfigPage() {
     }
     setDoubaoPaired(paired);
     setModels(nextModels);
+    setQuotas(nextQuotas);
   }, [canManageApi]);
 
   useEffect(() => {
@@ -69,7 +97,7 @@ export default function ApiConfigPage() {
       setConfig(nextConfig);
       setCenter(nextCenter);
       if (canManageModelCatalog(nextConfig)) {
-        const [nextModels, pairing] = await Promise.all([listManagedModels(), refreshLocalDoubaoPairingStatus()]);
+        const [nextModels, pairing, nextQuotas] = await Promise.all([listManagedModels(), refreshLocalDoubaoPairingStatus(), getManagedModelQuotas().catch(() => [])]);
         const paired = pairing.executorPaired === true;
         const doubao = nextModels.find(model => model.id === 'local-doubao-executor-video');
         if (doubao) {
@@ -77,6 +105,7 @@ export default function ApiConfigPage() {
         }
         setDoubaoPaired(paired);
         setModels(nextModels);
+        setQuotas(nextQuotas);
       }
     }).catch(error => message.error(error.message || 'API 配置加载失败'))
       .finally(() => { if (alive) setLoading(false); });
@@ -84,6 +113,7 @@ export default function ApiConfigPage() {
   }, []);
 
   const modelById = useMemo(() => new Map(models.map(model => [model.id, model])), [models]);
+  const quotaById = useMemo(() => new Map(quotas.map(quota => [quota.modelId, quota])), [quotas]);
 
   function openCreate() {
     setEditing(null);
@@ -199,19 +229,19 @@ export default function ApiConfigPage() {
       <div><div><h2>模型服务由团队托管</h2>{member ? <RoleBadge role={member.role} /> : null}</div><p>你可在获授权的业务下拉框中选择管理员已启用的模型；不会显示 API Key。</p></div>
       <Tag color={config?.managedBy ? 'green' : 'gold'}>{config?.managedBy ? `托管账号 @${config.managedBy}` : '等待绑定 MANAGER'}</Tag>
     </div> : <>
-      <Panel title="平台预设模型" eyebrow="PLATFORM PRESETS" className="ac-form-panel">
-        <p className="ac-muted-copy">只有完成所需配置并启用后，才会出现在业务的视频模型下拉框。</p>
+      <Panel title="平台预设模型" eyebrow="PLATFORM PRESETS" className="ac-form-panel" action={<Button icon={<RefreshCw size={15} />} loading={quotaLoading} onClick={refreshQuotaState}>刷新额度</Button>}>
+        <p className="ac-muted-copy">只有完成所需配置并启用后，才会出现在业务的视频模型下拉框。额度状态由服务商接口返回；不支持查询的服务商会显示“额度未知”。</p>
         {PLATFORM_PRESETS.map(preset => {
           const model = modelById.get(preset.id);
           return <div className="ac-platform-preset-grid" key={preset.id}>
             <div className="ac-platform-preset-info"><span className="ac-security-card-icon violet"><Video size={20} /></span><div><strong>{preset.displayName}</strong><small>{preset.description}</small></div></div>
-            <div className="ac-platform-preset-credential">{preset.credentialMode === 'executorPairing' ? <small>{doubaoPaired ? '执行器已配对' : '尚未完成执行器配对'}</small> : <Input.Password value={presetKeys[preset.id] || ''} onChange={event => setPresetKeys(current => ({ ...current, [preset.id]: event.target.value }))} prefix={<KeyRound size={15} />} placeholder={model?.hasCredential ? '留空表示不修改已保存的 Key' : '填写 API Key'} />}</div>
+            <div className="ac-platform-preset-credential">{preset.credentialMode === 'executorPairing' ? <small>{doubaoPaired ? '执行器已配对' : '尚未完成执行器配对'}</small> : <Input.Password value={presetKeys[preset.id] || ''} onChange={event => setPresetKeys(current => ({ ...current, [preset.id]: event.target.value }))} prefix={<KeyRound size={15} />} placeholder={model?.hasCredential ? '留空表示不修改已保存的 Key' : '填写 API Key'} />}<ModelQuotaStatus quota={quotaById.get(preset.id)} /></div>
             <div className="ac-platform-preset-state"><Switch checked={model?.enabled === true} disabled={!model?.enabled && !isPresetReady(preset, model)} onChange={enabled => savePreset(preset, enabled)} /><small>{model?.enabled ? '已启用' : '未启用'}</small></div>
           </div>;
         })}
       </Panel>
-      {MODEL_KINDS.map(group => <Panel key={group.key} title={group.title} eyebrow={group.eyebrow} className="ac-form-panel" action={<Button icon={<Plus size={15} />} onClick={openCreate}>添加自定义模型</Button>}>
-        <CatalogTable models={customModels(models, group.key)} onEdit={openEdit} onDelete={deleteModel} onToggle={toggleModel} />
+      {MODEL_KINDS.map(group => <Panel key={group.key} title={group.title} eyebrow={group.eyebrow} className="ac-form-panel" action={<Space><Button icon={<RefreshCw size={15} />} loading={quotaLoading} onClick={refreshQuotaState}>刷新额度</Button><Button icon={<Plus size={15} />} onClick={openCreate}>添加自定义模型</Button></Space>}>
+        <CatalogTable models={customModels(models, group.key)} quotas={quotaById} onEdit={openEdit} onDelete={deleteModel} onToggle={toggleModel} />
       </Panel>)}
     </>}
     <Modal title={editing ? '编辑自定义模型' : '添加自定义模型'} open={customOpen} onCancel={() => setCustomOpen(false)} onOk={submitCustom} okText={editing ? '保存修改' : '添加模型'} confirmLoading={saving}>

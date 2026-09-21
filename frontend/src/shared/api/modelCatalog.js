@@ -63,6 +63,11 @@ export async function listManagedModelsByKind(kind) {
   return Array.isArray(result?.models) ? result.models : [];
 }
 
+export async function getManagedModelQuotas() {
+  const result = await apiRequest('/api/config/models/quotas');
+  return Array.isArray(result?.quotas) ? result.quotas : [];
+}
+
 export function createManagedModel(model) {
   return apiRequest('/api/config/models', { method: 'POST', body: JSON.stringify(model) });
 }
