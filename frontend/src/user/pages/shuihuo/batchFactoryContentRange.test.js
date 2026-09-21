@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { batchFactoryPreviewText, contentCaptureCharactersForBook, contentRangeLinesForBook, publishContentWithWorkingFront } from './batchFactoryContentRange.js';
+import { batchFactoryPreviewText, batchFactoryProductionText, contentCaptureCharactersForBook, contentRangeLinesForBook, publishContentWithWorkingFront } from './batchFactoryContentRange.js';
 
 test('uses the saved per-book content range as the work-text boundary', () => {
   const book = { sourceMetadata: { contentRangeLines: 5 } };
@@ -12,6 +12,12 @@ test('keeps the full original separate from the limited work text', () => {
   const source = '一\n二\n三';
   assert.equal(batchFactoryPreviewText(source, { sourceMetadata: { contentRangeLines: 2 } }), '一\n二');
   assert.equal(source, '一\n二\n三');
+});
+
+test('uses working-front content as the production text when it exists', () => {
+  const book = { sourceMetadata: { contentRangeLines: 2 } };
+  assert.equal(batchFactoryProductionText('一\n二\n三', '', book), '一\n二');
+  assert.equal(batchFactoryProductionText('一\n二\n三', '人工改写', book), '人工改写');
 });
 
 test('defaults to a 4000-character fetch and upload body limit', () => {

@@ -17,6 +17,11 @@ export function batchFactoryPreviewText(sourceText, book) {
     .join('\n');
 }
 
+export function batchFactoryProductionText(sourceText, workingFrontContent, book) {
+  const working = String(workingFrontContent || '').trim();
+  return working || batchFactoryPreviewText(sourceText, book);
+}
+
 
 export function publishContentWithWorkingFront(sourceText, workingFrontContent, book) {
   const sourceLines = String(sourceText || '').split(/\r?\n/);
