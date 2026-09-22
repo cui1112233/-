@@ -1,6 +1,7 @@
 import { h3PromptEditRequest } from './h3PromptEditing.js';
 import { measureH3VideoLines } from './h3LineAudio.js';
 import { smartUnifiedAnalysisForBook, smartUnifiedDisplayEnabled } from './batchFactorySmartUnified.js';
+import { publicationMetadataValue } from './batchFactoryPublicationMetadata.js';
 import {
   ArrowLeftOutlined,
   BarsOutlined,
@@ -331,8 +332,8 @@ function NovelMetadata({ books, createdAt, selectedBookIds, onSelectionChange, o
         <span className="is-order"><Checkbox checked={selected.has(book.id)} onChange={event => onSelectionChange(event.target.checked ? [...selected, book.id] : [...selected].filter(id => id !== book.id))} aria-label={`选择 ${row.title}`} /><b>{String(index + 1).padStart(2, '0')}</b></span>
         <span className="is-book"><strong title={row.title}>{row.title}</strong><small>ID {row.bookId} · {bookPlatformName(book, platformNames)}</small></span>
         <span><i className={`batch-factory-content-mode is-${mode}`}>{batchFactoryContentModeLabel(book)}</i></span>
-        <span>{value(metadata, 'style')}</span>
-        <span>{value(metadata, 'gender')}</span>
+        <span>{publicationMetadataValue(metadata, 'style')}</span>
+        <span>{publicationMetadataValue(metadata, 'gender')}</span>
         <span className={row.status === '处理中' ? 'is-scheduled' : ''} title={row.state?.detail}>{row.status}{row.state?.manual ? ' · 已手调' : ''}</span>
         <span><Button size="small" onClick={() => onViewBook(book)}>查看</Button></span>
       </div>;
