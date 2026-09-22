@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildScriptVideoPayload,
+  collectShotReferenceDescriptors,
   collectShotReferenceImages,
+  extractShotMentionNames,
   getEntityMedia,
   setEntityMainImage,
   toggleShotReferenceState
@@ -63,6 +65,34 @@ test('collects only current-shot entities in character-first then scene order', 
     'https://img.example/wei.png',
     'https://img.example/hotel.png'
   ]);
+});
+
+test('parses adjacent at-mentions in first-seen order', () => {
+  assert.deepEqual(
+    extractShotMentionNames('@林溪@公司办公室，@林溪。'),
+    ['林溪', '公司办公室']
+  );
+});
+
+test('adds current-script main images named by at-mentions and keeps text matches deduplicated', () => {
+  const lin = entity('lin', '林溪', [], 'https://img.example/lin.png');
+  const office = entity('office', '公司办公室', [], 'https://img.example/office.png');
+
+  assert.deepEqual(
+    collectShotReferenceDescriptors({
+      shotText: '林溪走入@公司办公室，随后@林溪。',
+      extractInfo: info([lin], [office])
+    }).map(({ url, source }) => ({ url, source })),
+    [
+      { url: 'https://img.example/lin.png', source: 'text' },
+      { url: 'https://img.example/office.png', source: 'mention' }
+    ]
+  );
+});
+
+test('does not add images for empty, unknown, or no-main-image at-mentions', () => {
+  const lin = entity('lin', '林溪', [], '');
+  assert.deepEqual(collectShotReferenceImages({ shotText: '@ @未知 @林溪', extractInfo: info([lin]) }), []);
 });
 
 test('deduplicates URLs and caps H3 references at nine', () => {

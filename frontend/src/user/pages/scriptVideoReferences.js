@@ -69,13 +69,17 @@ export function toggleShotReferenceState(states, shotIndex, patch = {}) {
   };
 }
 
-function entityReferences(entities, type, shotText, disabledImageUrls) {
+export function extractShotMentionNames(shotText) {
+  return [...new Set([...String(shotText || '').matchAll(/@([\u4e00-\u9fffA-Za-z0-9_-]+)/g)].map(match => match[1]))];
+}
+
+function entityReferences(entities, type, matches, disabledImageUrls, source) {
   return (Array.isArray(entities) ? entities : []).flatMap(entity => {
     const label = entityLabel(entity);
-    if (!label || !String(shotText || '').includes(label)) return [];
+    if (!label || !matches(label)) return [];
     const mainImageUrl = getEntityMedia(entity).mainImageUrl;
     if (!mainImageUrl || disabledImageUrls.has(mainImageUrl)) return [];
-    return [{ url: mainImageUrl, label, type }];
+    return [{ url: mainImageUrl, label, type, source }];
   });
 }
 
@@ -83,10 +87,15 @@ export function collectShotReferenceDescriptors({ shotText, extractInfo, shotInd
   const state = shotState(shotReferenceStates, shotIndex);
   if (!state.enabled && !includeDisabled) return [];
   const disabledImageUrls = includeDisabled ? new Set() : state.disabledImageUrls;
-  const characterReferences = entityReferences(extractInfo?.characters, 'character', shotText, disabledImageUrls);
-  const sceneReferences = entityReferences(extractInfo?.scenes, 'scene', shotText, disabledImageUrls);
+  const text = String(shotText || '');
+  const mentions = new Set(extractShotMentionNames(text));
+  const textWithoutMentions = text.replace(/@[\u4e00-\u9fffA-Za-z0-9_-]+/g, '');
+  const characterReferences = entityReferences(extractInfo?.characters, 'character', label => textWithoutMentions.includes(label), disabledImageUrls, 'text');
+  const sceneReferences = entityReferences(extractInfo?.scenes, 'scene', label => textWithoutMentions.includes(label), disabledImageUrls, 'text');
+  const mentionedCharacters = entityReferences(extractInfo?.characters, 'character', label => mentions.has(label), disabledImageUrls, 'mention');
+  const mentionedScenes = entityReferences(extractInfo?.scenes, 'scene', label => mentions.has(label), disabledImageUrls, 'mention');
   const seen = new Set();
-  return [...characterReferences, ...sceneReferences]
+  return [...characterReferences, ...sceneReferences, ...mentionedCharacters, ...mentionedScenes]
     .filter(reference => {
       if (seen.has(reference.url)) return false;
       seen.add(reference.url);
