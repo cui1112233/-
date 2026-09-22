@@ -19,7 +19,14 @@ jobs:
           install -d -m 700 "$HOME/.ssh"
           printf '%s\n' "$V88_ECS_SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/v88_ecs"
           chmod 600 "$HOME/.ssh/v88_ecs"
-          ssh-keyscan -H 115.190.156.223 > "$HOME/.ssh/known_hosts"
+          : > "$HOME/.ssh/known_hosts"
+          for attempt in 1 2 3 4 5; do
+            if timeout 15 ssh-keyscan -H 115.190.156.223 >> "$HOME/.ssh/known_hosts" 2>/dev/null && test -s "$HOME/.ssh/known_hosts"; then
+              break
+            fi
+            if [ "$attempt" -eq 5 ]; then exit 1; fi
+            sleep 2
+          done
 
       - name: Inspect persisted API configuration metadata only
         run: |
