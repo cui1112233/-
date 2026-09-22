@@ -42,6 +42,22 @@ func TestParseManualBookListRetainsFullMetadataPreset(t *testing.T) {
 	}
 }
 
+func TestParseManualBookListSeparatesBookIDAndTitleWithSingleSpace(t *testing.T) {
+	books, err := ParseManualBookList(ManualIntakeInput{
+		PlatformID:     "15",
+		PlatformName:   "知乎付费",
+		ParseMode:      "smart",
+		ColumnPresetID: "full_metadata",
+		InputText:      "2085148147785918287 阿芙",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(books) != 1 || books[0].BookID != "2085148147785918287" || books[0].Title != "阿芙" {
+		t.Fatalf("books=%+v", books)
+	}
+}
+
 func TestParseManualBookListUnderstandsHeaderAndDeduplicatesBookID(t *testing.T) {
 	books, err := ParseManualBookList(ManualIntakeInput{
 		PlatformID: "zhihu-paid",

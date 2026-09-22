@@ -30,6 +30,7 @@ type manualRow struct {
 
 var manualDigits = regexp.MustCompile(`^\d{10,25}$`)
 var manualDigitsInLine = regexp.MustCompile(`\d{10,25}`)
+var manualBookIDAndTitle = regexp.MustCompile(`^(\d{10,25})\s+(.+)$`)
 var manualSpaces = regexp.MustCompile(`\s{2,}`)
 var manualMonth = regexp.MustCompile(`\d{4}[-/年]\d{1,2}`)
 var manualAliases = map[string]string{
@@ -97,6 +98,9 @@ func splitManual(line string) []string {
 	}
 	if strings.Contains(line, ",") {
 		return splitManualCSV(line)
+	}
+	if parts := manualBookIDAndTitle.FindStringSubmatch(cleanManual(line)); len(parts) == 3 {
+		return []string{parts[1], cleanManual(parts[2])}
 	}
 	return []string{cleanManual(line)}
 }
