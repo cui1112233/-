@@ -23,6 +23,9 @@ const jobs = new Map();
 const LEGACY_KINDS = ['high_imitation', 'opening_phrases', 'rewrite_templates', 'layout_rules', 'symbol_rules', 'chapter_rules'];
 const PROCESS_JOB_LIMIT = 20;
 const CONFIG_CACHE_TTL_MS = 5000;
+const HISTORICAL_AI_REPAIR_CONCURRENCY = 2;
+const historicalAiStatusRepairJobs = new Map();
+const historicalAiStatusRepairCompleted = new Set();
 
 async function runWithConcurrency(items, limit, worker) {
   const results = new Array(items.length);
@@ -38,6 +41,34 @@ async function runWithConcurrency(items, limit, worker) {
   });
   await Promise.all(runners);
   return results;
+}
+
+function needsHistoricalAiStatusRepair(task = {}) {
+  if (task.hasAi !== true) return false;
+  const aiStatus = String(task.aiStatus || task.ai_status || '').toLowerCase();
+  const taskStatus = String(task.status || '').toLowerCase();
+  return aiStatus === 'failed' || taskStatus === 'ai_failed';
+}
+
+// 历史校正是迁移任务，不得堵塞任务表、重试或提交接口。每个账号在当前
+// Node 进程内只运行一次，且以低并发读取已保存文案；生成中的任务不会进入。
+function scheduleHistoricalAiStatusRepair({ tasks, username, records } = {}) {
+  const owner = String(username || '').trim();
+  if (!owner || historicalAiStatusRepairCompleted.has(owner) || historicalAiStatusRepairJobs.has(owner)) return;
+  const candidates = (Array.isArray(records) ? records : []).filter(needsHistoricalAiStatusRepair);
+  if (!candidates.length) {
+    historicalAiStatusRepairCompleted.add(owner);
+    return;
+  }
+  const job = Promise.resolve().then(() => runWithConcurrency(candidates, HISTORICAL_AI_REPAIR_CONCURRENCY, async task => {
+    const bookId = task.bookId || task.book_id || task.id;
+    if (!bookId) return;
+    await rewrite.reconcileAiTaskStatus({ tasks, username: owner, bookId, task, recordLog: true });
+  })).catch(() => undefined).finally(() => {
+    historicalAiStatusRepairJobs.delete(owner);
+    historicalAiStatusRepairCompleted.add(owner);
+  });
+  historicalAiStatusRepairJobs.set(owner, job);
 }
 
 function snakeTask(task = {}) {
@@ -643,16 +674,8 @@ function createBatchRewriteRouter({
 
   async function listTasks(req) {
     const { tasks } = await resources(req);
-    let records = await tasks.listTasks(req.username);
-    let reconciled = false;
-    for (const task of records) {
-      const aiStatus = String(task.aiStatus || task.ai_status || '').toLowerCase();
-      // 只校正历史终态，运行中的任务仍由生成器自己写入，避免轮询抢写状态。
-      if (!task.hasAi || aiStatus === 'generating' || aiStatus === 'ai_processing') continue;
-      const result = await rewrite.reconcileAiTaskStatus({ tasks, username: req.username, bookId: task.bookId || task.book_id || task.id, task, recordLog: true });
-      reconciled = reconciled || result.changed;
-    }
-    if (reconciled) records = await tasks.listTasks(req.username);
+    const records = await tasks.listTasks(req.username);
+    void scheduleHistoricalAiStatusRepair({ tasks, username: req.username, records });
     return records.map(snakeTask);
   }
 
