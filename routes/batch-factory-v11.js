@@ -528,17 +528,26 @@ function serializeSmartUnifiedStyleAnalysis(style, preset) {
   });
 }
 
-// Some OpenAI-compatible providers preserve the H3 payload's optional
-// `fields` envelope. The H3 system preset still owns the same seven fields;
-// unwrap only that exact shape before handing it to the shared normalizer.
+function h3StyleSystemFieldObject(value, depth = 0) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || depth > 4) return null;
+  const required = ['final_genre', 'trailer_style', 'story_era'];
+  if (required.every(key => typeof value[key] === 'string' && value[key].trim())) return value;
+  for (const nested of Object.values(value)) {
+    const result = h3StyleSystemFieldObject(nested, depth + 1);
+    if (result) return result;
+  }
+  return null;
+}
+
+// Some OpenAI-compatible providers preserve the H3 payload in one or more
+// result envelopes. The H3 system preset still owns the same seven fields;
+// unwrap only a nested object that contains the required H3 field signature.
 function unwrapH3StyleSystemFields(content) {
   const raw = String(content || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
   let parsed;
   try { parsed = JSON.parse(raw); } catch (_) { return content; }
-  const fields = parsed?.fields;
-  const required = ['final_genre', 'trailer_style', 'story_era'];
-  if (!fields || typeof fields !== 'object' || Array.isArray(fields)
-    || !required.every(key => typeof fields[key] === 'string' && fields[key].trim())) return content;
+  const fields = h3StyleSystemFieldObject(parsed);
+  if (!fields) return content;
   return JSON.stringify(fields);
 }
 
