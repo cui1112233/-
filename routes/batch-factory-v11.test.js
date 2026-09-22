@@ -425,6 +425,13 @@ test('single-book VIDEO stages synchronize the selected provider before submitti
   assert.equal(needsH3ConfigSync(request, stagePath), true);
 });
 
+test('retrying a non-video stage never requires a video provider sync', () => {
+  const request = { method: 'POST' };
+  const retryPath = '/api/batch-factory/v11/batches/batch-1/books/book-1/stages/retry';
+  assert.equal(needsPersonalConfigSync(request, retryPath), false);
+  assert.equal(needsH3ConfigSync(request, retryPath), false);
+});
+
 test('enrichment snapshots the only combined script extraction preset and strips browser supplied bodies', () => {
   const enriched = enrichBatchFactorySystemPresetConfig({
     patch: {

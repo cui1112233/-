@@ -708,7 +708,7 @@ function needsPersonalConfigSync(req, pathname) {
   // personal secret here turns a transient bridge/config failure into an
   // inability to open the production page.
   if (req.method === 'POST' && /\/batches\/[^/]+(?:\/books\/[^/]+)?\/production$/.test(pathname)) return true;
-  if (req.method === 'POST' && /\/batches\/[^/]+\/books\/[^/]+\/stages\/(?:video|retry)$/.test(pathname)) return true;
+  if (req.method === 'POST' && /\/batches\/[^/]+\/books\/[^/]+\/stages\/video$/.test(pathname)) return true;
   return false;
 }
 
@@ -716,7 +716,7 @@ function needsH3ConfigSync(req, pathname) {
   if (pathname === CONFIG_PATH) return true;
   if (req.method === 'GET' && pathname === STATUS_PATH) return true;
   if (req.method === 'POST' && /\/batches\/[^/]+(?:\/books\/[^/]+)?\/production$/.test(pathname)) return true;
-  if (req.method === 'POST' && /\/batches\/[^/]+\/books\/[^/]+\/stages\/(?:video|retry)$/.test(pathname)) return true;
+  if (req.method === 'POST' && /\/batches\/[^/]+\/books\/[^/]+\/stages\/video$/.test(pathname)) return true;
   return false;
 }
 
