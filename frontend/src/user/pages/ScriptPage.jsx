@@ -143,6 +143,7 @@ export function ScriptPage() {
   const [shotReplaceText, setShotReplaceText] = useState('');
   const [shotMatchIndex, setShotMatchIndex] = useState(0);
   const [editingShot, setEditingShot] = useState({ index: -1, text: '' });
+  const editingShotInputRef = useRef(null);
   const [activeEntity, setActiveEntity] = useState(null);
   const entityEditorSessionRef = useRef(0);
   const [fullscreenEditor, setFullscreenEditor] = useState(false);
@@ -353,6 +354,23 @@ export function ScriptPage() {
       setSelectedShotIndexes(current => new Set([...current].filter(index => index < nextCards.length)));
     }
     persistDraft(undefined, { output: nextOutput });
+  }
+
+  function insertShotMention(name) {
+    const input = editingShotInputRef.current?.resizableTextArea?.textArea || editingShotInputRef.current;
+    const start = Number.isInteger(input?.selectionStart) ? input.selectionStart : editingShot.text.length;
+    const end = Number.isInteger(input?.selectionEnd) ? input.selectionEnd : start;
+    const token = `@${name} `;
+    setEditingShot(current => ({ ...current, text: `${current.text.slice(0, start)}${token}${current.text.slice(end)}` }));
+    requestAnimationFrame(() => {
+      input?.focus?.();
+      input?.setSelectionRange?.(start + token.length, start + token.length);
+    });
+  }
+
+  function mentionCandidates(items) {
+    const query = (editingShot.text.match(/@([\u4e00-\u9fffA-Za-z0-9_-]*)$/)?.[1] || '').toLowerCase();
+    return query || /@$/.test(editingShot.text) ? (items || []).filter(item => formatEntity(item).toLowerCase().includes(query)) : [];
   }
 
   function replaceCurrentShotMatch() {
@@ -1445,10 +1463,10 @@ export function ScriptPage() {
             setEditingShot({ index: -1, text: '' });
           }}>
             <Space wrap style={{ marginBottom: 12 }}>
-              {(extractInfo.characters || []).map(item => <Button key={`character-${item.id}`} size="small" onClick={() => setEditingShot(current => ({ ...current, text: `${current.text}@${formatEntity(item)} ` }))}>@人物 {formatEntity(item)}</Button>)}
-              {(extractInfo.scenes || []).map(item => <Button key={`scene-${item.id}`} size="small" onClick={() => setEditingShot(current => ({ ...current, text: `${current.text}@${formatEntity(item)} ` }))}>@场景 {formatEntity(item)}</Button>)}
+              {mentionCandidates(extractInfo.characters).map(item => <Button key={`character-${item.id}`} size="small" onClick={() => insertShotMention(formatEntity(item))}>@人物 {formatEntity(item)}</Button>)}
+              {mentionCandidates(extractInfo.scenes).map(item => <Button key={`scene-${item.id}`} size="small" onClick={() => insertShotMention(formatEntity(item))}>@场景 {formatEntity(item)}</Button>)}
             </Space>
-            <Input.TextArea value={editingShot.text} rows={12} onChange={event => setEditingShot(current => ({ ...current, text: event.target.value }))} />
+            <Input.TextArea ref={editingShotInputRef} value={editingShot.text} rows={12} placeholder="输入 @ 选择人物或场景，也可直接输入 @名称" onChange={event => setEditingShot(current => ({ ...current, text: event.target.value }))} />
           </Modal>
         </div>
         </div>
