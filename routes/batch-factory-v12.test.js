@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 
 const {
   fetchBatchFactoryOriginals,
+  refillMissingBatchFactoryBookSource,
   routeV12UpstreamPath,
   rewriteV12PathForLegacyRead,
   rejectLegacyV11Mutations
@@ -35,6 +36,28 @@ test('batch factory direct fetch returns per-book results without creating Novel
     error: '获取书籍信息失败',
     length: 0
   });
+});
+
+test('refills a legacy empty book from its stored platform and book ID without overwriting an existing source', async () => {
+  const calls = [];
+  const result = await refillMissingBatchFactoryBookSource({
+    book: { id: 'book-1', bookId: '2084012035524801698', platform: '15', revision: 7, sourceText: '', sourceMetadata: { contentCaptureCharacters: 4000 } },
+    fetchDirectOriginal: async input => { calls.push(input); return { text: '抓回来的正文', attempts: 2, bookinfo: { work_title: '白月光回港' } }; },
+    captureSource: async input => { calls.push(input); return { book: { ...input, id: 'book-1' } }; },
+    now: () => new Date('2026-09-22T00:00:00.000Z')
+  });
+  assert.deepEqual(calls, [
+    { bookId: '2084012035524801698', platformId: '15', maxTxt: 4000 },
+    {
+      sourceText: '抓回来的正文', expectedRevision: 7,
+      sourceMetadata: {
+        sourceMode: 'manual_refetched', sourceFetchedAt: '2026-09-22T00:00:00.000Z',
+        sourceFetchAttempts: 2, sourceCaptureCharacters: 4000, sourceBookId: '2084012035524801698', sourceBookTitle: '白月光回港'
+      }
+    }
+  ]);
+  assert.equal(result.book.sourceText, '抓回来的正文');
+  await assert.rejects(() => refillMissingBatchFactoryBookSource({ book: { id: 'book-1', sourceText: '已存在正文' }, fetchDirectOriginal: async () => ({}) }), /已有正文/);
 });
 
 test('rewrites only the V12 batch-factory namespace for the legacy compatibility adapter', () => {

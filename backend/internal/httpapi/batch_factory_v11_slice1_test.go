@@ -199,6 +199,31 @@ func TestManualIntakeCreatesOneBatchAndKeepsManualSourceMetadata(t *testing.T) {
 	}
 }
 
+func TestCaptureMissingBookSourceWritesOnceAndRejectsOverwrite(t *testing.T) {
+	now := time.Unix(1700000000, 0)
+	store := batchfactoryv11.NewMemoryStore()
+	batch, err := store.CreateBatch(context.Background(), "alice", batchfactoryv11.CreateBatchInput{Title: "b", Books: []batchfactoryv11.CreateBookInput{{BookID: "2084012035524801698", Title: "白月光回港", Platform: "15", SourceMetadata: map[string]any{"sourceMode": "manual_original"}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	book := batch.Books[0]
+	api := NewRouter(RouterOptions{BridgeSecret: "secret", Now: func() time.Time { return now }, Slice: 1, Store: store})
+	path := "/api/batch-factory/v11/batches/" + batch.ID + "/books/" + book.ID + "/source"
+	input := map[string]any{"sourceText": "抓回来的完整正文", "expectedRevision": book.Revision, "sourceMetadata": map[string]any{"sourceMode": "manual_refetched", "captureAttempts": 1}}
+	first := signedJSONRequest(t, api, now, "alice", http.MethodPut, path, input)
+	if first.Code != http.StatusOK {
+		t.Fatalf("capture=%d body=%s", first.Code, first.Body.String())
+	}
+	captured := decodeBody[map[string]batchfactoryv11.Book](t, first)["book"]
+	if captured.SourceText != "抓回来的完整正文" || captured.TxtText != "抓回来的完整正文" || captured.SourceMetadata["sourceMode"] != "manual_refetched" {
+		t.Fatalf("captured=%+v", captured)
+	}
+	second := signedJSONRequest(t, api, now, "alice", http.MethodPut, path, map[string]any{"sourceText": "不应覆盖", "expectedRevision": captured.Revision})
+	if second.Code != http.StatusConflict {
+		t.Fatalf("overwrite=%d body=%s", second.Code, second.Body.String())
+	}
+}
+
 func TestBookOverrideDoesNotChangeBatchSettings(t *testing.T) {
 	now := time.Unix(1700000000, 0)
 	store := batchfactoryv11.NewMemoryStore()

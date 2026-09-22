@@ -39,6 +39,22 @@ test('batch factory direct fetch uses its native V12 endpoint', async t => {
     maxTxt: 4000
   });
 });
+test('a legacy empty book can fetch and persist its own original through V12', async t => {
+  const originalLocalStorage = globalThis.localStorage;
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.localStorage = { getItem() { return 'contract-test-token'; }, setItem() {}, removeItem() {} };
+  globalThis.fetch = async (path, options = {}) => {
+    calls.push({ path, options });
+    return new Response(JSON.stringify({ book: { sourceText: '正文' } }), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  t.after(() => { globalThis.localStorage = originalLocalStorage; globalThis.fetch = originalFetch; });
+
+  await batchFactoryV11.fetchBookOriginal('batch 1', 'book/1');
+  assert.equal(calls[0].path, '/api/batch-factory/v12/batches/batch%201/books/book%2F1/fetch-original');
+  assert.equal(calls[0].options.method, 'POST');
+});
+
 
 test('protected local executor media is fetched as an authenticated blob', async t => {
   assert.equal(typeof batchFactoryV11.getProductionMediaBlob, 'function');

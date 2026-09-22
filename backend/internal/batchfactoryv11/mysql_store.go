@@ -227,6 +227,71 @@ func (s *MySQLStore) UpdateBookMetadata(ctx context.Context, owner, batchID, boo
 	return Book{}, ErrNotFound
 }
 
+func (s *MySQLStore) CaptureBookSource(ctx context.Context, owner, batchID, bookID string, input CaptureBookSourceInput) (Book, error) {
+	if strings.TrimSpace(owner) == "" || strings.TrimSpace(batchID) == "" || strings.TrimSpace(bookID) == "" || input.ExpectedRevision < 1 || strings.TrimSpace(input.SourceText) == "" {
+		return Book{}, ErrInvalid
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Book{}, err
+	}
+	defer tx.Rollback()
+	var current int64
+	err = tx.QueryRowContext(ctx, `SELECT revision FROM batch_factory_v11_books WHERE id=? AND batch_id=? AND owner_username=? FOR UPDATE`, bookID, batchID, owner).Scan(&current)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Book{}, ErrNotFound
+	}
+	if err != nil {
+		return Book{}, err
+	}
+	if current != input.ExpectedRevision {
+		return Book{}, ErrConflict
+	}
+	var source sql.NullString
+	var rawMetadata []byte
+	err = tx.QueryRowContext(ctx, `SELECT source_text,source_metadata_json FROM batch_factory_v11_book_records WHERE book_id=? FOR UPDATE`, bookID).Scan(&source, &rawMetadata)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Book{}, ErrNotFound
+	}
+	if err != nil {
+		return Book{}, err
+	}
+	if strings.TrimSpace(source.String) != "" {
+		return Book{}, ErrConflict
+	}
+	metadata := decodeSourceMetadata(rawMetadata)
+	if metadata == nil {
+		metadata = map[string]any{}
+	}
+	for key, value := range input.SourceMetadata {
+		metadata[key] = value
+	}
+	encodedMetadata, err := json.Marshal(metadata)
+	if err != nil {
+		return Book{}, ErrInvalid
+	}
+	sourceText := strings.TrimSpace(input.SourceText)
+	if _, err = tx.ExecContext(ctx, `UPDATE batch_factory_v11_book_records SET source_text=?,txt_text=?,source_metadata_json=? WHERE book_id=?`, sourceText, sourceText, encodedMetadata, bookID); err != nil {
+		return Book{}, err
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE batch_factory_v11_books SET revision=revision+1,updated_at=? WHERE id=? AND batch_id=? AND owner_username=?`, time.Now().UTC(), bookID, batchID, owner); err != nil {
+		return Book{}, err
+	}
+	if err = tx.Commit(); err != nil {
+		return Book{}, err
+	}
+	batch, err := s.GetBatch(ctx, owner, batchID)
+	if err != nil {
+		return Book{}, err
+	}
+	for _, book := range batch.Books {
+		if book.ID == bookID {
+			return book, nil
+		}
+	}
+	return Book{}, ErrNotFound
+}
+
 func decodeSourceMetadata(raw []byte) map[string]any {
 	if len(raw) == 0 {
 		return nil

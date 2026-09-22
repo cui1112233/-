@@ -616,6 +616,41 @@ func (s *MemoryStore) UpdateBookMetadata(_ context.Context, owner, batchID, book
 	return Book{}, ErrNotFound
 }
 
+func (s *MemoryStore) CaptureBookSource(_ context.Context, owner, batchID, bookID string, input CaptureBookSourceInput) (Book, error) {
+	if input.ExpectedRevision < 1 || strings.TrimSpace(input.SourceText) == "" {
+		return Book{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	owned, ok := s.batches[batchID]
+	if !ok || owned.Owner != owner {
+		return Book{}, ErrNotFound
+	}
+	batch := owned.Value
+	for index := range batch.Books {
+		book := &batch.Books[index]
+		if book.ID != bookID {
+			continue
+		}
+		if book.Revision != input.ExpectedRevision || strings.TrimSpace(book.SourceText) != "" {
+			return Book{}, ErrConflict
+		}
+		book.SourceText = strings.TrimSpace(input.SourceText)
+		book.TxtText = book.SourceText
+		if book.SourceMetadata == nil {
+			book.SourceMetadata = map[string]any{}
+		}
+		for key, value := range input.SourceMetadata {
+			book.SourceMetadata[key] = value
+		}
+		book.Revision++
+		batch.UpdatedAt = time.Now().UTC()
+		s.batches[batchID] = memoryOwned[Batch]{owner, batch}
+		return *book, nil
+	}
+	return Book{}, ErrNotFound
+}
+
 func (s *MemoryStore) GetBatch(_ context.Context, owner, id string) (Batch, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

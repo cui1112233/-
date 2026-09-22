@@ -281,6 +281,15 @@ type UpdateBookMetadataInput struct {
 	ExpectedRevision int64          `json:"expectedRevision"`
 }
 
+// CaptureBookSourceInput is deliberately fill-only. It repairs legacy/manual
+// intake records that retained a book ID and platform but never persisted the
+// fetched original; it must never replace an existing source text.
+type CaptureBookSourceInput struct {
+	SourceText       string         `json:"sourceText"`
+	SourceMetadata   map[string]any `json:"sourceMetadata,omitempty"`
+	ExpectedRevision int64          `json:"expectedRevision"`
+}
+
 type Store interface {
 	CreateIntake(context.Context, string, NovelFetchIntakeInput) (Intake, error)
 	GetIntake(context.Context, string, string) (Intake, error)
@@ -289,6 +298,7 @@ type Store interface {
 	ListBatches(context.Context, string) ([]Batch, error)
 	GetBatch(context.Context, string, string) (Batch, error)
 	UpdateBookMetadata(context.Context, string, string, string, UpdateBookMetadataInput) (Book, error)
+	CaptureBookSource(context.Context, string, string, string, CaptureBookSourceInput) (Book, error)
 	SaveSettings(context.Context, string, ScopeRef, SettingsUpdate) (SettingsResult, error)
 	ConfigVersions(context.Context, string) ([]ConfigVersion, error)
 	CreateConfigVersion(context.Context, string, ConfigVersion) (ConfigVersion, error)

@@ -35,6 +35,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   createBookAsset,
 	  cancelBatchProduction,
+  fetchBookOriginal,
   getCapabilities,
   getBatch,
   generateBookAssetImages,
@@ -1950,6 +1951,19 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
   async function refreshBatch() {
     await onBatchChanged?.();
   }
+  async function fetchMissingBookSource(book) {
+    if (!batch?.id || !book?.id || actionBusy || runtimeResolveBookProductionText(book)) return;
+    setActionBusy(`source-${book.id}`);
+    try {
+      await fetchBookOriginal(batch.id, book.id);
+      await refreshBatch();
+      message.success('已获取并写入当前小说正文');
+    } catch (error) {
+      message.error(error?.message || '获取正文失败');
+    } finally {
+      setActionBusy('');
+    }
+  }
   async function ensureBookAudioDuration(book, { force = false, quiet = false } = {}) {
     const settings = effectiveBookSettings(batch, book);
     if (settings.fixedSingleVideo === true || settings.audioPlanningEnabled !== true) return Number(settings.audioDurationSeconds || 0);
@@ -2503,13 +2517,13 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
         const videos = book.videos || [];
         return <article className="shuihuo-workbench-row batch-factory-book-row" key={book.id} role="row" style={columnWidths ? { gridTemplateColumns: columnWidths.map(width => `${width}px`).join(' ') } : undefined}>
           <div className="shuihuo-workbench-cell shuihuo-order-cell"><Checkbox checked={selectedBookIds.includes(book.id)} onChange={event => setSelectedBookIds(current => event.target.checked ? [...new Set([...current, book.id])] : current.filter(id => id !== book.id))} aria-label={`选择 ${book.title || `小说 ${index + 1}`}`} /><strong>{index + 1}</strong></div>
-          <div className="shuihuo-workbench-cell batch-factory-book-content" role="button" tabIndex={0} title="点击编辑当前小说的生产内容" onClick={() => openContentEditor(book)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openContentEditor(book); } }}><strong>{book.title || `小说 ${index + 1}`}</strong><span>bookId：{book.bookId || '—'} · 书城：{bookPlatformName(book, platformNames)} · 生产前 {rangeLines} 行</span><p>{previewText || '原文尚未获取。创建前须按保存的书城与 bookId 抓取原文。'}</p></div>
+          <div className="shuihuo-workbench-cell batch-factory-book-content" role="button" tabIndex={0} title="点击编辑当前小说的生产内容" onClick={() => openContentEditor(book)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openContentEditor(book); } }}><strong>{book.title || `小说 ${index + 1}`}</strong><span>bookId：{book.bookId || '—'} · 书城：{bookPlatformName(book, platformNames)} · 生产前 {rangeLines} 行</span><p>{previewText || '原文尚未获取'}</p></div>
           <div className="shuihuo-workbench-cell batch-factory-book-config-cell"><div className="batch-factory-book-config-regions">{batchFactoryWorkbenchConfigRegions(book).map(region => { const status = region.combinedStatus || bookConfigRegionStatus(book, region.key); const detail = region.key === 'assets' ? bookAssetSummary(book) : status.label; return <button type="button" key={region.key} className={`batch-factory-book-config-region is-${status.tone}`} onClick={() => region.key === 'assets' ? setAssetBook(book) : setConfigTarget({ book, region: region.key })}><b>{region.label}</b><small>{detail}</small></button>; })}</div></div>
 		  <div className="shuihuo-workbench-cell shuihuo-preset-cell batch-factory-book-preset-cell"><InlineStoryboardAssets book={book} batchId={batch?.id} selectedVideoId={rowStoryboardSelection[book.id] || videos[0]?.id || ''} onSelectedVideoChange={videoId => setRowStoryboardSelection(current => ({ ...current, [book.id]: videoId }))} onManage={() => setAssetBook(book)} onSaved={refreshBatch} /></div>
 		  <InlineBookPrompts batch={batch} book={book} batchId={batch?.id} settingsRevision={batch?.settingsState?.revision} selectedVideoId={rowStoryboardSelection[book.id] || videos[0]?.id || ''} onSelectedVideoChange={videoId => setRowStoryboardSelection(current => ({ ...current, [book.id]: videoId }))} onManage={videoId => { setPromptVideoId(videoId || ''); setPromptBook(book); }} />
 		  <div className="shuihuo-workbench-cell shuihuo-library-cell batch-factory-book-library-cell"><InlineMediaLibrary book={book} versionsByVideo={mediaVersionsByVideo} productionStatus={productionStatus} mergeJob={latestBookMerge(mergeStatus, book.id)} aspectRatio={effectiveBookSettings(batch, book).aspectRatio} selectedVideoId={rowStoryboardSelection[book.id] || videos[0]?.id || ''} onSelectedVideoChange={videoId => setRowStoryboardSelection(current => ({ ...current, [book.id]: videoId }))} onManage={videoId => { setMediaVideoId(videoId || ''); setMediaStartTab('clips'); setMediaBook(book); }} onOpenMerge={() => { setMediaVideoId(''); setMediaStartTab('merges'); setMediaBook(book); }} /></div>
           <div className="shuihuo-workbench-cell batch-factory-actions">
-            <div className="batch-factory-action-group is-utility"><span>资料与流程</span><div className="batch-factory-action-button-grid"><Button size="small" onClick={() => setViewingBook(book)}>查看资料</Button><Button size="small" onClick={() => refreshBatch()} disabled={Boolean(actionBusy)}>刷新状态</Button></div></div>
+            <div className="batch-factory-action-group is-utility"><span>资料与流程</span><div className="batch-factory-action-button-grid"><Button size="small" onClick={() => setViewingBook(book)}>查看资料</Button>{previewText ? <Button size="small" onClick={() => refreshBatch()} disabled={Boolean(actionBusy)}>刷新状态</Button> : <Button size="small" type="primary" onClick={() => fetchMissingBookSource(book)} loading={actionBusy === `source-${book.id}`} disabled={Boolean(actionBusy)}>获取正文</Button>}</div></div>
             <div className="batch-factory-action-group is-production"><span>资产获取</span><div className="batch-factory-action-button-grid"><Tooltip title={runCapability.available ? '提取当前书的人物、场景、道具提示词；手动资产保留。' : runCapability.reason}><Button size="small" onClick={() => runBookStageAction(book, 'assets', 'force')} loading={actionBusy === stageActionKey('assets', book.id)} disabled={!runCapability.available || Boolean(actionBusy)}>提取</Button></Tooltip><Tooltip title="打开资产图选择与生成面板；选择资产和图片模型后生成。"><Button size="small" onClick={() => setAssetBook(book)} disabled={Boolean(actionBusy)}>生成图片</Button></Tooltip></div></div>
             <div className="batch-factory-action-group is-production"><span>视频获取</span><div className="batch-factory-action-button-grid"><Tooltip title={runCapability.available ? '生成本书结构化导演分镜。视觉基线始终后台保存；仅在“约束设置 → 画面前缀”开启智能统一时显示并注入最终 Prompt。' : runCapability.reason}><Button size="small" onClick={() => runBookStageAction(book, 'director', 'force')} loading={actionBusy === stageActionKey('director', book.id)} disabled={!runCapability.available || Boolean(actionBusy)}>提取</Button></Tooltip><Tooltip title={productionCapability.available ? '按当前书最终编译视频提示词、可用参考图和画幅创建 VIDEO 任务。' : productionCapability.reason}><Button size="small" className="batch-factory-action-video" onClick={() => runBookStageAction(book, 'video')} loading={actionBusy === stageActionKey('video', book.id)} disabled={!productionCapability.available || Boolean(actionBusy)}>生成视频</Button></Tooltip></div></div>
             <div className="batch-factory-action-group is-production"><span>画面获取</span><div className="batch-factory-action-button-grid"><Tooltip title={runCapability.available ? '根据已生成的分镜卡（视频提示词）和画面提示词预设，生成每张分镜的画面提示词。' : runCapability.reason}><Button size="small" onClick={() => runBookStageAction(book, 'visual', 'force')} loading={actionBusy === stageActionKey('visual', book.id)} disabled={!runCapability.available || Boolean(actionBusy)}>提取</Button></Tooltip><Tooltip title="画面首帧图片生成服务尚未配置；可先在分镜提示词中查看或编辑画面提示词。"><Button size="small" disabled>生成图片</Button></Tooltip></div></div>

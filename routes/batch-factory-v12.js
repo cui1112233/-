@@ -1,5 +1,5 @@
 const express = require('express');
-const { createBatchFactoryV11Router } = require('./batch-factory-v11');
+const { createBatchFactoryV11Router, v11JSONRequest } = require('./batch-factory-v11');
 const { createMySQLWorkshopStore } = require('../lib/novel-fetch-workshop/mysql-store');
 
 const V12_BASE = '/api/batch-factory/v12';
@@ -64,6 +64,33 @@ async function fetchBatchFactoryOriginals(payload, fetchDirectOriginal) {
   return { results };
 }
 
+// Repairs only legacy/manual intake records where the source was never saved.
+// The Go store enforces the same fill-only rule atomically so retries cannot
+// replace a real source fetched by someone else.
+async function refillMissingBatchFactoryBookSource({ book, fetchDirectOriginal, captureSource, now = () => new Date() } = {}) {
+  if (String(book?.sourceText || '').trim()) throw new Error('当前书已有正文，不能覆盖');
+  const bookId = String(book?.bookId || '').trim();
+  const platformId = String(book?.platform || book?.sourceMetadata?.platformId || '').trim();
+  const maxTxt = Number(book?.sourceMetadata?.contentCaptureCharacters || 4000);
+  if (!bookId || !platformId || !Number.isInteger(maxTxt) || maxTxt < 100 || maxTxt > 100000) throw new Error('当前书缺少可用的书城、Book ID 或正文范围');
+  const fetched = await fetchDirectOriginal({ bookId, platformId, maxTxt });
+  const sourceText = String(fetched?.text || '').trim();
+  if (!sourceText) throw new Error('没有返回正文');
+  const response = await captureSource({
+    sourceText,
+    expectedRevision: Number(book?.revision || 0),
+    sourceMetadata: {
+      sourceMode: 'manual_refetched',
+      sourceFetchedAt: now().toISOString(),
+      sourceFetchAttempts: Number(fetched?.attempts || 0),
+      sourceCaptureCharacters: maxTxt,
+      sourceBookId: bookId,
+      ...(fetched?.bookinfo?.work_title ? { sourceBookTitle: String(fetched.bookinfo.work_title) } : {})
+    }
+  });
+  return { ...response, fetched: { length: sourceText.length, attempts: fetched?.attempts || 0, bookinfo: fetched?.bookinfo || {} } };
+}
+
 function createBatchFactoryV12Router(options = {}) {
   const legacy = createBatchFactoryV11Router(options);
   const router = express.Router();
@@ -79,6 +106,27 @@ function createBatchFactoryV12Router(options = {}) {
       return res.json(result);
     } catch (error) {
       return res.status(400).json({ error: error?.message || '获取内容失败' });
+    }
+  });
+  router.post('/batches/:batchId/books/:bookId/fetch-original', async (req, res) => {
+    try {
+      const batchID = encodeURIComponent(String(req.params.batchId || ''));
+      const bookID = encodeURIComponent(String(req.params.bookId || ''));
+      const goOptions = { goBaseUrl: options.goBaseUrl, bridgeSecret: options.bridgeSecret };
+      const account = { username: req.username, isOwner: req.auth?.account?.isOwner === true };
+      const loaded = await v11JSONRequest({ ...account, method: 'GET', pathname: `${V11_BASE}/batches/${batchID}`, ...goOptions });
+      const batch = loaded?.batch || loaded;
+      const book = (Array.isArray(batch?.books) ? batch.books : []).find(item => String(item?.id) === String(req.params.bookId));
+      if (!book) return res.status(404).json({ error: '小说不存在' });
+      const store = createMySQLWorkshopStore({ targetBaseUrl: options.targetBaseUrl, bridgeSecret: options.bridgeSecret, account });
+      const result = await refillMissingBatchFactoryBookSource({
+        book,
+        fetchDirectOriginal: input => store.fetchDirectOriginal(input),
+        captureSource: payload => v11JSONRequest({ ...account, method: 'PUT', pathname: `${V11_BASE}/batches/${batchID}/books/${bookID}/source`, payload, ...goOptions })
+      });
+      return res.json(result);
+    } catch (error) {
+      return res.status(Number(error?.status) || 400).json({ error: error?.message || '获取正文失败' });
     }
   });
   router.use((req, res, next) => {
@@ -98,6 +146,7 @@ function createBatchFactoryV12Router(options = {}) {
 module.exports = {
   V12_BASE,
   fetchBatchFactoryOriginals,
+  refillMissingBatchFactoryBookSource,
   isNativeV12H3Path,
   routeV12UpstreamPath,
   rewriteV12PathForLegacyRead,

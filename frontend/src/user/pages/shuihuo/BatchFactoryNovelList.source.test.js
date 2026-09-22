@@ -620,6 +620,13 @@ test('does not rely on blank source metadata: it exposes a durable editor for st
   assert.match(source, /编辑列表信息/);
 });
 
+test('repairs legacy empty books in place using their saved platform and Book ID', () => {
+  assert.match(source, /fetchBookOriginal/);
+  assert.match(source, /获取正文/);
+  assert.match(source, /原文尚未获取/);
+  assert.match(source, /已获取并写入当前小说正文/);
+});
+
 test('keeps Batch Factory flush with the workbench while balancing wide-screen columns', () => {
   assert.match(stylesheet, /Keep the production table flush with its container/);
   assert.match(stylesheet, /width: 100%;/);

@@ -185,6 +185,23 @@ func registerSliceOneRoutes(mux *http.ServeMux, store batchfactoryv11.Store) {
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"book": book})
 	})
+	mux.HandleFunc("PUT /api/batch-factory/v11/batches/{batchId}/books/{bookId}/source", func(w http.ResponseWriter, r *http.Request) {
+		owner, ok := bridgeOwner(r)
+		if !ok {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			return
+		}
+		var input batchfactoryv11.CaptureBookSourceInput
+		if !decodeJSON(w, r, &input) {
+			return
+		}
+		book, err := store.CaptureBookSource(r.Context(), owner, r.PathValue("batchId"), r.PathValue("bookId"), input)
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"book": book})
+	})
 	mux.HandleFunc("PUT /api/batch-factory/v11/batches/{batchId}/books/{bookId}/override", settingsHandler(store, batchfactoryv11.ScopeBook))
 	mux.HandleFunc("PUT /api/batch-factory/v11/batches/{batchId}/books/{bookId}/videos/{videoId}/override", settingsHandler(store, batchfactoryv11.ScopeVideo))
 	mux.HandleFunc("POST /api/batch-factory/v11/batches/{batchId}/change-impact", func(w http.ResponseWriter, r *http.Request) {

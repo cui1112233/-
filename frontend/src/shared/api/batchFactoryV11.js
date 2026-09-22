@@ -102,6 +102,10 @@ export function fetchDirectOriginals(payload) {
   return apiRequest(bf11Path('fetch-originals'), { method: 'POST', body: body(payload) });
 }
 
+export function fetchBookOriginal(batchId, bookId) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/fetch-original`), { method: 'POST', body: body({}) });
+}
+
 export function getBatch(batchId) {
   return apiRequest(bf11Path(`batches/${id(batchId)}`));
 }
@@ -424,6 +428,7 @@ export default {
   listBatches,
   createBatch,
   fetchDirectOriginals,
+  fetchBookOriginal,
   getBatch,
   saveBatchSettings,
   saveBookOverride,
