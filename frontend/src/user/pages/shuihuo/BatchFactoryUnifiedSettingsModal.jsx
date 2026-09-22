@@ -40,7 +40,11 @@ export function BatchFactoryEngineSettingsForm({ value, onChange, sections = ['m
     let alive = true;
     setModelsLoading(true);
     setModelsError('');
-    Promise.all(['text', 'image', 'video'].map(listAvailableModels)).then(groups => {
+    Promise.all([
+      listAvailableModels('text'),
+      listAvailableModels('image'),
+      listAvailableModels('video')
+    ]).then(groups => {
       if (alive) setModels(groups.flat());
     }).catch(error => {
       if (!alive) return;
