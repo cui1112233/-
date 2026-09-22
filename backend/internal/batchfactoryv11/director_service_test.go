@@ -930,3 +930,29 @@ func TestVisualPromptExtractionUpdatesOnlyExistingStoryboardVisualPrompts(t *tes
 		t.Fatalf("visual extraction call=%+v", provider.calls)
 	}
 }
+
+func TestAssetRefreshReplacesOnlyGeneratedAssetsAndKeepsManualAssets(t *testing.T) {
+	store := NewMemoryStore()
+	batch, err := store.CreateBatch(context.Background(), "alice", CreateBatchInput{Title: "batch", Books: []CreateBookInput{{Title: "book", SourceText: "第一行"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	book := batch.Books[0]
+	if _, err := store.CreateBookAsset(context.Background(), "alice", batch.ID, book.ID, CreateBookAssetInput{Kind: "prop", Name: "用户保留道具", Prompt: "人工设定"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.PersistExtractedBookAssets(context.Background(), "alice", book, DirectorSnapshot{}, DirectorAssets{Scenes: []NamedPrompt{{Name: "旧自动场景", Prompt: "旧提示词"}}, Props: []NamedPrompt{{Name: "旧自动道具", Prompt: "旧提示词"}}}); err != nil {
+		t.Fatal(err)
+	}
+	assets, err := store.PersistExtractedBookAssets(context.Background(), "alice", book, DirectorSnapshot{}, DirectorAssets{Scenes: []NamedPrompt{{Name: "当前五行场景", Prompt: "新提示词"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	for _, asset := range assets {
+		seen[asset.Name] = true
+	}
+	if seen["旧自动场景"] || seen["旧自动道具"] || !seen["当前五行场景"] || !seen["用户保留道具"] {
+		t.Fatalf("asset refresh must replace generated assets but preserve manual assets: %#v", assets)
+	}
+}

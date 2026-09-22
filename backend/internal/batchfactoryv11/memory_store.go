@@ -1168,6 +1168,12 @@ func (s *MemoryStore) PersistExtractedBookAssets(_ context.Context, owner string
 		return nil, err
 	}
 	now := time.Now().UTC()
+	for assetID, ownedAsset := range s.bookAssets {
+		asset := ownedAsset.Value
+		if ownedAsset.Owner == owner && asset.BatchID == book.BatchID && asset.BookID == book.ID && asset.Source == "director" {
+			delete(s.bookAssets, assetID)
+		}
+	}
 	output := DirectorResult{Characters: assets.Characters, Scenes: assets.Scenes, Props: assets.Props}
 	for _, seed := range directorBookAssets(book, snapshot, output) {
 		found := false

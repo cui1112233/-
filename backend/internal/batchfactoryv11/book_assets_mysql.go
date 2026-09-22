@@ -71,9 +71,10 @@ func (s *MySQLStore) CreateBookAsset(ctx context.Context, owner, batchID, bookID
 	return asset, nil
 }
 
-// PersistExtractedBookAssets upserts only generated assets. Manual prompts are
-// preserved by persistDirectorBookAssets and no director/video record is read
-// or changed here.
+// PersistExtractedBookAssets replaces the generated asset set with the result
+// for the current frozen video source. Manual assets are deliberately retained;
+// otherwise a five-line refresh would keep every scene and prop generated from
+// an earlier, longer source and silently leak them into the new workbench.
 func (s *MySQLStore) PersistExtractedBookAssets(ctx context.Context, owner string, book Book, snapshot DirectorSnapshot, assets DirectorAssets) ([]BookAsset, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -81,6 +82,9 @@ func (s *MySQLStore) PersistExtractedBookAssets(ctx context.Context, owner strin
 	}
 	defer tx.Rollback()
 	if err := ensureBookOwnership(ctx, tx, owner, book.BatchID, book.ID); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM batch_factory_v11_book_assets WHERE owner_username=? AND batch_id=? AND book_id=? AND source='director'`, owner, book.BatchID, book.ID); err != nil {
 		return nil, err
 	}
 	output := DirectorResult{Characters: assets.Characters, Scenes: assets.Scenes, Props: assets.Props}
