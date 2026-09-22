@@ -2,6 +2,7 @@ import { SettingOutlined } from '@ant-design/icons';
 import { Alert, Button, Divider, Input, InputNumber, Modal, Segmented, Select, Space, Switch, Tabs, Tooltip, message } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 import { listAvailableModels } from '../../../shared/api/modelCatalog';
+import { checkWebSubmitEnvironment, getWebSubmitConfig, saveWebSubmitConfig, syncWebSubmitConfigs, syncWebSubmitStyles, testWebSubmitVisible } from '../../../shared/api/novelFetch';
 import {
   createAutomationPreset,
   deleteAutomationPreset,
@@ -12,6 +13,14 @@ import {
 import { videoProviderForModel } from './videoProviderBinding';
 
 const clone = value => JSON.parse(JSON.stringify(value || {}));
+const normalizeLegacyPatch = value => {
+  const patch = clone(value);
+  delete patch.expectedRevision;
+  if (!patch.patch || typeof patch.patch !== 'object' || Array.isArray(patch.patch)) return patch;
+  const nested = normalizeLegacyPatch(patch.patch);
+  delete patch.patch;
+  return { ...nested, ...patch };
+};
 const DEFAULT_TTS = { voice: 'zh-CN-XiaoxiaoNeural', style: 'general', speed: 1.8, pitch: 10 };
 const voices = [
   { value: 'zh-CN-XiaoxiaoNeural', label: '晓晓（女声·温柔）' },
@@ -22,6 +31,8 @@ const voices = [
 const styles = ['general', 'cheerful', 'sad', 'friendly', 'chat'].map(value => ({ value, label: value === 'general' ? '通用' : value }));
 const selectOption = preset => ({ value: preset.id, label: `${preset.name || preset.id} · v${preset.version || 1}` });
 const presetValue = preset => preset ? { presetId: preset.id, presetName: preset.name || preset.id, presetSlot: preset.slot || '', presetVersion: preset.version || 1, constraintCategory: preset.constraintCategory || '' } : { presetId: '', presetName: '', presetSlot: '', presetVersion: null, constraintCategory: '' };
+const TARGET_ADMIN_URL = 'http://two.121w.com/tttadmin/index.php';
+const SESSION_CHECK_NAMES = ['视频管理系统登录会话', '121 后台登录会话'];
 
 export function BatchFactoryEngineSettingsForm({ value, onChange, sections = ['models', 'audio', 'publish'], active = true }) {
   const [models, setModels] = useState([]);
@@ -82,6 +93,85 @@ export function BatchFactoryEngineSettingsForm({ value, onChange, sections = ['m
   </Space>;
 }
 
+function BatchFactoryPublishSettingsForm({ value, onChange, active }) {
+  const [checking, setChecking] = useState(false);
+  const [syncing, setSyncing] = useState('');
+  const [account, setAccount] = useState(null);
+  const [environment, setEnvironment] = useState(null);
+  const [loginOpen, setLoginOpen] = useState(false);
+  const [loginUsername, setLoginUsername] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginBusy, setLoginBusy] = useState(false);
+  const publish = value.publishSettings || {};
+  const patch = next => onChange({ ...value, ...next });
+  const hasSession = result => Boolean(result?.ok && (result?.checks || []).some(check => SESSION_CHECK_NAMES.includes(check.name) && check.ok));
+  const checkDetail = (result, name) => String((result?.checks || []).find(check => check.name === name)?.detail || '').trim();
+  const publishSessionReady = Boolean(environment?.session && environment?.visible?.ok);
+  const loadAccount = async () => {
+    const [config, result] = await Promise.all([getWebSubmitConfig(), checkWebSubmitEnvironment()]);
+    setAccount(config?.settings || config?.config || {});
+    setEnvironment({ environment: result, session: hasSession(result), visible: null });
+  };
+  const selfCheck = async () => {
+    setChecking(true);
+    try {
+      const result = await checkWebSubmitEnvironment();
+      const session = hasSession(result);
+      const visible = session ? await testWebSubmitVisible() : null;
+      setEnvironment({ environment: result, session, visible });
+    } catch (error) {
+      setEnvironment({ error: error?.message || '视频管理系统环境自检失败', session: false, visible: null });
+    } finally { setChecking(false); }
+  };
+  useEffect(() => {
+    if (!active) return undefined;
+    let alive = true;
+    loadAccount().catch(error => alive && setEnvironment({ error: error?.message || '无法读取视频管理系统状态', session: false, visible: null }));
+    return () => { alive = false; };
+  }, [active]);
+  const login = async () => {
+    if (!loginUsername.trim() || !loginPassword) return message.warning('请输入视频管理系统账号和密码');
+    setLoginBusy(true);
+    try {
+      const saved = await saveWebSubmitConfig({ settings: { ...(account || {}), username: loginUsername.trim(), password: loginPassword } });
+      setAccount(saved?.settings || { username: loginUsername.trim(), password_masked: true });
+      setLoginPassword('');
+      await selfCheck();
+      setLoginOpen(false);
+      message.success('视频管理系统已登录并完成验证');
+    } catch (error) { message.error(error?.message || '视频管理系统登录失败'); }
+    finally { setLoginBusy(false); }
+  };
+  const syncProfiles = async () => {
+    if (!publishSessionReady) return message.warning('请先登录并验证视频管理系统');
+    setSyncing('profiles');
+    try {
+      const result = await syncWebSubmitConfigs({ persist: false });
+      patch({ publishSettings: { ...publish, websiteProfiles: Array.isArray(result?.groups) ? result.groups : [] } });
+    } catch (error) { message.error(error?.message || '同步网站配置档失败'); }
+    finally { setSyncing(''); }
+  };
+  const syncStyles = async () => {
+    if (!publishSessionReady) return message.warning('请先登录并验证视频管理系统');
+    setSyncing('styles');
+    try {
+      const result = await syncWebSubmitStyles({ persist: false });
+      const styles = Array.isArray(result?.settings?.style_catalog) ? result.settings.style_catalog : (Array.isArray(result?.styles) ? result.styles : []);
+      patch({ publishSettings: { ...publish, websiteStyleCatalog: styles } });
+    } catch (error) { message.error(error?.message || '同步风格目录失败'); }
+    finally { setSyncing(''); }
+  };
+  return <><Space direction="vertical" size={16} style={{ width: '100%' }}>
+    <Alert type="info" showIcon message="批量默认发布规则" description="这里维护视频管理系统连接、网站配置映射和上传素材规则；单书配置可覆盖默认值。" />
+    <section className="batch-factory-vms-connection-card"><div className="batch-factory-vms-main"><div className="batch-factory-vms-icon" aria-hidden="true">▣</div><div className="batch-factory-vms-copy"><div className="batch-factory-vms-title-row"><b>视频管理系统</b><span>{publishSessionReady ? '已登录并验证' : account?.username ? '待重新验证' : '未登录'}</span></div><div className="batch-factory-vms-meta"><span>当前账号</span><strong>{account?.username || '尚未登录'}</strong></div><div className="batch-factory-vms-meta"><span>后台地址</span><a href={TARGET_ADMIN_URL} target="_blank" rel="noreferrer">two.121w.com/tttadmin</a></div></div></div><div className="batch-factory-vms-actions"><Button href={TARGET_ADMIN_URL} target="_blank">打开后台</Button><Button onClick={() => { setLoginUsername(String(account?.username || '').trim()); setLoginPassword(''); setLoginOpen(true); }}>{account?.username ? '更换账号' : '登录并验证'}</Button><Button onClick={selfCheck} loading={checking}>{account?.username ? '重新验证' : '环境自检'}</Button></div></section>
+    <div className="batch-factory-publish-two-column"><section className="batch-factory-engine-card"><header><b>发布映射</b><small>同步真实后台配置后，绑定到当前批量作品。</small></header><div className="batch-factory-engine-card-body"><label className="batch-factory-engine-field"><span><b>网站配置档</b></span><Select allowClear showSearch value={publish.websiteProfileId || undefined} options={(publish.websiteProfiles || []).map(profile => ({ value: profile.id, label: profile.name || profile.id }))} placeholder="同步网站配置档后选择" onChange={websiteProfileId => { const profile = (publish.websiteProfiles || []).find(item => item.id === websiteProfileId) || {}; patch({ publishSettings: { ...publish, websiteProfileId: websiteProfileId || '', versionProfile: profile.name || '' } }); }} /></label><div className="batch-factory-publish-sync-row"><Button disabled={!publishSessionReady} onClick={syncProfiles} loading={syncing === 'profiles'}>同步网站配置档</Button><Button disabled={!publishSessionReady} onClick={syncStyles} loading={syncing === 'styles'}>同步风格目录</Button></div><div className="batch-factory-publish-ai-note"><b>男女频 / 风格 / 标签</b><span>提交时按每本书的已保存结果或 AI 判断结果处理。</span></div></div></section>
+      <section className="batch-factory-engine-card"><header><b>批量默认上传规则</b><small>这些规则可被单书发布设置覆盖。</small></header><div className="batch-factory-engine-card-body"><label className="batch-factory-engine-field"><span><b>上传视频类型</b></span><Segmented value={publish.uploadVideoType || 'merged'} options={[{ value: 'merged', label: '合并成品' }, { value: 'individual', label: '独立 VIDEO' }]} onChange={uploadVideoType => patch({ publishSettings: { ...publish, uploadVideoType } })} /></label><div className="batch-factory-publish-rule-list"><section><div><b>素材复用</b></div><Switch checked={publish.materialReuse === true} onChange={materialReuse => patch({ publishSettings: { ...publish, materialReuse } })} /></section><section><div><b>水平翻转</b></div><Switch checked={publish.horizontalFlip === true} onChange={horizontalFlip => patch({ publishSettings: { ...publish, horizontalFlip } })} /></section><section><div><b>改文后上传</b></div><Switch checked={value.publishRewriteEnabled === true} onChange={publishRewriteEnabled => patch({ publishRewriteEnabled })} /></section></div></div></section></div>
+    <section className="batch-factory-engine-card"><header><b>连接与环境状态</b><small>登录、后台页面和直接接口均需可用。</small></header><div className="batch-factory-engine-card-body"><div className="batch-factory-env-status-row"><div><b>登录会话</b><span>{environment ? (environment.session ? '已登录' : '未登录 / 已失效') : '等待检查'}</span></div><div><b>后台页面</b><span>{environment?.visible ? (environment.visible.ok ? '可访问' : '验证未通过') : '等待检查'}</span></div><div><b>直接接口</b><span>{checkDetail(environment?.environment, '121 直接接口') || '等待检查'}</span></div><Button onClick={selfCheck} loading={checking}>重新检查</Button></div>{environment?.error ? <Alert type="error" showIcon message="视频管理系统环境自检失败" description={environment.error} /> : null}</div></section>
+  </Space>
+  <Modal title={account?.username ? '更换视频管理系统账号' : '登录视频管理系统'} open={loginOpen} onCancel={() => { setLoginPassword(''); setLoginOpen(false); }} onOk={login} confirmLoading={loginBusy} okText="登录并验证" destroyOnClose><Space direction="vertical" size={12} style={{ width: '100%' }}><Input value={loginUsername} autoComplete="username" placeholder="视频管理系统账号" onChange={event => setLoginUsername(event.target.value)} /><Input.Password value={loginPassword} autoComplete="current-password" placeholder="视频管理系统密码" onChange={event => setLoginPassword(event.target.value)} /><a href={TARGET_ADMIN_URL} target="_blank" rel="noreferrer">打开视频管理系统后台</a></Space></Modal>
+  </>;
+}
+
 export function BatchFactoryAiReasoningForm({ value, onChange }) {
   const [catalog, setCatalog] = useState([]);
   const config = value && typeof value === 'object' ? value : {};
@@ -134,7 +224,7 @@ export function BatchFactoryUnifiedSettingsModal({ open, batch, onClose, onSaved
   const [presetBusy, setPresetBusy] = useState(false);
   const selectedPreset = presets.find(item => item.id === selectedPresetId);
   useEffect(() => {
-    if (open) setDraftPatch(clone(batch?.settingsState?.patch));
+    if (open) setDraftPatch(normalizeLegacyPatch(batch?.settingsState?.patch));
   }, [open, batch?.id, batch?.settingsState?.revision]);
   const loadPresets = async () => {
     const result = await listAutomationPresets();
@@ -174,14 +264,14 @@ export function BatchFactoryUnifiedSettingsModal({ open, batch, onClose, onSaved
   };
   const save = async () => {
     setSaving(true);
-    try { const result = await onSaved({ patch: draftPatch, expectedRevision: Number(batch?.settingsState?.revision || 0) }); if (result !== false) onClose(); }
+    try { const result = await onSaved(draftPatch); if (result !== false) onClose(); }
     finally { setSaving(false); }
   };
   return <><Modal title={<Space><Tooltip title="自动化预设"><Button type="text" icon={<SettingOutlined />} aria-label="自动化预设" onClick={openPresetManager} /></Tooltip><span>统一配置</span></Space>} open={open} onCancel={onClose} width={980} destroyOnClose={false} className="batch-factory-unified-settings-modal" footer={<Space><Button onClick={onClose}>取消</Button><Button type="primary" loading={saving} onClick={save}>保存统一配置</Button></Space>}>
     <Tabs items={[
       { key: 'models', label: '模型配置', children: <BatchFactoryEngineSettingsForm value={draftPatch} onChange={setDraftPatch} sections={['models', 'audio']} active={open} /> },
       { key: 'reasoning', label: 'AI 推理', children: <BatchFactoryAiReasoningForm value={draftPatch.aiPromptConfig} onChange={aiPromptConfig => setDraftPatch(current => ({ ...current, aiPromptConfig }))} /> },
-      { key: 'publish', label: '发布统一', children: <BatchFactoryEngineSettingsForm value={draftPatch} onChange={setDraftPatch} sections={['publish']} active={open} /> }
+      { key: 'publish', label: '发布统一', children: <BatchFactoryPublishSettingsForm value={draftPatch} onChange={setDraftPatch} active={open} /> }
     ]} />
   </Modal>
   <Modal title="自动化预设" open={presetOpen} onCancel={() => setPresetOpen(false)} footer={null} width={620} destroyOnClose><Space direction="vertical" size={14} style={{ width: '100%' }}>

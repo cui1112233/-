@@ -13,6 +13,32 @@ func clonePatch(input SettingsPatch) SettingsPatch {
 	return out
 }
 
+// normalizeLegacyNestedPatch reads the accidental V12 UI wrapper written by
+// earlier unified-setting saves. The persisted document was {"patch": {...}}
+// instead of the settings object itself. The wrapper is not a supported
+// settings key, so it can be removed while retaining later sparse outer keys.
+func normalizeLegacyNestedPatch(input SettingsPatch) SettingsPatch {
+	out := clonePatch(input)
+	// expectedRevision belongs to the HTTP request envelope. Older clients
+	// accidentally stored it alongside the real sparse settings.
+	delete(out, "expectedRevision")
+	rawPatch, ok := out["patch"]
+	if !ok {
+		return out
+	}
+	nested := SettingsPatch{}
+	if err := json.Unmarshal(rawPatch, &nested); err != nil || len(nested) == 0 {
+		return out
+	}
+	delete(out, "patch")
+	// The nested patch is the older full configuration; outer keys are later
+	// sparse updates and therefore win when both provide the same setting.
+	for key, value := range out {
+		nested[key] = append([]byte(nil), value...)
+	}
+	return normalizeLegacyNestedPatch(nested)
+}
+
 func ApplySparseUpdate(current SettingsPatch, update SettingsUpdate) SettingsPatch {
 	out := clonePatch(current)
 	for _, key := range update.RestoreKeys {

@@ -80,3 +80,40 @@ func TestResolveSettingsKeepsLegacyFullBookPromptPayload(t *testing.T) {
 		t.Fatalf("legacy book prompt payload changed: %#v", prompt)
 	}
 }
+
+func TestNormalizeLegacyNestedPatchRestoresTheSavedUnifiedConfiguration(t *testing.T) {
+	legacy := SettingsPatch{
+		"patch": raw(map[string]any{
+			"patch": map[string]any{
+				"textModelId": "gpt-5.4",
+				"publishSettings": map[string]any{
+					"websiteProfileId": "121-330",
+					"horizontalFlip":   true,
+				},
+			},
+		}),
+		"aiPromptConfig":    raw(map[string]any{"video": map[string]any{"presetId": "h3-director"}}),
+		"expectedRevision": raw(3),
+	}
+
+	got := normalizeLegacyNestedPatch(legacy)
+	if _, exists := got["patch"]; exists {
+		t.Fatalf("legacy wrapper leaked into the effective settings: %#v", got)
+	}
+	if _, exists := got["expectedRevision"]; exists {
+		t.Fatalf("request metadata leaked into the effective settings: %#v", got)
+	}
+	if string(got["textModelId"]) != "\"gpt-5.4\"" {
+		t.Fatalf("text model not restored: %s", got["textModelId"])
+	}
+	var publish map[string]any
+	if err := json.Unmarshal(got["publishSettings"], &publish); err != nil {
+		t.Fatal(err)
+	}
+	if publish["websiteProfileId"] != "121-330" || publish["horizontalFlip"] != true {
+		t.Fatalf("publish settings not restored: %#v", publish)
+	}
+	if string(got["aiPromptConfig"]) == "" {
+		t.Fatalf("newer outer settings were not preserved: %#v", got)
+	}
+}

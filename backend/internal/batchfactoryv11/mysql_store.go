@@ -564,7 +564,7 @@ func loadPatch(ctx context.Context, q batchQueryer, owner string, ref ScopeRef) 
 	if err := json.Unmarshal(raw, &out); err != nil {
 		return nil, err
 	}
-	return out, nil
+	return normalizeLegacyNestedPatch(out), nil
 }
 func effectiveSettings(ctx context.Context, q batchQueryer, owner string, ref ScopeRef) (SettingsPatch, error) {
 	layers := []SettingsPatch{}
