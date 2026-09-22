@@ -25,6 +25,7 @@ import { buildFinalSegmentCard } from './scriptFinalSegment';
 import { resolveShotVideoDuration } from './scriptVideoDuration';
 import { buildScriptVideoPayload, collectShotReferenceImages, getEntityMedia, toggleShotReferenceState } from './scriptVideoReferences';
 import { appendShotVideoTaskHistory, normalizeShotVideoTaskHistory } from './scriptShotVideoTasks';
+import { replaceRawShotCard } from './scriptShotCardEdit';
 import { ShotOutputCards } from '../components/ShotOutputCards';
 import EntityImagePanel from '../components/EntityImagePanel';
 import { createScriptVideo, getScriptVideoTask } from '../../shared/api/scriptVideo';
@@ -141,6 +142,7 @@ export function ScriptPage() {
   const [shotFindText, setShotFindText] = useState('');
   const [shotReplaceText, setShotReplaceText] = useState('');
   const [shotMatchIndex, setShotMatchIndex] = useState(0);
+  const [editingShot, setEditingShot] = useState({ index: -1, text: '' });
   const [activeEntity, setActiveEntity] = useState(null);
   const entityEditorSessionRef = useRef(0);
   const [fullscreenEditor, setFullscreenEditor] = useState(false);
@@ -1418,6 +1420,7 @@ export function ScriptPage() {
               }}
               onOpenVideo={setPreviewVideoTask}
               onOpenVideoHistory={(shotIndex, tasks) => setPreviewVideoHistory({ open: true, shotIndex, tasks })}
+              onEditPrompt={index => setEditingShot({ index, text: rawShotCards[index] || '' })}
               output={output}
               activeMatch={shotReplaceOpen ? activeShotMatch : null}
               cardStarts={shotCardStarts}
@@ -1436,6 +1439,17 @@ export function ScriptPage() {
               <div className="script-empty-copy">先提取人物与场景，确认后再生成剧本</div>
             </div>
           )}
+          <Modal title="编辑分镜提示词" open={editingShot.index >= 0} onCancel={() => setEditingShot({ index: -1, text: '' })} onOk={() => {
+            const nextOutput = replaceRawShotCard(output, rawShotCards, editingShot.index, editingShot.text);
+            updateOutputDraft(nextOutput, true);
+            setEditingShot({ index: -1, text: '' });
+          }}>
+            <Space wrap style={{ marginBottom: 12 }}>
+              {(extractInfo.characters || []).map(item => <Button key={`character-${item.id}`} size="small" onClick={() => setEditingShot(current => ({ ...current, text: `${current.text}@${formatEntity(item)} ` }))}>@人物 {formatEntity(item)}</Button>)}
+              {(extractInfo.scenes || []).map(item => <Button key={`scene-${item.id}`} size="small" onClick={() => setEditingShot(current => ({ ...current, text: `${current.text}@${formatEntity(item)} ` }))}>@场景 {formatEntity(item)}</Button>)}
+            </Space>
+            <Input.TextArea value={editingShot.text} rows={12} onChange={event => setEditingShot(current => ({ ...current, text: event.target.value }))} />
+          </Modal>
         </div>
         </div>
       </div>
