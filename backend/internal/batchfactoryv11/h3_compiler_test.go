@@ -44,7 +44,7 @@ func TestCompileH3VideoSegmentsSeparatesEditableCopyFromSubmittedPrompt(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if compilation.SchemaVersion != "h3-video-compilation/v1" || compilation.CompilerVersion != "h3-video-compiler/v3" {
+	if compilation.SchemaVersion != "h3-video-compilation/v1" || compilation.CompilerVersion != "h3-video-compiler/v4" {
 		t.Fatalf("unexpected compilation contract: %#v", compilation)
 	}
 	if len(compilation.Segments) != 1 {
@@ -91,10 +91,13 @@ func TestCompileH3VideoSegmentsUsesRealH3SubmissionGrammarInsteadOfTraceDump(t *
 		t.Fatal(err)
 	}
 	prompt := compilation.Segments[0].CompiledPrompt
-	for _, required := range []string{"detailed_description:", "subject_definitions:", "<Subject 1>", "[AUDIOVISUAL PRESENTATION]", "[Scene 1]", "Total duration:", "[Shot 1]", "Audio:", "[Scene 1][Shot 1] Soundscape:", "【H3画面约束】"} {
+	for _, required := range []string{"detailed_description:", "subject_definitions:", "<Subject 1>", "[Scene 1]", "Total duration:", "[Shot 1]", "Audio:", "[Scene 1][Shot 1] Soundscape:", "【H3画面限制】"} {
 		if !strings.Contains(prompt, required) {
 			t.Fatalf("real H3 prompt missing %q:\n%s", required, prompt)
 		}
+	}
+	if strings.Contains(prompt, "[AUDIOVISUAL PRESENTATION]") {
+		t.Fatalf("unselected audiovisual policy leaked from the video preset:\n%s", prompt)
 	}
 	for _, forbidden := range []string{"H3 FINAL VIDEO", "preset=", "【视频原文切片】", "hash=", "Scene Memory:", "VIDEO Timeline（segment-local）"} {
 		if strings.Contains(prompt, forbidden) {
@@ -315,7 +318,7 @@ func TestCompileH3VideoSegmentsMatchesFrozenPromptGoldenHash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const want = "f5789a487421cf44df847f6fc3edb0ace5893002ee5c640b9c1362735ccb0007"
+	const want = "d771a70c5f58d36c174fe5ba8f522e4b120c2ff025bb20b3f72d000b56362470"
 	if got := compilation.Segments[0].CompiledPromptHash; got != want {
 		t.Fatalf("compiled prompt golden hash=%s, want %s", got, want)
 	}
@@ -346,7 +349,7 @@ func completeH3CompileInput(document H3DirectorDocument, timeline H3CanonicalTim
 				"S003": "SCENE-ASSET-S003",
 			},
 		},
-		VisualRestrictionText: h3VisualPolicy(),
+		VisualRestrictionText: "【H3画面限制】\n人物身份、年龄、脸型、五官、发型、服装和饰品在连续镜头中保持稳定。",
 		Switches:              H3PromptSwitches{SmartUnified: true, BaseSetup: true, VisualRestriction: true},
 	}
 }

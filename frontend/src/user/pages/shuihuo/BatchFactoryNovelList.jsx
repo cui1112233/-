@@ -2007,7 +2007,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
 		const videoPresetBody = String(videoPreset.body || '');
 		const videoPromptTemplate = videoPresetBody.includes('{{storyboard}}') ? videoPresetBody : '';
 		const constraints = promptConfig.constraints || {};
-		const h3VisualRestriction = (constraints.selections || []).find(item => item?.constraintCategory === 'restriction' && item?.presetId === 'script-constraint-restriction-h3-visual-policy');
+		const h3VisualRestriction = (constraints.selections || []).find(item => item?.constraintCategory === 'restriction');
 		const maxSegmentSeconds = Number(settings.storyboardDurationLimit) === 15 ? 15 : 10;
 		await compileH3Video(latestBatch.id, latestBook.id, {
 			director_revision_id: director.id,

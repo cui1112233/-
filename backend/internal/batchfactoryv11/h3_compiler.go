@@ -11,17 +11,8 @@ import (
 const (
 	h3VideoCompilationSchemaV1 = "h3-video-compilation/v1"
 	h3VideoCompilerKey         = "embedded-h3"
-	h3VideoCompilerVersion     = "h3-video-compiler/v3"
+	h3VideoCompilerVersion     = "h3-video-compiler/v4"
 )
-
-const h3DefaultAudiovisualPresentation = `[AUDIOVISUAL PRESENTATION]
-Render every Scene and Shot strictly in the listed order.
-Complete the current Scene and its visible result before the next Scene begins.
-Never preview or borrow any action, location, prop state, character reveal, or story result belonging to a later Scene.
-Once a later story beat begins, never return to an unfinished earlier beat.
-Use a clean hard cut at Scene or Shot boundaries unless the current Shot explicitly defines one continuous action in the same physical space.
-Character emotion and relationships are primarily expressed through gaze, gesture, body movement, blocking, props, and visible environmental results.
-Visible characters maintain a natural closed-mouth state.`
 
 type H3VideoPreset struct {
 	Key                 string `json:"key"`
@@ -311,11 +302,6 @@ func compileH3CanonicalSegmentPrompt(input H3VideoCompileInput, segment H3VideoS
 	visualRestriction := ""
 	if input.Switches.VisualRestriction {
 		visualRestriction = strings.TrimSpace(input.VisualRestrictionText)
-		if visualRestriction == "" {
-			// Read-only compatibility for compilations created before the H3
-			// visual-restriction preset existed. New callers freeze preset text.
-			visualRestriction = h3VisualPolicy()
-		}
 	}
 	if template := strings.TrimSpace(input.Preset.PromptTemplate); template != "" {
 		rendered := renderH3PromptTemplate(template, map[string]string{
@@ -353,7 +339,7 @@ func compileH3CanonicalSegmentPrompt(input H3VideoCompileInput, segment H3VideoS
 	if overridden {
 		parts = append(parts, "editable_story_direction:\n"+strings.TrimSpace(editableCopy))
 	}
-	parts = append(parts, h3DefaultAudiovisualPresentation+"\n\n"+storyboard)
+	parts = append(parts, storyboard)
 	if visualRestriction != "" {
 		parts = append(parts, visualRestriction)
 	}

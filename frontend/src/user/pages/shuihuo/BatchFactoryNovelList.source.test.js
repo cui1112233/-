@@ -207,6 +207,11 @@ test('keeps video prompts in their own published selector, with the composed sto
   assert.doesNotMatch(reasoningSource, /\['character','人物提示词'/);
 });
 
+test('keeps H3 visual limits user-selected instead of silently enabling them with a video preset', () => {
+  assert.doesNotMatch(reasoningSource, /const h3Policy=pick\(constraints,'script-constraint-restriction-h3-visual-policy'\)/);
+  assert.doesNotMatch(reasoningSource, /用户随后仍可在“画面限制”里关闭或替换它/);
+});
+
 test('uses upload success as the header completion rate and exposes every other state share', () => {
   assert.match(source, /batchFactoryBatchProgress/);
   assert.match(source, /完成率 \$\{batchProgress\.completionPercent\}%/);
