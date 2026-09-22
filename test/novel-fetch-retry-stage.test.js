@@ -38,6 +38,7 @@ test('多阶段失败时重试从最早的 AI 判断阶段开始，并清除旧�
   });
   const payloads = await ops.prepareRetryPayloads('alice', ['1001']);
   assert.equal(payloads[0].retry_stage, 'classify');
+  assert.equal(payloads[0].retry_idempotency_key, 'alice:1001:classify:');
   assert.equal(store.updates[0].classifyStatus, '');
   assert.equal(store.updates[0].classifyError, '');
   assert.equal(store.updates[0].originalStatus, undefined);
