@@ -62,6 +62,7 @@ test('unified V88 deploy enables the production and local-merge stages required 
   assert.match(workflow, /set_env QIANTIE_BATCH_FACTORY_V11_SLICE 5/);
   assert.match(workflow, /set_env QIANTIE_BATCH_FACTORY_V11_PRODUCTION_ENABLED 1/);
   assert.match(workflow, /set_env QIANTIE_BATCH_FACTORY_V11_LOCAL_MERGE_ENABLED 1/);
+  assert.match(workflow, /set_env QIANTIE_BATCH_FACTORY_V11_DYNAMIC_TEXT_PROVIDER 1/);
 });
 
 test('unified V88 deploy feeds smoke scripts and JSON through unambiguous stdin channels', () => {

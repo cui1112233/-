@@ -208,6 +208,7 @@ jobs:
           set_env QIANTIE_BATCH_FACTORY_V11_SLICE 5
           set_env QIANTIE_BATCH_FACTORY_V11_PRODUCTION_ENABLED 1
           set_env QIANTIE_BATCH_FACTORY_V11_LOCAL_MERGE_ENABLED 1
+          set_env QIANTIE_BATCH_FACTORY_V11_DYNAMIC_TEXT_PROVIDER 1
           cp "/tmp/v88-public-nginx-${expected_sha}.conf" nginx.conf
 
           docker compose -f docker-compose.yml config -q
