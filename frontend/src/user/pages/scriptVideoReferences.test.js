@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildScriptVideoPayload,
+  collectShotReferenceDiagnostics,
   collectShotReferenceDescriptors,
   collectShotReferenceImages,
   extractShotMentionNames,
@@ -93,6 +94,17 @@ test('adds current-script main images named by at-mentions and keeps text matche
 test('does not add images for empty, unknown, or no-main-image at-mentions', () => {
   const lin = entity('lin', '林溪', [], '');
   assert.deepEqual(collectShotReferenceImages({ shotText: '@ @未知 @林溪', extractInfo: info([lin]) }), []);
+});
+
+test('reports unresolved at-mentions without adding reference images', () => {
+  const lin = entity('lin', '林溪', [], '');
+  assert.deepEqual(
+    collectShotReferenceDiagnostics({ shotText: '@林溪 @未知', extractInfo: info([lin]) }),
+    [
+      { name: '林溪', reason: 'missing_main_image' },
+      { name: '未知', reason: 'missing_entity' }
+    ]
+  );
 });
 
 test('deduplicates URLs and caps H3 references at nine', () => {

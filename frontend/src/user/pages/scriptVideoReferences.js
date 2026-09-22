@@ -73,6 +73,20 @@ export function extractShotMentionNames(shotText) {
   return [...new Set([...String(shotText || '').matchAll(/@([\u4e00-\u9fffA-Za-z0-9_-]+)/g)].map(match => match[1]))];
 }
 
+export function collectShotReferenceDiagnostics({ shotText, extractInfo } = {}) {
+  const entities = [
+    ...(Array.isArray(extractInfo?.characters) ? extractInfo.characters : []),
+    ...(Array.isArray(extractInfo?.scenes) ? extractInfo.scenes : [])
+  ];
+  return extractShotMentionNames(shotText).flatMap(name => {
+    const matches = entities.filter(entity => entityLabel(entity) === name);
+    if (!matches.length) return [{ name, reason: 'missing_entity' }];
+    return matches.some(entity => getEntityMedia(entity).mainImageUrl)
+      ? []
+      : [{ name, reason: 'missing_main_image' }];
+  });
+}
+
 function entityReferences(entities, type, matches, disabledImageUrls, source) {
   return (Array.isArray(entities) ? entities : []).flatMap(entity => {
     const label = entityLabel(entity);
