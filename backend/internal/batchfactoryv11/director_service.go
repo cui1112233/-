@@ -99,6 +99,16 @@ func bookFromBatch(batch Batch, bookID string) (Book, error) {
 }
 
 func snapshotForBook(batch Batch, book Book) (DirectorSnapshot, error) {
+	return snapshotForBookWithAudioRequirement(batch, book, true)
+}
+
+// Asset extraction is independent of timeline planning. It can run before a
+// voice measurement supplies the duration later required by director output.
+func snapshotForAssetExtraction(batch Batch, book Book) (DirectorSnapshot, error) {
+	return snapshotForBookWithAudioRequirement(batch, book, false)
+}
+
+func snapshotForBookWithAudioRequirement(batch Batch, book Book, requireMeasuredAudio bool) (DirectorSnapshot, error) {
 	effective := ResolveSettings(batch.SettingsState.Patch, book.SettingsState.Patch)
 	mode := rawString(effective, "productionMode", rawString(effective, "mode", "original"))
 	if mode == "original_direct" {
@@ -113,10 +123,10 @@ func snapshotForBook(batch Batch, book Book) (DirectorSnapshot, error) {
 	}
 	fixed := rawBool(effective, "fixedSingleVideo", false)
 	audioPlanning := rawBool(effective, "audioPlanningEnabled", false)
-	if fixed && audioPlanning {
+	if requireMeasuredAudio && fixed && audioPlanning {
 		return DirectorSnapshot{}, fmt.Errorf("%w: 固定开头只生产 VIDEO01，不能同时启用分镜规划跟随配音", ErrConflict)
 	}
-	if audioPlanning && audioTargetSeconds(effective) == 0 {
+	if requireMeasuredAudio && audioPlanning && audioTargetSeconds(effective) == 0 {
 		return DirectorSnapshot{}, fmt.Errorf("%w: 音频规划已开启，请先生成配音并读取真实时长", ErrConflict)
 	}
 	aspect := rawString(effective, "aspectRatio", "9:16")
@@ -355,7 +365,7 @@ func (s *DirectorService) RunAssetExtraction(ctx context.Context, owner, batchID
 	if err != nil {
 		return nil, err
 	}
-	snapshot, err := snapshotForBook(batch, book)
+	snapshot, err := snapshotForAssetExtraction(batch, book)
 	if err != nil {
 		return nil, err
 	}

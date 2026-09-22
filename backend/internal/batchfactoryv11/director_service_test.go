@@ -372,6 +372,23 @@ func TestAssetExtractionDoesNotReplaceExistingDirectorVideos(t *testing.T) {
 	}
 }
 
+func TestAssetExtractionDoesNotRequireAudioPlanningMeasurement(t *testing.T) {
+	store, batch, book := seedDirectorBook(t, "original", false)
+	if _, err := store.SaveSettings(context.Background(), "alice", ScopeRef{Kind: ScopeBook, BatchID: batch.ID, BookID: book.ID}, SettingsUpdate{
+		Patch: SettingsPatch{"audioPlanningEnabled": rawSetting(t, true)}, ExpectedRevision: book.Revision,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	provider := &queuedDirectorProvider{values: []string{`{"characters":[{"name":"林溪","prompt":"短发女主"}],"scenes":[],"props":[]}`}}
+	assets, err := (&DirectorService{Store: store, Provider: provider}).RunAssetExtraction(context.Background(), "alice", batch.ID, book.ID)
+	if err != nil {
+		t.Fatalf("asset extraction must not wait for audio planning: %v", err)
+	}
+	if len(assets) != 1 || len(provider.calls) != 1 {
+		t.Fatalf("assets=%+v calls=%d", assets, len(provider.calls))
+	}
+}
+
 func TestAssetExtractionWithH3FullPresetCompilesAllCharactersOnce(t *testing.T) {
 	store, batch, book := seedDirectorBook(t, "original", false)
 	if _, err := store.SaveSettings(context.Background(), "alice", ScopeRef{Kind: ScopeBatch, BatchID: batch.ID}, SettingsUpdate{
