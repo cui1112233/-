@@ -17,6 +17,14 @@ test('unified configuration owns models, AI reasoning and publication in one edi
   assert.match(source, /onSaved\(\{ patch: draftPatch/);
 });
 
+test('unified configuration makes an unavailable model directory actionable instead of rendering empty selectors', () => {
+  const source = fs.readFileSync(sourcePath, 'utf8');
+  assert.match(source, /const \[modelsError, setModelsError\] = useState\(''\)/);
+  assert.match(source, /setModelsError\(error\?\.message \|\| '未能读取个人中心已启用模型'\)/);
+  assert.match(source, /message="模型目录暂不可用"/);
+  assert.match(source, /前往个人中心配置模型/);
+});
+
 test('automation preset manager changes the unified draft only after confirmation', () => {
   const source = fs.readFileSync(sourcePath, 'utf8');
   assert.match(source, /自动化预设/);

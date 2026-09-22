@@ -23,34 +23,48 @@ const styles = ['general', 'cheerful', 'sad', 'friendly', 'chat'].map(value => (
 const selectOption = preset => ({ value: preset.id, label: `${preset.name || preset.id} · v${preset.version || 1}` });
 const presetValue = preset => preset ? { presetId: preset.id, presetName: preset.name || preset.id, presetSlot: preset.slot || '', presetVersion: preset.version || 1, constraintCategory: preset.constraintCategory || '' } : { presetId: '', presetName: '', presetSlot: '', presetVersion: null, constraintCategory: '' };
 
-export function BatchFactoryEngineSettingsForm({ value, onChange, sections = ['models', 'audio', 'publish'] }) {
+export function BatchFactoryEngineSettingsForm({ value, onChange, sections = ['models', 'audio', 'publish'], active = true }) {
   const [models, setModels] = useState([]);
+  const [modelsError, setModelsError] = useState('');
+  const [modelsLoading, setModelsLoading] = useState(false);
+  const [modelReloadKey, setModelReloadKey] = useState(0);
   const patch = next => onChange({ ...value, ...next });
   const tts = { ...DEFAULT_TTS, ...(value.tts || {}) };
+  const modelSettingsEnabled = sections.includes('models');
   const modelOptions = useMemo(() => {
     const asOptions = kind => models.filter(model => model.kind === kind).map(model => ({ value: model.id, label: model.displayName || model.name || model.modelId || model.id }));
     return { text: asOptions('text'), image: asOptions('image'), video: asOptions('video') };
   }, [models]);
   useEffect(() => {
-    let active = true;
+    if (!active || !modelSettingsEnabled) return undefined;
+    let alive = true;
+    setModelsLoading(true);
+    setModelsError('');
     Promise.all(['text', 'image', 'video'].map(listAvailableModels)).then(groups => {
-      if (active) setModels(groups.flat());
-    }).catch(() => active && setModels([]));
-    return () => { active = false; };
-  }, []);
+      if (alive) setModels(groups.flat());
+    }).catch(error => {
+      if (!alive) return;
+      setModels([]);
+      setModelsError(error?.message || '未能读取个人中心已启用模型');
+    }).finally(() => { if (alive) setModelsLoading(false); });
+    return () => { alive = false; };
+  }, [active, modelSettingsEnabled, modelReloadKey]);
   const publish = value.publishSettings || {};
   return <Space direction="vertical" size={16} style={{ width: '100%' }}>
     <Alert type="info" showIcon message="当前批次统一生产参数" description="保存后作为全部小说的默认值；单书已保存的显式覆盖不会被预设载入或本页保存清空。" />
-    {sections.includes('models') ? <section className="batch-factory-engine-card"><header><b>模型配置</b><small>文本、图片、视频和配音</small></header><div className="batch-factory-engine-card-body batch-factory-engine-grid">
-      <label className="batch-factory-engine-field"><span><b>文本模型</b></span><Select allowClear value={value.textModelId || undefined} options={modelOptions.text} placeholder="选择已启用文本模型" onChange={textModelId => patch({ textModelId: textModelId || '' })} /></label>
-      <label className="batch-factory-engine-field"><span><b>图片模型</b></span><Select allowClear value={value.imageModelId || undefined} options={modelOptions.image} placeholder="选择已启用图片模型" onChange={imageModelId => patch({ imageModelId: imageModelId || '' })} /></label>
-      <label className="batch-factory-engine-field"><span><b>视频模型</b></span><Select allowClear value={value.videoModelId || undefined} options={modelOptions.video} placeholder="选择已启用视频模型" onChange={videoModelId => patch({ videoModelId: videoModelId || '', ...(videoModelId ? { videoProvider: videoProviderForModel(videoModelId, value.videoProvider) } : {}) })} /></label>
+    {modelSettingsEnabled ? <><section className="batch-factory-engine-card"><header><b>模型配置</b><small>文本、图片、视频和配音</small></header><div className="batch-factory-engine-card-body batch-factory-engine-grid">
+      <label className="batch-factory-engine-field"><span><b>文本模型</b></span><Select allowClear loading={modelsLoading} value={value.textModelId || undefined} options={modelOptions.text} placeholder="选择已启用文本模型" onChange={textModelId => patch({ textModelId: textModelId || '' })} /></label>
+      <label className="batch-factory-engine-field"><span><b>图片模型</b></span><Select allowClear loading={modelsLoading} value={value.imageModelId || undefined} options={modelOptions.image} placeholder="选择已启用图片模型" onChange={imageModelId => patch({ imageModelId: imageModelId || '' })} /></label>
+      <label className="batch-factory-engine-field"><span><b>视频模型</b></span><Select allowClear loading={modelsLoading} value={value.videoModelId || undefined} options={modelOptions.video} placeholder="选择已启用视频模型" onChange={videoModelId => patch({ videoModelId: videoModelId || '', ...(videoModelId ? { videoProvider: videoProviderForModel(videoModelId, value.videoProvider) } : {}) })} /></label>
       <label className="batch-factory-engine-field"><span><b>画幅</b></span><Segmented value={value.aspectRatio || '9:16'} options={['9:16', '16:9', '1:1']} onChange={aspectRatio => patch({ aspectRatio })} /></label>
       <label className="batch-factory-engine-field"><span><b>分镜时长</b></span><Segmented value={Number(value.storyboardDurationLimit) === 15 ? 15 : 10} options={[{ value: 10, label: '10 秒' }, { value: 15, label: '15 秒' }]} onChange={storyboardDurationLimit => patch({ storyboardDurationLimit, maxVideoDuration: storyboardDurationLimit })} /></label>
       <label className="batch-factory-engine-field"><span><b>配音音色</b></span><Select value={tts.voice} options={voices} onChange={voice => patch({ tts: { ...tts, voice } })} /></label>
       <label className="batch-factory-engine-field"><span><b>配音风格</b></span><Select value={tts.style} options={styles} onChange={style => patch({ tts: { ...tts, style } })} /></label>
       <label className="batch-factory-engine-field"><span><b>语速</b></span><InputNumber min={0.5} max={2} step={0.1} value={tts.speed} onChange={speed => patch({ tts: { ...tts, speed: speed ?? DEFAULT_TTS.speed } })} /></label>
-    </div></section> : null}
+    </div></section>
+    {modelsError ? <Alert type="warning" showIcon message="模型目录暂不可用" description={<Space direction="vertical"><span>{modelsError}</span><Button size="small" onClick={() => setModelReloadKey(value => value + 1)}>重试读取模型</Button></Space>} /> : null}
+    {!modelsLoading && !modelsError && !models.length ? <Alert type="warning" showIcon message="个人中心没有已启用模型" description={<Space direction="vertical"><span>请先在个人中心按文本、图片、视频类型新增并启用模型，再返回当前批量作品选择。</span><Button type="link" href="/api-config">前往个人中心配置模型</Button></Space>} /> : null}
+    </> : null}
     {sections.includes('audio') ? <section className="batch-factory-engine-card"><header><b>跟随配音</b><small>开启后只测量没有有效缓存的视频原文非空行。</small></header><div className="batch-factory-engine-card-body"><Space direction="vertical" style={{ width: '100%' }}>
       <Space style={{ justifyContent: 'space-between', width: '100%' }}><span>分镜规划跟随配音</span><Switch checked={value.audioPlanningEnabled === true} onChange={audioPlanningEnabled => patch({ audioPlanningEnabled })} /></Space>
       <Space style={{ justifyContent: 'space-between', width: '100%' }}><span>合并跟随配音</span><Switch checked={value.audioMergeEnabled === true} onChange={audioMergeEnabled => patch({ audioMergeEnabled })} /></Space>
@@ -161,9 +175,9 @@ export function BatchFactoryUnifiedSettingsModal({ open, batch, onClose, onSaved
   };
   return <><Modal title={<Space><Tooltip title="自动化预设"><Button type="text" icon={<SettingOutlined />} aria-label="自动化预设" onClick={openPresetManager} /></Tooltip><span>统一配置</span></Space>} open={open} onCancel={onClose} width={980} destroyOnClose={false} className="batch-factory-unified-settings-modal" footer={<Space><Button onClick={onClose}>取消</Button><Button type="primary" loading={saving} onClick={save}>保存统一配置</Button></Space>}>
     <Tabs items={[
-      { key: 'models', label: '模型配置', children: <BatchFactoryEngineSettingsForm value={draftPatch} onChange={setDraftPatch} sections={['models', 'audio']} /> },
+      { key: 'models', label: '模型配置', children: <BatchFactoryEngineSettingsForm value={draftPatch} onChange={setDraftPatch} sections={['models', 'audio']} active={open} /> },
       { key: 'reasoning', label: 'AI 推理', children: <BatchFactoryAiReasoningForm value={draftPatch.aiPromptConfig} onChange={aiPromptConfig => setDraftPatch(current => ({ ...current, aiPromptConfig }))} /> },
-      { key: 'publish', label: '发布统一', children: <BatchFactoryEngineSettingsForm value={draftPatch} onChange={setDraftPatch} sections={['publish']} /> }
+      { key: 'publish', label: '发布统一', children: <BatchFactoryEngineSettingsForm value={draftPatch} onChange={setDraftPatch} sections={['publish']} active={open} /> }
     ]} />
   </Modal>
   <Modal title="自动化预设" open={presetOpen} onCancel={() => setPresetOpen(false)} footer={null} width={620} destroyOnClose><Space direction="vertical" size={14} style={{ width: '100%' }}>
