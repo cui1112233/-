@@ -85,6 +85,30 @@ func TestBuildAssetExtractionContractIncludesSelectedCharacterAndSceneOutputRule
 	}
 }
 
+func TestBuildAssetExtractionContractCarriesSavedStyleSystemIntoSelectedAssetRule(t *testing.T) {
+	book := Book{ID: "book-1", Title: "测试书", SourceText: "林晚走进客厅。"}
+	snapshot := DirectorSnapshot{Effective: SettingsPatch{
+		"h3StyleAnalysis": rawSetting(t, `{"schema_version":"h3-style-system/v1","prompt":"现代都市短剧；高级电影感；暖黄室内光。","fields":{"final_genre":"都市情感","trailer_style":"高级电影感","story_era":"现代都市"},"preset":{"id":"script-constraint-prefix-smart-unified","version":1}}`),
+		"aiPromptConfig": rawSetting(t, map[string]any{
+			"assets": map[string]any{
+				"enabled":    true,
+				"scope":      "all",
+				"extraction": map[string]any{"body": "CUSTOM ASSET RULE"},
+			},
+		}),
+	}}
+	contract, err := BuildAssetExtractionContract(book, snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(contract.SystemPrompt, "CUSTOM ASSET RULE") {
+		t.Fatalf("asset extraction system missing selected rule: %s", contract.SystemPrompt)
+	}
+	if !strings.Contains(contract.UserPrompt, "现代都市短剧；高级电影感；暖黄室内光。") {
+		t.Fatalf("asset extraction input missing saved style result: %s", contract.UserPrompt)
+	}
+}
+
 func TestDirectorReadbackUsesShotTimelineUnlessTheUserEditedThatVideo(t *testing.T) {
 	store, batch, book := seedDirectorBook(t, "original", false)
 	provider := &queuedDirectorProvider{values: []string{validDirectorJSON()}}
@@ -402,40 +426,20 @@ func TestAssetExtractionWithH3FullPresetCompilesAllCharactersOnce(t *testing.T) 
 		t.Fatal(err)
 	}
 	provider := &queuedDirectorProvider{values: []string{
-		`{"characters":[{"name":"林晚","prompt":"提取的人物设定"},{"name":"陆沉","prompt":"提取的人物设定"}],"scenes":[{"name":"客厅","prompt":"现代客厅"}],"props":[]}`,
-		`{"prompt":"H3 人物设定：林晚，二十五岁左右的都市女性，身形纤细挺拔，椭圆脸，眉眼清秀，鼻梁细直，唇色自然。黑色长发柔顺披至肩胛，发尾微弯。穿米白色真丝衬衫、浅灰高腰西装裤和米色细跟鞋，衣料光泽克制，配戴小颗珍珠耳钉。气质温和但克制，站姿保持肩背舒展，目光沉静。黑长发、珍珠耳钉与米白衬衫为跨镜头固定识别点。"}`,
-		`{"prompt":"H3 人物设定：陆沉，二十八岁左右的都市男性，身材高挑修长，肩线平直，轮廓分明的长方脸，眉骨清晰，鼻梁高挺，眼神沉稳疏离。短黑发整齐向后梳理，两鬓利落。穿深炭灰羊毛西装、白色棉质衬衫和黑色皮鞋，领口与袖口始终整洁，配戴银色窄表盘手表。动作简洁，不做夸张表情，微抿的唇线与冷静注视构成主要气质。深灰西装、银色手表和后梳短发为跨镜头固定识别点。"}`,
+		`{"characters":[{"name":"林晚","prompt":"H3 人物设定：林晚，二十五岁左右的都市女性，身形纤细挺拔，椭圆脸，眉眼清秀，鼻梁细直，唇色自然。黑色长发柔顺披至肩胛，发尾微弯。穿米白色真丝衬衫、浅灰高腰西装裤和米色细跟鞋，衣料光泽克制，配戴小颗珍珠耳钉。气质温和但克制，站姿保持肩背舒展，目光沉静。黑长发、珍珠耳钉与米白衬衫为跨镜头固定识别点。"},{"name":"陆沉","prompt":"H3 人物设定：陆沉，二十八岁左右的都市男性，身材高挑修长，肩线平直，轮廓分明的长方脸，眉骨清晰，鼻梁高挺，眼神沉稳疏离。短黑发整齐向后梳理，两鬓利落。穿深炭灰羊毛西装、白色棉质衬衫和黑色皮鞋，领口与袖口始终整洁，配戴银色窄表盘手表。动作简洁，不做夸张表情，微抿的唇线与冷静注视构成主要气质。深灰西装、银色手表和后梳短发为跨镜头固定识别点。"}],"scenes":[{"name":"客厅","prompt":"现代客厅，傍晚暖光，沙发与落地窗构成清晰空间关系。"}],"props":[]}`,
 	}}
-	rows := []map[string]string{}
-	for i, name := range []string{"林晚", "陆沉"} {
-		var row map[string]string
-		if err := json.Unmarshal([]byte(provider.values[i+1]), &row); err != nil {
-			t.Fatal(err)
-		}
-		row["character_id"] = []string{"C001", "C002"}[i]
-		row["name"] = name
-		rows = append(rows, row)
-	}
-	batchResponse, _ := json.Marshal(map[string]any{"characters": rows})
-	provider.values = []string{provider.values[0], string(batchResponse)}
 	assets, err := (&DirectorService{Store: store, Provider: provider}).RunAssetExtraction(context.Background(), "alice", batch.ID, book.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(provider.calls) != 2 {
-		t.Fatalf("H3 character flow calls=%d, want extraction plus one batch appearance call", len(provider.calls))
+	if len(provider.calls) != 1 {
+		t.Fatalf("H3 character flow calls=%d, want one complete asset request", len(provider.calls))
 	}
 	if !strings.Contains(provider.calls[0].SystemPrompt, "H3 FACT RULE") {
 		t.Fatalf("first H3 call must receive H3's first-phase rule, got %q", provider.calls[0].SystemPrompt)
 	}
-	if strings.Contains(provider.calls[0].SystemPrompt, "H3 APPEARANCE RULE") {
-		t.Fatalf("first H3 call must not receive H3's appearance rule")
-	}
-	if !strings.Contains(provider.calls[1].SystemPrompt, "H3 APPEARANCE RULE") {
-		t.Fatalf("second H3 character call must receive H3's appearance rule")
-	}
-	if strings.Contains(provider.calls[1].SystemPrompt, "H3 FACT RULE") {
-		t.Fatalf("second H3 call must not receive H3's first-phase rule")
+	if !strings.Contains(provider.calls[0].SystemPrompt, "H3 APPEARANCE RULE") {
+		t.Fatalf("complete H3 asset request must contain its detailed appearance rule")
 	}
 	byName := map[string]string{}
 	for _, asset := range assets {
@@ -466,27 +470,23 @@ func TestH3FullAssetPresetCarriesReferenceAnalysisAndAppearanceAuthorities(t *te
 		t.Fatal(err)
 	}
 	provider := &queuedDirectorProvider{values: []string{
-		`{"characters":[{"name":"林晚","prompt":"现代都市女主，二十五岁，受原文与关系约束。"}],"scenes":[],"props":[]}`,
-		`{"characters":[{"character_id":"C001","name":"林晚","prompt":"亚洲二十五岁成年女性，现代都市女主，椭圆脸与清晰眉眼，乌黑长发，皮肤白皙自然，身形纤细挺拔，穿剪裁利落的浅色西装与真丝内搭，材质和主色稳定，珍珠耳钉是跨镜头识别点。"}]}`,
+		`{"characters":[{"name":"林晚","prompt":"亚洲二十五岁成年女性，现代都市女主，椭圆脸与清晰眉眼，乌黑长发，皮肤白皙自然，身形纤细挺拔，穿剪裁利落的浅色西装与真丝内搭，材质和主色稳定，珍珠耳钉是跨镜头固定识别点；她的身份、性别、年龄阶段、时代与关系均由原文强证据确认。"}],"scenes":[],"props":[]}`,
 	}}
 	if _, err := (&DirectorService{Store: store, Provider: provider}).RunAssetExtraction(context.Background(), "alice", batch.ID, book.ID); err != nil {
 		t.Fatal(err)
 	}
-	if len(provider.calls) != 2 {
-		t.Fatalf("H3 calls=%d, want exactly two", len(provider.calls))
+	if len(provider.calls) != 1 {
+		t.Fatalf("H3 calls=%d, want one complete H3 asset request", len(provider.calls))
 	}
-	for _, want := range []string{"题材、时代、世界观", "人物名单", "人物关系", "强证据", "不得只凭姓名"} {
+	for _, want := range []string{"V59 AUTO正式人物名单判断", "V59 第二步：只按强制名单生成人物卡", "V52通用小说人物关系图与分镜选角Skill", "V55人物卡外形隔离系统规则", "强证据", "不得只凭姓名"} {
 		if !strings.Contains(provider.calls[0].SystemPrompt, want) {
-			t.Fatalf("first H3 analysis request missing reference authority %q:\n%s", want, provider.calls[0].SystemPrompt)
+			t.Fatalf("complete H3 asset request missing reference authority %q:\n%s", want, provider.calls[0].SystemPrompt)
 		}
 	}
 	for _, want := range []string{"slot_id", "有效性别", "年龄阶段", "不得擅自改名", "脸型骨相", "鞋履", "同批人物"} {
-		if !strings.Contains(provider.calls[1].SystemPrompt, want) {
-			t.Fatalf("second H3 appearance request missing reference authority %q:\n%s", want, provider.calls[1].SystemPrompt)
+		if !strings.Contains(provider.calls[0].SystemPrompt, want) {
+			t.Fatalf("complete H3 asset request missing appearance authority %q:\n%s", want, provider.calls[0].SystemPrompt)
 		}
-	}
-	if strings.Contains(provider.calls[0].SystemPrompt, "slot_id、有效性别") {
-		t.Fatalf("appearance-only authority leaked into first H3 call:\n%s", provider.calls[0].SystemPrompt)
 	}
 }
 

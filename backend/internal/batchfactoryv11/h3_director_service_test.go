@@ -80,6 +80,17 @@ func TestBuildH3DirectorContractProvidesExistingCharacterAssetsForStableSlotAlia
 	}
 }
 
+func TestDirectorRulesFromVideoPresetExcludesItsFinalPromptTemplate(t *testing.T) {
+	body := "原版 H3 导演规则\ncharacter_slot_ids\n【批量工厂最终 Prompt 模板】\n{{storyboard}}"
+	rules := directorRulesFromVideoPreset(body)
+	if !strings.Contains(rules, "character_slot_ids") {
+		t.Fatalf("director rules were lost: %q", rules)
+	}
+	if strings.Contains(rules, "{{storyboard}}") || strings.Contains(rules, "最终 Prompt 模板") {
+		t.Fatalf("final prompt template leaked into director system prompt: %q", rules)
+	}
+}
+
 func TestRunH3DirectorRejectsLegacySimplifiedOutput(t *testing.T) {
 	store, batch, book := seedDirectorBook(t, "original", false)
 	provider := &queuedDirectorProvider{values: []string{`{"characters":[],"scenes":[],"storyboard":[]}`}}

@@ -114,6 +114,11 @@ function directorBookPath(pathname) {
   return match ? { batchId: decodeURIComponent(match[1]), bookId: decodeURIComponent(match[2]) } : null;
 }
 
+function styleSystemBookPath(pathname) {
+  const match = String(pathname || '').match(/^\/api\/batch-factory\/v11\/batches\/([^/]+)\/books\/([^/]+)\/(?:assets|director|stages\/(?:assets|director))$/);
+  return match ? { batchId: decodeURIComponent(match[1]), bookId: decodeURIComponent(match[2]) } : null;
+}
+
 function batchFactoryBookClassificationPath(pathname) {
   const match = String(pathname || '').match(/^\/api\/batch-factory\/v11\/batches\/([^/]+)\/books\/([^/]+)\/classify-publish-metadata$/);
   if (!match) return null;
@@ -499,9 +504,10 @@ function h3VideoSelected(batch, book) {
 }
 
 function directorVisualBaselineRequired(batch, book) {
-  // H3 always needs its private director baseline. “智能统一” only grants
-  // permission to surface and inject that baseline into the final VIDEO text.
-  return h3VideoSelected(batch, book) || smartUnifiedSelected(batch, book);
+  // style.system is a production-stage baseline, not a display switch. Every
+  // book with video-source text obtains and saves it before asset extraction;
+  // “智能统一” only controls whether the frozen result is surfaced/injected.
+  return Boolean(String(book?.sourceText || '').trim());
 }
 
 function smartUnifiedStyleSystemPreset(batch, book, presetStore) {
@@ -528,6 +534,39 @@ function serializeSmartUnifiedStyleAnalysis(style, preset) {
   });
 }
 
+function styleSystemSourceHash(sourceText) {
+  return crypto.createHash('sha256').update(String(sourceText || '').trim(), 'utf8').digest('hex');
+}
+
+function savedSmartUnifiedStyleAnalysis(book, sourceText, preset) {
+  const patch = object(book?.settingsState?.patch);
+  const saved = String(patch.h3StyleAnalysis || '').trim();
+  if (!saved || String(patch.h3StyleSourceHash || '') !== styleSystemSourceHash(sourceText)) return '';
+  if (Number(patch.h3StylePresetVersion || 0) !== Number(preset?.version || 0)) return '';
+  try {
+    const parsed = JSON.parse(saved);
+    if (parsed?.schema_version !== 'h3-style-system/v1' || !String(parsed?.prompt || '').trim()) return '';
+    return saved;
+  } catch (_) {
+    return '';
+  }
+}
+
+async function freezeSmartUnifiedStyleAnalysis({ username, isOwner, batchId, book, sourceText, preset, analysis, goBaseUrl, bridgeSecret, fetchImpl, now }) {
+  const patch = {
+    ...object(book?.settingsState?.patch),
+    h3StyleAnalysis: analysis,
+    h3StyleSourceHash: styleSystemSourceHash(sourceText),
+    h3StylePresetVersion: Number(preset?.version || 0)
+  };
+  await v11JSONRequest({
+    username, isOwner, method: 'PUT',
+    pathname: `/api/batch-factory/v11/batches/${encodeURIComponent(batchId)}/books/${encodeURIComponent(book.id)}/override`,
+    payload: { patch, expectedRevision: Number(book?.revision || 0) },
+    goBaseUrl, bridgeSecret, fetchImpl, now
+  });
+}
+
 function h3StyleSystemFieldObject(value, depth = 0) {
   if (!value || typeof value !== 'object' || Array.isArray(value) || depth > 4) return null;
   const required = ['final_genre', 'trailer_style', 'story_era'];
@@ -551,7 +590,7 @@ function unwrapH3StyleSystemFields(content) {
   return JSON.stringify(fields);
 }
 
-async function analyzeBatchFactorySmartUnifiedStyle({ username, isOwner = false, batchId, bookId, textProvider, presetStore, goBaseUrl, bridgeSecret, fetchImpl = globalThis.fetch, now = Date.now } = {}) {
+async function analyzeBatchFactorySmartUnifiedStyle({ username, isOwner = false, batchId, bookId, textProvider, presetStore, goBaseUrl, bridgeSecret, fetchImpl = globalThis.fetch, now = Date.now, persist = false } = {}) {
   if (!fetchImpl || !textProvider?.endpoint || !textProvider?.apiKey || !textProvider?.model) throw requestError('智能统一需要当前书可用的文本模型', 422, 'TEXT_MODEL_REQUIRED');
   const basePath = `/api/batch-factory/v11/batches/${encodeURIComponent(batchId)}`;
   const loaded = await v11JSONRequest({ username, isOwner, method: 'GET', pathname: basePath, goBaseUrl, bridgeSecret, fetchImpl, now });
@@ -564,6 +603,8 @@ async function analyzeBatchFactorySmartUnifiedStyle({ username, isOwner = false,
   const sourceText = String(book?.sourceText || '').trim();
   if (!sourceText) throw requestError('智能统一需要当前书完整原文', 422, 'SOURCE_TEXT_REQUIRED');
   const stylePreset = smartUnifiedStyleSystemPreset(batch, book, presetStore);
+  const cached = savedSmartUnifiedStyleAnalysis(book, sourceText, stylePreset);
+  if (cached) return cached;
   const assets = Array.isArray(book?.assetRecords) ? book.assetRecords : [];
   const messages = buildSmartUnifiedStyleMessages({
     novelText: sourceText,
@@ -584,7 +625,11 @@ async function analyzeBatchFactorySmartUnifiedStyle({ username, isOwner = false,
   if (!response.ok) throw requestError(`智能统一视觉分析模型“${modelName}”请求失败：${payload?.error?.message || payload?.message || `HTTP ${response.status}`}`, 502, 'SMART_UNIFIED_PROVIDER_FAILED');
   const content = String(payload?.choices?.[0]?.message?.content || '').trim();
   if (!content) throw requestError('智能统一视觉分析模型没有返回内容', 502, 'SMART_UNIFIED_PROVIDER_INVALID_RESPONSE');
-  try { return serializeSmartUnifiedStyleAnalysis(parseSmartUnifiedVisualStyle(unwrapH3StyleSystemFields(content)), stylePreset); } catch (error) { throw requestError(error?.message || '智能统一视觉分析结果无效', 422, 'SMART_UNIFIED_INVALID_RESPONSE'); }
+  try {
+    const analysis = serializeSmartUnifiedStyleAnalysis(parseSmartUnifiedVisualStyle(unwrapH3StyleSystemFields(content)), stylePreset);
+    if (persist) await freezeSmartUnifiedStyleAnalysis({ username, isOwner, batchId, book, sourceText, preset: stylePreset, analysis, goBaseUrl, bridgeSecret, fetchImpl, now });
+    return analysis;
+  } catch (error) { throw requestError(error?.message || '智能统一视觉分析结果无效', 422, 'SMART_UNIFIED_INVALID_RESPONSE'); }
 }
 
 function imageSizeForAspectRatio(aspectRatio) {
@@ -1177,14 +1222,28 @@ async function synthesizeAutomationTTS(input, tts = {}, fetchImpl = globalThis.f
   return bytes.toString('base64');
 }
 
+function splitVideoPresetBody(body) {
+  const value = String(body || '').trim();
+  for (const marker of ['【批量工厂最终 Prompt 模板】', '## 最终 Prompt 模板']) {
+    const index = value.indexOf(marker);
+    if (index >= 0) {
+      return {
+        directorRules: value.slice(0, index).trim(),
+        finalTemplate: value.slice(index + marker.length).trim()
+      };
+    }
+  }
+  return { directorRules: value, finalTemplate: '' };
+}
+
 function automationCompilePayload(book, settings, audioAssetID = '', semantic = false) {
   const promptConfig = object(settings.aiPromptConfig);
   const video = object(promptConfig.video);
   const constraints = object(promptConfig.constraints);
   const selections = Array.isArray(constraints.selections) ? constraints.selections : [];
   const restriction = selections.find(item => item?.constraintCategory === 'restriction' && item?.presetId === 'script-constraint-restriction-h3-visual-policy');
-  const body = String(video.body || '');
-  const template = body.includes('{{storyboard}}') ? body : '';
+  const presetBody = splitVideoPresetBody(video.body);
+  const template = presetBody.finalTemplate.includes('{{storyboard}}') ? presetBody.finalTemplate : '';
   return {
     director_revision_id: String(book?.directorRevision?.id || ''),
     audio_asset_id: audioAssetID,
@@ -1196,7 +1255,9 @@ function automationCompilePayload(book, settings, audioAssetID = '', semantic = 
       max_segment_ms: Number(settings.storyboardDurationLimit) === 15 ? 15000 : 10000,
       request_duration_mode: 'ceil-second',
       prompt_template: template,
-      output_constraints: template ? '' : (body || '按结构化时间线输出当前 VIDEO，保持人物、动作、机位和场景连续性。')
+      output_constraints: template
+        ? '按冻结导演数据和所选最终模板生成当前 VIDEO 提示词。'
+        : (presetBody.directorRules || '按结构化时间线输出当前 VIDEO，保持人物、动作、机位和场景连续性。')
     },
     visual_restriction_text: String(restriction?.body || ''),
     switches: {
@@ -1266,12 +1327,12 @@ function createBatchFactoryV11Router(options = {}) {
         if (['assets', 'director', 'visual'].includes(stage)) {
           const textModelId = String(settings.textModelId || '').trim();
           payload.textProvider = requestTextProvider({ username, body: { textModelId } }, upstreamOptions, textModelId);
-		  if (stage === 'director' && directorVisualBaselineRequired(batch, book)) {
+          if (['assets', 'director'].includes(stage) && directorVisualBaselineRequired(batch, book)) {
             payload.smartUnifiedStyle = await analyzeBatchFactorySmartUnifiedStyle({
               username, isOwner, batchId, bookId, textProvider: payload.textProvider,
               presetStore: upstreamOptions.presetStore,
               goBaseUrl: upstreamOptions.goBaseUrl, bridgeSecret: upstreamOptions.bridgeSecret,
-              fetchImpl: upstreamOptions.fetchImpl, now: upstreamOptions.now
+              fetchImpl: upstreamOptions.fetchImpl, now: upstreamOptions.now, persist: true
             });
           }
         }
@@ -1310,12 +1371,12 @@ function createBatchFactoryV11Router(options = {}) {
           requestId,
           textProvider: requestTextProvider({ username, body: { textModelId } }, upstreamOptions, textModelId)
         };
-		if (stage === 'director' && directorVisualBaselineRequired(batch, book)) {
+		if (['assets', 'director'].includes(stage) && directorVisualBaselineRequired(batch, book)) {
           payload.smartUnifiedStyle = await analyzeBatchFactorySmartUnifiedStyle({
             username, isOwner, batchId, bookId, textProvider: payload.textProvider,
             presetStore: upstreamOptions.presetStore,
             goBaseUrl: upstreamOptions.goBaseUrl, bridgeSecret: upstreamOptions.bridgeSecret,
-            fetchImpl: upstreamOptions.fetchImpl, now: upstreamOptions.now
+            fetchImpl: upstreamOptions.fetchImpl, now: upstreamOptions.now, persist: true
           });
         }
         if (stage === 'video') {
@@ -1562,18 +1623,19 @@ function createBatchFactoryV11Router(options = {}) {
       if (execution) {
         await refreshBatchFactoryPresetSnapshot({ username: req.username, isOwner: req.auth?.account?.isOwner === true, ...execution, goBaseUrl: upstreamOptions.goBaseUrl, bridgeSecret: upstreamOptions.bridgeSecret, presetStore: upstreamOptions.presetStore, fetchImpl: upstreamOptions.fetchImpl, now: upstreamOptions.now });
       }
-      const directorBook = directorBookPath(parsed.pathname);
-      if (directorBook) {
+      const styleSystemBook = styleSystemBookPath(parsed.pathname);
+      if (styleSystemBook) {
         const smartUnifiedStyle = await analyzeBatchFactorySmartUnifiedStyle({
           username: req.username,
           isOwner: req.auth?.account?.isOwner === true,
-          ...directorBook,
+          ...styleSystemBook,
           textProvider: req.body?.textProvider,
           presetStore: upstreamOptions.presetStore,
           goBaseUrl: upstreamOptions.goBaseUrl,
           bridgeSecret: upstreamOptions.bridgeSecret,
           fetchImpl: upstreamOptions.fetchImpl,
-          now: upstreamOptions.now
+          now: upstreamOptions.now,
+          persist: true
         });
         if (smartUnifiedStyle) req.body = { ...(req.body || {}), smartUnifiedStyle };
       }
@@ -1620,12 +1682,14 @@ module.exports = {
   imageGenerationEndpoint,
   textCompletionEndpoint,
   directorBookPath,
+  styleSystemBookPath,
   batchFactory121PublishPath,
   batchFactoryBookClassificationPath,
   batchFactory121OrganizationsPath,
   organizationOptions,
   automationPublishSettings,
   safeAutomationStatus,
+  splitVideoPresetBody,
   listBatchFactory121Organizations,
   fetchBatchFactory121Media,
   submitBatchFactoryBookTo121,

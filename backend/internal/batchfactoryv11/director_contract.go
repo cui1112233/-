@@ -318,7 +318,13 @@ func BuildAssetExtractionContract(book Book, snapshot DirectorSnapshot) (PromptC
 		if h3AssetSelected {
 			h3Preset = config.Assets.Extraction
 		}
-		if factsRule, _ := h3CharacterPromptPhases(h3Preset.Body); factsRule != "" {
+		if h3AssetSelected {
+			// A full H3 asset preset is one complete request: it first reasons over
+			// roster/facts/relationships/scenes/props, then returns every detailed
+			// character appearance in that same JSON response. Do not split it back
+			// into an implementation-only second appearance call.
+			system = strings.TrimSpace(h3Preset.Body)
+		} else if factsRule, _ := h3CharacterPromptPhases(h3Preset.Body); factsRule != "" {
 			system = factsRule
 		}
 	}
@@ -331,9 +337,23 @@ func BuildAssetExtractionContract(book Book, snapshot DirectorSnapshot) (PromptC
 	if !h3Selected && config.Assets.appliesTo(book, config.Assets.Scene) && !usesH3SceneRenderer(config.Assets.Scene) {
 		system += "\n\n当前场景提示词输出规则：\n" + strings.TrimSpace(config.Assets.Scene.Body)
 	}
-	payload, err := json.MarshalIndent(map[string]any{"book_id": book.ID, "title": book.Title, "source_text": book.SourceText}, "", "  ")
+	payloadValues := map[string]any{"book_id": book.ID, "title": book.Title, "source_text": book.SourceText}
+	// style.system is produced before asset extraction and frozen on the book.
+	// Every selected asset rule receives the result as production context; the
+	// visual-prefix switch later controls only whether this result is shown or
+	// injected into the final VIDEO prompt.
+	if analysis, err := parseSmartUnifiedAnalysis(rawString(snapshot.Effective, "h3StyleAnalysis", "")); err == nil && analysis != nil {
+		payloadValues["style_system_analysis"] = analysis.Prompt
+	}
+	payload, err := json.MarshalIndent(payloadValues, "", "  ")
 	if err != nil {
 		return PromptContract{}, err
+	}
+	if h3AssetSelected {
+		system += `
+
+【批量工厂统一返回契约】
+在同一个合法 JSON 对象中返回 characters、scenes、props 三个数组。characters 的每项必须同时返回 name 与 prompt；prompt 必须是该人物可直接用于图片和视频一致性的完整详细外形，而不是简短标签。scenes 与 props 的每项也必须同时有非空 name 与 prompt。不得返回第二份外形结果、不得要求后续逐人调用。`
 	}
 	return PromptContract{SystemPrompt: system, UserPrompt: string(payload), Temperature: 0.2, MaxTokens: 4000}, nil
 }

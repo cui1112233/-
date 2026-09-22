@@ -23,7 +23,8 @@ const {
   ensureBatchFactory121ResubmissionAllowed,
   persisted121PublicationMetadata,
   v11JSONRequest,
-  safeAutomationStatus
+  safeAutomationStatus,
+  splitVideoPresetBody
 } = require('./batch-factory-v11');
 
 test('automation status degrades to a readable idle state when its controller throws', () => {
@@ -34,6 +35,12 @@ test('automation status degrades to a readable idle state when its controller th
   assert.equal(result.state, 'unavailable');
   assert.equal(result.diagnosticCode, 'AUTOMATION_STATUS_UNAVAILABLE');
   assert.deepEqual(result.counts, { total: 0, ready: 0, running: 0, pending: 0, failed: 0, blocked: 0 });
+});
+
+test('splits one H3 video preset into director rules and its final prompt template', () => {
+  const result = splitVideoPresetBody('原版导演规则\ncharacter_slot_ids\n【批量工厂最终 Prompt 模板】\n{{storyboard}}');
+  assert.equal(result.directorRules, '原版导演规则\ncharacter_slot_ids');
+  assert.equal(result.finalTemplate, '{{storyboard}}');
 });
 
 test('identifies the explicit per-book 121 publish action without matching other V11 routes', () => {
@@ -59,7 +66,7 @@ test('normalizes only usable 121 organization options', () => {
 
 test('automation publish settings keep an explicit frozen blank instead of falling back to live batch settings', () => {
   const batch = { settingsState: { patch: { publishSettings: { organization: 'live-org', category: 'LIVE' } } } };
-  const book = { settingsState: { patch: {} } };
+  const book = { sourceText: '完整视频原文', settingsState: { patch: {} } };
   assert.deepEqual(automationPublishSettings(batch, book, { publishSettings: { organization: '', category: 'FROZEN' } }), { organization: '', category: 'FROZEN' });
 });
 
@@ -205,7 +212,7 @@ test('uses the runtime fetch when V11 helper receives no injected fetch', async 
   }
 });
 
-test('video storyboard extraction analyses smart-unified style only when the prefix is on', async () => {
+test('asset preparation analyses style.system even when smart-unified display is off', async () => {
   const calls = [];
   const fields = {
     imageMedium: '真人数字电影短剧', captureProcess: '数字电影摄影', grainTexture: '细腻胶片颗粒',
@@ -222,7 +229,7 @@ test('video storyboard extraction analyses smart-unified style only when the pre
         return new Response(JSON.stringify({
           batch: {
             id: 'batch-1',
-            settingsState: { patch: { aiPromptConfig: { constraints: { selections: [{ presetId: 'script-constraint-prefix-smart-unified', constraintCategory: 'prefix' }] } } } },
+            settingsState: { patch: { aiPromptConfig: { constraints: { selections: [] } } } },
             books: [{
               id: 'book-1',
               sourceText: '完整原文',
@@ -237,6 +244,32 @@ test('video storyboard extraction analyses smart-unified style only when the pre
   });
   assert.equal(calls.length, 2);
   assert.match(style, /影像媒介：真人数字电影短剧/);
+});
+
+test('asset preparation freezes the style.system result on the book for later director use', async () => {
+  const calls = [];
+  const fields = {
+    final_genre: '现代都市短剧', genre: '现代都市短剧', trailer_style: '高级电影感', story_era: '当代都市',
+    negative_prompt: '无畸形', picture_limit_prompt: '无字幕', quality_constraint_prompt: '画面稳定'
+  };
+  await analyzeBatchFactorySmartUnifiedStyle({
+    username: 'alice', batchId: 'batch-1', bookId: 'book-1', goBaseUrl: 'http://go.local', bridgeSecret: 'secret', persist: true,
+    textProvider: { endpoint: 'http://text.local/v1/chat/completions', apiKey: 'key', model: 'text-model' },
+    fetchImpl: async (url, init = {}) => {
+      calls.push({ url, init });
+      if (init.method === 'GET') return new Response(JSON.stringify({
+        batch: { id: 'batch-1', settingsState: { patch: {} }, books: [{ id: 'book-1', revision: 7, sourceText: '完整视频原文', settingsState: { patch: {} }, assetRecords: [] }] }
+      }), { status: 200 });
+      if (url === 'http://text.local/v1/chat/completions') return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(fields) } }] }), { status: 200 });
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }
+  });
+  assert.equal(calls.length, 3);
+  assert.equal(calls[2].init.method, 'PUT');
+  const frozen = JSON.parse(calls[2].init.body);
+  assert.equal(frozen.expectedRevision, 7);
+  assert.match(frozen.patch.h3StyleAnalysis, /现代都市短剧/);
+  assert.match(frozen.patch.h3StyleSourceHash, /^[a-f0-9]{64}$/);
 });
 
 test('H3 obtains the hidden visual baseline even when smart-unified display is off', async () => {
@@ -483,7 +516,7 @@ test('H3 runs visual-baseline analysis without enabling smart-unified display', 
   const batch = { settingsState: { patch: { aiPromptConfig: {
     video: { enabled: true, presetId: 'batch-video-h3-director', presetKey: 'h3-video-normal' }
   } } } };
-  const book = { settingsState: { patch: {} } };
+  const book = { sourceText: '完整视频原文', settingsState: { patch: {} } };
   assert.equal(smartUnifiedSelected(batch, book), false);
 	assert.equal(directorVisualBaselineRequired(batch, book), true);
 });

@@ -385,9 +385,15 @@ func (s *DirectorService) RunAssetExtraction(ctx context.Context, owner, batchID
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
-	assets, err = s.compileH3AssetPrompts(ctx, book, snapshot, assets)
-	if err != nil {
-		return nil, err
+	// The selected full H3 assets preset already returns detailed appearances
+	// together with characters/scenes/props. Other renderer selections retain
+	// their historical post-extraction compilation behavior.
+	config := aiReasoningPromptConfig(snapshot.Effective)
+	if !(config.Assets.appliesTo(book, config.Assets.Extraction) && usesH3AssetRenderer(config.Assets.Extraction)) {
+		assets, err = s.compileH3AssetPrompts(ctx, book, snapshot, assets)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return s.Store.PersistExtractedBookAssets(ctx, owner, book, snapshot, assets)
 }

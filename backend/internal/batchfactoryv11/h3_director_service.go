@@ -144,8 +144,12 @@ func (s *DirectorService) RunConfiguredH3Director(ctx context.Context, owner, ba
 }
 
 func directorRulesFromVideoPreset(body string) string {
-	parts := strings.SplitN(body, "## 最终 Prompt 模板", 2)
-	return strings.TrimSpace(parts[0])
+	for _, marker := range []string{"【批量工厂最终 Prompt 模板】", "## 最终 Prompt 模板"} {
+		if index := strings.Index(body, marker); index >= 0 {
+			return strings.TrimSpace(body[:index])
+		}
+	}
+	return strings.TrimSpace(body)
 }
 
 func configuredVideoPresetKey(preset AIReasoningPromptModule) string {
