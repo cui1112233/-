@@ -30,7 +30,7 @@ jobs:
           cd /opt/qiantie/v88/deploy/v88-public
           node_id="$(docker compose -f docker-compose.yml ps -q v88-node)"
           test -n "$node_id"
-          docker exec "$node_id" node <<'NODE'
+          docker exec -i "$node_id" node <<'NODE'
           const fs = require('node:fs');
           const path = require('node:path');
           const root = '/app/data/users';
