@@ -2391,7 +2391,7 @@ function aiCopyStatusText(task = {}, selectedAi = [], generatedAi = []) {
   const status = String(task.ai_status || task.aiStatus || '').trim().toLowerCase();
   const current = String(task.ai_current_version || task.aiCurrentVersion || '').trim().toUpperCase();
   const selectedCount = selectedAi.length;
-  const generatedCount = generatedAi.length;
+  const generatedCount = generatedAi.filter(version => !selectedAi.length || selectedAi.includes(version)).length;
   const count = selectedCount ? `${generatedCount}/${selectedCount}` : (generatedCount ? `${generatedCount}/${generatedCount}` : '');
   const reason = String(task.ai_error || task.aiError || '').trim();
   const reasonText = reason ? normalizeBatchErrorMessage(reason, task.ai_upstream_code || task.aiUpstreamCode) : '';
@@ -2550,6 +2550,7 @@ function renderDetail(data) {
     ai_error: rawMeta.ai_error || rawMeta.aiError || "",
     ai_current_version: rawMeta.ai_current_version || rawMeta.aiCurrentVersion || "",
     ai_generated_count: rawMeta.ai_generated_count ?? rawMeta.aiGeneratedCount ?? 0,
+    ai_last_attempt_error: rawMeta.ai_last_attempt_error || rawMeta.aiLastAttemptError || "",
     site_submit_error: rawMeta.site_submit_error || rawMeta.siteSubmitError || "",
     created_at: rawMeta.created_at || rawMeta.createdAt || "",
     updated_at: rawMeta.updated_at || rawMeta.updatedAt || "",
@@ -2606,6 +2607,7 @@ function renderDetail(data) {
       ${metaItem("AI已生成数量", meta.ai_generated_count || 0)}
       ${metaItem("AI尝试次数", meta.ai_last_attempt_count || 0)}
       ${metaItem("AI最后执行时间", meta.ai_last_attempt_at || "")}
+      ${metaItem("AI最近失败", meta.ai_last_attempt_error || "无")}
       ${metaItem("分类失败原因", meta.classify_error || "")}
       ${metaItem("网站提交失败原因", meta.site_submit_error || "")}
       ${metaItem("任务错误", meta.error || "")}

@@ -77,6 +77,7 @@ function snakeTask(task = {}) {
     rewrite_model: task.rewriteModel || task.rewrite_model || '',
     ai_last_attempt_count: Number(task.aiLastAttemptCount ?? task.ai_last_attempt_count) || 0,
     ai_last_attempt_at: task.aiLastAttemptAt || task.ai_last_attempt_at || '',
+    ai_last_attempt_error: task.aiLastAttemptError || task.ai_last_attempt_error || '',
     sensitive_hit_count: Number(task.sensitiveHitCount ?? task.sensitive_hit_count) || 0,
     sensitive_fixed_count: Number(task.sensitiveFixedCount ?? task.sensitive_fixed_count) || 0,
     sensitive_failed_count: Number(task.sensitiveFailedCount ?? task.sensitive_failed_count) || 0,
@@ -639,7 +640,17 @@ function createBatchRewriteRouter({
 
   async function listTasks(req) {
     const { tasks } = await resources(req);
-    return (await tasks.listTasks(req.username)).map(snakeTask);
+    let records = await tasks.listTasks(req.username);
+    let reconciled = false;
+    for (const task of records) {
+      const aiStatus = String(task.aiStatus || task.ai_status || '').toLowerCase();
+      // 只校正历史终态，运行中的任务仍由生成器自己写入，避免轮询抢写状态。
+      if (!task.hasAi || aiStatus === 'generating' || aiStatus === 'ai_processing') continue;
+      const result = await rewrite.reconcileAiTaskStatus({ tasks, username: req.username, bookId: task.bookId || task.book_id || task.id, task, recordLog: true });
+      reconciled = reconciled || result.changed;
+    }
+    if (reconciled) records = await tasks.listTasks(req.username);
+    return records.map(snakeTask);
   }
 
   async function listSiteSubmitHistory(req) {
@@ -1314,7 +1325,17 @@ function createBatchRewriteRouter({
   } catch (error) {
     try {
       const { tasks } = await resources(req);
-      await tasks.updateTaskMeta(req.username, req.params.id, { status: 'ai_failed', aiStatus: 'failed', aiError: error.message || 'AI文案生成失败' });
+      const task = await tasks.getTask(req.username, req.params.id);
+      const reconciled = await rewrite.reconcileAiTaskStatus({
+        tasks,
+        username: req.username,
+        bookId: req.params.id,
+        task: task?.meta,
+        lastAttemptError: error.message || 'AI文案生成失败'
+      });
+      await tasks.updateTaskMeta(req.username, req.params.id, {
+        status: reconciled.status === 'done' ? 'ai_done' : (reconciled.status === 'partial' ? 'ai_partial' : 'ai_failed')
+      });
     } catch (_) { /* preserve the original route error */ }
     res.status(400).json({ error: error.message });
   } });

@@ -153,7 +153,8 @@ test('手动生成AI接口同步写回任务总状态', () => {
   assert.match(route, /status: 'ai_processing'/);
   assert.match(route, /const status = result\.status === 'done'[\s\S]*'ai_done'/);
   assert.match(route, /result\.status === 'partial'[\s\S]*'ai_partial'/);
-  assert.match(route, /status: 'ai_failed'/);
+  assert.match(route, /rewrite\.reconcileAiTaskStatus/);
+  assert.match(route, /reconciled\.status === 'done' \? 'ai_done'/);
 });
 
 test('任务列表不向用户显示英文原始状态和提交版本', () => {
