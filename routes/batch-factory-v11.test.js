@@ -284,6 +284,30 @@ test('H3 style.system uses the frozen smart-unified preset and returns a traceab
   });
 });
 
+test('H3 style.system accepts a provider envelope that wraps its fields', async () => {
+  const result = await analyzeBatchFactorySmartUnifiedStyle({
+    username: 'alice', batchId: 'batch-1', bookId: 'book-1', goBaseUrl: 'http://go.local', bridgeSecret: 'secret',
+    textProvider: { endpoint: 'http://text.local/v1/chat/completions', apiKey: 'key', model: 'text-model' },
+    fetchImpl: async (_url, init = {}) => {
+      if (init.method === 'GET') return new Response(JSON.stringify({
+        batch: { id: 'batch-1', settingsState: { patch: { aiPromptConfig: { video: { enabled: true, presetId: 'batch-video-h3-director' } } } }, books: [{ id: 'book-1', sourceText: '完整视频原文', settingsState: { patch: {} }, assetRecords: [] }] }
+      }), { status: 200 });
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({
+        schema_version: 'h3-style-system/v1',
+        prompt: '模型展示文案不作为权威来源',
+        fields: {
+          final_genre: '现代都市短剧', genre: '现代都市短剧', trailer_style: '高级电影感', story_era: '当代都市',
+          negative_prompt: '无畸形', picture_limit_prompt: '无字幕', quality_constraint_prompt: '画面稳定'
+        }
+      }) } }] }), { status: 200 });
+    }
+  });
+
+  const parsed = JSON.parse(result);
+  assert.equal(parsed.fields.final_genre, '现代都市短剧');
+  assert.equal(parsed.prompt, '现代都市短剧；高级电影感；当代都市。');
+});
+
 test('returns a smart-unified provider credential failure instead of calling the Go service unavailable', () => {
   const error = Object.assign(new Error('智能统一视觉分析模型“gemini-3.5-flash-maxthinking”请求失败：当前无可用凭证'), {
     code: 'SMART_UNIFIED_PROVIDER_FAILED'

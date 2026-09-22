@@ -528,6 +528,20 @@ function serializeSmartUnifiedStyleAnalysis(style, preset) {
   });
 }
 
+// Some OpenAI-compatible providers preserve the H3 payload's optional
+// `fields` envelope. The H3 system preset still owns the same seven fields;
+// unwrap only that exact shape before handing it to the shared normalizer.
+function unwrapH3StyleSystemFields(content) {
+  const raw = String(content || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+  let parsed;
+  try { parsed = JSON.parse(raw); } catch (_) { return content; }
+  const fields = parsed?.fields;
+  const required = ['final_genre', 'trailer_style', 'story_era'];
+  if (!fields || typeof fields !== 'object' || Array.isArray(fields)
+    || !required.every(key => typeof fields[key] === 'string' && fields[key].trim())) return content;
+  return JSON.stringify(fields);
+}
+
 async function analyzeBatchFactorySmartUnifiedStyle({ username, isOwner = false, batchId, bookId, textProvider, presetStore, goBaseUrl, bridgeSecret, fetchImpl = globalThis.fetch, now = Date.now } = {}) {
   if (!fetchImpl || !textProvider?.endpoint || !textProvider?.apiKey || !textProvider?.model) throw requestError('智能统一需要当前书可用的文本模型', 422, 'TEXT_MODEL_REQUIRED');
   const basePath = `/api/batch-factory/v11/batches/${encodeURIComponent(batchId)}`;
@@ -561,7 +575,7 @@ async function analyzeBatchFactorySmartUnifiedStyle({ username, isOwner = false,
   if (!response.ok) throw requestError(`智能统一视觉分析模型“${modelName}”请求失败：${payload?.error?.message || payload?.message || `HTTP ${response.status}`}`, 502, 'SMART_UNIFIED_PROVIDER_FAILED');
   const content = String(payload?.choices?.[0]?.message?.content || '').trim();
   if (!content) throw requestError('智能统一视觉分析模型没有返回内容', 502, 'SMART_UNIFIED_PROVIDER_INVALID_RESPONSE');
-  try { return serializeSmartUnifiedStyleAnalysis(parseSmartUnifiedVisualStyle(content), stylePreset); } catch (error) { throw requestError(error?.message || '智能统一视觉分析结果无效', 422, 'SMART_UNIFIED_INVALID_RESPONSE'); }
+  try { return serializeSmartUnifiedStyleAnalysis(parseSmartUnifiedVisualStyle(unwrapH3StyleSystemFields(content)), stylePreset); } catch (error) { throw requestError(error?.message || '智能统一视觉分析结果无效', 422, 'SMART_UNIFIED_INVALID_RESPONSE'); }
 }
 
 function imageSizeForAspectRatio(aspectRatio) {
