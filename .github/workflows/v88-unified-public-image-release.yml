@@ -291,7 +291,20 @@ jobs:
         run: |
           set -Eeuo pipefail
           expected_sha="$GITHUB_SHA"
-          curl -fsS --retry 3 --retry-delay 2 --max-time 10 "http://${ECS_HOST}:3000/api/build-info" >/tmp/public-build.json
+          public_ready=false
+          for attempt in $(seq 1 30); do
+            if curl -fsS --max-time 10 "http://${ECS_HOST}:3000/api/build-info" >/tmp/public-build.json 2>/dev/null; then
+              if python3 -c 'import json,sys; expected=sys.argv[1]; data=json.load(sys.stdin); raise SystemExit(0 if data.get("git_sha") == expected else 1)' "$expected_sha" </tmp/public-build.json; then
+                public_ready=true
+                break
+              fi
+            fi
+            sleep 2
+          done
+          if [ "$public_ready" != true ]; then
+            echo "public build identity did not converge within 60 seconds" >&2
+            exit 1
+          fi
           python3 -c 'import json,sys; expected=sys.argv[1]; data=json.load(sys.stdin); assert data.get("git_sha") == expected, (data, expected); print(json.dumps(data, ensure_ascii=False))' "$expected_sha" </tmp/public-build.json
           curl -fsS --retry 3 --retry-delay 2 --max-time 10 "http://${ECS_HOST}:3000/batch-factory" >/dev/null
           status="$(curl -sS -o /dev/null -w '%{http_code}' --retry 2 --retry-delay 1 --max-time 10 "http://${ECS_HOST}:3000/api/batch-factory/v11/capabilities")"
