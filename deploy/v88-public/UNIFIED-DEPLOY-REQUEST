@@ -1,3 +1,3 @@
-release_sha=a390f5d2
-scope=Fix script page crash from missing video permission guard
-requested_at=2026-09-14T23:20:00+08:00
+release_sha=cb2b5d09f07f300d0fc8576ce67cee1a73a92a36
+scope=Script shot-card at-mentions and current-script entity references
+requested_at=2026-09-22T16:31:00+08:00
