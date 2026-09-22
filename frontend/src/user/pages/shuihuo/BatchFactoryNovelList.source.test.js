@@ -819,6 +819,14 @@ test('checks the newest book-stage summary before retrying, so a completed retry
   assert.match(source, /await retryBookStage\(batch\.id, book\.id/);
 });
 
+test('unified settings retries only a revision-only conflict and refreshes when settings changed', () => {
+  assert.match(source, /async function saveSettings\(patch\)/);
+  assert.match(source, /const latestResult = await getBatch\(batch\.id\)/);
+  assert.match(source, /sameSettingsPatch\(latestBatch\?\.settingsState\?\.patch, batch\?\.settingsState\?\.patch\)/);
+  assert.match(source, /配置已更新，已刷新当前统一配置；请核对后重新保存/);
+  assert.match(source, /expectedRevision: Number\(latestBatch\?\.settingsState\?\.revision \|\| 0\)/);
+});
+
 test('keeps prompt editing in the prompt dialog and exposes media actions only in the clip library', () => {
   const mediaPanel = source.match(/function MediaVersionPanel\([\s\S]*?\n}\n\nfunction BatchLogs/)?.[0] || '';
   assert.match(source, /删除候选版本/);

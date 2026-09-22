@@ -193,6 +193,9 @@ function bookPlatformName(book, platformNames = {}) {
   return String(metadata.platformName || metadata.platformLabel || platformNames[String(book?.platform || '')] || '').trim() || '未命名书城';
 }
 function resultData(result, key) { return result?.[key] || result || {}; }
+function sameSettingsPatch(left, right) {
+  return JSON.stringify(left || {}) === JSON.stringify(right || {});
+}
 function h3DirectorCards(book) {
   const output = book?.directorRevision?.output || {};
   const document = output.h3_director || output.h3Director || {};
@@ -2420,13 +2423,36 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
     } catch (error) { message.error(error?.message || '保存小说元数据失败'); } finally { setMetadataSaving(false); }
   }
   async function saveSettings(patch) {
+    const normalized = { ...patch, audioDurationSeconds: 0, ...(patch.fixedSingleVideo === true ? { audioPlanningEnabled: false, audioMergeEnabled: false } : {}) };
     try {
-      const normalized = { ...patch, audioDurationSeconds: 0, ...(patch.fixedSingleVideo === true ? { audioPlanningEnabled: false, audioMergeEnabled: false } : {}) };
-      await saveBatchSettings(batch.id, { patch: normalized, expectedRevision: Number(batch?.settingsState?.revision || 0) });
+      await saveBatchSettings(batch.id, { patch: normalized, expectedRevision: Number(batch?.settingsState?.revision || 0) }, { suppressGlobalError: true });
+    } catch (error) {
+      if (Number(error?.status) !== 409) {
+        message.error(error?.message || '应用统一引擎配置失败');
+        return false;
+      }
+      try {
+        const latestResult = await getBatch(batch.id);
+        const latestBatch = resultData(latestResult, 'batch');
+        if (!sameSettingsPatch(latestBatch?.settingsState?.patch, batch?.settingsState?.patch)) {
+          await refreshBatch();
+          message.warning('配置已更新，已刷新当前统一配置；请核对后重新保存。');
+          return false;
+        }
+        await saveBatchSettings(batch.id, {
+          patch: normalized,
+          expectedRevision: Number(latestBatch?.settingsState?.revision || 0)
+        }, { suppressGlobalError: true });
+      } catch (retryError) {
+        message.error(retryError?.message || '应用统一引擎配置失败');
+        return false;
+      }
+    }
+    try {
       await refreshBatch();
       message.success(`统一配置已应用到当前批量；已有单书覆盖保持不变。`);
       return true;
-    } catch (error) { message.error(error?.message || '应用统一引擎配置失败'); return false; }
+    } catch (error) { message.error(error?.message || '统一配置已保存，但刷新工作台失败'); return false; }
   }
   async function previewChangeImpact(patch) {
     try { const impact = await getChangeImpact(batch.id, { patch, expectedRevision: Number(batch?.settingsState?.revision || 0) }); return { ok: true, impact: resultData(impact, 'impact') }; } catch (error) { return { ok: false, message: error?.message || '无法读取配置影响' }; }

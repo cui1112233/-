@@ -110,8 +110,8 @@ export function getBatch(batchId) {
   return apiRequest(bf11Path(`batches/${id(batchId)}`));
 }
 
-export function saveBatchSettings(batchId, input) {
-  return apiRequest(bf11ScopePath({ scope: 'batch', batchId }), { method: 'PUT', body: body(input) });
+export function saveBatchSettings(batchId, input, options = {}) {
+  return apiRequest(bf11ScopePath({ scope: 'batch', batchId }), { ...options, method: 'PUT', body: body(input) });
 }
 
 export function updateBookMetadata(batchId, bookId, input) {
