@@ -478,7 +478,7 @@ func TestH3FullAssetPresetCarriesReferenceAnalysisAndAppearanceAuthorities(t *te
 	if len(provider.calls) != 1 {
 		t.Fatalf("H3 calls=%d, want one complete H3 asset request", len(provider.calls))
 	}
-	for _, want := range []string{"V59 AUTO正式人物名单判断", "V59 第二步：只按强制名单生成人物卡", "V52通用小说人物关系图与分镜选角Skill", "V55人物卡外形隔离系统规则", "强证据", "不得只凭姓名"} {
+	for _, want := range []string{"V59 AUTO正式人物名单判断", "V59 第二步：只按强制名单生成人物卡", "V52通用小说人物关系图与分镜选角Skill", "V55人物卡外形隔离系统规则", "强证据", "普通姓名不能只凭字形猜性别"} {
 		if !strings.Contains(provider.calls[0].SystemPrompt, want) {
 			t.Fatalf("complete H3 asset request missing reference authority %q:\n%s", want, provider.calls[0].SystemPrompt)
 		}

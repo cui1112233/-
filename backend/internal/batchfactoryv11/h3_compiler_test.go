@@ -91,7 +91,7 @@ func TestCompileH3VideoSegmentsUsesRealH3SubmissionGrammarInsteadOfTraceDump(t *
 		t.Fatal(err)
 	}
 	prompt := compilation.Segments[0].CompiledPrompt
-	for _, required := range []string{"detailed_description:", "subject_definitions:", "<Subject 1>", "【视听呈现】", "[Scene 1]", "Total duration:", "[Shot 1]", "Audio:", "[Scene 1][Shot 1] Soundscape:", "【H3画面约束】"} {
+	for _, required := range []string{"detailed_description:", "subject_definitions:", "<Subject 1>", "[AUDIOVISUAL PRESENTATION]", "[Scene 1]", "Total duration:", "[Shot 1]", "Audio:", "[Scene 1][Shot 1] Soundscape:", "【H3画面约束】"} {
 		if !strings.Contains(prompt, required) {
 			t.Fatalf("real H3 prompt missing %q:\n%s", required, prompt)
 		}
@@ -115,13 +115,35 @@ func TestCompileH3VideoSegmentsUsesSelectedVideoPresetTemplate(t *testing.T) {
 		t.Fatal(err)
 	}
 	prompt := compilation.Segments[0].CompiledPrompt
-	if !strings.HasPrefix(prompt, "[FORMAT]\ndetailed_description:\nVISUAL-BASELINE-CONTENT") || !strings.Contains(prompt, "【视听呈现】") {
+	if !strings.HasPrefix(prompt, "[FORMAT]\ndetailed_description:\nVISUAL-BASELINE-CONTENT") || !strings.Contains(prompt, "[Scene 1]") {
 		t.Fatalf("selected video template did not control final prompt: %s", prompt)
 	}
 	for _, omitted := range []string{"CHARACTER-ASSET-C001", "人物身份、年龄、脸型、五官、发型、服装和饰品在连续镜头中保持稳定", "{{"} {
 		if strings.Contains(prompt, omitted) {
 			t.Fatalf("disabled or unresolved template layer %q in final prompt: %s", omitted, prompt)
 		}
+	}
+}
+
+func TestCompileH3VideoSegmentsKeepsOptionalLayersOutsideStoryboardOnlyTemplate(t *testing.T) {
+	document := mustH3DirectorFixture(t)
+	timeline := mustH3Timeline(t, document, 7420)
+	input := completeH3CompileInput(document, timeline)
+	input.Preset.PromptTemplate = "[AUDIOVISUAL PRESENTATION]\nRender only the current Scene and Shot in order.\n\n{{storyboard}}"
+	input.Switches = H3PromptSwitches{SmartUnified: true, BaseSetup: true, VisualRestriction: true}
+
+	compilation, err := CompileH3VideoSegments(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prompt := compilation.Segments[0].CompiledPrompt
+	for _, required := range []string{"detailed_description:", "VISUAL-BASELINE-CONTENT", "subject_definitions:", "CHARACTER-ASSET-C001", "[AUDIOVISUAL PRESENTATION]", "[Scene 1]", "Audio:", "人物身份、年龄、脸型、五官、发型、服装和饰品在连续镜头中保持稳定"} {
+		if !strings.Contains(prompt, required) {
+			t.Fatalf("storyboard-only template lost required layer %q:\n%s", required, prompt)
+		}
+	}
+	if strings.Count(prompt, "[AUDIOVISUAL PRESENTATION]") != 1 {
+		t.Fatalf("template skeleton should appear exactly once:\n%s", prompt)
 	}
 }
 
@@ -293,7 +315,7 @@ func TestCompileH3VideoSegmentsMatchesFrozenPromptGoldenHash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const want = "49db88a5d3c375656db0af1458923b33d6e347793b56b1b51c34c91cb52a4fb3"
+	const want = "f5789a487421cf44df847f6fc3edb0ace5893002ee5c640b9c1362735ccb0007"
 	if got := compilation.Segments[0].CompiledPromptHash; got != want {
 		t.Fatalf("compiled prompt golden hash=%s, want %s", got, want)
 	}

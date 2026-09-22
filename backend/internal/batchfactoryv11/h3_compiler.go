@@ -14,6 +14,15 @@ const (
 	h3VideoCompilerVersion     = "h3-video-compiler/v3"
 )
 
+const h3DefaultAudiovisualPresentation = `[AUDIOVISUAL PRESENTATION]
+Render every Scene and Shot strictly in the listed order.
+Complete the current Scene and its visible result before the next Scene begins.
+Never preview or borrow any action, location, prop state, character reveal, or story result belonging to a later Scene.
+Once a later story beat begins, never return to an unfinished earlier beat.
+Use a clean hard cut at Scene or Shot boundaries unless the current Shot explicitly defines one continuous action in the same physical space.
+Character emotion and relationships are primarily expressed through gaze, gesture, body movement, blocking, props, and visible environmental results.
+Visible characters maintain a natural closed-mouth state.`
+
 type H3VideoPreset struct {
 	Key                 string `json:"key"`
 	Revision            int64  `json:"revision"`
@@ -298,7 +307,7 @@ func compileH3CanonicalSegmentPrompt(input H3VideoCompileInput, segment H3VideoS
 	if input.Switches.BaseSetup {
 		assetDefinitions = "subject_definitions:\n" + h3CanonicalSubjectDefinitions(input.Document, input.Analysis, segment)
 	}
-	storyboard := "【视听呈现】\n" + h3CanonicalPresentation(input.Document, segment)
+	storyboard := h3CanonicalPresentation(input.Document, segment)
 	visualRestriction := ""
 	if input.Switches.VisualRestriction {
 		visualRestriction = strings.TrimSpace(input.VisualRestrictionText)
@@ -309,13 +318,30 @@ func compileH3CanonicalSegmentPrompt(input H3VideoCompileInput, segment H3VideoS
 		}
 	}
 	if template := strings.TrimSpace(input.Preset.PromptTemplate); template != "" {
-		return renderH3PromptTemplate(template, map[string]string{
+		rendered := renderH3PromptTemplate(template, map[string]string{
 			"visual_baseline":    visualBaseline,
 			"asset_definitions":  assetDefinitions,
 			"storyboard":         storyboard,
 			"visual_restriction": visualRestriction,
 			"output_constraints": strings.TrimSpace(input.Preset.OutputConstraints),
 		})
+		// A video preset owns only its director skeleton. Style, asset settings
+		// and visual limits are independent switch-controlled injection layers;
+		// legacy templates that place their placeholders explicitly keep their
+		// historical layout, while storyboard-only templates receive the layers
+		// around the editable skeleton.
+		parts := make([]string, 0, 4)
+		if visualBaseline != "" && !strings.Contains(template, "{{visual_baseline}}") {
+			parts = append(parts, visualBaseline)
+		}
+		if assetDefinitions != "" && !strings.Contains(template, "{{asset_definitions}}") {
+			parts = append(parts, assetDefinitions)
+		}
+		parts = append(parts, rendered)
+		if visualRestriction != "" && !strings.Contains(template, "{{visual_restriction}}") {
+			parts = append(parts, visualRestriction)
+		}
+		return strings.TrimSpace(strings.Join(parts, "\n\n"))
 	}
 	parts := []string{}
 	if visualBaseline != "" {
@@ -327,7 +353,7 @@ func compileH3CanonicalSegmentPrompt(input H3VideoCompileInput, segment H3VideoS
 	if overridden {
 		parts = append(parts, "editable_story_direction:\n"+strings.TrimSpace(editableCopy))
 	}
-	parts = append(parts, storyboard)
+	parts = append(parts, h3DefaultAudiovisualPresentation+"\n\n"+storyboard)
 	if visualRestriction != "" {
 		parts = append(parts, visualRestriction)
 	}
