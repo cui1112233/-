@@ -8,6 +8,7 @@ const {
   presetDrivenExecutionPath,
   smartUnifiedSelected,
   directorVisualBaselineRequired,
+  styleSystemBookPath,
   analyzeBatchFactorySmartUnifiedStyle,
   needsPersonalConfigSync,
   needsH3ConfigSync,
@@ -26,6 +27,13 @@ const {
   safeAutomationStatus,
   splitVideoPresetBody
 } = require('./batch-factory-v11');
+
+test('style.system runs during asset extraction but never when a director stage is requested', () => {
+  const assetPath = '/api/batch-factory/v11/batches/batch-1/books/book-1/stages/assets';
+  const directorPath = '/api/batch-factory/v11/batches/batch-1/books/book-1/stages/director';
+  assert.deepEqual(styleSystemBookPath(assetPath), { batchId: 'batch-1', bookId: 'book-1' });
+  assert.equal(styleSystemBookPath(directorPath), null);
+});
 
 test('automation status degrades to a readable idle state when its controller throws', () => {
   const result = safeAutomationStatus({

@@ -115,7 +115,7 @@ function directorBookPath(pathname) {
 }
 
 function styleSystemBookPath(pathname) {
-  const match = String(pathname || '').match(/^\/api\/batch-factory\/v11\/batches\/([^/]+)\/books\/([^/]+)\/(?:assets|director|stages\/(?:assets|director))$/);
+  const match = String(pathname || '').match(/^\/api\/batch-factory\/v11\/batches\/([^/]+)\/books\/([^/]+)\/(?:assets|stages\/assets)$/);
   return match ? { batchId: decodeURIComponent(match[1]), bookId: decodeURIComponent(match[2]) } : null;
 }
 
