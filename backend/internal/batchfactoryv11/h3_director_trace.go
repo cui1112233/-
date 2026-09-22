@@ -253,6 +253,23 @@ func ParseH3DirectorDocument(raw json.RawMessage, source H3VideoSource) (H3Direc
 	if len(document.DirectorCards) != len(lines) {
 		return document, fmt.Errorf("%w: director card count %d does not match processed video source line count %d", ErrInvalid, len(document.DirectorCards), len(lines))
 	}
+	// Source indexes are transport metadata, not a creative director decision.
+	// OpenAI-compatible models commonly number an otherwise ordered list from
+	// zero. Accept only that complete, unambiguous zero-based sequence and
+	// persist the canonical one-based indexes used by source slices and Trace.
+	// Any gap, reorder, duplicate, or non-zero-based mismatch remains invalid.
+	zeroBasedIndexes := true
+	for index, card := range document.DirectorCards {
+		if card.SourceIndex != index {
+			zeroBasedIndexes = false
+			break
+		}
+	}
+	if zeroBasedIndexes {
+		for index := range document.DirectorCards {
+			document.DirectorCards[index].SourceIndex = index + 1
+		}
+	}
 	for index := range lines {
 		card := document.DirectorCards[index]
 		if card.SourceIndex != index+1 {

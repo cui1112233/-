@@ -219,7 +219,7 @@ AI 只给出 preferred_duration 和正数 duration_weight 表达语义节奏；�
 	})
 	return TextCompletionRequest{
 		SystemPrompt: schema,
-		UserPrompt:   string(meta) + "\n\n以下是 H3 已处理的视频原文，一行一张导演卡：\n" + source.Text,
+		UserPrompt:   string(meta) + "\n\n以下是 H3 已处理的视频原文，一行一张导演卡。director_cards 必须与下列顺序逐项对应；source_index 固定从 1 起（第一行=1，绝不能从 0 起）：\n" + source.Text,
 		Temperature:  0.1,
 		MaxTokens:    32000,
 	}

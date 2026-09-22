@@ -48,6 +48,27 @@ func TestParseH3DirectorDocumentUsesProcessedVideoSourceLines(t *testing.T) {
 	}
 }
 
+func TestParseH3DirectorDocumentNormalizesAConsistentZeroBasedModelIndex(t *testing.T) {
+	value := decodeH3FixtureObject(t, "h3_v12_complete_director_trace.json")
+	for index := 0; index < 3; index++ {
+		h3FixtureCard(value, index)["source_index"] = index
+	}
+	raw, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	document, err := ParseH3DirectorDocument(raw, acceptanceH3VideoSource())
+	if err != nil {
+		t.Fatalf("consistent 0-based model output should be normalized: %v", err)
+	}
+	for index, card := range document.DirectorCards {
+		if got, want := card.SourceIndex, index+1; got != want {
+			t.Fatalf("card %d source index = %d, want deterministic 1-based %d", index, got, want)
+		}
+	}
+}
+
 func TestParseH3DirectorDocumentRejectsStringSceneMemory(t *testing.T) {
 	var value map[string]any
 	if err := json.Unmarshal(readH3Fixture(t, "h3_v12_complete_director_trace.json"), &value); err != nil {
