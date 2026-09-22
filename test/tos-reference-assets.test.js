@@ -83,3 +83,16 @@ test('premium store gives the browser an internal URL after TOS synchronization'
     '/api/novel-panel/reference-assets/file/character/hero/source_1700000000000_abcdef'
   );
 });
+
+test('premium store refuses a legacy TOS object owned by another user', () => {
+  const usersDir = fs.mkdtempSync(path.join(os.tmpdir(), 'qiantie-tos-'));
+  const premium = createNovelPanelPremiumStore({
+    usersDir,
+    tosStore: {
+      parseObjectUrl: () => 'reference-assets/other-user/character/hero/source.png',
+      getSignedUrl: () => 'https://tos.example/signed'
+    }
+  });
+
+  assert.throws(() => premium.resolveLegacyTosAssetUrl('current-user', 'https://qiantie.tos-cn-beijing.volces.com/reference-assets/other-user/character/hero/source.png'), /当前账号/);
+});

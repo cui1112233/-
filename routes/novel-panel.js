@@ -1072,7 +1072,7 @@ router.get('/reference-assets/file/:assetType/:assetId/:variant', (req, res) => 
 
 router.get('/reference-assets/legacy', async (req, res) => {
   try {
-    const target = premiumStore(req).resolveLegacyTosAssetUrl(req.query.url);
+    const target = premiumStore(req).resolveLegacyTosAssetUrl(req.username, req.query.url);
     const upstream = await fetch(target);
     if (!upstream.ok) return res.status(404).json({ error: '旧图片无法读取，请重新上传。', code: 'REFERENCE_ASSET_LEGACY_NOT_FOUND' });
     const contentType = String(upstream.headers.get('content-type') || 'application/octet-stream');
