@@ -146,6 +146,66 @@ func (s *MySQLStore) PutConfig(ctx context.Context, owner string, settings map[s
 	return err
 }
 
+func (s *MySQLStore) PutRun(ctx context.Context, owner string, record RunRecord) error {
+	record = normalizeRunRecord(record)
+	if record.RunID == "" || record.BookID == "" || record.Stage == "" || record.Status == "" || record.TextModelID == "" || record.ModelID == "" {
+		return errors.New("run audit fields are required")
+	}
+	_, err := s.DB.ExecContext(ctx, `INSERT INTO novel_fetch_workshop_runs(run_id,owner_username,book_id,stage,status,attempts,text_model_id,model_id,model_display_name,request_id,error_message,started_at,finished_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP(6)) ON DUPLICATE KEY UPDATE book_id=VALUES(book_id),stage=VALUES(stage),status=VALUES(status),attempts=VALUES(attempts),text_model_id=VALUES(text_model_id),model_id=VALUES(model_id),model_display_name=VALUES(model_display_name),request_id=VALUES(request_id),error_message=VALUES(error_message),started_at=VALUES(started_at),finished_at=VALUES(finished_at),updated_at=CURRENT_TIMESTAMP(6)`, record.RunID, owner, record.BookID, record.Stage, record.Status, record.Attempts, record.TextModelID, record.ModelID, record.ModelDisplayName, nullableRunString(record.RequestID), nullableRunString(record.ErrorMessage), nullableTime(record.StartedAt), nullableTime(record.FinishedAt), time.Now().UTC())
+	return err
+}
+
+func (s *MySQLStore) ListRuns(ctx context.Context, owner, bookID string) ([]RunRecord, error) {
+	query := `SELECT run_id,book_id,stage,status,attempts,text_model_id,model_id,model_display_name,COALESCE(request_id,''),COALESCE(error_message,''),started_at,finished_at,updated_at FROM novel_fetch_workshop_runs WHERE owner_username=?`
+	args := []any{owner}
+	if bookID != "" {
+		query += ` AND book_id=?`
+		args = append(args, bookID)
+	}
+	query += ` ORDER BY updated_at DESC, run_id ASC`
+	rows, err := s.DB.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := []RunRecord{}
+	for rows.Next() {
+		var record RunRecord
+		var startedAt, finishedAt sql.NullTime
+		var updatedAt time.Time
+		if err := rows.Scan(&record.RunID, &record.BookID, &record.Stage, &record.Status, &record.Attempts, &record.TextModelID, &record.ModelID, &record.ModelDisplayName, &record.RequestID, &record.ErrorMessage, &startedAt, &finishedAt, &updatedAt); err != nil {
+			return nil, err
+		}
+		if startedAt.Valid {
+			record.StartedAt = startedAt.Time.UTC().Format(time.RFC3339Nano)
+		}
+		if finishedAt.Valid {
+			record.FinishedAt = finishedAt.Time.UTC().Format(time.RFC3339Nano)
+		}
+		record.UpdatedAt = updatedAt.UTC().Format(time.RFC3339Nano)
+		result = append(result, record)
+	}
+	return result, rows.Err()
+}
+
+func nullableTime(value string) any {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, value)
+	if err != nil {
+		return nil
+	}
+	return parsed.UTC()
+}
+
+func nullableRunString(value string) any {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	return value
+}
+
 func (s *MySQLStore) PutBody(ctx context.Context, owner string, body BodyRecord) (BodyRef, error) {
 	bookID := strings.TrimSpace(body.BookID)
 	versionID := strings.TrimSpace(body.VersionID)

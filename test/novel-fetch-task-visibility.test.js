@@ -48,6 +48,37 @@ test('严格日期筛选使用批次进入日期而不是后来更新日期', ()
   assert.deepEqual(visible, []);
 });
 
+test('日期筛选以中国业务日历归档 UTC 深夜创建的任务', () => {
+  const tasks = [{
+    bookId: 'book-china-day',
+    batchCreatedAt: '2026-09-20T23:30:04.790Z',
+    status: 'done'
+  }];
+
+  const visible = filterTaskList(tasks, { date: '2026-09-21' }, new Date('2026-09-21T12:00:00+08:00'));
+
+  assert.deepEqual(visible.map(task => task.bookId), ['book-china-day']);
+});
+
+test('日期控件按日历日翻页并将选择日期传给任务接口', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../frontend/public/batch-rewrite/app.js'), 'utf8');
+  const deployedSource = fs.readFileSync(path.join(__dirname, '../frontend/dist/batch-rewrite/app.js'), 'utf8');
+  const helper = source.match(/function shiftTaskDateKey\(value, offset\) \{[\s\S]*?\n\}/);
+
+  assert.match(source, /function shiftTaskDateKey\(value, offset\)/);
+  assert.match(source, /`\/api\/tasks\?\$\{new URLSearchParams\(\{ date: state\.taskDate \}\)\.toString\(\)\}`/);
+  assert.match(source, /const data = await api\(taskPath\)/);
+  assert.match(source, /state\.taskDate = shiftTaskDateKey\(state\.taskDate \|\| todayDateKey\(\), 1\)/);
+  assert.match(source, /state\.taskDate = shiftTaskDateKey\(state\.taskDate \|\| todayDateKey\(\), -1\)/);
+  assert.ok(helper, '应能加载日期翻页函数');
+  const context = { todayDateKey: () => '2026-09-21' };
+  vm.runInNewContext(`${helper[0]}; this.shiftTaskDateKey = shiftTaskDateKey;`, context);
+  assert.equal(context.shiftTaskDateKey('2026-09-21', 1), '2026-09-22');
+  assert.equal(context.shiftTaskDateKey('2026-09-21', -1), '2026-09-20');
+  assert.match(deployedSource, /function shiftTaskDateKey\(value, offset\)/, '部署产物必须包含日期翻页修复');
+  assert.match(deployedSource, /const data = await api\(taskPath\)/, '部署产物必须携带日期筛选请求');
+});
+
 test('提交网络页在日期筛选不同于批次日期时仍显示当前批次任务', () => {
   const source = fs.readFileSync(path.join(__dirname, '../frontend/public/batch-rewrite/app.js'), 'utf8');
   const match = source.match(/function currentTaskList\(tasks\) \{[\s\S]*?\n\}/);

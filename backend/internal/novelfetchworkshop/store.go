@@ -41,6 +41,25 @@ type BodyRecord struct {
 	Content string `json:"content"`
 }
 
+// RunRecord is the credential-free execution audit record for one book stage.
+// Model credentials stay in the Node model catalog and are intentionally not
+// represented here.
+type RunRecord struct {
+	RunID            string `json:"runId"`
+	BookID           string `json:"bookId"`
+	Stage            string `json:"stage"`
+	Status           string `json:"status"`
+	Attempts         int    `json:"attempts"`
+	TextModelID      string `json:"textModelId"`
+	ModelID          string `json:"modelId"`
+	ModelDisplayName string `json:"modelDisplayName"`
+	RequestID        string `json:"requestId,omitempty"`
+	ErrorMessage     string `json:"errorMessage,omitempty"`
+	StartedAt        string `json:"startedAt,omitempty"`
+	FinishedAt       string `json:"finishedAt,omitempty"`
+	UpdatedAt        string `json:"updatedAt,omitempty"`
+}
+
 type DeleteResult struct {
 	Requested int            `json:"requested"`
 	Deleted   int            `json:"deleted"`
@@ -67,6 +86,8 @@ type Store interface {
 	DeleteDocuments(context.Context, string, []string) (DeleteResult, error)
 	GetConfig(context.Context, string) (map[string]any, error)
 	PutConfig(context.Context, string, map[string]any) error
+	PutRun(context.Context, string, RunRecord) error
+	ListRuns(context.Context, string, string) ([]RunRecord, error)
 }
 
 func normalizeDocument(document Document) Document {
@@ -107,11 +128,25 @@ func cloneBodyRecord(body BodyRecord) BodyRecord {
 	return body
 }
 
+func normalizeRunRecord(record RunRecord) RunRecord {
+	record.RunID = strings.TrimSpace(record.RunID)
+	record.BookID = strings.TrimSpace(record.BookID)
+	record.Stage = strings.TrimSpace(record.Stage)
+	record.Status = strings.TrimSpace(record.Status)
+	record.TextModelID = strings.TrimSpace(record.TextModelID)
+	record.ModelID = strings.TrimSpace(record.ModelID)
+	record.ModelDisplayName = strings.TrimSpace(record.ModelDisplayName)
+	record.RequestID = strings.TrimSpace(record.RequestID)
+	record.ErrorMessage = strings.TrimSpace(record.ErrorMessage)
+	return record
+}
+
 type MemoryStore struct {
 	mu      sync.RWMutex
 	docs    map[string]map[string]Document
 	configs map[string]map[string]any
 	bodies  map[string]map[string]map[string]BodyRecord
+	runs    map[string]map[string]RunRecord
 }
 
 func NewMemoryStore() *MemoryStore {
@@ -119,7 +154,41 @@ func NewMemoryStore() *MemoryStore {
 		docs:    map[string]map[string]Document{},
 		configs: map[string]map[string]any{},
 		bodies:  map[string]map[string]map[string]BodyRecord{},
+		runs:    map[string]map[string]RunRecord{},
 	}
+}
+
+func (s *MemoryStore) PutRun(_ context.Context, owner string, record RunRecord) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	record = normalizeRunRecord(record)
+	if record.RunID == "" || record.BookID == "" || record.Stage == "" || record.Status == "" || record.TextModelID == "" || record.ModelID == "" {
+		return errors.New("run audit fields are required")
+	}
+	if s.runs[owner] == nil {
+		s.runs[owner] = map[string]RunRecord{}
+	}
+	record.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	s.runs[owner][record.RunID] = record
+	return nil
+}
+
+func (s *MemoryStore) ListRuns(_ context.Context, owner, bookID string) ([]RunRecord, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make([]RunRecord, 0)
+	for _, record := range s.runs[owner] {
+		if bookID == "" || record.BookID == bookID {
+			result = append(result, record)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].UpdatedAt == result[j].UpdatedAt {
+			return result[i].RunID < result[j].RunID
+		}
+		return result[i].UpdatedAt > result[j].UpdatedAt
+	})
+	return result, nil
 }
 
 func (s *MemoryStore) GetDocument(_ context.Context, owner, bookID string) (Document, error) {

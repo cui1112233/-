@@ -1,66 +1,58 @@
 (() => {
-  const taskFilters = { date: '' };
-
   function byId(id) { return document.getElementById(id); }
-  function tokenHeaders() {
-    const token = localStorage.getItem('auth_token') || '';
-    return { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) };
-  }
   function todayDateKey() {
     const date = new Date();
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
   }
-  async function loadDateFilteredTasks(options = {}) {
-    const params = new URLSearchParams();
-    if (taskFilters.date) params.set('date', taskFilters.date);
-    const query = params.toString() ? `?${params}` : '';
-    const data = window.QiantieNovelFetchRuntime
-      ? await window.QiantieNovelFetchRuntime.tasks(query)
-      : await (async () => {
-        const response = await fetch(`/api/batch-rewrite/tasks${query}`, { headers: tokenHeaders() });
-        const result = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(result.error || `请求失败（${response.status}）`);
-        return result;
-      })();
-    const incomingTasks = Array.isArray(data.tasks) ? data.tasks : [];
-    if (options.preserveOnEmpty && incomingTasks.length === 0 && Array.isArray(state.allTasks) && state.allTasks.length > 0) {
-      const fallbackTasks = Array.isArray(state.tasks) && state.tasks.length ? state.tasks : state.allTasks;
-      renderTasks(fallbackTasks, { preserveVisible: true });
-    } else {
-      state.allTasks = typeof mergeTasksKeepingIds === 'function'
-        ? mergeTasksKeepingIds(incomingTasks, options.preserveIds || [])
-        : incomingTasks;
-      renderTasks(state.allTasks, options);
-    }
-    const summary = byId('summaryText');
-    if (summary) summary.textContent = `${taskFilters.date || '今天 + 历史未完成'} 显示 ${state.tasks.length} 个任务`;
-    return data;
+  function shiftTaskDateKey(value, offset) {
+    const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) return todayDateKey();
+    const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+    date.setUTCDate(date.getUTCDate() + Number(offset || 0));
+    return date.toISOString().slice(0, 10);
+  }
+  function setTaskDate(date) {
+    state.viewMode = 'date';
+    state.taskDate = date;
+    const input = byId('taskDateFilter');
+    if (input) input.value = date;
+  }
+  async function loadDateFilteredTasks(originalLoadTasks, options = {}) {
+    return originalLoadTasks(options);
   }
   function v78TaskToday() {
-    taskFilters.date = todayDateKey();
-    const input = byId('taskDateFilter');
-    if (input) input.value = taskFilters.date;
-    void loadDateFilteredTasks();
+    setTaskDate(todayDateKey());
+    void loadDateFilteredTasks(loadTasks);
   }
-  function bindLegacyTaskDateFilter() {
+  function bindLegacyTaskDateFilter(originalLoadTasks) {
     const input = byId('taskDateFilter');
     if (input && input.dataset.v78DateBound !== '1') {
       input.dataset.v78DateBound = '1';
       input.addEventListener('change', event => {
         event.stopPropagation();
-        taskFilters.date = input.value || '';
-        void loadDateFilteredTasks();
+        setTaskDate(input.value || todayDateKey());
+        void loadDateFilteredTasks(originalLoadTasks);
       }, true);
     }
     const today = byId('taskTodayBtn');
     if (today) today.onclick = v78TaskToday;
+    const previous = byId('taskPrevDayBtn');
+    if (previous) previous.onclick = () => {
+      setTaskDate(shiftTaskDateKey(state.taskDate || todayDateKey(), -1));
+      void loadDateFilteredTasks(originalLoadTasks);
+    };
+    const next = byId('taskNextDayBtn');
+    if (next) next.onclick = () => {
+      setTaskDate(shiftTaskDateKey(state.taskDate || todayDateKey(), 1));
+      void loadDateFilteredTasks(originalLoadTasks);
+    };
   }
   function install() {
     if (window.__qiantieNovelFetchDateBooted) return true;
-    if (typeof renderTasks !== 'function' || typeof state !== 'object') return false;
-    loadTasks = loadDateFilteredTasks;
+    if (typeof loadTasks !== 'function' || typeof state !== 'object') return false;
+    const originalLoadTasks = loadTasks;
     window.__qiantieNovelFetchDateBooted = true;
-    bindLegacyTaskDateFilter();
+    bindLegacyTaskDateFilter(originalLoadTasks);
     return true;
   }
 

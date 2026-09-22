@@ -51,10 +51,35 @@ func NovelFetchWorkshopCleanupStatements() []string {
 	}
 }
 
+func NovelFetchWorkshopRunAuditStatements() []string {
+	return []string{
+		`CREATE TABLE IF NOT EXISTS novel_fetch_workshop_runs (
+  run_id VARCHAR(191) NOT NULL,
+  owner_username VARCHAR(191) NOT NULL,
+  book_id VARCHAR(191) NOT NULL,
+  stage VARCHAR(64) NOT NULL,
+  status VARCHAR(32) NOT NULL,
+  attempts INT NOT NULL DEFAULT 0,
+  text_model_id VARCHAR(191) NOT NULL,
+  model_id VARCHAR(191) NOT NULL,
+  model_display_name VARCHAR(255) NOT NULL DEFAULT '',
+  request_id VARCHAR(191) NULL,
+  error_message TEXT NULL,
+  started_at DATETIME(6) NULL,
+  finished_at DATETIME(6) NULL,
+  created_at DATETIME(6) NOT NULL,
+  updated_at DATETIME(6) NOT NULL,
+  PRIMARY KEY (owner_username, run_id),
+  KEY idx_nfw_runs_owner_book_updated (owner_username, book_id, updated_at)
+) ENGINE=InnoDB`,
+	}
+}
+
 func NovelFetchWorkshopMigrations() []Migration {
 	return []Migration{
 		{Version: 1200001, SQL: NovelFetchWorkshopStatements(), CallbackChecksum: "novel-fetch-workshop-v1"},
 		{Version: 1200002, SQL: NovelFetchWorkshopBodyStatements(), CallbackChecksum: "novel-fetch-workshop-v2-bodies"},
 		{Version: 1200003, SQL: NovelFetchWorkshopCleanupStatements(), CallbackChecksum: "novel-fetch-workshop-v3-body-cleanup"},
+		{Version: 1200004, SQL: NovelFetchWorkshopRunAuditStatements(), CallbackChecksum: "novel-fetch-workshop-v4-run-audit"},
 	}
 }

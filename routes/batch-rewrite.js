@@ -81,6 +81,9 @@ function snakeTask(task = {}) {
     sensitive_hit_count: Number(task.sensitiveHitCount ?? task.sensitive_hit_count) || 0,
     sensitive_fixed_count: Number(task.sensitiveFixedCount ?? task.sensitive_fixed_count) || 0,
     sensitive_failed_count: Number(task.sensitiveFailedCount ?? task.sensitive_failed_count) || 0,
+    sensitive_mode: task.sensitiveMode || task.sensitive_mode || '',
+    sensitive_status: task.sensitiveStatus || task.sensitive_status || '',
+    sensitive_model: task.sensitiveModel || task.sensitive_model || '',
     site_submit_status: task.siteSubmitStatus || task.site_submit_status || '',
     site_submit_error: task.siteSubmitError || task.site_submit_error || '',
     site_submit_done_versions: Array.isArray(task.siteSubmitDoneVersions) ? task.siteSubmitDoneVersions : (Array.isArray(task.site_submit_done_versions) ? task.site_submit_done_versions : []),
@@ -1348,7 +1351,8 @@ function createBatchRewriteRouter({
   router.post('/opening/analyze', async (req, res) => { try { const { configStore: store } = await resources(req); const settings = ai.resolveAiSettings(store, 'rewrite'); res.json(await opening.analyze(ai, settings, req.body?.source_text)); } catch (error) { res.status(400).json({ error: error.message }); } });
   router.post('/opening/save', (req, res) => { try { res.json(opening.save(req.body?.item)); } catch (error) { res.status(400).json({ error: error.message }); } });
   router.post('/opening/normalize', (req, res) => { try { res.json(opening.normalize()); } catch (error) { res.status(400).json({ error: error.message }); } });
-  router.post('/ai/test', async (req, res) => { try { const { configStore: store } = await resources(req); const settings = req.body?.settings || ai.resolveAiSettings(store, req.body?.purpose || 'classifier'); const result = await ai.chatCompletion(settings, [{ role: 'user', content: '请只回复：ok' }], { temperature: 0 }); res.json({ ok: true, content: result.text || '' }); } catch (error) { res.status(400).json({ error: error.message }); } });
+  // 连通性测试和正式执行共享模型目录解析；不接受请求体传入的 base_url / api_key / model 覆盖。
+  router.post('/ai/test', async (req, res) => { try { const { configStore: store } = await resources(req); const settings = ai.resolveAiSettings(store, req.body?.purpose || 'classifier'); const result = await ai.chatCompletion(settings, [{ role: 'user', content: '请只回复：ok' }], { temperature: 0 }); res.json({ ok: true, content: result.text || '' }); } catch (error) { res.status(400).json({ error: error.message }); } });
   router.post('/rules/preview', async (req, res) => { try { const { configStore: store } = await resources(req); const text = String(req.body?.text || ''); res.json({ processed: processSavedRules(text, req.body?.scope || 'original', object(store.getConfig())) }); } catch (error) { res.status(400).json({ error: error.message }); } });
   router.post('/rules/ai-suggest', async (req, res) => {
     try {

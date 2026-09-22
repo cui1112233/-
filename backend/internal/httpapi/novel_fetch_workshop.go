@@ -113,6 +113,39 @@ func novelFetchBodyPathValues(w http.ResponseWriter, req *http.Request) (string,
 }
 
 func registerNovelFetchWorkshopRoutes(mux *http.ServeMux, store novelfetchworkshop.Store) {
+	mux.HandleFunc("GET /api/novel-fetch-workshop/runs", func(w http.ResponseWriter, req *http.Request) {
+		identity, _ := BridgeIdentityFromContext(req.Context())
+		bookID := strings.TrimSpace(req.URL.Query().Get("bookId"))
+		if bookID != "" && !novelFetchBookIDPattern.MatchString(bookID) {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "非法的书籍ID"})
+			return
+		}
+		runs, err := store.ListRuns(req.Context(), identity.Username, bookID)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "获取执行审计失败"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"runs": runs})
+	})
+
+	mux.HandleFunc("POST /api/novel-fetch-workshop/runs", func(w http.ResponseWriter, req *http.Request) {
+		identity, _ := BridgeIdentityFromContext(req.Context())
+		var record novelfetchworkshop.RunRecord
+		if err := decodeNovelFetchJSON(w, req, &record); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "请求内容无效"})
+			return
+		}
+		if !novelFetchBookIDPattern.MatchString(strings.TrimSpace(record.BookID)) {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "非法的书籍ID"})
+			return
+		}
+		if err := store.PutRun(req.Context(), identity.Username, record); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "执行审计字段无效"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	})
+
 	mux.HandleFunc("GET /api/novel-fetch-workshop/tasks", func(w http.ResponseWriter, req *http.Request) {
 		identity, _ := BridgeIdentityFromContext(req.Context())
 		tasks, err := store.ListDocuments(req.Context(), identity.Username)

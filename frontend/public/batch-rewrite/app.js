@@ -2434,6 +2434,14 @@ function todayDateKey() {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
+function shiftTaskDateKey(value, offset) {
+  const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return todayDateKey();
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  date.setUTCDate(date.getUTCDate() + Number(offset || 0));
+  return date.toISOString().slice(0, 10);
+}
+
 function setCurrentBatchFromResult(result = {}, timestamp = "") {
   const ids = Array.isArray(result.current_batch_ids)
     ? result.current_batch_ids.map(id => String(id || "")).filter(Boolean)
@@ -2590,7 +2598,7 @@ function renderDetail(data) {
       ${metaItem("风格", meta.style)}
       ${metaItem("男女频", meta.gender)}
       ${metaItem("AI判断", classifyDetailText(meta))}
-      ${metaItem("分类模型", meta.classifier_model)}
+      ${metaItem("分类模型（历史分类）", meta.classifier_model)}
       ${metaItem("状态", taskStatusText(meta.status))}
       ${metaItem("原文失败原因", meta.original_error || "")}
       ${metaItem("原文错误码", meta.original_error_code || "")}
@@ -2600,6 +2608,7 @@ function renderDetail(data) {
       ${metaItem("原文刷新时间", meta.original_refresh_at || "")}
       ${metaItem("原文字数", meta.original_chars || 0)}
       ${metaItem("敏感词处理", `${meta.sensitive_mode || ""} ${meta.sensitive_status || ""}`)}
+      ${metaItem("敏感词模型（本次执行）", meta.sensitive_model)}
       ${metaItem("命中/修复", `${meta.sensitive_hit_count || 0} / ${meta.sensitive_fixed_count || 0}`)}
       ${metaItem("AI状态", taskStatusText(meta.ai_status))}
       ${metaItem("AI失败原因", meta.ai_error || "")}
@@ -2871,7 +2880,10 @@ async function ensureKnowledgeLoaded() {
 }
 
 async function loadTasks(options = {}) {
-  const data = await api("/api/tasks");
+  const taskPath = state.viewMode === "date" && state.taskDate
+    ? `/api/tasks?${new URLSearchParams({ date: state.taskDate }).toString()}`
+    : "/api/tasks";
+  const data = await api(taskPath);
   const incomingTasks = Array.isArray(data.tasks) ? data.tasks : [];
   if (options.preserveOnEmpty && incomingTasks.length === 0 && Array.isArray(state.allTasks) && state.allTasks.length > 0) {
     const fallbackTasks = Array.isArray(state.tasks) && state.tasks.length ? state.tasks : state.allTasks;
@@ -3930,8 +3942,8 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("refreshBtn").onclick = refreshTasksAndSubmitHistory;
   $("taskRefreshBtn").onclick = refreshTasksAndSubmitHistory;
   $("taskTodayBtn").onclick = async () => { state.viewMode = "date"; state.taskDate = todayDateKey(); await refreshTasksAndSubmitHistory(); };
-  $("taskPrevDayBtn").onclick = async () => { state.viewMode = "date"; const d = new Date(`${state.taskDate || todayDateKey()}T00:00:00`); d.setDate(d.getDate() - 1); state.taskDate = d.toISOString().slice(0, 10); await refreshTasksAndSubmitHistory(); };
-  $("taskNextDayBtn").onclick = async () => { state.viewMode = "date"; const d = new Date(`${state.taskDate || todayDateKey()}T00:00:00`); d.setDate(d.getDate() + 1); state.taskDate = d.toISOString().slice(0, 10); await refreshTasksAndSubmitHistory(); };
+  $("taskPrevDayBtn").onclick = async () => { state.viewMode = "date"; state.taskDate = shiftTaskDateKey(state.taskDate || todayDateKey(), -1); await refreshTasksAndSubmitHistory(); };
+  $("taskNextDayBtn").onclick = async () => { state.viewMode = "date"; state.taskDate = shiftTaskDateKey(state.taskDate || todayDateKey(), 1); await refreshTasksAndSubmitHistory(); };
   $("taskDefaultViewBtn").onclick = async () => { state.viewMode = "current"; state.taskDate = state.currentBatchDate || todayDateKey(); await refreshTasksAndSubmitHistory(); };
   $("taskToggleBtn").onclick = () => { const details = $("taskListDetails"); details.open = !details.open; $("taskToggleBtn").textContent = details.open ? "收起任务" : "展开任务"; };
   $("selectAllBtn").onclick = selectAllVisibleTasks;

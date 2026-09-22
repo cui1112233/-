@@ -22,3 +22,24 @@ test('敏感词 AI 失败时仍使用用户配置的替换词', () => {
     '明明我们就是恋人朋友。'
   );
 });
+
+test('敏感词 AI 收到上游内容政策拒绝时保留原文且记录失败', async () => {
+  const before = '她被强迫留在房间里。';
+  const result = await sensitive.processSensitiveText({
+    text: before,
+    settings: {
+      enabled: true,
+      keywords: [{ find: '强迫', replace: '' }],
+      retries: 0,
+      aiSettings: { model: 'gemini-3' }
+    },
+    ai: {
+      chatCompletion: async () => ({ text: "The prompt could not be submitted. The prompt contains sensitive words that violate Google's [Generative AI Prohibited Use policy]." })
+    }
+  });
+
+  assert.equal(result.text, before);
+  assert.equal(result.fixedCount, 0);
+  assert.equal(result.fixedItems[0].status, 'failed');
+  assert.match(result.fixedItems[0].error, /内容政策拒绝/);
+});
