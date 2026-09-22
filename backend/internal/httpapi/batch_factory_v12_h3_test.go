@@ -76,6 +76,30 @@ func TestV12H3TraceRouteShowsLegacyCompatibilityWithoutSynthesizingH3(t *testing
 	}
 }
 
+func TestV12H3TraceRouteShowsDirectorDocumentBeforeCompilation(t *testing.T) {
+	now := time.Unix(1700000000, 0)
+	raw, err := os.ReadFile(filepath.Join("..", "batchfactoryv11", "testdata", "h3_v12_complete_director_trace.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := batchfactoryv11.NewMemoryStore()
+	batch, _ := store.CreateBatch(context.Background(), "alice", batchfactoryv11.CreateBatchInput{Title: "b", Books: []batchfactoryv11.CreateBookInput{{Title: "k", SourceText: "raw novel"}}})
+	seedHTTPH3Assets(t, store, batch, raw)
+	director := &batchfactoryv11.DirectorService{Store: store, Provider: &directorHTTPProvider{output: string(raw)}}
+	if _, err := director.RunH3Director(context.Background(), "alice", batch.ID, batch.Books[0].ID, batchfactoryv11.H3DirectorRunRequest{
+		VideoSource: batchfactoryv11.H3VideoSource{Revision: "video-source-acceptance001-r1", Text: "\n五岁的我刚被认回豪门，爸妈就甩下一百万生活费。\n\n把我和陆晚晚扔在别墅里大眼瞪小眼。\n三个月后，爸妈提前回国，想给我们一个惊喜。\n"},
+		Preset:      batchfactoryv11.H3DirectorPreset{Key: "h3-director-normal", Revision: 1},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	api := NewRouter(RouterOptions{BridgeSecret: "secret", Now: func() time.Time { return now }, Slice: 3, Store: store, Director: director})
+	path := "/api/batch-factory/v12/batches/" + batch.ID + "/books/" + batch.Books[0].ID + "/h3/trace"
+	rec := signedJSONRequest(t, api, now, "alice", http.MethodGet, path, nil)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"director_document"`) || !strings.Contains(rec.Body.String(), "尚未编译") {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestV12H3CompileRouteDoesNotAcceptLegacyDirectorData(t *testing.T) {
 	now := time.Unix(1700000000, 0)
 	store := batchfactoryv11.NewMemoryStore()

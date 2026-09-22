@@ -2,6 +2,7 @@ package batchfactoryv11
 
 import (
 	"context"
+	"errors"
 	"time"
 )
 
@@ -60,6 +61,15 @@ func (s *H3KernelService) Trace(ctx context.Context, owner, batchID, bookID, com
 		compilation, err = repository.GetH3VideoCompilation(ctx, owner, compilationID)
 	}
 	if err != nil {
+		if compilationID == "" && errors.Is(err, ErrNotFound) {
+			return H3RunTrace{
+				Legacy:             false,
+				Notice:             "H3 导演已生成，尚未编译最终 VIDEO Prompt",
+				DirectorRevisionID: book.DirectorRevision.ID,
+				DirectorDocument:   book.DirectorRevision.Output.H3Director,
+				Production:         []H3ProductionSubmission{},
+			}, nil
+		}
 		return H3RunTrace{}, err
 	}
 	if compilation.BatchID != batchID || compilation.BookID != bookID || compilation.Compilation.DirectorRevisionID != book.DirectorRevision.ID {
