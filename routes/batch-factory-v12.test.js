@@ -60,6 +60,16 @@ test('refills a legacy empty book from its stored platform and book ID without o
   await assert.rejects(() => refillMissingBatchFactoryBookSource({ book: { id: 'book-1', sourceText: '已存在正文' }, fetchDirectOriginal: async () => ({}) }), /已有正文/);
 });
 
+test('uses the leading stored Book ID when a legacy smart parse appended the title', async () => {
+  const calls = [];
+  await refillMissingBatchFactoryBookSource({
+    book: { id: 'book-1', bookId: '2085148147785918287 阿芙', platform: '15', revision: 1, sourceText: '', sourceMetadata: { contentCaptureCharacters: 4000 } },
+    fetchDirectOriginal: async input => { calls.push(input); return { text: '正文' }; },
+    captureSource: async input => ({ book: input })
+  });
+  assert.equal(calls[0].bookId, '2085148147785918287');
+});
+
 test('rewrites only the V12 batch-factory namespace for the legacy compatibility adapter', () => {
   assert.equal(
     rewriteV12PathForLegacyRead('/api/batch-factory/v12/batches/batch-1/books/book-1/stages/director'),

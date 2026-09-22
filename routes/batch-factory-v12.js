@@ -69,7 +69,12 @@ async function fetchBatchFactoryOriginals(payload, fetchDirectOriginal) {
 // replace a real source fetched by someone else.
 async function refillMissingBatchFactoryBookSource({ book, fetchDirectOriginal, captureSource, now = () => new Date() } = {}) {
   if (String(book?.sourceText || '').trim()) throw new Error('当前书已有正文，不能覆盖');
-  const bookId = String(book?.bookId || '').trim();
+  const rawBookID = String(book?.bookId || '').trim();
+  // Older smart-input rows occasionally persisted "Book ID + title" in the
+  // bookId field. The source ID is the leading transport-safe token; retaining
+  // the title in that malformed field must not make the saved book impossible
+  // to repair.
+  const bookId = rawBookID.match(/^[A-Za-z0-9_.-]+/)?.[0] || '';
   const platformId = String(book?.platform || book?.sourceMetadata?.platformId || '').trim();
   const maxTxt = Number(book?.sourceMetadata?.contentCaptureCharacters || 4000);
   if (!bookId || !platformId || !Number.isInteger(maxTxt) || maxTxt < 100 || maxTxt > 100000) throw new Error('当前书缺少可用的书城、Book ID 或正文范围');
