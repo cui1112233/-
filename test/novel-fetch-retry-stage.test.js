@@ -139,7 +139,7 @@ test('敏感词处理和网站提交失败会进入失败重试列表', async ()
     tombstones: { has: () => false, add() {}, restore() {} }, parseBooks: () => ({ tasks: [] })
   });
   assert.deepEqual(await ops.abnormalIds('alice', { date: '2099-01-01' }), []);
-  assert.deepEqual(await ops.abnormalIds('alice'), ['1005', '1006']);
+  assert.deepEqual((await ops.abnormalIds('alice')).sort(), ['1005', '1006']);
 });
 
 test('重试阶段为 classify 时成功分类后不会遗留处理失败状态', async () => {

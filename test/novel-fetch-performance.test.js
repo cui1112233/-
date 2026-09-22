@@ -17,8 +17,8 @@ test('V2 page injects a shared runtime before feature scripts', () => {
   const html = fs.readFileSync(path.join(root, 'frontend/public/batch-rewrite/index.html'), 'utf8');
   const injected = injectNovelFetchV2Script(html);
   assert.ok(injected.indexOf('v78-novel-fetch-v2-runtime.js') < injected.indexOf('app.js?v='));
-  assert.ok(injected.indexOf('app.js?v=20260920-knowledge-fix-r1') < injected.indexOf('v78-novel-fetch-v2.js'));
-  assert.match(injected, /app\.js\?v=20260920-knowledge-fix-r1/);
+  assert.ok(injected.indexOf('app.js?v=20260922-task-model-stage-r2') < injected.indexOf('v78-novel-fetch-v2.js'));
+  assert.match(injected, /app\.js\?v=20260922-task-model-stage-r2/);
 });
 
 test('runtime provides single-flight requests and activity-aware polling', () => {
@@ -41,7 +41,7 @@ test('startup uses a lightweight bootstrap config and avoids eager full config',
   const config = read('public/batch-rewrite/v78-novel-fetch-v2-config.js');
   assert.match(app, /\/api\/bootstrap/);
   assert.match(app, /knowledge_loaded \? \{ knowledge: state\.config\.knowledge/);
-  assert.match(html, /app\.js\?v=20260917-submit-bridge-r1/);
+  assert.match(html, /app\.js\?v=20260922-real-date-filter-r1/);
   assert.match(config, /loadAdvancedConfig/);
   assert.match(config, /data-tab=\\?\"config/);
 });
