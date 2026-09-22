@@ -3443,9 +3443,17 @@ async function batchRetry(mode) {
     const stageSummary = Object.entries(stageCounts)
       .map(([stage, count]) => `${stageLabels[stage] || stage} ${count} 个`)
       .join("，");
-    setBatchStatus(stageSummary
+    const deduplicated = Number(result.deduplicated) || 0;
+    const throughput = result.throughput || {};
+    const active = throughput.active || {};
+    const limits = throughput.limits || {};
+    const capacity = Object.keys(limits).length
+      ? `；资源池 抓取 ${active.fetch || 0}/${limits.fetch || 0}，改文 ${active.rewrite || 0}/${limits.rewrite || 0}，提交 ${active.submit || 0}/${limits.submit || 0}${throughput.paused ? "（负载保护中）" : ""}`
+      : "";
+    const duplicateText = deduplicated ? `；已在队列 ${deduplicated} 个` : "";
+    setBatchStatus((stageSummary
       ? `正在按失败步骤重试：${stageSummary}；已加入队列 ${result.retried || 0} 个`
-      : `已重试 ${result.retried || 0} 个，失败 ${result.failed || 0} 个`);
+      : `已重试 ${result.retried || 0} 个，失败 ${result.failed || 0} 个`) + duplicateText + capacity);
     if (Number(result.retried) > 0) {
       window.dispatchEvent(new CustomEvent("qiantie-novel-fetch-retry-queued", {
         detail: { ids: ids.slice(), retried: Number(result.retried) || 0 }

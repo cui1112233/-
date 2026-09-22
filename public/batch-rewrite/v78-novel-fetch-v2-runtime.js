@@ -3,6 +3,7 @@
 
   const API_ROOT = '/api/batch-rewrite';
   const inFlight = new Map();
+  const controllers = new Map();
   const cache = new Map();
   const CACHE_MS = 5000;
   const POLL_MS = 5000;
@@ -52,10 +53,11 @@
       if (cached && cached.expiresAt > now) return cached.value;
     }
     if (inFlight.has(key)) return inFlight.get(key);
+    const controller = options.signal ? null : new AbortController();
     const promise = (async () => {
       const headers = tokenHeaders(options.headers || {});
       if (method === 'GET' && cached?.etag && !headers['If-None-Match']) headers['If-None-Match'] = cached.etag;
-      const response = await fetch(requestUrl(normalized), { ...options, headers });
+      const response = await fetch(requestUrl(normalized), { ...options, headers, ...(controller ? { signal: controller.signal } : {}) });
       if (response.status === 304 && cached) {
         cached.expiresAt = Date.now() + CACHE_MS;
         return cached.value;
@@ -77,7 +79,13 @@
       return data;
     })();
     inFlight.set(key, promise);
-    try { return await promise; } finally { inFlight.delete(key); }
+    if (controller) controllers.set(key, controller);
+    try { return await promise; } finally { inFlight.delete(key); controllers.delete(key); }
+  }
+
+  function cancel(key) {
+    const controller = controllers.get(String(key || ''));
+    if (controller) controller.abort();
   }
 
   function invalidate(prefix = '') {
@@ -110,6 +118,8 @@
     singleFlight: request,
     requestKey,
     inFlight,
+    controllers,
+    cancel,
     invalidate,
     isActiveTask,
     startPolling,

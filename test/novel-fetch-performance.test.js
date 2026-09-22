@@ -34,6 +34,21 @@ test('runtime provides single-flight requests and activity-aware polling', () =>
   assert.match(runtime, /scope:\$\{authScope\}/);
   assert.match(runtime, /stopPolling/);
   assert.match(runtime, /isActiveTask/);
+  assert.match(runtime, /controllers/);
+  assert.match(runtime, /function cancel\(key\)/);
+});
+
+test('V2 injection normalizes duplicate managed scripts', () => {
+  const { injectNovelFetchV2Script } = require(path.join(root, 'lib/novel-fetch-workshop/v2-page.js'));
+  const source = '<html><body><script id="qiantie-novel-fetch-task-visibility" src="/batch-rewrite/task-visibility-hotfix.js"></script><script id="qiantie-novel-fetch-task-visibility" src="/batch-rewrite/task-visibility-hotfix.js"></script></body></html>';
+  const injected = injectNovelFetchV2Script(source);
+  assert.equal((injected.match(/qiantie-novel-fetch-task-visibility/g) || []).length, 1);
+});
+
+test('retry status shows deduplicated work and shared pool capacity', () => {
+  const app = read('frontend/public/batch-rewrite/app.js');
+  assert.match(app, /result\.deduplicated/);
+  assert.match(app, /result\.throughput/);
 });
 
 test('startup uses a lightweight bootstrap config and avoids eager full config', () => {
