@@ -1025,7 +1025,7 @@ router.post('/reference-assets/upload', async (req, res) => {
       variant: revision,
       revision,
       file_name: path.basename(filePath),
-      url: tosAsset?.url || assetStore.referenceAssetPublicUrl(assetType, assetId, revision),
+      url: assetStore.referenceAssetResponseUrl(assetType, assetId, revision),
       ...(tosAsset ? { storage: 'tos' } : {}),
       ...metadata
     });
@@ -1046,7 +1046,7 @@ router.post('/reference-assets/use-source-as-main', async (req, res) => {
     assetStore.writeReferenceAssetBytes(req.username, assetType, assetId, 'main', fs.readFileSync(sourcePath), mime);
     const tosAsset = await assetStore.syncReferenceAssetToTos(req.username, assetType, assetId, 'main');
     const metadata = assetStore.referenceAssetImageMetadata(req.username, assetType, assetId);
-    return res.json({ ok: true, asset_id: assetId, asset_type: assetType, url: tosAsset?.url || assetStore.referenceAssetPublicUrl(assetType, assetId, 'main'), ...(tosAsset ? { storage: 'tos' } : {}), file_name: path.basename(sourcePath), main_origin: 'uploaded', ...metadata });
+    return res.json({ ok: true, asset_id: assetId, asset_type: assetType, url: assetStore.referenceAssetResponseUrl(assetType, assetId, 'main'), ...(tosAsset ? { storage: 'tos' } : {}), file_name: path.basename(sourcePath), main_origin: 'uploaded', ...metadata });
   } catch (error) {
     return res.status(400).json({ error: String(error.message || error), code: 'REFERENCE_ASSET_SOURCE_MISSING' });
   }
@@ -1067,6 +1067,23 @@ router.get('/reference-assets/file/:assetType/:assetId/:variant', (req, res) => 
     return res.sendFile(filePath);
   } catch (error) {
     return res.status(400).json({ error: String(error.message || error), code: 'REFERENCE_ASSET_FILE_FAILED' });
+  }
+});
+
+router.get('/reference-assets/legacy', async (req, res) => {
+  try {
+    const target = premiumStore(req).resolveLegacyTosAssetUrl(req.query.url);
+    const upstream = await fetch(target);
+    if (!upstream.ok) return res.status(404).json({ error: '旧图片无法读取，请重新上传。', code: 'REFERENCE_ASSET_LEGACY_NOT_FOUND' });
+    const contentType = String(upstream.headers.get('content-type') || 'application/octet-stream');
+    if (!/^image\/(png|jpeg|webp)$/i.test(contentType)) return res.status(502).json({ error: '旧图片格式无效，请重新上传。', code: 'REFERENCE_ASSET_LEGACY_INVALID' });
+    const payload = Buffer.from(await upstream.arrayBuffer());
+    res.set('Cache-Control', 'private, max-age=300');
+    res.set('Content-Type', contentType);
+    res.set('X-Content-Type-Options', 'nosniff');
+    return res.send(payload);
+  } catch (_) {
+    return res.status(404).json({ error: '旧图片无法读取，请重新上传。', code: 'REFERENCE_ASSET_LEGACY_NOT_FOUND' });
   }
 });
 
@@ -1201,7 +1218,7 @@ router.post('/reference-assets/generate', async (req, res) => {
         const tosAsset = await assetStore.syncReferenceAssetToTos(req.username, assetType, assetId, revision);
         const metadata = assetStore.referenceAssetImageMetadata(req.username, assetType, assetId);
         if (!res.writableEnded) {
-          res.json({ ok: true, asset_id: assetId, asset_type: assetType, revision, url: tosAsset?.url || assetStore.referenceAssetPublicUrl(assetType, assetId, revision), ...(tosAsset ? { storage: 'tos' } : {}), main_origin: 'generated', ...metadata });
+          res.json({ ok: true, asset_id: assetId, asset_type: assetType, revision, url: assetStore.referenceAssetResponseUrl(assetType, assetId, revision), ...(tosAsset ? { storage: 'tos' } : {}), main_origin: 'generated', ...metadata });
         }
       } catch (error) {
         if (timedOut) {

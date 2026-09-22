@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { createTosReferenceAssetStore, normalizeTosSdkEndpoint } = require('../lib/novel-panel/tos-reference-assets');
+const { createTosReferenceAssetStore, normalizeTosSdkEndpoint, parseTosObjectUrl } = require('../lib/novel-panel/tos-reference-assets');
 const { createNovelPanelPremiumStore } = require('../lib/novel-panel/premium-store');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -44,6 +44,16 @@ test('TOS SDK endpoint removes the URL scheme before bucket host composition', (
   assert.equal(normalizeTosSdkEndpoint('https://tos-cn-beijing.volces.com/'), 'tos-cn-beijing.volces.com');
 });
 
+test('TOS object URL parser accepts only this bucket and reference asset keys', () => {
+  const config = { endpoint: 'https://tos-cn-beijing.volces.com', bucket: 'qiantie' };
+  assert.equal(
+    parseTosObjectUrl('https://qiantie.tos-cn-beijing.volces.com/reference-assets/choushiyiguai/character/hero/source.png?Expires=1', config),
+    'reference-assets/choushiyiguai/character/hero/source.png'
+  );
+  assert.throws(() => parseTosObjectUrl('https://example.com/reference-assets/choushiyiguai/character/hero/source.png', config), /不支持/);
+  assert.throws(() => parseTosObjectUrl('https://qiantie.tos-cn-beijing.volces.com/private/secret.png', config), /对象地址无效/);
+});
+
 test('TOS reference asset store is disabled without complete ECS-only credentials', () => {
   assert.equal(createTosReferenceAssetStore({ env: {} }), null);
   assert.equal(createTosReferenceAssetStore({ env: configuredEnv({ QIANTIE_REFERENCE_ASSET_TOS_SECRET_KEY: '' }) }), null);
@@ -62,4 +72,14 @@ test('premium store mirrors a local reference asset to TOS and returns a signed 
   assert.equal(uploads.length, 1);
   assert.equal(uploads[0].username, 'user');
   assert.equal(result.url, 'https://tos.example/reference-assets/user/character/hero/main.png?signed=1');
+});
+
+test('premium store gives the browser an internal URL after TOS synchronization', () => {
+  const usersDir = fs.mkdtempSync(path.join(os.tmpdir(), 'qiantie-tos-'));
+  const premium = createNovelPanelPremiumStore({ usersDir, tosStore: null });
+
+  assert.equal(
+    premium.referenceAssetResponseUrl('character', 'hero', 'source_1700000000000_abcdef'),
+    '/api/novel-panel/reference-assets/file/character/hero/source_1700000000000_abcdef'
+  );
 });

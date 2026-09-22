@@ -15,5 +15,9 @@ export function uploadReferenceAssetImage(payload) {
 }
 
 export function loadReferenceAssetImage(url) {
-  return apiRequest(url, { responseType: 'blob' });
+  const value = String(url || '').trim();
+  const target = /^https:\/\/[^/]*tos[^/]*\.volces\.com\//i.test(value)
+    ? '/api/novel-panel/reference-assets/legacy?url=' + encodeURIComponent(value)
+    : value;
+  return apiRequest(target, { responseType: 'blob' });
 }
