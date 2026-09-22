@@ -118,3 +118,34 @@ test('queue exposes active item and latest progress event while running', async 
   release();
   await queue.waitForIdle('alice');
 });
+
+test('runner routes fetch rewrite and submit through the shared throughput controller', async () => {
+  const stages = [];
+  const record = { meta: { bookId: '1002', bookName: '受控书', aiCount: 1 }, document: {} };
+  const tasks = {
+    async saveTasks(_owner, rows) { record.meta = { ...record.meta, ...rows[0] }; },
+    async getTask() { return record; },
+    async fetchOriginal() { return { status: 'done' }; },
+    async readOriginal() { return ''; },
+    async updateTaskMeta(_owner, _id, patch) { record.meta = { ...record.meta, ...patch }; },
+    async listTasks() { return [record.meta]; }
+  };
+  await runNovelFetchBatch({
+    username: 'alice',
+    payload: { input_text: '1002\t受控书' },
+    configStore: {
+      getConfig: () => ({
+        workflow: { auto_classify_missing: false, auto_fetch_original: true, auto_rewrite_after_fetch: true, auto_submit_after_rewrite: true, auto_submit_confirmed: true },
+        fetch: { concurrency: 1 }, ai: { max_concurrency: 1 }, rewrite: { default_ai_count: 1 }, web_submit: { enabled: true }
+      }),
+      getStyles: () => [], getPlatforms: () => [{ id: '2', name: '知乎付费' }]
+    },
+    tasks,
+    parseBooks: () => ({ tasks: [{ bookId: '1002', bookName: '受控书' }] }),
+    generateAiVersions: async () => ({ status: 'done', generated: [{ version: 'ai1', status: 'done' }] }),
+    submit: async () => ({ success_groups: 1, failed_groups: 0 }),
+    throughput: { run: async (stage, work) => { stages.push(stage); return work(); } },
+    listTasks: async () => [record.meta]
+  });
+  assert.deepEqual(stages, ['fetch', 'rewrite', 'submit']);
+});

@@ -76,13 +76,13 @@ function registerWebSubmitRoutes(router, webSubmit, { operations = createWebSubm
   return router;
 }
 
-function createBatchRewriteV2Router({ queue, scheduler, taskOps, batches, webSubmit, auth, routerFactory } = {}) {
+function createBatchRewriteV2Router({ queue, scheduler, taskOps, batches, webSubmit, throughput, auth, routerFactory } = {}) {
   const createRouter = routerFactory || (() => require('express').Router());
   const router = createRouter();
   const authMiddleware = auth || require('../middleware/auth').apiAuth;
   router.use(authMiddleware);
   registerWebSubmitRoutes(router, webSubmit, { operations: createWebSubmitOperationStore() });
-  registerNovelFetchV2Routes(router, { queue, scheduler, taskOps, batches });
+  registerNovelFetchV2Routes(router, { queue, scheduler, taskOps, batches, throughput });
   return router;
 }
 
