@@ -623,6 +623,7 @@ select {
 }
 
 .legacy-topbar {
+  position: relative;
   height: var(--legacy-topbar);
   flex: 0 0 var(--legacy-topbar);
   border-bottom: 1px solid var(--legacy-border);
@@ -1356,6 +1357,46 @@ select {
   color: var(--legacy-muted);
   font-size: 12px;
 }
+
+.script-source-audio-card {
+  display: grid;
+  gap: 7px;
+  margin: -2px 2px 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--legacy-border);
+  border-radius: 10px;
+  background: var(--legacy-card);
+  color: var(--legacy-text);
+}
+
+.script-source-audio-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.script-source-audio-duration {
+  color: var(--legacy-muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.script-source-audio-card .script-source-audio {
+  width: 100%;
+  margin: 0;
+}
+
+.script-source-audio-status,
+.script-source-audio-error {
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.script-source-audio-status { color: var(--legacy-muted); }
+.script-source-audio-error { color: #ff6b6b; }
 
 .script-constraint-button {
   flex: 0 0 auto;
@@ -3551,6 +3592,8 @@ select {
 }
 
 .script-shot-preset-tag {
+  appearance: none;
+  cursor: pointer;
   display: inline-flex;
   align-items: center;
   min-height: 24px;
@@ -3565,4 +3608,38 @@ select {
   line-height: 18px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.script-shot-preset-tag.is-disabled {
+  color: var(--legacy-muted);
+  border-color: var(--legacy-border);
+  background: var(--legacy-card);
+  text-decoration: line-through;
+}
+/* 深色主题下的全局错误弹层必须保持可读，避免文字与深色背景混在一起。 */
+[data-theme='dark'] .ant-modal-confirm-error .ant-modal-content,
+[data-theme='dark'] .ant-message-error .ant-message-notice-content {
+  color: #f8fbff;
+  background: #182235;
+  border: 1px solid #ff7875;
+}
+
+.novel-panel-loading-visual { display: flex; flex-direction: column; align-items: center; gap: 10px; color: #dbe7ff; }
+.novel-panel-loading-visual span { color: #8493ad; font-size: 13px; }
+.novel-panel-loader-svg { width: min(520px, 72vw); height: auto; }
+.novel-panel-chip-body { fill: #151e35; stroke: #52658d; stroke-width: 2; }
+.novel-panel-chip-text { fill: #dbe7ff; font-size: 18px; font-weight: 700; letter-spacing: 2px; }
+.novel-panel-trace-bg { fill: none; stroke: #29334a; stroke-width: 2; }
+.novel-panel-trace-flow { fill: none; stroke: #00ccff; stroke-width: 2; stroke-dasharray: 40 400; stroke-dashoffset: 438; filter: drop-shadow(0 0 6px #00ccff); animation: novelPanelFlow 3s cubic-bezier(.5,0,.9,1) infinite; }
+@keyframes novelPanelFlow { to { stroke-dashoffset: 0; } }
+
+.legacy-global-status { position: absolute; left: 25%; right: 25%; top: 50%; transform: translateY(-50%); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; font-weight: 600; pointer-events: none; }
+.legacy-global-status--working { color: #4da3ff; }
+.legacy-global-status--success { color: #48c774; }
+.legacy-global-status--error { color: #ef6a6a; }
+.legacy-global-status--idle { color: transparent; }
+
+[data-theme='dark'] .ant-modal-confirm-error .ant-modal-confirm-title,
+[data-theme='dark'] .ant-modal-confirm-error .ant-modal-confirm-content,
+[data-theme='dark'] .ant-message-error .ant-message-notice-content {
+  color: #f8fbff;
 }

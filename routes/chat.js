@@ -8,6 +8,12 @@ const {
   buildStoryboardUnitDurationRules
 } = require('../lib/script-generation-rules');
 
+// 防止文本模型上游无响应时剧本生成页面永久停留在黑色加载状态。
+const SCRIPT_UPSTREAM_TIMEOUT_MS = Math.max(
+  30_000,
+  Math.min(600_000, Number(process.env.QIANTIE_SCRIPT_UPSTREAM_TIMEOUT_MS) || 180_000)
+);
+
 const MODE_PRESET_ID_MAP = {
   continuous: 'script-continuous',
   hook: 'script-hook',
@@ -359,13 +365,25 @@ function buildMessages(body, presetStore, personalPromptStore, username) {
 
 function describeUpstreamFailure(upstream) {
   let details = '';
+  let requestId = '';
   try {
     const parsed = JSON.parse(upstream.text);
     details = parsed?.error?.message || parsed?.message || '';
+    requestId = parsed?.request_id || parsed?.requestId || parsed?.error?.request_id || parsed?.error?.requestId || '';
   } catch (error) {
     details = String(upstream.text || '').trim().slice(0, 300);
   }
+  if (Number(upstream.statusCode) === 401 && /invalid (?:token|api key)|unauthorized/i.test(details)) {
+    const suffix = String(requestId || '').trim() ? `（请求编号：${String(requestId).trim().slice(0, 120)}）` : '';
+    return `当前文本模型的 API 凭据无效或已过期，请更换模型或联系管理员更新凭据。${suffix}`;
+  }
   return ['Upstream API error (status ' + upstream.statusCode + ')', details].filter(Boolean).join(': ');
+}
+
+function resolveSelectedTextModelId(body) {
+  const promptType = String(body?.promptType || '').trim();
+  if (!['script', 'extract', 'entity_enrich'].includes(promptType)) return '';
+  return String(body?.textModelId || '').trim();
 }
 
 function createChatRouter({
@@ -373,7 +391,8 @@ function createChatRouter({
   connectionConfigReader = readConfig,
   upstreamRequest = requestUpstream,
   modelsRequest = requestUpstreamModels,
-  responseCollector = collectResponse
+  responseCollector = collectResponse,
+  resolveTextModel
 } = {}) {
   const router = express.Router();
   router.use(apiAuth);
@@ -519,10 +538,15 @@ function createChatRouter({
   }
 
   try {
-    const config = configReader(req.username);
+    const body = req.body || {};
+    const configured = configReader(req.username);
+    const selectedModelId = resolveSelectedTextModelId(body);
+    const runtimeModel = selectedModelId && typeof resolveTextModel === 'function'
+      ? resolveTextModel(req.username, selectedModelId, configured)
+      : null;
+    const config = runtimeModel ? { ...configured, baseUrl: runtimeModel.baseUrl, model: runtimeModel.modelId, apiKey: runtimeModel.credential } : configured;
     ensureReadyConfig(config);
 
-    const body = req.body;
     const maxTokens = Math.min(Math.max(1, parseInt(body.max_tokens) || 4096), 32768);
     const rawTemp = Number(body.temperature);
     const temperature = Number.isFinite(rawTemp) ? Math.min(Math.max(0, rawTemp), 2.0) : 0.7;
@@ -558,12 +582,12 @@ function createChatRouter({
           res.end();
           reject(error);
         });
-      }));
+      }), { timeoutMs: SCRIPT_UPSTREAM_TIMEOUT_MS });
       return;
     }
 
     payload.stream = false;
-    const upstream = await upstreamRequest(config, payload, responseCollector);
+    const upstream = await upstreamRequest(config, payload, responseCollector, { timeoutMs: SCRIPT_UPSTREAM_TIMEOUT_MS });
     if (upstream.statusCode >= 400) {
       res.status(502).json({ error: describeUpstreamFailure(upstream), type: 'upstream_error' });
       return;
@@ -583,6 +607,18 @@ function createChatRouter({
     res.writeHead(upstream.statusCode, { 'Content-Type': 'application/json; charset=utf-8' });
     res.end(upstream.text);
   } catch (error) {
+    if (error?.code === 'UPSTREAM_TIMEOUT') {
+      if (res.headersSent) {
+        res.end();
+        return;
+      }
+      res.status(504).json({
+        error: `文本模型响应超时（超过 ${Math.round(SCRIPT_UPSTREAM_TIMEOUT_MS / 1000)} 秒），请检查模型配置或网络后重试。`,
+        type: 'upstream_timeout',
+        code: 'SCRIPT_UPSTREAM_TIMEOUT'
+      });
+      return;
+    }
     res.status(500).json({ error: error.message || 'Internal server error' });
   }
   });
@@ -606,6 +642,7 @@ function createChatRouter({
   serializePromptSection,
   sanitizeFocusCharacters,
   describeUpstreamFailure,
+  resolveSelectedTextModelId,
   parseEntityEnrichment,
     validateEntityEnrichmentBody,
     testImageConnection,

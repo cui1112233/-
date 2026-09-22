@@ -4,6 +4,7 @@
   const previewState = { active: false, tasks: [], selected: new Set(), originalInput: '' };
   let rerunSourceBatchId = '';
   let legacyTaskBridgeInstalled = false;
+  let retryProgressBridgeInstalled = false;
   let currentBatchTimer = null;
   const processLogState = { lines: [] };
 
@@ -15,6 +16,7 @@
     return { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...extra };
   }
   async function v2Api(path, options = {}) {
+    if (window.QiantieNovelFetchRuntime) return window.QiantieNovelFetchRuntime.api(path, options);
     const response = await fetch(`${API_ROOT}${path}`, { ...options, headers: tokenHeaders(options.headers || {}) });
     const text = await response.text();
     let data = {};
@@ -22,7 +24,19 @@
     if (!response.ok) throw new Error(data.error || data.message || data.raw || `HTTP ${response.status}`);
     return data;
   }
-  function setText(id, text) { const node = byId(id); if (node) node.textContent = String(text || ''); }
+  function publishStatus(message, tone = 'info') {
+    if (typeof window.qiantiePublishNovelFetchStatus === 'function') {
+      window.qiantiePublishNovelFetchStatus(message, tone);
+      return;
+    }
+    const text = String(message || '').trim();
+    if (text && window.parent && window.parent !== window) window.parent.postMessage({ type: 'qiantie:novel-fetch-status', text, tone }, window.location.origin);
+  }
+  function setText(id, text) {
+    const node = byId(id);
+    if (node) node.textContent = String(text || '');
+    if (id === 'v78PreviewStatus' && text) publishStatus(text, /失败|错误|异常|超时/.test(String(text)) ? 'error' : /正在|处理中|解析|排队/.test(String(text)) ? 'working' : 'info');
+  }
   function resetProcessLog() {
     processLogState.lines = [];
     setText('processResult', '');
@@ -38,6 +52,7 @@
       node.textContent = processLogState.lines.join('\n');
       node.scrollTop = node.scrollHeight;
     }
+    publishStatus(text, /失败|错误|异常|超时/.test(text) ? 'error' : /完成|成功|已创建/.test(text) ? 'success' : 'working');
   }
   function queueStateLabel(value) {
     return ({ queued: '任务已进入队列', running: '批次正在处理', waiting_retry: '处理失败，正在等待重试', done: '处理完成', failed: '处理失败', stopped: '处理已停止' })[String(value || '')] || `任务状态：${value || '处理中'}`;
@@ -78,6 +93,12 @@
   function selectedParsedTasks() {
     return previewState.tasks.filter(task => previewState.selected.has(String(task.bookId || task.book_id || task.id || '')));
   }
+
+  function syncLegacyTaskSelection() {
+    const ids = [...previewState.selected].map(id => String(id || '').trim()).filter(Boolean);
+    window.dispatchEvent(new CustomEvent('qiantie-v78-task-selection', { detail: { ids } }));
+  }
+  window.qiantieV78SelectedTaskIds = () => [...previewState.selected].map(id => String(id || '').trim()).filter(Boolean);
   function currentWorkSnapshot() {
     const targets = selectedTargetVersions();
     const selected = previewState.active ? selectedParsedTasks() : [];
@@ -108,12 +129,27 @@
     return query ? `?${query}` : '';
   }
   const TASK_STATUS_LABELS = {
+    original_done: '原文已完成',
+    original_processing: '原文处理中',
+    original_failed: '原文处理失败',
+    ai_done: 'AI文案已完成',
+    ai_processing: 'AI文案处理中',
+    ai_failed: 'AI文案生成失败',
+    site_submitted: '网站已提交',
+    accepted_pending: '等待网站确认',
     input_ready: '分类信息已就绪',
     queued: '排队中',
     running: '正在执行中…',
     processing: '正在执行中…',
     classifying: 'AI判断中…',
-    generating: '正在生成AI文案…'
+    generating: '正在生成AI文案…',
+    done: '已完成',
+    completed: '已完成',
+    failed: '处理失败',
+    error: '处理失败',
+    cancelled: '已取消',
+    stopped: '已停止',
+    pending: '等待处理'
   };
   function taskStatusLabel(value, fallback = '') {
     const text = String(value || '').trim();
@@ -245,6 +281,7 @@
       if (!input) return;
       const id = String(input.dataset.v78PreviewId || '');
       if (input.checked) previewState.selected.add(id); else previewState.selected.delete(id);
+      syncLegacyTaskSelection();
       setText('v78PreviewStatus', `已解析 ${previewState.tasks.length} 本，已选 ${previewState.selected.size} 本`);
     };
   }
@@ -258,6 +295,7 @@
   }
 
   async function startSelectedProcessing() {
+    syncLegacyTaskSelection();
     const button = byId('processBtn');
     if (button?.disabled) return;
     if (!selectedTargetVersions().length) { setText('v78PreviewStatus', '请至少选择一个文案版本'); return; }
@@ -329,9 +367,18 @@
       patchTaskTableForV78(state.tasks || []);
       return result;
     };
-    loadTasks = async function() {
+    loadTasks = async function(options = {}) {
       const data = await v2Api(`/tasks${buildTaskQuery(taskFilters)}`);
-      renderTasks(data.tasks || []);
+      const incomingTasks = Array.isArray(data.tasks) ? data.tasks : [];
+      if (options.preserveOnEmpty && incomingTasks.length === 0 && Array.isArray(state.allTasks) && state.allTasks.length > 0) {
+        const fallbackTasks = Array.isArray(state.tasks) && state.tasks.length ? state.tasks : state.allTasks;
+        renderTasks(fallbackTasks, { preserveVisible: true });
+      } else {
+        state.allTasks = typeof mergeTasksKeepingIds === 'function'
+          ? mergeTasksKeepingIds(incomingTasks, options.preserveIds || [])
+          : incomingTasks;
+        renderTasks(state.allTasks, options);
+      }
       setText('summaryText', `${taskFilterLabel()} 显示 ${state.tasks.length} 个任务`);
       return data;
     };
@@ -363,10 +410,10 @@
       if (!task) continue;
       if (row.children.length === headers.length - 1) {
         const td = document.createElement('td');
-        td.textContent = localDateText(task.push_date || task.created_at || task.createdAt);
+        td.textContent = localDateText(task.push_date || task.batch_created_at || task.created_at || task.createdAt);
         row.insertBefore(td, row.children[pushIndex] || null);
       } else if (row.children[pushIndex]) {
-        row.children[pushIndex].textContent = localDateText(task.push_date || task.created_at || task.createdAt);
+        row.children[pushIndex].textContent = localDateText(task.push_date || task.batch_created_at || task.created_at || task.createdAt);
       }
       if (classifyIndex >= 0 && row.children[classifyIndex]) {
         row.children[classifyIndex].textContent = taskStatusLabel(task.classify_status ?? task.classifyStatus, task.classifier_model || task.classifierModel ? '已完成判断' : '待判断');
@@ -379,11 +426,13 @@
       const generated = new Set(asArray(task.ai_generated_versions).concat(asArray(task.ai_files)).map(version => String(version).toLowerCase()));
       const aiCell = row.children[aiIndex];
       if (aiCell && selected.length) {
-        aiCell.textContent = selected.map(version => {
-          if (generated.has(version)) return `${version.toUpperCase()}已生成`;
-          if (/failed|失败/i.test(String(task.ai_status || ''))) return `${version.toUpperCase()}失败`;
-          return `${version.toUpperCase()}待生成`;
-        }).join('；');
+        const aiBusy = state.aiProcessingIds?.has(id);
+        const displayTask = aiBusy ? { ...task, ai_status: 'generating', ai_current_version: task.ai_current_version || selected[0] } : task;
+        const display = typeof aiCopyStatusText === 'function'
+          ? aiCopyStatusText(displayTask, selected, [...generated])
+          : selected.map(version => generated.has(version) ? `${version.toUpperCase()}已生成` : `${version.toUpperCase()}待生成`).join('；');
+        aiCell.textContent = display;
+        aiCell.title = String(task.ai_error || task.aiError || '');
       }
     }
   }
@@ -405,7 +454,7 @@
     byId('v78ViewAllTasks').onclick = () => { activateLegacyTab('tasks'); if (typeof loadTasks === 'function') void loadTasks(); };
   }
 
-  function renderCurrentBatch(batch) {
+  function renderCurrentBatch(batch, taskRows = []) {
     const meta = byId('v78CurrentBatchMeta');
     const summary = byId('v78CurrentBatchSummary');
     const books = byId('v78CurrentBatchBooks');
@@ -415,21 +464,56 @@
     }
     const settings = batch.settingsSnapshot || {};
     const targets = asArray(settings.target_versions || settings.targetVersions).map(item => item === 'original' ? '原文' : String(item).toUpperCase());
-    meta.textContent = `${localDateText(batch.createdAt)} · ${batch.status || '处理中'} · ${batch.id}`;
+    meta.textContent = `${localDateText(batch.createdAt)} · ${taskStatusLabel(batch.status, '处理中')} · ${batch.id}`;
     summary.innerHTML = `<span>小说 ${asArray(batch.taskIds).length} 本</span><span>本次版本 ${targets.join('、') || '-'}</span><span>完成 ${batch.resultSummary?.fetched || 0}</span><span>AI文案 ${batch.resultSummary?.generated_ai_files || 0}</span>`;
     books.innerHTML = '';
-    for (const task of asArray(batch.taskStates).slice(0, 30)) {
+    const states = new Map(asArray(batch.taskStates).map(task => [String(task.bookId || ''), task]));
+    for (const task of asArray(taskRows)) states.set(String(task.id || task.book_id || task.bookId || ''), task);
+    for (const id of asArray(batch.taskOrder || batch.taskIds).slice(0, 30)) {
+      const task = states.get(String(id)) || { bookId: id, status: 'queued' };
       const row = document.createElement('div'); row.className = 'v78-batch-row';
-      row.innerHTML = `<span class="grow"><b>${task.bookId || ''}</b>${task.bookName ? ` · ${task.bookName}` : ''}</span><span>${task.status || ''}</span>`;
+      row.innerHTML = `<span class="grow"><b>${task.bookId || task.book_id || id}</b>${task.bookName || task.book_name ? ` · ${task.bookName || task.book_name}` : ''}</span><span>${taskStatusLabel(task.status, '排队中')}</span>`;
       books.appendChild(row);
     }
     if (!books.childNodes.length && asArray(batch.taskIds).length) books.textContent = `本批次共 ${batch.taskIds.length} 本，处理完成后会显示每本状态。`;
   }
 
   async function loadCurrentBatch() {
-    try { const data = await v2Api('/batches/current'); renderCurrentBatch(data.batch || null); }
+    try {
+      const [batchData, taskData] = await Promise.all([v2Api('/batches/current'), v2Api('/tasks')]);
+      renderCurrentBatch(batchData.batch || null, taskData.tasks || []);
+    }
     catch (error) { setText('v78CurrentBatchMeta', error.message); }
   }
+
+  async function refreshAllData() {
+    const results = await Promise.allSettled([
+      loadCurrentBatch(),
+      typeof loadTasks === 'function' ? loadTasks() : Promise.resolve()
+    ]);
+    const tasks = typeof state === 'object' && Array.isArray(state.tasks) ? state.tasks : [];
+    const batch = byId('v78CurrentBatchMeta')?.textContent || '';
+    const active = tasks.some(task => window.QiantieNovelFetchRuntime?.isActiveTask(task))
+      || /(排队|处理中|执行中|等待|running|processing|queued)/i.test(batch);
+    if (window.QiantieNovelFetchRuntime) {
+      if (active) window.QiantieNovelFetchRuntime.startPolling(refreshAllData);
+      else window.QiantieNovelFetchRuntime.stopPolling();
+    }
+    return results;
+  }
+
+  function installRetryProgressBridge() {
+    if (retryProgressBridgeInstalled) return;
+    retryProgressBridgeInstalled = true;
+    window.addEventListener('qiantie-novel-fetch-retry-queued', () => {
+      const runtime = window.QiantieNovelFetchRuntime;
+      runtime?.invalidate('/tasks');
+      runtime?.invalidate('/batches/current');
+      void refreshAllData();
+      runtime?.startPolling(refreshAllData);
+    });
+  }
+
   async function stopCurrentBatch() {
     try {
       await v2Api('/process/queue/stop', { method: 'POST', body: '{}' });
@@ -513,7 +597,7 @@
         const abnormal = asArray(batch.taskStates).filter(task => /(failed|error|timeout|interrupted|incomplete|partial|失败|错误|超时|中断|未完成|121异常)/i.test([task.status, task.originalStatus, task.aiStatus, task.siteSubmitStatus, task.error].filter(Boolean).join(' ')) && !/(cancelled|已取消)/i.test(String(task.status || ''))).length;
         const targets = asArray(batch.settingsSnapshot?.target_versions || batch.settingsSnapshot?.targetVersions).map(item => item === 'original' ? '原文' : String(item).toUpperCase()).join('、');
         const row = document.createElement('div'); row.className = 'v78-batch-row';
-        row.innerHTML = `<span class="grow"><b>${localDateText(batch.createdAt)}</b><br><span class="v78-muted">${batch.taskIds?.length || 0} 本 · ${targets || '-'} · ${batch.status || ''}</span></span><button data-v78-rerun="all" data-batch-id="${batch.id}">全部重跑</button><button data-v78-rerun="abnormal" data-batch-id="${batch.id}" ${abnormal ? '' : 'disabled'}>重跑异常${abnormal ? ` ${abnormal}` : ''}</button>`;
+        row.innerHTML = `<span class="grow"><b>${localDateText(batch.createdAt)}</b><br><span class="v78-muted">${batch.taskIds?.length || 0} 本 · ${targets || '-'} · ${taskStatusLabel(batch.status, '处理中')}</span></span><button data-v78-rerun="all" data-batch-id="${batch.id}">全部重跑</button><button data-v78-rerun="abnormal" data-batch-id="${batch.id}" ${abnormal ? '' : 'disabled'}>重跑异常${abnormal ? ` ${abnormal}` : ''}</button>`;
         box.appendChild(row);
       }
       if (!box.childNodes.length) box.textContent = '暂无历史批次';
@@ -555,13 +639,16 @@
   }
 
   function boot() {
+    if (window.__qiantieNovelFetchV2Booted) return;
+    window.__qiantieNovelFetchV2Booted = true;
     injectStyles();
     installLegacyTaskListBridge();
     mountProcessingControls();
     mountCurrentBatch();
     mountTaskHistory();
     enforceSourceAlignedUi();
-    void loadCurrentBatch();
+    installRetryProgressBridge();
+    void refreshAllData();
     let attempts = 0;
     const timer = window.setInterval(() => {
       installLegacyTaskListBridge();
@@ -572,7 +659,7 @@
       attempts += 1;
       if (attempts >= 24) window.clearInterval(timer);
     }, 250);
-    if (!currentBatchTimer) currentBatchTimer = window.setInterval(loadCurrentBatch, 3000);
+    currentBatchTimer = null;
   }
 
   installLegacyTaskListBridge();

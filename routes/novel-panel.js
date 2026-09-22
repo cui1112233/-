@@ -7,7 +7,6 @@ const { apiAuth } = require('../middleware/auth');
 const {
   USERS_DIR,
   readConfig,
-  writeConfig,
   ensureReadyConfig,
   requestUpstream,
   collectResponse
@@ -137,6 +136,7 @@ function panelSettings(config, saved = {}) {
     base_url: config.baseUrl || '',
     model: config.model || '',
     api_key_configured: Boolean(config.apiKey),
+    text_model_id: text(saved.text_model_id, 160),
     ai_timeout_seconds: clampTimeout(saved.ai_timeout_seconds)
   };
 }
@@ -190,6 +190,25 @@ function requestConfig(req) {
     ? configured(req.username, current)
     : configured;
   return isPlainObject(override) ? { ...current, ...override } : current;
+}
+
+function resolvePanelTextConfig({ username, selectedModelId, baseConfig, resolveRuntimeModel } = {}) {
+  const config = isPlainObject(baseConfig) ? baseConfig : {};
+  const modelId = text(selectedModelId, 160);
+  if (!modelId) return config;
+  if (typeof resolveRuntimeModel !== 'function') {
+    throw Object.assign(new Error('小说面板无法连接后台文本模型配置，请刷新页面后重试。'), { status: 503, code: 'MODEL_CATALOG_UNAVAILABLE' });
+  }
+  const model = resolveRuntimeModel(username, 'text', modelId);
+  if (!model?.baseUrl || !model?.modelId || !model?.credential) {
+    throw Object.assign(new Error('所选文本模型不可用、未配置或尚未启用。'), { status: 422, code: 'MODEL_UNAVAILABLE' });
+  }
+  return {
+    ...config,
+    baseUrl: model.baseUrl,
+    model: model.modelId,
+    apiKey: model.credential
+  };
 }
 
 function operationSuffix(value, fallback) {
@@ -340,6 +359,12 @@ function clientError(res, error, diagnosticId = error?.diagnosticId) {
 
 function upstreamErrorMessage(error) {
   const message = error instanceof Error ? error.message : String(error || '模型请求失败');
+  if (error?.code === 'MODEL_UNAVAILABLE' || /所选文本模型不可用/.test(message)) {
+    return '所选文本模型已失效、未配置或未启用，请在后台 API 配置中重新选择可用模型。';
+  }
+  if (error?.code === 'MODEL_CATALOG_UNAVAILABLE') {
+    return '后台文本模型配置暂时不可用，请刷新页面后重试。';
+  }
   if (error?.code === 'UPSTREAM_TIMEOUT' || /Upstream request timed out/.test(message)) {
     return '模型服务请求超时，服务端已停止本次模型请求。请缩短原文或提高 AI 等待上限后重试。';
   }
@@ -347,10 +372,10 @@ function upstreamErrorMessage(error) {
     return '本次模型请求已取消，服务端已停止本次模型请求。';
   }
   if (/API Key is required|Base URL is required|Model is required/.test(message)) {
-    return `模型服务未配置：${message}。请在小说面板“设置”中保存当前账号的模型地址、模型名和 API Key。`;
+    return `模型服务未配置：${message}。请在后台“API 配置”中完成文本模型配置。`;
   }
   if (/上游模型返回 HTTP 401/.test(message)) {
-    return '模型服务认证失败：当前 API Key 被上游拒绝。请在小说面板“设置”中更新 API Key，或确认 Base URL 与该 Key 属于同一服务。';
+    return '模型服务认证失败：当前 API Key 被上游拒绝。请在后台“API 配置”中更新文本模型凭据，或确认 Base URL 与该 Key 属于同一服务。';
   }
   if (/Client network socket disconnected before secure TLS connection was established|ECONNRESET|SSL_ERROR_SYSCALL/.test(message)) {
     return '模型服务网络连接失败：连接在 TLS 建立前被断开。请在 ClashX Meta 中切换“🤖 AI”的可用节点后重试。';
@@ -386,9 +411,10 @@ function upstreamError(res, error, diagnosticId = error?.diagnosticId) {
   }
   const status = error?.code === 'UPSTREAM_TIMEOUT' || error?.code === 'IMAGE_AI_TIMEOUT' || /Upstream request timed out/.test(message)
     ? 504
-    : (/API Key is required|Base URL is required|Model is required/.test(message) || /上游模型返回 HTTP 401/.test(message)
+    : (error?.code === 'MODEL_CATALOG_UNAVAILABLE' ? 503
+      : (error?.code === 'MODEL_UNAVAILABLE' || error?.status === 422 || /API Key is required|Base URL is required|Model is required/.test(message) || /上游模型返回 HTTP 401/.test(message)
       ? 400
-      : 502);
+      : 502));
   return res.status(status).json({ error: upstreamErrorMessage(error), ...(diagnosticId ? { diagnostic_id: diagnosticId } : {}) });
 }
 
@@ -420,7 +446,12 @@ async function requestCompletion(req, system, user, {
   config: configuredConfig,
   parseJson = true
 } = {}) {
-  const config = configuredConfig || requestConfig(req);
+  const config = configuredConfig || resolvePanelTextConfig({
+    username: req.username,
+    selectedModelId: req.body?.textModelId,
+    baseConfig: requestConfig(req),
+    resolveRuntimeModel: req.app?.locals?.resolveRuntimeModel
+  });
   const timeoutSeconds = clampTimeout(loadPanelSettings(req, req.username).ai_timeout_seconds);
   const effectiveMaxTokens = normalizedMaxTokens(maxTokens);
   req.novelPanelAiDiagnosticMeta = requestDiagnosticMeta(req, system, user, {
@@ -658,17 +689,16 @@ router.post('/settings', (req, res) => {
     const body = isPlainObject(req.body) ? req.body : {};
     const current = readConfig(req.username);
     const saved = loadPanelSettings(req, req.username);
-    const nextConfig = {
-      ...current,
-      baseUrl: text(body.base_url) || current.baseUrl,
-      model: text(body.model) || current.model,
-      apiKey: body.clear_api_key === true ? '' : (text(body.api_key) || current.apiKey)
-    };
-    writeConfig(req.username, nextConfig);
+    // Text endpoint, model ID and credential are managed centrally in
+    // /api/config/models. The novel panel only persists the user's selected
+    // catalog ID and runtime display settings; it must not create a second
+    // copy of the API configuration here.
+    const nextConfig = current;
     const nextSaved = {
       ...saved,
       ai_mode: body.ai_mode === 'local' ? 'local' : 'remote',
-      ai_timeout_seconds: clampTimeout(body.ai_timeout_seconds ?? saved.ai_timeout_seconds)
+      ai_timeout_seconds: clampTimeout(body.ai_timeout_seconds ?? saved.ai_timeout_seconds),
+      text_model_id: text(body.text_model_id, 160)
     };
     savePanelSettings(req, req.username, nextSaved);
     res.json({ message: '设置已保存。', settings: panelSettings(nextConfig, nextSaved) });
@@ -977,14 +1007,16 @@ router.post('/image-settings/test', async (req, res) => {
   }
 });
 
-router.post('/reference-assets/upload', (req, res) => {
+router.post('/reference-assets/upload', async (req, res) => {
   try {
     const body = isPlainObject(req.body) ? req.body : {};
     const assetType = premiumStore(req).safeAssetType(body.asset_type);
     const assetId = premiumStore(req).safeAssetId(body.asset_id);
     if (body.variant && body.variant !== 'source') throw new Error('上传图片仅支持 source 类型');
     const { payload, mime } = premiumStore(req).decodeDataUrl(body.data_url);
-    const { revision, filePath } = premiumStore(req).writeReferenceAssetRevision(req.username, assetType, assetId, 'source', payload, mime);
+    const assetStore = premiumStore(req);
+    const { revision, filePath } = assetStore.writeReferenceAssetRevision(req.username, assetType, assetId, 'source', payload, mime);
+    const tosAsset = await assetStore.syncReferenceAssetToTos(req.username, assetType, assetId, revision);
     const metadata = premiumStore(req).referenceAssetImageMetadata(req.username, assetType, assetId);
     return res.json({
       ok: true,
@@ -993,7 +1025,8 @@ router.post('/reference-assets/upload', (req, res) => {
       variant: revision,
       revision,
       file_name: path.basename(filePath),
-      url: premiumStore(req).referenceAssetPublicUrl(assetType, assetId, revision),
+      url: assetStore.referenceAssetResponseUrl(assetType, assetId, revision),
+      ...(tosAsset ? { storage: 'tos' } : {}),
       ...metadata
     });
   } catch (error) {
@@ -1001,7 +1034,7 @@ router.post('/reference-assets/upload', (req, res) => {
   }
 });
 
-router.post('/reference-assets/use-source-as-main', (req, res) => {
+router.post('/reference-assets/use-source-as-main', async (req, res) => {
   try {
     const body = isPlainObject(req.body) ? req.body : {};
     const assetType = premiumStore(req).safeAssetType(body.asset_type);
@@ -1009,9 +1042,11 @@ router.post('/reference-assets/use-source-as-main', (req, res) => {
     const sourcePath = premiumStore(req).assetFilePath(req.username, assetType, assetId, 'source');
     if (!sourcePath) return res.status(400).json({ error: '还没有上传参考图', code: 'REFERENCE_ASSET_SOURCE_MISSING' });
     const mime = `${path.extname(sourcePath) === '.png' ? 'image/png' : path.extname(sourcePath) === '.webp' ? 'image/webp' : 'image/jpeg'}`;
-    premiumStore(req).writeReferenceAssetBytes(req.username, assetType, assetId, 'main', fs.readFileSync(sourcePath), mime);
-    const metadata = premiumStore(req).referenceAssetImageMetadata(req.username, assetType, assetId);
-    return res.json({ ok: true, asset_id: assetId, asset_type: assetType, url: premiumStore(req).referenceAssetPublicUrl(assetType, assetId, 'main'), file_name: path.basename(sourcePath), main_origin: 'uploaded', ...metadata });
+    const assetStore = premiumStore(req);
+    assetStore.writeReferenceAssetBytes(req.username, assetType, assetId, 'main', fs.readFileSync(sourcePath), mime);
+    const tosAsset = await assetStore.syncReferenceAssetToTos(req.username, assetType, assetId, 'main');
+    const metadata = assetStore.referenceAssetImageMetadata(req.username, assetType, assetId);
+    return res.json({ ok: true, asset_id: assetId, asset_type: assetType, url: assetStore.referenceAssetResponseUrl(assetType, assetId, 'main'), ...(tosAsset ? { storage: 'tos' } : {}), file_name: path.basename(sourcePath), main_origin: 'uploaded', ...metadata });
   } catch (error) {
     return res.status(400).json({ error: String(error.message || error), code: 'REFERENCE_ASSET_SOURCE_MISSING' });
   }
@@ -1032,6 +1067,23 @@ router.get('/reference-assets/file/:assetType/:assetId/:variant', (req, res) => 
     return res.sendFile(filePath);
   } catch (error) {
     return res.status(400).json({ error: String(error.message || error), code: 'REFERENCE_ASSET_FILE_FAILED' });
+  }
+});
+
+router.get('/reference-assets/legacy', async (req, res) => {
+  try {
+    const target = premiumStore(req).resolveLegacyTosAssetUrl(req.username, req.query.url);
+    const upstream = await fetch(target);
+    if (!upstream.ok) return res.status(404).json({ error: '旧图片无法读取，请重新上传。', code: 'REFERENCE_ASSET_LEGACY_NOT_FOUND' });
+    const contentType = String(upstream.headers.get('content-type') || 'application/octet-stream');
+    if (!/^image\/(png|jpeg|webp)$/i.test(contentType)) return res.status(502).json({ error: '旧图片格式无效，请重新上传。', code: 'REFERENCE_ASSET_LEGACY_INVALID' });
+    const payload = Buffer.from(await upstream.arrayBuffer());
+    res.set('Cache-Control', 'private, max-age=300');
+    res.set('Content-Type', contentType);
+    res.set('X-Content-Type-Options', 'nosniff');
+    return res.send(payload);
+  } catch (_) {
+    return res.status(404).json({ error: '旧图片无法读取，请重新上传。', code: 'REFERENCE_ASSET_LEGACY_NOT_FOUND' });
   }
 });
 
@@ -1096,7 +1148,14 @@ router.post('/reference-assets/generate', async (req, res) => {
     // Web deployment generates reference images through the per-account image AI
     // settings from Personal Center API Config (OpenAI Images compatible /images/generations). Missing config
     // degrades gracefully and keeps the existing reference image state.
-    const settings = imageSettingsFromAccountConfig(requestConfig(req));
+    const body = isPlainObject(req.body) ? req.body : {};
+    const selectedModelId = text(body.imageModelId);
+    const runtimeModel = selectedModelId
+      ? req.app?.locals?.resolveRuntimeModel?.(req.username, 'image', selectedModelId)
+      : null;
+    const settings = runtimeModel
+      ? { ...imageSettingsFromAccountConfig(requestConfig(req)), base_url: runtimeModel.baseUrl, model: runtimeModel.modelId, api_key: runtimeModel.credential }
+      : imageSettingsFromAccountConfig(requestConfig(req));
     const missing = ['base_url', 'model', 'api_key'].filter(key => !text(settings[key] || '').trim());
     if (missing.length) {
       return res.status(400).json({
@@ -1104,7 +1163,6 @@ router.post('/reference-assets/generate', async (req, res) => {
         code: 'IMAGE_SETTINGS_INCOMPLETE'
       });
     }
-    const body = isPlainObject(req.body) ? req.body : {};
     const prompt = buildImageGenerationPrompt(body);
     if (!text(prompt)) return res.status(400).json({ error: '缺少生成内容：请填写人物外形描述或生成引导。', code: 'IMAGE_GENERATION_EMPTY_PROMPT' });
     const fullUrl = buildImageApiUrl(settings.base_url, settings.generate_path);
@@ -1155,10 +1213,12 @@ router.post('/reference-assets/generate', async (req, res) => {
         if (!imageBuffer || !imageBuffer.length) throw new Error('图片AI未返回可用的图像内容。');
         const assetType = premiumStore(req).safeAssetType(text(body.asset_type) || 'character');
         const assetId = premiumStore(req).safeAssetId(text(body.asset_id) || `gen_${Date.now()}`);
-        const { revision } = premiumStore(req).writeReferenceAssetRevision(req.username, assetType, assetId, 'candidate', imageBuffer, mime);
-        const metadata = premiumStore(req).referenceAssetImageMetadata(req.username, assetType, assetId);
+        const assetStore = premiumStore(req);
+        const { revision } = assetStore.writeReferenceAssetRevision(req.username, assetType, assetId, 'candidate', imageBuffer, mime);
+        const tosAsset = await assetStore.syncReferenceAssetToTos(req.username, assetType, assetId, revision);
+        const metadata = assetStore.referenceAssetImageMetadata(req.username, assetType, assetId);
         if (!res.writableEnded) {
-          res.json({ ok: true, asset_id: assetId, asset_type: assetType, revision, url: premiumStore(req).referenceAssetPublicUrl(assetType, assetId, revision), main_origin: 'generated', ...metadata });
+          res.json({ ok: true, asset_id: assetId, asset_type: assetType, revision, url: assetStore.referenceAssetResponseUrl(assetType, assetId, revision), ...(tosAsset ? { storage: 'tos' } : {}), main_origin: 'generated', ...metadata });
         }
       } catch (error) {
         if (timedOut) {
@@ -1195,12 +1255,13 @@ router.post('/settings/test', async (req, res) => {
   try {
     const body = isPlainObject(req.body) ? req.body : {};
     const current = requestConfig(req);
-    const candidate = {
-      ...current,
-      baseUrl: text(body.base_url) || current.baseUrl,
-      model: text(body.model) || current.model,
-      apiKey: text(body.api_key) || current.apiKey
-    };
+    const saved = loadPanelSettings(req, req.username);
+    const candidate = resolvePanelTextConfig({
+      username: req.username,
+      selectedModelId: text(body.text_model_id, 160) || text(saved.text_model_id, 160),
+      baseConfig: current,
+      resolveRuntimeModel: req.app?.locals?.resolveRuntimeModel
+    });
     await runAiOperation(req, res, 'settings:test', async signal => {
       const upstream = await requestCompletion(req, '', 'ping', {
         maxTokens: 8,
@@ -1675,6 +1736,7 @@ router._private = {
   analysisSystemPrompt,
   characterSystemPrompt,
   outlineSystemPrompt,
+  resolvePanelTextConfig,
   runAiOperation,
   upstreamError,
   upstreamErrorMessage

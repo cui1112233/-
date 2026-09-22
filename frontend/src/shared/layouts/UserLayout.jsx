@@ -9,8 +9,9 @@ import { getConfig } from '../api/config';
 import { avatarDisplay } from '../avatars';
 import { CmPenguinCompanion } from '../pet/CmPenguinCompanion';
 import { dispatchPetContext } from '../pet/stacky';
-import { GLOBAL_TASK_NOTIFICATION_EVENT, normalizeGlobalTaskNotification } from '../notifications/globalTaskCenter.js';
+import { GLOBAL_STATUS_EVENT, GLOBAL_TASK_NOTIFICATION_EVENT, normalizeGlobalTaskNotification } from '../notifications/globalTaskCenter.js';
 import { createAntTheme } from '../styles/theme';
+import { getRouteAccessState, shouldPromptLoginForApiFailure } from './routeAccess.js';
 
 // 动态 Logo 包含 WebGL shader，不能阻塞任何已登录业务页的首屏，按真正使用时再下载。
 const SuperOpcLiquidMetalLogo = lazy(() => import('../components/SuperOpcLiquidMetalLogo'));
@@ -58,6 +59,17 @@ function normalizeAccountCenterReturnPath(value) {
   }
 }
 
+function compactHeaderStatus(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim().slice(0, 140);
+}
+
+function headerStatusTone(value, suggested = 'info') {
+  const text = String(value || '');
+  if (/处理完成/.test(text) && !/(失败|错误|异常|超时)\s*[：:]?\s*[1-9]\d*/.test(text)) return 'success';
+  if (/(失败|错误|异常|超时)/.test(text)) return 'error';
+  return suggested;
+}
+
 export function UserLayout({ children }) {
   const [username, setUsername] = useState(getCurrentUsername());
   const [account, setAccount] = useState(null);
@@ -70,14 +82,17 @@ export function UserLayout({ children }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [theme, setTheme] = useState(initialTheme);
   const [petVisible, setPetVisible] = useState(true);
+  const [globalStatus, setGlobalStatus] = useState({ text: '', tone: 'idle' });
   const [avatar, setAvatar] = useState(null);
   const accountSessionGenerationRef = useRef(0);
   const loginCardRef = useRef(null);
   const accountCenterReturnPathRef = useRef(null);
+  const novelFetchStatusTimerRef = useRef(null);
   const pathname = window.location.pathname;
   const isAccountCenterRoute = ACCOUNT_CENTER_ROUTES.includes(pathname);
   const isLoggedIn = Boolean(username);
   const isHome = pathname === '/';
+  const routeAccess = getRouteAccessState({ pathname, isLoggedIn });
   const displayAvatar = avatarDisplay(avatar, username);
   const accountSessionKey = username || 'anonymous';
   const visibleNavItems = navItems;
@@ -121,6 +136,8 @@ export function UserLayout({ children }) {
     if (!isLoggedIn) return undefined;
     const appendTaskNotification = event => {
       const notification = normalizeGlobalTaskNotification(event.detail || {});
+      const notificationText = `${notification.title}${notification.detail ? `：${notification.detail}` : ''}`;
+      setGlobalStatus({ text: compactHeaderStatus(notificationText), tone: headerStatusTone(notificationText, notification.status === 'error' ? 'error' : notification.status === 'working' ? 'working' : 'success') });
       if (notification.status === 'working') return;
       const kind = notification.status === 'error' ? 'error' : 'success';
       const targetPath = notification.pagePath && notification.pagePath !== window.location.pathname ? notification.pagePath : '';
@@ -145,6 +162,44 @@ export function UserLayout({ children }) {
       window.removeEventListener('message', receiveEmbeddedTaskNotification);
     };
   }, [isLoggedIn, username]);
+
+  useEffect(() => {
+    const receive = event => {
+      const detail = event.detail || {};
+      if (detail.text) setGlobalStatus({ text: String(detail.text), tone: detail.tone || 'info' });
+    };
+    window.addEventListener(GLOBAL_STATUS_EVENT, receive);
+    return () => window.removeEventListener(GLOBAL_STATUS_EVENT, receive);
+  }, []);
+
+  useEffect(() => {
+    const receiveNovelFetchStatus = event => {
+      if (pathname !== '/novel-fetch') return;
+      if (event.origin !== window.location.origin) return;
+      if (event.data?.type !== 'qiantie:novel-fetch-status') return;
+      const frame = document.querySelector('iframe.novel-fetch-original-workbench');
+      if (!frame || event.source !== frame.contentWindow) return;
+      const text = String(event.data.text || '').trim();
+      if (!text) return;
+      const allowedTones = new Set(['info', 'working', 'success', 'warning', 'error']);
+      const statusText = compactHeaderStatus(text);
+      const tone = headerStatusTone(text, allowedTones.has(event.data.tone) ? event.data.tone : 'info');
+      if (novelFetchStatusTimerRef.current) window.clearTimeout(novelFetchStatusTimerRef.current);
+      setGlobalStatus({ text: statusText, tone });
+      if (tone !== 'working') {
+        novelFetchStatusTimerRef.current = window.setTimeout(() => {
+          setGlobalStatus(current => current.text === statusText ? { text: '', tone: 'idle' } : current);
+          novelFetchStatusTimerRef.current = null;
+        }, tone === 'error' ? 8000 : 4500);
+      }
+    };
+    window.addEventListener('message', receiveNovelFetchStatus);
+    return () => {
+      window.removeEventListener('message', receiveNovelFetchStatus);
+      if (novelFetchStatusTimerRef.current) window.clearTimeout(novelFetchStatusTimerRef.current);
+      novelFetchStatusTimerRef.current = null;
+    };
+  }, [pathname]);
 
   useEffect(() => {
     document.body.classList.add('user-theme-active');
@@ -182,16 +237,26 @@ export function UserLayout({ children }) {
     function showApiFailure(event) {
       if (dialogOpen) return;
       dialogOpen = true;
-      const { source, method, status, message: detail } = event.detail || {};
+      const { source, method, status, message: detail, sessionAuthFailure } = event.detail || {};
+      if (shouldPromptLoginForApiFailure({ status, sessionAuthFailure })) {
+        setGlobalStatus({ text: '登录已失效，请重新登录后继续使用', tone: 'error' });
+        setUsername('');
+        setAccount(null);
+        setLoginDialogOpen(true);
+        Modal.warning({
+          className: 'auth-expired-modal',
+          title: '登录已失效',
+          content: '当前登录状态已失效，请重新登录后继续使用。登录后将返回当前页面。',
+          okText: '重新登录',
+          onOk: () => { setLoginDialogOpen(true); dialogOpen = false; },
+          afterClose: () => { dialogOpen = false; }
+        });
+        return;
+      }
       const sourceLabel = source ? `${method || 'GET'} ${source}` : '服务请求';
       const statusLabel = status ? `（${status}）` : '';
-      Modal.error({
-        title: `${sourceLabel} 请求失败${statusLabel}`,
-        content: detail || '请求失败，请稍后重试。',
-        okText: '确定',
-        onOk: () => { dialogOpen = false; },
-        afterClose: () => { dialogOpen = false; }
-      });
+      setGlobalStatus({ text: `${sourceLabel}${statusLabel}：${detail || '请求失败，请稍后重试。'}`, tone: 'error' });
+      dialogOpen = false;
     }
     window.addEventListener('qiantie:api-error', showApiFailure);
     return () => window.removeEventListener('qiantie:api-error', showApiFailure);
@@ -260,10 +325,8 @@ export function UserLayout({ children }) {
   }, []);
 
   useEffect(() => {
-    if (isLoggedIn || pathname === '/') return;
-    window.history.replaceState({}, '', '/');
-    window.dispatchEvent(new PopStateEvent('popstate'));
-  }, [isLoggedIn, pathname]);
+    if (routeAccess.shouldPromptLogin) setLoginDialogOpen(true);
+  }, [routeAccess.shouldPromptLogin]);
 
   async function handleLogin(values) {
     accountSessionGenerationRef.current += 1;
@@ -339,6 +402,7 @@ export function UserLayout({ children }) {
   }
 
   const showLoginCard = !isLoggedIn && (isHome || loginDialogOpen);
+  const pageContent = routeAccess.canRenderPage ? content : null;
   const loginOverlay = showLoginCard ? (
     <div className="legacy-login-overlay nebula-login-overlay">
       <div className="login-modal nebula-login-modal" ref={loginCardRef} onPointerMove={updateLoginCardParallax} onPointerLeave={resetLoginCardParallax}>
@@ -468,9 +532,10 @@ export function UserLayout({ children }) {
         <main className="legacy-main">
           <header className="legacy-topbar">
             <span className="legacy-page-title">{pageTitle(pathname)}</span>
+            <div className={`legacy-global-status legacy-global-status--${globalStatus.tone}`} role="status" aria-live="polite">{globalStatus.text}</div>
             <div className="legacy-userbar" aria-hidden="true" />
           </header>
-          <section className={`legacy-content${pathname === '/agent' ? ' legacy-content--agent' : ''}`}>{content}</section>
+          <section className={`legacy-content${pathname === '/agent' ? ' legacy-content--agent' : ''}`}>{pageContent}</section>
         </main>
         {isLoggedIn && pathname !== '/' && petVisible ? <CmPenguinCompanion username={username} accountSessionKey={accountSessionKey} /> : null}
       </Fragment>

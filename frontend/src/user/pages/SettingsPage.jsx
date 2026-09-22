@@ -58,6 +58,7 @@ export function SettingsPage() {
         if (!alive) return;
         form.setFieldsValue({
           storageRoot: config.storageRoot || '',
+          productionRetentionDays: [7, 14, 30].includes(Number(config.productionRetentionDays)) ? Number(config.productionRetentionDays) : 7,
           petId: getPetDefinition(config.pet).id,
           soundEnabled: config.notifications?.soundEnabled !== false,
           soundVolume: Number.isFinite(config.notifications?.soundVolume) ? config.notifications.soundVolume : 60,
@@ -85,8 +86,11 @@ export function SettingsPage() {
           }
         };
       } else if (section === 'storage') {
-        const result = await form.validateFields(['storageRoot']);
-        values = { storageRoot: result.storageRoot || '' };
+        const result = await form.validateFields(['storageRoot', 'productionRetentionDays']);
+        values = {
+          storageRoot: result.storageRoot || '',
+          productionRetentionDays: [7, 14, 30].includes(Number(result.productionRetentionDays)) ? Number(result.productionRetentionDays) : 7
+        };
       }
     } catch (error) {
       if (!error?.errorFields) message.error(error.message || '保存失败');
@@ -150,7 +154,7 @@ export function SettingsPage() {
         form={form}
         layout="vertical"
         disabled={loading}
-        initialValues={{ storageRoot: '', petId: DEFAULT_PET_ID, soundEnabled: true, soundVolume: 60, petVisible: true }}
+        initialValues={{ storageRoot: '', productionRetentionDays: 7, petId: DEFAULT_PET_ID, soundEnabled: true, soundVolume: 60, petVisible: true }}
       >
         <section className="settings-section settings-model-section" aria-labelledby="settings-model-title">
           <div>
@@ -190,11 +194,15 @@ export function SettingsPage() {
         <section className="settings-section settings-storage-section" aria-labelledby="settings-storage-title">
           <div>
             <h2 id="settings-storage-title">服务器归档文件夹</h2>
-            <p>指定服务器保存剧本、小说与制作工程的归档目录，留空表示关闭；不会改变网页用户的浏览器下载位置。</p>
+            <p>指定服务器保存剧本、小说与制作工程的归档目录；不会改变网页用户的浏览器下载位置。</p>
           </div>
           <Form.Item label="服务器归档路径" name="storageRoot" extra="必须是服务器可访问的绝对路径；留空表示关闭服务器归档。">
             <Input placeholder="例如 /data/qiantie-archive" />
           </Form.Item>
+          <Form.Item label="制作文件保留时长" name="productionRetentionDays" extra="只清理已完成的制作产物，不影响头像、人物/场景/道具参考图、用户上传素材、项目配置和账号数据。">
+            <Select options={[7, 14, 30].map(days => ({ value: days, label: `${days} 天` }))} />
+          </Form.Item>
+          <Typography.Paragraph type="secondary">制作文件自动清理已开启，按当前账号统一作用于剧本生成、小说获取、小说面板、水货生产、Agent 工作区及后续 TOS 制作产物。</Typography.Paragraph>
           <div className="settings-storage-actions">
             <Button type="primary" icon={<Save size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={() => saveSection('storage')} loading={savingSection === 'storage'}>保存存储设置</Button>
             <Button icon={<RefreshCw size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={handleRestore} loading={restoring}>恢复</Button>

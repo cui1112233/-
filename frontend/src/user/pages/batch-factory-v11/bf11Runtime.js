@@ -205,6 +205,11 @@ export function createBf11Runtime({ adapter }) {
       catch (error) { return saveFailure(error); }
     },
 
+    async updateBookSource(input) {
+      try { return { ok: true, raw: await adapter.updateBookSource(input) }; }
+      catch (error) { return saveFailure(error); }
+    },
+
     async previewFinalPrompt(input) {
       try { return { ok: true, raw: await adapter.previewFinalPrompt(input) }; }
       catch (error) { return actionFailure(error, '最终提示词预览失败，请检查 Director revision 和 VIDEO 设置。'); }

@@ -4,10 +4,21 @@ const http = require('http');
 const https = require('https');
 const { apiAuth } = require('../middleware/auth');
 const { getVideoApiKey, readConfig } = require('../lib/shared');
+const { normalizeModelCatalog } = require('../lib/model-catalog');
+const { resolveRuntimeModel } = require('../lib/model-catalog-runtime');
 const { H3_MODEL_KEY } = require('../lib/video-model-catalog');
+const {
+  YFAI_SEEDANCE_MODEL,
+  buildYfaiSeedancePayload,
+  submitYfaiSeedance,
+  requestYfaiSeedanceTask,
+  parseYfaiTaskResponse,
+  parseYfaiTaskStatus
+} = require('../lib/yfai-seedance-adapter');
 const { h3ReferenceUrl } = require('../lib/reference-asset-public-url');
 const {
   H3_API_BASE_URL,
+  H3_DEFAULT_WORKFLOW,
   buildH3Request,
   defaultH3Request,
   defaultH3Submit,
@@ -23,6 +34,7 @@ const MAX_PROMPT_LENGTH = 12000;
 const MAX_OPTIONAL_IMAGES = 3;
 const MAX_H3_PROMPT_LENGTH = 10000;
 const H3_TASK_PREFIX = 'h3:';
+const YFAI_TASK_PREFIX = 'yfai:';
 
 function readTaskID(payload) {
   const candidates = [payload?.task_id, payload?.taskId, payload?.id, payload?.data?.task_id, payload?.data?.taskId, payload?.data?.id, payload?.result?.task_id, payload?.result?.taskId];
@@ -61,6 +73,12 @@ function h3ApiKeyForRequest(req, configReader, h3ApiKeyReader) {
   return personalKey || String(h3ApiKeyReader?.(req) || '').trim();
 }
 
+function h3WorkflowForRequest(req, configReader = readConfig) {
+  const config = configReader?.(req?.username) || {};
+  const catalog = normalizeModelCatalog(config.modelCatalog, config);
+  return catalog.find(model => model.id === H3_MODEL_KEY && model.kind === 'video')?.workflowId || H3_DEFAULT_WORKFLOW;
+}
+
 function h3TaskID(rawTaskID) {
   const value = String(rawTaskID || '').trim();
   return value.startsWith(H3_TASK_PREFIX) ? value.slice(H3_TASK_PREFIX.length).trim() : '';
@@ -68,6 +86,15 @@ function h3TaskID(rawTaskID) {
 
 function publicH3TaskID(rawTaskID) {
   return `${H3_TASK_PREFIX}${String(rawTaskID || '').trim()}`;
+}
+
+function yfaiTaskID(rawTaskID) {
+  const value = String(rawTaskID || '').trim();
+  return value.startsWith(YFAI_TASK_PREFIX) ? value.slice(YFAI_TASK_PREFIX.length).trim() : '';
+}
+
+function publicYfaiTaskID(rawTaskID) {
+  return `${YFAI_TASK_PREFIX}${String(rawTaskID || '').trim()}`;
 }
 
 function h3Duration(value) {
@@ -169,13 +196,27 @@ function createScriptVideoRouter({
   request = upstreamRequest,
   h3Submit = defaultH3Submit,
   h3Request = defaultH3Request,
+  yfaiSubmit = submitYfaiSeedance,
+  yfaiRequest = requestYfaiSeedanceTask,
   h3ApiKeyReader = h3ApiKeyFromEnvironment,
   authenticate = apiAuth,
   shuihuoGateway,
-  memberStore
+  memberStore,
+  accountStore
 } = {}) {
   const router = express.Router();
   router.use(authenticate);
+  function resolveYfaiModel(req) {
+    return resolveRuntimeModel({
+      username: req.username,
+      kind: 'video',
+      modelId: YFAI_SEEDANCE_MODEL,
+      memberStore: memberStore || req.app?.locals?.memberStore,
+      accountStore,
+      account: req.auth?.account,
+      configReader
+    });
+  }
   router.post('/', async (req, res) => {
     const resolvedMemberStore = memberStore || req.app?.locals?.memberStore;
     if (!resolvedMemberStore?.canUseApi(req.auth.username, 'video')) {
@@ -224,22 +265,44 @@ function createScriptVideoRouter({
     }
     if (req.body?.modelKey === H3_MODEL_KEY) {
       const h3Prompt = prompt.slice(0, MAX_H3_PROMPT_LENGTH);
-      const apiKey = h3ApiKeyForRequest(req, configReader, h3ApiKeyReader);
+      let runtimeModel = null;
+      try {
+        runtimeModel = resolveRuntimeModel({
+          username: req.username,
+          kind: 'video',
+          modelId: H3_MODEL_KEY,
+          memberStore: resolvedMemberStore,
+          accountStore,
+          account: req.auth?.account,
+          configReader
+        });
+      } catch { /* retain legacy per-account/environment key fallback */ }
+      const apiKey = runtimeModel?.credential || h3ApiKeyForRequest(req, configReader, h3ApiKeyReader);
       if (!apiKey) return res.status(400).json({ error: 'MiniMax H3 尚未配置服务端 Token，请联系管理员配置' });
       let referenceImages;
       let duration;
       let resolution;
       try {
         const requestedImages = req.body?.referenceImages ?? req.body?.imageUrls;
-        referenceImages = validH3ReferenceImageURLs(Array.isArray(requestedImages)
-          ? requestedImages.map(imageURL => h3ReferenceUrl(imageURL, req.username))
-          : requestedImages);
+        const assetStore = req.app?.locals?.novelPanelPremiumStore;
+        const normalizedReferences = Array.isArray(requestedImages)
+          ? await Promise.all(requestedImages.map(async imageURL => {
+            const tosUrl = await assetStore?.syncReferenceAssetUrlToTos?.(req.username, imageURL);
+            return tosUrl || h3ReferenceUrl(imageURL, req.username);
+          }))
+          : requestedImages;
+        referenceImages = validH3ReferenceImageURLs(normalizedReferences);
         duration = h3Duration(req.body?.duration);
         resolution = h3Resolution(req.body?.resolution);
       } catch (error) {
         return res.status(400).json({ error: error.message || 'H3 参数不正确' });
       }
-      const h3 = buildH3Request({ prompt: h3Prompt, duration, resolution, referenceImages });
+      let h3;
+      try {
+        h3 = buildH3Request({ workflowId: runtimeModel?.workflowId || h3WorkflowForRequest(req, configReader), prompt: h3Prompt, duration, resolution, referenceImages });
+      } catch (error) {
+        return res.status(400).json({ error: error.message || 'H3 工作流配置不合法' });
+      }
       try {
         const upstream = await h3Submit({ apiKey, workflow: h3.workflow, payload: h3.body, baseUrl: process.env.QIANTIE_AUTODL_H3_BASE_URL || H3_API_BASE_URL });
         if (upstream.statusCode < 200 || upstream.statusCode >= 300) return res.status(502).json({ error: `MiniMax H3 请求失败（HTTP ${upstream.statusCode}）` });
@@ -250,6 +313,35 @@ function createScriptVideoRouter({
         return res.status(202).json({ ok: true, taskId: publicH3TaskID(taskId), provider: 'autodl_comfyui' });
       } catch (error) {
         return res.status(502).json({ error: error?.message === 'H3 视频服务响应超时' ? error.message : 'MiniMax H3 服务暂不可用，请稍后重试' });
+      }
+    }
+    if (req.body?.modelKey === YFAI_SEEDANCE_MODEL) {
+      let model;
+      try {
+        model = resolveYfaiModel(req);
+      } catch (error) {
+        return res.status(error.status || 400).json({ error: error.message || 'Seedance 尚未配置或不可用' });
+      }
+      let payload;
+      try {
+        payload = buildYfaiSeedancePayload({
+          prompt,
+          duration: req.body?.duration,
+          resolution: req.body?.resolution,
+          aspectRatio: req.body?.aspectRatio || req.body?.aspect_ratio,
+          quality: req.body?.quality,
+          imageUrls: req.body?.imageUrls
+        });
+      } catch (error) {
+        return res.status(400).json({ error: error.message || 'Seedance 参数不正确' });
+      }
+      try {
+        const upstream = await yfaiSubmit({ apiKey: model.credential, payload, baseUrl: model.baseUrl });
+        if (upstream.statusCode < 200 || upstream.statusCode >= 300) return res.status(502).json({ error: `Seedance 请求失败（HTTP ${upstream.statusCode}）` });
+        const created = parseYfaiTaskResponse(upstream.text);
+        return res.status(202).json({ ok: true, taskId: publicYfaiTaskID(created.taskId), provider: 'yfai_seedance' });
+      } catch (error) {
+        return res.status(502).json({ error: error?.message === 'Seedance 视频服务响应超时' ? error.message : (error.message || 'Seedance 视频服务暂不可用，请稍后重试') });
       }
     }
     let imageUrls;
@@ -288,6 +380,25 @@ function createScriptVideoRouter({
         return res.json({ ok: true, taskId, status: 'succeeded', videoUrl: videoURL, provider: 'autodl_comfyui' });
       } catch (error) {
         return res.status(502).json({ error: error?.message === 'H3 视频服务响应超时' ? error.message : 'MiniMax H3 任务状态暂不可用，请稍后重试' });
+      }
+    }
+    const rawYfaiTaskID = yfaiTaskID(taskId);
+    if (rawYfaiTaskID) {
+      let model;
+      try {
+        model = resolveYfaiModel(req);
+      } catch (error) {
+        return res.status(error.status || 400).json({ error: error.message || 'Seedance 尚未配置或不可用' });
+      }
+      try {
+        const statusReply = await yfaiRequest({ apiKey: model.credential, taskId: rawYfaiTaskID, baseUrl: model.baseUrl });
+        if (statusReply.statusCode < 200 || statusReply.statusCode >= 300) return res.status(502).json({ error: `Seedance 任务状态查询失败（HTTP ${statusReply.statusCode}）` });
+        const status = parseYfaiTaskStatus(statusReply.text);
+        if (status.status === 'processing') return res.json({ ok: true, taskId, status: 'processing' });
+        if (status.status === 'failed') return res.json({ ok: true, taskId, status: 'failed', error: status.error });
+        return res.json({ ok: true, taskId, status: 'succeeded', videoUrl: status.videoUrl, provider: 'yfai_seedance' });
+      } catch (error) {
+        return res.status(502).json({ error: error?.message === 'Seedance 视频服务响应超时' ? error.message : 'Seedance 任务状态暂不可用，请稍后重试' });
       }
     }
     try {
@@ -343,7 +454,10 @@ module.exports = {
   h3ApiKeyFromEnvironment,
   h3Duration,
   h3Resolution,
+  h3WorkflowForRequest,
   publicH3TaskID,
+  publicYfaiTaskID,
+  yfaiTaskID,
   validH3ReferenceImageURLs,
   validOptionalImageURLs,
   readTaskID,

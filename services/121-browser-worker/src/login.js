@@ -22,6 +22,88 @@ async function loginFormVisible(page, selectors) {
   return Boolean(await firstLocator(page, selectors.password));
 }
 
+function storageCookieHeader(storageState) {
+  return (Array.isArray(storageState?.cookies) ? storageState.cookies : [])
+    .filter(cookie => cookie && cookie.name && cookie.value !== undefined)
+    .map(cookie => `${cookie.name}=${cookie.value}`)
+    .join('; ');
+}
+
+function cookieFromSetCookie(value, baseUrl) {
+  const [pair] = String(value || '').split(';', 1);
+  const separator = pair.indexOf('=');
+  if (separator <= 0) return null;
+  return {
+    name: pair.slice(0, separator).trim(),
+    value: pair.slice(separator + 1).trim(),
+    domain: new URL(baseUrl).hostname,
+    path: '/'
+  };
+}
+
+function responseSetCookies(response) {
+  return typeof response?.headers?.getSetCookie === 'function'
+    ? response.headers.getSetCookie()
+    : [response?.headers?.get?.('set-cookie')].filter(Boolean);
+}
+
+async function loginViaHttp({ baseUrl, username, password, fetchImpl = globalThis.fetch, timeoutMs = 15000 } = {}) {
+  if (!String(username || '').trim() || !String(password || '') || typeof fetchImpl !== 'function') return null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), Math.max(1000, Number(timeoutMs) || 15000));
+  try {
+    const root = String(baseUrl || '').replace(/\/+$/, '');
+    const loginPage = await fetchImpl(`${root}/login.php`, { method: 'GET', headers: {}, signal: controller.signal });
+    if (!loginPage?.ok) return null;
+    const primedCookies = responseSetCookies(loginPage).map(cookie => cookieFromSetCookie(cookie, baseUrl)).filter(Boolean);
+    const response = await fetchImpl(`${root}/api/login.php`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        ...(primedCookies.length ? { cookie: primedCookies.map(cookie => `${cookie.name}=${cookie.value}`).join('; ') } : {})
+      },
+      body: JSON.stringify({ username: String(username), password: String(password) }),
+      signal: controller.signal
+    });
+    let data = {};
+    try { data = await response.json(); } catch (_) {}
+    if (!response.ok || data.success !== true) {
+      const error = new Error(`121 登录失败：${data.message || `HTTP ${response.status}`}`);
+      error.code = 'LOGIN_REJECTED';
+      throw error;
+    }
+    const rawCookies = responseSetCookies(response);
+    const cookies = [...primedCookies, ...rawCookies.map(cookie => cookieFromSetCookie(cookie, baseUrl)).filter(Boolean)]
+      .reduce((all, cookie) => [...all.filter(item => item.name !== cookie.name), cookie], []);
+    if (!cookies.length) throw new Error('121 登录成功但未返回会话 Cookie');
+    return { authenticated: true, reusedSession: false, storageState: { cookies, origins: [] }, landingUrl: landingUrl(baseUrl) };
+  } catch (error) {
+    if (error?.code === 'LOGIN_REJECTED') throw error;
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function probeStoredSession({ baseUrl, storageState, fetchImpl = globalThis.fetch, landingPath = 'index.php', timeoutMs = 8000 } = {}) {
+  const cookie = storageCookieHeader(storageState);
+  if (!cookie || typeof fetchImpl !== 'function') return false;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), Math.max(1000, Number(timeoutMs) || 8000));
+  try {
+    const response = await fetchImpl(landingUrl(baseUrl, landingPath), { headers: { cookie }, redirect: 'manual', signal: controller.signal });
+    const location = String(response?.headers?.get?.('location') || '');
+    if (response?.status >= 300 && response?.status < 400 && /login\.php/i.test(location)) return false;
+    if (!response?.ok) return false;
+    const body = await response.text();
+    return !/<input[^>]+type=["']password["']/i.test(String(body || ''));
+  } catch (_) {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function performPageLogin({
   browser,
   baseUrl,
@@ -30,13 +112,18 @@ async function performPageLogin({
   storageState,
   landingPath = 'booklist.php',
   selectors = DEFAULT_SELECTORS,
-  timeoutMs = 15000
+  timeoutMs = 15000,
+  fetchImpl = globalThis.fetch,
+  skipSessionProbe = false
 } = {}) {
   if (!browser || typeof browser.newContext !== 'function') throw new Error('browser is required');
+  if (!skipSessionProbe && storageState && await probeStoredSession({ baseUrl, storageState, fetchImpl })) {
+    return { authenticated: true, reusedSession: true, storageState, landingUrl: landingUrl(baseUrl, landingPath) };
+  }
   const context = await browser.newContext(storageState ? { storageState } : {});
   try {
     const page = await context.newPage();
-    await page.goto(landingUrl(baseUrl, landingPath), { waitUntil: 'domcontentloaded', timeout: timeoutMs });
+    await page.goto(landingUrl(baseUrl, landingPath), { waitUntil: 'commit', timeout: timeoutMs });
 
     if (await loginFormVisible(page, selectors)) {
       const userInput = await firstLocator(page, selectors.username);
@@ -63,10 +150,17 @@ async function performPageLogin({
 }
 
 async function loginWithPlaywright(options = {}) {
+  if (options.storageState && await probeStoredSession(options)) {
+    return { authenticated: true, reusedSession: true, storageState: options.storageState, landingUrl: landingUrl(options.baseUrl, options.landingPath) };
+  }
+  if (options.username && options.password) {
+    const direct = await loginViaHttp(options);
+    if (direct) return direct;
+  }
   const playwright = options.playwright || require('playwright');
   const browser = await playwright.chromium.launch({ headless: options.headed !== true });
-  try { return await performPageLogin({ ...options, browser }); }
+  try { return await performPageLogin({ ...options, browser, skipSessionProbe: true }); }
   finally { await browser.close(); }
 }
 
-module.exports = { DEFAULT_SELECTORS, landingUrl, firstLocator, loginFormVisible, performPageLogin, loginWithPlaywright };
+module.exports = { DEFAULT_SELECTORS, landingUrl, firstLocator, loginFormVisible, storageCookieHeader, cookieFromSetCookie, probeStoredSession, loginViaHttp, performPageLogin, loginWithPlaywright };

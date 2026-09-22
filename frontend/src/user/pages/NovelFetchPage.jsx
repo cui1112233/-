@@ -59,8 +59,19 @@ export function NovelFetchPage({ theme }) {
   // 保留原批量改文系统的静态工作台，不再以简化面板替代其完整布局。
   const frameRef = useRef(null);
   const [frameReady, setFrameReady] = useState(false);
+  const [frameError, setFrameError] = useState(false);
   const syncTheme = () => frameRef.current?.contentWindow?.postMessage({ type: 'qiantie-theme-sync', theme: theme === 'light' ? 'light' : 'dark' }, '*');
   useEffect(() => { syncTheme(); }, [theme]);
+  useEffect(() => {
+    const handleWorkbenchReady = event => {
+      if (event.origin !== window.location.origin || event.data?.type !== 'qiantie:novel-fetch-ready') return;
+      if (event.source !== frameRef.current?.contentWindow) return;
+      setFrameError(false);
+      setFrameReady(true);
+    };
+    window.addEventListener('message', handleWorkbenchReady);
+    return () => window.removeEventListener('message', handleWorkbenchReady);
+  }, []);
   useEffect(() => {
     const receiveHandoff = event => {
       if (event.origin !== window.location.origin || event.data?.type !== 'qiantie:batch-factory-intake') return;
@@ -71,7 +82,20 @@ export function NovelFetchPage({ theme }) {
     window.addEventListener('message', receiveHandoff);
     return () => window.removeEventListener('message', receiveHandoff);
   }, []);
-  return <div className={`novel-fetch-frame-shell${frameReady ? ' is-ready' : ''}`}><iframe ref={frameRef} className="novel-fetch-original-workbench" title="批量原文改文系统" src={`/batch-rewrite/index.html?theme=${theme === 'light' ? 'light' : 'dark'}`} onLoad={() => { syncTheme(); requestAnimationFrame(() => setFrameReady(true)); }} /></div>;
+  const handleFrameLoad = () => { setFrameError(false); syncTheme(); };
+  const handleFrameError = () => { setFrameError(true); setFrameReady(false); };
+  return <div className={`novel-fetch-frame-shell${frameReady ? ' is-ready' : ''}${frameError ? ' has-error' : ''}`}>
+    {!frameReady && <div className="novel-fetch-loading-overlay" role="status" aria-live="polite">
+      <div className="novel-fetch-loader" aria-hidden="true">
+        <span className="novel-fetch-loader-trace novel-fetch-loader-trace--one" />
+        <span className="novel-fetch-loader-trace novel-fetch-loader-trace--two" />
+        <span className="novel-fetch-loader-chip"><span className="novel-fetch-loader-chip-dot" /></span>
+      </div>
+      <strong>{frameError ? '小说获取加载失败' : '正在加载小说获取…'}</strong>
+      <span>{frameError ? '请刷新页面重试' : '正在准备工作台，请稍候'}</span>
+    </div>}
+    <iframe ref={frameRef} className="novel-fetch-original-workbench" title="批量原文改文系统" src={`/batch-rewrite/v2?theme=${theme === 'light' ? 'light' : 'dark'}`} onLoad={handleFrameLoad} onError={handleFrameError} />
+  </div>;
 }
 
 export function LegacyNovelFetchPage() {

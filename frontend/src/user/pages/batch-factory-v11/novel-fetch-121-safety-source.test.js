@@ -22,14 +22,29 @@ test('novel fetch route installs the hardened 121 login guard', () => {
   assert.match(pageSource, /batch-rewrite\/index\.html/);
 });
 
-test('121 guard fails closed when batch rewrite config is unavailable', () => {
+test('novel fetch keeps a visible loading experience until the iframe is ready', () => {
+  const pageSource = fs.readFileSync(path.join(pagesDir, 'NovelFetchPage.jsx'), 'utf8');
+  const styleSource = fs.readFileSync(path.join(pagesDir, 'novel-fetch.css'), 'utf8');
+  const appSource = fs.readFileSync(path.join(frontendDir, 'public/batch-rewrite/app.js'), 'utf8');
+  assert.match(pageSource, /novel-fetch-loading-overlay/);
+  assert.match(pageSource, /正在加载小说获取/);
+  assert.match(pageSource, /onError/);
+  assert.match(pageSource, /setFrameError/);
+  assert.match(pageSource, /qiantie:novel-fetch-ready/);
+  assert.match(appSource, /qiantie:novel-fetch-ready/);
+  assert.match(styleSource, /novel-fetch-loading-overlay/);
+  assert.match(styleSource, /novel-fetch-loader-trace/);
+  assert.match(styleSource, /prefers-reduced-motion/);
+});
+
+test('121 guard fails closed when batch rewrite config is unavailable without hijacking login submit', () => {
   const source = readRequired('public/batch-rewrite/121-login-hotfix.js');
   assert.match(source, /state\.config\?\.web_submit/);
   assert.match(source, /ensureServerConfig/);
   assert.match(source, /已阻止发送 121 账号密码/);
   assert.match(source, /配置加载失败/);
-  assert.match(source, /stopImmediatePropagation/);
-  assert.match(source, /qiantieSafeLoginBound/);
+  assert.doesNotMatch(source, /stopImmediatePropagation/);
+  assert.doesNotMatch(source, /qiantieSafeLoginBound/);
 });
 
 test('121 guard keeps a 65 second frontend deadline above active worker budgets', () => {
@@ -51,13 +66,25 @@ test('candidate image injects the guard even when tracked frontend dist is stale
   assert.match(dockerfile, /frontend\/dist\/batch-rewrite\/index\.html/);
 });
 
-test('novel status center survives frontend rebuild and direct release packaging', () => {
+test('novel status center survives frontend rebuild and direct ECS image packaging', () => {
   const source = readRequired('public/batch-rewrite/v88-novel-status-center.js');
   assert.match(source, /V88NovelStatusCenter/);
   assert.match(source, /处理完成/);
   assert.match(source, /视频管理系统提交/);
 
-  const workflow = fs.readFileSync(path.join(repoDir, '.github/workflows/v88-direct-deploy-node-stage.yml'), 'utf8');
-  assert.match(workflow, /cp frontend\/public\/batch-rewrite\/v88-novel-status-center\.js frontend\/dist\/batch-rewrite\/v88-novel-status-center\.js/);
-  assert.match(workflow, /qiantie-novel-status-center/);
+  const dockerfile = fs.readFileSync(path.join(repoDir, 'Dockerfile'), 'utf8');
+  assert.match(dockerfile, /COPY frontend\/dist\/ \.\/frontend\/dist\//);
+  assert.match(dockerfile, /COPY frontend\/public\/batch-rewrite\/121-login-hotfix\.js/);
+});
+
+test('121 login delegates to the asynchronous operation flow', () => {
+  const source = readRequired('public/batch-rewrite/121-login-hotfix.js');
+  assert.doesNotMatch(source, /function bindSafeLoginSubmit/);
+  assert.doesNotMatch(source, /stopImmediatePropagation/);
+  assert.doesNotMatch(source, /api\('\/api\/web-submit\/config'/);
+  const appSource = readRequired('public/batch-rewrite/app.js');
+  assert.match(appSource, /api\("\/api\/web-submit\/operations"/);
+  assert.match(appSource, /waitWebSubmitOperation\(operation\.id\)/);
+  assert.match(appSource, /121 后台操作等待超时/);
+  assert.match(appSource, /passwordInput\.value\s*=\s*""/);
 });

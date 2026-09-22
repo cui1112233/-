@@ -47,3 +47,11 @@ test('workbench has a single unified preview surface rather than per-video playe
   assert.match(source, /最终合并/);
   assert.match(source, /VIDEO \$\{String\(index \+ 1\)\.padStart\(2, '0'\)\}/);
 });
+
+test('current novel source is a real editable module with stale-result warning', () => {
+  const workbench = read('BatchFactoryV11Workbench.jsx');
+  const source = read('NovelSourceModule.jsx');
+  assert.match(workbench, /NovelSourceModule/);
+  assert.match(workbench, /onSaveSource/);
+  assert.match(source, /downstreamStale/);
+});

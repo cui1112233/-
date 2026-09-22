@@ -1,8 +1,6 @@
 (() => {
   const API_ROOT = '/api/batch-rewrite';
   const LAYOUT_ID = 'v78ImageAlignedStyles';
-  const POLL_MS = 3000;
-  let pollTimer = null;
   let mounted = false;
 
   const $ = id => document.getElementById(id);
@@ -21,6 +19,7 @@
   }
 
   async function api(path) {
+    if (window.QiantieNovelFetchRuntime) return window.QiantieNovelFetchRuntime.api(path);
     const response = await fetch(`${API_ROOT}${path}`, { headers: headers() });
     const body = await response.text();
     let data = {};
@@ -222,6 +221,9 @@
       const target = $(targetId);
       const tasksTab = document.querySelector('.tab[data-tab="tasks"]');
       tasksTab?.click();
+      // Submit directly through the legacy runtime. The old target can be
+      // replaced while switching task panels, so a synthetic click may do nothing.
+      if (targetId === 'openWebSubmitBtn') window.qiantieSubmitSelectedTasks?.(window.qiantieV78SelectedTaskIds?.());
       window.setTimeout(() => {
         target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
         target?.focus?.();
@@ -273,6 +275,36 @@
     if (/fail|error|timeout|partial|失败|错误|超时|异常/.test(value)) return 'v78-cell-fail';
     if (/run|process|queue|pending|处理中|等待|排队/.test(value)) return 'v78-cell-run';
     return 'v78-cell-muted';
+  }
+
+  const STATUS_LABELS = {
+    original_done: '原文已完成',
+    original_processing: '原文处理中',
+    original_failed: '原文处理失败',
+    ai_done: 'AI文案已完成',
+    ai_processing: 'AI文案处理中',
+    ai_failed: 'AI文案生成失败',
+    pending_upload: '待上传',
+    uploading: '上传中',
+    site_submitted: '网站已提交',
+    accepted_pending: '等待网站确认',
+    queued: '排队中',
+    running: '正在执行中…',
+    processing: '处理中…',
+    pending: '等待处理',
+    waiting_retry: '等待重试',
+    done: '已完成',
+    completed: '已完成',
+    failed: '处理失败',
+    error: '处理失败',
+    cancelled: '已取消',
+    stopped: '已停止'
+  };
+
+  function statusLabel(value, fallback = '处理中') {
+    const raw = text(value).trim();
+    if (!raw) return fallback;
+    return STATUS_LABELS[raw.toLowerCase()] || (/^[a-z0-9_:-]+$/i.test(raw) ? fallback : raw);
   }
 
   function statusMark(status, ready = false) {
@@ -368,7 +400,8 @@
       const targetReadyCount = targets.filter(version => version === 'original' ? /done|complete|成功|已完成/i.test(text(originalStatus)) : generated.has(version)).length;
       const submitReady = targets.length > 0 && (confirmed.size ? targets.every(version => confirmed.has(version)) : /submitted|confirmed|done|success|成功|已提交/i.test(text(siteStatus)));
       const submitCell = statusMark(siteStatus, submitReady);
-      return `<tr data-v78-current-id="${safe(id)}"><td>${index + 1}</td><td>${safe(task.book_name || task.bookName || '-')}</td><td>${safe(id)}</td>${versionCells}<td>${submitCell}</td><td class="${statusClass(status || siteStatus || aiStatus || originalStatus)}">${safe(status || (targetReadyCount === targets.length && targets.length ? '已完成' : '处理中'))}</td><td>${wordLabel(task, targets)}</td><td>${dateLabel(task.created_at || task.createdAt || batch.createdAt)}</td><td><button type="button" class="v78-table-view" data-v78-open-task="${safe(id)}">查看</button></td></tr>`;
+      const displayStatus = statusLabel(status || siteStatus || aiStatus || originalStatus, targetReadyCount === targets.length && targets.length ? '已完成' : '处理中');
+      return `<tr data-v78-current-id="${safe(id)}"><td>${index + 1}</td><td>${safe(task.book_name || task.bookName || '-')}</td><td>${safe(id)}</td>${versionCells}<td>${submitCell}</td><td class="${statusClass(status || siteStatus || aiStatus || originalStatus)}">${safe(displayStatus)}</td><td>${wordLabel(task, targets)}</td><td>${dateLabel(task.created_at || task.createdAt || batch.createdAt)}</td><td><button type="button" class="v78-table-view" data-v78-open-task="${safe(id)}">查看</button></td></tr>`;
     }).join('');
     wrap.innerHTML = `<table><thead><tr><th>ID</th><th>书名</th><th>Book ID</th>${versionHeads}<th>网站提交</th><th>状态</th><th>字数</th><th>创建时间</th><th>操作</th></tr></thead><tbody>${rows || `<tr><td colspan="${8 + aiTargets.length + (showOriginal ? 1 : 0)}" class="v78-cell-muted">本批次任务尚未生成</td></tr>`}</tbody></table>`;
     wrap.onclick = event => {
@@ -481,6 +514,8 @@
   }
 
   function boot() {
+    if (window.__qiantieNovelFetchLayoutBooted) return;
+    window.__qiantieNovelFetchLayoutBooted = true;
     let attempts = 0;
     const waiter = window.setInterval(() => {
       mountImageAlignedLayout();
@@ -488,7 +523,6 @@
       if (mounted || attempts >= 40) {
         window.clearInterval(waiter);
         void refreshImageLayoutData();
-        if (!pollTimer) pollTimer = window.setInterval(refreshImageLayoutData, POLL_MS);
       }
     }, 200);
   }

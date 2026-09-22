@@ -59,6 +59,11 @@ export function BatchFactoryV11UiPage({ initialBatchId = '' } = {}) {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [newBatchTitle, setNewBatchTitle] = useState('');
   const [historyBatches, setHistoryBatches] = useState([]);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [scheduleAt, setScheduleAt] = useState('');
+  const [schedules, setSchedules] = useState([]);
+  const [generatedShotImages, setGeneratedShotImages] = useState({});
+  const [generatedAssetImages, setGeneratedAssetImages] = useState({ character: {}, scene: {}, prop: {} });
 
   const reload = useCallback(async ({ announce = false } = {}) => {
     setRuntimeState(current => ({ ...current, phase: 'loading' }));
@@ -298,7 +303,7 @@ export function BatchFactoryV11UiPage({ initialBatchId = '' } = {}) {
   async function runDirector(book) {
     if (!book?.id || directorAction.type) return false;
     setDirectorAction({ type: 'director', bookId: book.id });
-    try { return await finishDirectorAction(await runtime.runDirector({ batchId: batch.id, bookId: book.id }), 'Director 已完成并生成新的 VIDEO identity'); }
+    try { return await finishDirectorAction(await runtime.runDirector({ batchId: batch.id, bookId: book.id, textModelId: batchSettingsState.patch.textModelId || '' }), 'Director 已完成并生成新的 VIDEO identity'); }
     finally { setDirectorAction({ type: '', bookId: '' }); }
   }
 
@@ -316,10 +321,10 @@ export function BatchFactoryV11UiPage({ initialBatchId = '' } = {}) {
     });
   }
 
-  async function previewFinalPrompt(book, video) {
+  async function previewFinalPrompt(book, video, shot = null) {
     if (!book?.id || !video?.id) return false;
     setPromptPreview({ open: true, loading: true, data: null, error: '' });
-    const result = await runtime.previewFinalPrompt({ batchId: batch.id, bookId: book.id, videoId: video.id });
+    const result = await runtime.previewFinalPrompt({ batchId: batch.id, bookId: book.id, videoId: video.id, shotId: shot?.id || '' });
     if (!result.ok) {
       setPromptPreview({ open: true, loading: false, data: null, error: result.message });
       return false;
@@ -333,7 +338,7 @@ export function BatchFactoryV11UiPage({ initialBatchId = '' } = {}) {
     return `${prefix}-${random || `${Date.now()}-${Math.random().toString(16).slice(2)}`}`;
   }
 
-  async function runProduction(targetBatch) {
+  async function runProduction(targetBatch, targetBook = null) {
     if (!targetBatch?.id || productionBusy) return false;
     const provider = batchSettingsState.patch.videoProvider || 'personal_api';
     if (provider === 'doubao_local_executor' && !runtimeState.localExecutors.some(item => item.online)) {
@@ -350,12 +355,18 @@ export function BatchFactoryV11UiPage({ initialBatchId = '' } = {}) {
     }
     setProductionBusy(true);
     try {
-      const result = await runtime.runProduction({ batchId: targetBatch.id, requestId: newRequestId('bf11-production'), provider });
+      const result = await runtime.runProduction({
+        batchId: targetBatch.id,
+        bookId: targetBook?.id || '',
+        requestId: newRequestId('bf11-production'),
+        provider,
+        videoModelId: batchSettingsState.patch.videoModelId || ''
+      });
       if (!result.ok) { message.error(result.message); return false; }
       const next = await runtime.load({ ...requestParams, batchId: targetBatch.id });
       setRuntimeState(next);
       if (next.phase !== 'ready') { message.warning('视频任务已提交，但刷新状态失败，请稍后重试。'); return true; }
-      message.success('待生成 VIDEO 已提交，状态会自动写回工作台。');
+      message.success(targetBook ? '当前小说待生成 VIDEO 已提交，状态会自动写回工作台。' : '待生成 VIDEO 已提交，状态会自动写回工作台。');
       return true;
     } finally {
       setProductionBusy(false);
@@ -393,21 +404,76 @@ export function BatchFactoryV11UiPage({ initialBatchId = '' } = {}) {
     }
   }
 
-  async function saveVideoPrompt(book, video, visualPrompt) {
-    const result = await runtime.saveVideoPrompt({ batchId: batch.id, bookId: book.id, videoId: video.id, visualPrompt, revision: video.settingsState?.revision || 0 });
+  async function generateAssetImage(book, type, item, prompt) {
+    const modelId = batchSettingsState.patch.imageModelId || '';
+    if (!modelId || !book?.id || !prompt) { message.error('请先选择图片模型并确认资产 Prompt'); return false; }
+    const assetId = item?.id || item?.name || item?.label || prompt.slice(0, 40);
+    try {
+      const raw = await batchFactoryV11.generateConfiguredImage({ imageModelId: modelId, prompt });
+      const imageUrl = raw?.imageUrl || raw?.url || '';
+      if (!imageUrl) throw new Error('图片模型未返回图片地址');
+      setGeneratedAssetImages(current => ({ ...current, [type]: { ...current[type], [assetId]: imageUrl } }));
+      await runtime.saveDraft({ key: `asset:${type}:${assetId}:image`, kind: 'asset-image', scope: `${batch.id}:${book.id}`, content: imageUrl });
+      message.success(`${type === 'character' ? '人物' : type === 'scene' ? '场景' : '道具'}图片已生成并保存`);
+      return true;
+    } catch (error) { message.error(error?.message || '资产图片生成失败'); return false; }
+  }
+
+  async function generateShotImage(book, video, shot) {
+    if (!book?.id || !video?.id || !shot?.id || !shot.visualPrompt) return false;
+    const modelId = batchSettingsState.patch.imageModelId || '';
+    if (!modelId) { message.error('请先在生产统一设置中选择图片模型'); return false; }
+    try {
+      const raw = await batchFactoryV11.generateConfiguredImage({ imageModelId: modelId, prompt: shot.visualPrompt });
+      const imageUrl = raw?.imageUrl || raw?.url || '';
+      if (!imageUrl) throw new Error('图片模型未返回图片地址');
+      await runtime.saveShotVisualImage({ batchId: batch.id, bookId: book.id, videoId: video.id, shotId: shot.id, imageUrl });
+      setGeneratedShotImages(current => ({ ...current, [shot.id]: imageUrl }));
+      await runtime.saveDraft({ key: `shot:${shot.id}:visual-image`, kind: 'visual-image', scope: `${batch.id}:${book.id}`, content: imageUrl });
+      message.success('当前 Shot 画面图已生成并保存');
+      return true;
+    } catch (error) {
+      message.error(error?.message || '图片生成失败');
+      return false;
+    }
+  }
+
+  async function saveVideoPrompt(book, video, visualPrompt, shot = null) {
+    const result = shot
+      ? await runtime.saveDraft({
+        key: `shot:${shot.id}`,
+        kind: 'visual-prompt',
+        scope: `${batch.id}:${book.id}`,
+        content: visualPrompt
+      })
+      : await runtime.saveVideoPrompt({ batchId: batch.id, bookId: book.id, videoId: video.id, visualPrompt, revision: video.settingsState?.revision || 0 });
     if (!result.ok) { message.error(result.message); return false; }
     await reload({ announce: false });
-    message.success('画面提示词已保存');
+    message.success(shot ? '当前 Shot 画面提示词已保存' : '画面提示词已保存');
     return true;
   }
 
-  async function saveAssetPrompts(type, items, drafts) {
+  async function saveBookSource(book, sourceText) {
+    const result = await runtime.updateBookSource({
+      batchId: batch.id,
+      bookId: book.id,
+      sourceText,
+      revision: book.revision
+    });
+    if (!result.ok) { message.error(result.message); return false; }
+    await reload({ announce: false });
+    message.success('原文已保存；已有下游结果已标记为需更新');
+    return true;
+  }
+
+  async function saveAssetPrompts(book, type, items, drafts) {
+    if (!book?.id) return false;
     try {
       await Promise.all((items || []).map(item => {
       const name = typeof item === 'string' ? item : (item?.name || item?.label || item?.id || '未命名资产');
       const key = `${type}:${item?.id || name}:${items.indexOf(item)}`;
       const content = drafts[key] ?? (typeof item === 'string' ? '' : (item?.prompt || item?.visualPrompt || item?.description || ''));
-      return batchFactoryV11.saveDraft({ key: `asset:${type}:${item?.id || name}`, kind: 'asset-prompt', scope: batch.id, content });
+      return batchFactoryV11.saveDraft({ key: `asset:${type}:${item?.id || name}`, kind: 'asset-prompt', scope: `${batch.id}:${book.id}`, content });
       }));
       message.success(`${type === 'character' ? '人物' : type === 'scene' ? '场景' : '道具'} Prompt 草稿已保存`);
       return true;
@@ -466,6 +532,44 @@ export function BatchFactoryV11UiPage({ initialBatchId = '' } = {}) {
     if (next.phase === 'ready') message.success('新批次已创建');
   }
 
+  async function openSchedules() {
+    try {
+      const result = await batchFactoryV11.listSchedules();
+      setSchedules(result?.schedules || []);
+      setScheduleOpen(true);
+    } catch (error) { message.error(error?.message || '读取定时任务失败'); }
+  }
+
+  async function createProductionSchedule() {
+    if (!scheduleAt || !batch?.id) return;
+    try {
+      const runAt = new Date(scheduleAt);
+      if (!Number.isFinite(runAt.getTime()) || runAt.getTime() <= Date.now()) {
+        message.error('请选择未来的执行时间');
+        return;
+      }
+      const result = await batchFactoryV11.createSchedule({
+        batchId: batch.id,
+        requestId: newRequestId('bf11-scheduled-production'),
+        bookId: '',
+        provider: batchSettingsState.patch.videoProvider || 'personal_api',
+        runAt: runAt.toISOString(),
+        inputSnapshot: { settings: batchSettingsState.patch, promptSelections: batchSettingsState.patch.promptSelections || {} }
+      });
+      setSchedules(current => [...current, result.schedule]);
+      setScheduleAt('');
+      message.success('定时生产任务已创建');
+    } catch (error) { message.error(error?.message || '创建定时任务失败'); }
+  }
+
+  async function cancelSchedule(schedule) {
+    try {
+      await batchFactoryV11.deleteSchedule(schedule.id);
+      setSchedules(current => current.filter(item => item.id !== schedule.id));
+      message.success('定时任务已删除');
+    } catch (error) { message.error(error?.message || '删除定时任务失败'); }
+  }
+
   function getPublishCredential(provider) { return runtime.getPublishCredential(provider); }
   function savePublishCredential(provider, payload) { return runtime.savePublishCredential(provider, payload); }
   function createPublishIntent(provider, payload) { return runtime.createPublishIntent(provider, payload); }
@@ -474,7 +578,12 @@ export function BatchFactoryV11UiPage({ initialBatchId = '' } = {}) {
 
   return <DirectorRefreshProvider onRefresh={refreshDirectorRevision}>
     <div data-bf-v11-ui="final">
-      <BatchFactoryV11Workbench
+      <Space direction="vertical" size={12} style={{ width: '100%' }}>
+        <Space wrap>
+          <Button onClick={openSchedules}>自动化 / 定时生产</Button>
+          <Typography.Text type="secondary">一次性日期时间执行；提示词选择和 API 模型配置会随任务快照保存。</Typography.Text>
+        </Space>
+        <BatchFactoryV11Workbench
         batch={viewBatch}
         books={books}
         productionStatus={runtimeState.productionStatus}
@@ -494,10 +603,30 @@ export function BatchFactoryV11UiPage({ initialBatchId = '' } = {}) {
         onRunProduction={runProduction}
         onRunMerge={runMerge}
         onRunUpload={() => setExternalPublishOpen(true)}
+        onSaveSource={saveBookSource}
         onSaveVideoPrompt={saveVideoPrompt}
         onRefreshAssets={refreshAssets}
         onSaveAssetPrompts={saveAssetPrompts}
+        onGenerateShotImage={generateShotImage}
+        generatedShotImages={generatedShotImages}
+        onGenerateAssetImage={generateAssetImage}
+        generatedAssetImages={generatedAssetImages}
       />
+      </Space>
+
+      <Modal title="自动化 / 定时生产" open={scheduleOpen} onCancel={() => setScheduleOpen(false)} footer={null}>
+        <Space direction="vertical" style={{ width: '100%' }}>
+          <Typography.Text strong>执行时间</Typography.Text>
+          <Input type="datetime-local" value={scheduleAt} onChange={event => setScheduleAt(event.target.value)} />
+          <Button type="primary" disabled={!scheduleAt} onClick={createProductionSchedule}>创建一次性定时任务</Button>
+          <Typography.Text strong>定时任务</Typography.Text>
+          {(schedules || []).map(schedule => <Space key={schedule.id} style={{ width: '100%', justifyContent: 'space-between' }}>
+            <Typography.Text>{new Date(schedule.runAt).toLocaleString()} · {schedule.status}</Typography.Text>
+            {schedule.status === 'scheduled' ? <Button danger size="small" onClick={() => cancelSchedule(schedule)}>删除</Button> : null}
+          </Space>)}
+          {!schedules.length ? <Typography.Text type="secondary">暂无定时任务</Typography.Text> : null}
+        </Space>
+      </Modal>
 
       <Modal title="新建批次" open={batchManagerOpen} onCancel={() => setBatchManagerOpen(false)} onOk={createNewBatch} okText="创建">
         <Input placeholder="批次名称" value={newBatchTitle} onChange={event => setNewBatchTitle(event.target.value)} />
@@ -524,6 +653,8 @@ export function BatchFactoryV11UiPage({ initialBatchId = '' } = {}) {
         batch={viewBatch}
         configVersions={runtimeState.configVersions || []}
         configVersionsError={runtimeState.configVersionsError || null}
+        apiModels={runtimeState.apiModels || {}}
+        promptCatalog={runtimeState.promptCatalog || []}
         personalPrompts={runtimeState.personalPrompts || {}}
         personalPromptsError={runtimeState.personalPromptsError || null}
         videoProviders={runtimeState.videoProviders || {}}

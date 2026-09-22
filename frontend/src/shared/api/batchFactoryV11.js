@@ -74,6 +74,10 @@ export function getCapabilities() {
   return apiRequest(bf11Path('capabilities'));
 }
 
+export function generateConfiguredImage(payload = {}) {
+  return apiRequest(bf11Path('image-generation'), { method: 'POST', body: body(payload) });
+}
+
 export function createNovelFetchIntake(payload) {
   return apiRequest(bf11Path('intakes/novel-fetch'), { method: 'POST', body: body(payload) });
 }
@@ -119,6 +123,10 @@ export function fetchBookOriginal(batchId, bookId) {
 
 export function getBatch(batchId) {
   return apiRequest(bf11Path(`batches/${id(batchId)}`));
+}
+
+export function updateBookSource(batchId, bookId, input) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/source`), { method: 'PUT', body: body(input) });
 }
 
 export function saveBatchSettings(batchId, input, options = {}) {
@@ -349,6 +357,34 @@ export function getBatchAutomationStatus(batchId) {
   return apiRequest(bf11Path(`batches/${id(batchId)}/automation`));
 }
 
+export function listSchedules() {
+  return apiRequest(bf11Path('schedules'));
+}
+
+export function createSchedule(payload = {}) {
+  return apiRequest(bf11Path('schedules'), { method: 'POST', body: body(payload) });
+}
+
+export function deleteSchedule(scheduleId) {
+  return apiRequest(bf11Path(`schedules/${id(scheduleId)}`), { method: 'DELETE' });
+}
+
+export function listAutomationPresets() {
+  return apiRequest(bf11Path('automation-presets'));
+}
+
+export function createAutomationPreset(payload) {
+  return apiRequest(bf11Path('automation-presets'), { method: 'POST', body: body(payload) });
+}
+
+export function updateAutomationPreset(presetId, payload) {
+  return apiRequest(bf11Path(`automation-presets/${id(presetId)}`), { method: 'PUT', body: body(payload) });
+}
+
+export function deleteAutomationPreset(presetId) {
+  return apiRequest(bf11Path(`automation-presets/${id(presetId)}`), { method: 'DELETE', body: body({}) });
+}
+
 export function startBatchAutomation(batchId, payload = {}) {
   return apiRequest(bf11Path(`batches/${id(batchId)}/automation/start`), { method: 'POST', body: body(payload) });
 }
@@ -381,6 +417,10 @@ export function submitBookMerge(batchId, bookId, payload = {}) {
     method: 'POST',
     body: body(payload)
   });
+}
+
+export function getBookMergeStatus(batchId, bookId, requestId) {
+  return apiRequest(`${bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/merge-status`)}${query({ requestId })}`);
 }
 
 export function getMergeStatus(batchId) {
@@ -433,6 +473,7 @@ export function getPublishAudits(provider, intentId) {
 
 export default {
   getCapabilities,
+  generateConfiguredImage,
   createNovelFetchIntake,
   getIntake,
   createBatchFromIntake,
@@ -442,6 +483,7 @@ export default {
   fetchDirectOriginals,
   fetchBookOriginal,
   getBatch,
+  updateBookSource,
   saveBatchSettings,
   saveBookOverride,
   saveVideoOverride,
@@ -478,6 +520,13 @@ export default {
   createLocalExecutorPairing,
   getProductionStatus,
   getBatchAutomationStatus,
+  listSchedules,
+  createSchedule,
+  deleteSchedule,
+  listAutomationPresets,
+  createAutomationPreset,
+  updateAutomationPreset,
+  deleteAutomationPreset,
   startBatchAutomation,
   pauseBatchAutomation,
   resumeBatchAutomation,
@@ -487,6 +536,7 @@ export default {
   isProtectedProductionMediaURL,
   submitBatchMerge,
   submitBookMerge,
+  getBookMergeStatus,
   getMergeStatus,
   getPublishCredential,
   savePublishCredential,

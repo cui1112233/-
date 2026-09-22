@@ -69,4 +69,60 @@ async function actionWithPlaywright(options = {}) {
   finally { await browser.close(); }
 }
 
-module.exports = { targetOrigin, buildActionRequest, performAuthenticatedAction, actionWithPlaywright };
+function createActionRunner({ playwright, perform = performAuthenticatedAction, maxConcurrent = 1, idleMs = 60_000 } = {}) {
+  const limit = Math.max(1, Math.min(Number(maxConcurrent) || 1, 4));
+  const idleTimeout = Math.max(1, Math.min(Number(idleMs) || 60_000, 300_000));
+  let browser;
+  let launching;
+  let idleTimer;
+  let active = 0;
+  const waiting = [];
+  const acquire = () => {
+    if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
+    return active < limit
+    ? (active += 1, Promise.resolve())
+    : new Promise(resolve => waiting.push(resolve));
+  };
+  const release = () => {
+    const next = waiting.shift();
+    if (next) next();
+    else {
+      active -= 1;
+      if (active === 0 && browser) {
+        idleTimer = setTimeout(() => { close().catch(() => {}); }, idleTimeout);
+      }
+    }
+  };
+  const getBrowser = async () => {
+    if (browser) return browser;
+    if (!launching) {
+      const api = playwright || require('playwright');
+      launching = api.chromium.launch({ headless: true }).then(value => {
+        browser = value;
+        return value;
+      }).finally(() => { launching = null; });
+    }
+    return launching;
+  };
+  const close = async () => {
+    if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
+    const activeBrowser = browser;
+    browser = null;
+    if (activeBrowser && typeof activeBrowser.close === 'function') await activeBrowser.close();
+  };
+  const run = async options => {
+    await acquire();
+    try {
+      return await perform({ ...options, browser: await getBrowser() });
+    } catch (error) {
+      if (error?.code === 'SESSION_EXPIRED') await close();
+      throw error;
+    } finally {
+      release();
+    }
+  };
+  run.close = close;
+  return run;
+}
+
+module.exports = { targetOrigin, buildActionRequest, performAuthenticatedAction, actionWithPlaywright, createActionRunner };

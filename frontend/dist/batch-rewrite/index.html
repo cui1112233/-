@@ -131,6 +131,9 @@
             <div class="batch-actions">
               <label>查看日期 <input id="taskDateFilter" type="date" /></label>
               <button id="taskTodayBtn">今天</button>
+              <button id="taskPrevDayBtn">前一天</button>
+              <button id="taskNextDayBtn">后一天</button>
+              <button id="taskDefaultViewBtn">默认视图</button>
               <button id="taskToggleBtn" type="button">收起任务</button>
               <span id="selectedCount">已选 0 个</span>
               <span id="batchStatus"></span>
@@ -141,6 +144,9 @@
               <button id="retryFailedBtn">重试失败</button>
               <button id="transferBatchFactoryBtn" class="primary">进入批量工厂</button>
               <button id="openWebSubmitBtn" class="primary">提交网络</button>
+              <button id="submitTaskAllBtn">提交全部</button>
+              <label>AI数量 <input id="batchAiCount" type="number" min="1" max="20" value="1" style="width:54px"></label>
+              <button id="updateAiCountSelectedBtn">调整选中</button>
               <select id="ruleApplyScope" aria-label="规则处理范围">
                 <option value="both">规则处理原文+AI</option>
                 <option value="original">只处理原文</option>
@@ -266,16 +272,9 @@
             <div class="section-title"><h2>AI接口配置</h2></div>
             <div class="control-grid two">
               <label>
-                API地址
-                <input id="aiBaseUrl" />
-              </label>
-              <label>
-                API Key
-                <input id="aiApiKey" type="password" autocomplete="off" />
-              </label>
-              <label>
-                模型名
-                <input id="aiModel" />
+                文本模型
+                <select id="textModelSelect"><option value="">正在读取可用文本模型...</option></select>
+                <span id="textModelStatus" class="form-hint">模型来自导航栏 API 配置</span>
               </label>
               <label>
                 超时(秒)
@@ -322,12 +321,12 @@
             </label>
             <div class="actions">
               <button id="saveAiConfigBtn" class="primary">保存AI配置</button>
-              <button id="testAiBtn">测试接口</button>
+              <button id="testAiBtn">测试文本模型</button>
               <span id="aiTestStatus"></span>
             </div>
           </section>
 
-          <section class="section">
+          <section class="section legacy-api-presets" aria-hidden="true" hidden>
             <div class="section-title"><h2>API预设库</h2></div>
             <div class="control-grid two">
               <label>
@@ -555,6 +554,8 @@
                 <div class="actions no-top-margin"><strong>版本配置</strong><span class="form-hint">每个文案版本使用绑定的 121 配置档；未绑定时按默认配置档或书籍类型匹配。</span></div>
               </div>
               <div class="site-submit-guard-fields upload-settings-guard">
+                <label>组织归属<select id="webOrganization"></select></label>
+                <button id="syncWebOrganizationsBtn" type="button">同步组织归属</button>
                 <label>最小文案字数（0 不限制）<input id="webMinTextChars" type="number" min="0" max="100000" value="0" /></label>
                 <label>单文案失败重试<input id="webRetryTimes" type="number" min="0" max="5" value="1" /></label>
                 <label class="inline-check repeat-submit-toggle" title="开启后，已成功提交过的文案也会再次上传"><input id="webAllowResubmit" type="checkbox" /> 允许二次提交已成功版本</label>
@@ -583,6 +584,6 @@
       </section>
     </main>
 
-    <script src="./app.js?v=20260910-one-click-flow1"></script>
+    <script src="./app.js?v=20260922-real-date-filter-r1"></script>
   </body>
 </html>

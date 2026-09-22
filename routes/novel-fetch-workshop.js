@@ -9,8 +9,6 @@ const rulesModule = require('../lib/novel-fetch-workshop/rules');
 const { createKnowledgeStore } = require('../lib/novel-fetch-workshop/knowledge');
 const { createOpeningStore } = require('../lib/novel-fetch-workshop/opening');
 const { createMySQLWorkshopStore } = require('../lib/novel-fetch-workshop/mysql-store');
-const { resolveCatalogAiSettings } = require('../lib/novel-fetch-workshop/model-settings');
-const { writeStageAudits } = require('../lib/novel-fetch-workshop/run-audit');
 
 function mergeConfig(current, patch) {
   const merged = { ...(current || {}) };
@@ -20,17 +18,6 @@ function mergeConfig(current, patch) {
       : value;
   }
   return merged;
-}
-
-function visibleWorkshopPlatforms(configStore) {
-  const platforms = typeof configStore?.getPlatforms === 'function' ? configStore.getPlatforms() : [];
-  if (!Array.isArray(platforms)) return [];
-  return platforms.flatMap(platform => {
-    if (!platform || platform.visible === false) return [];
-    const id = String(platform.id ?? '').trim();
-    const name = String(platform.name ?? '').trim();
-    return id && name ? [{ id, name }] : [];
-  });
 }
 
 // 并发限制执行器：把 items 按 limit 并发执行 worker，单任务异常不影响整体（结果按原序返回）
@@ -60,8 +47,7 @@ function createNovelFetchWorkshopRouter({
   configStore: injectedConfigStore,
   targetBaseUrl,
   bridgeSecret,
-  memberStore,
-  configReader,
+  resolveRuntimeModel,
   classifier = require('../lib/novel-fetch-workshop/classifier'),
   rewrite = require('../lib/novel-fetch-workshop/rewrite'),
   parse = require('../lib/novel-fetch-workshop/parse'),
@@ -74,10 +60,6 @@ function createNovelFetchWorkshopRouter({
   const router = express.Router();
   router.use(auth);
 
-  function aiConfigFromCatalog(username, config) {
-    return resolveCatalogAiSettings({ username, config, memberStore, configReader });
-  }
-
   async function resources(req) {
     const tasks = injectedTasks || createMySQLWorkshopStore({ targetBaseUrl, bridgeSecret, account: req.auth?.account });
     if (injectedTasks && injectedConfigStore) {
@@ -86,7 +68,16 @@ function createNovelFetchWorkshopRouter({
     const config = await tasks.getConfig();
     const configStore = injectedConfigStore || {
       getConfig: () => config,
-      getAiConfig: () => ({ ai: aiConfigFromCatalog(req.username, config), ai_presets: [], ai_assignments: {} }),
+      getAiConfig: () => ({
+        ai: config.ai || {},
+        ai_presets: config.ai_presets || [],
+        ai_assignments: config.ai_assignments || {},
+        text_model_id: config.text_model_id || config.textModelId || config.app_config?.text_model_id || config.app_config?.textModelId || ''
+      }),
+      resolveRuntimeModel: modelId => {
+        if (typeof resolveRuntimeModel !== 'function') return null;
+        return resolveRuntimeModel(req.username, 'text', modelId);
+      },
       getPlatforms: tasks.getPlatforms,
       getStyles: tasks.getStyles
     };
@@ -154,11 +145,6 @@ function createNovelFetchWorkshopRouter({
         const classifyResult = await classifier.classifyMissingRows({ configStore, tasks: tasksToProcess });
         classifyErrors = (classifyResult && classifyResult.errors) || [];
         tasksToProcess = (classifyResult && classifyResult.tasks) || tasksToProcess;
-        await writeStageAudits(tasks, tasksToProcess.filter(task => task.classifierModel), {
-          stage: 'classifier', settings: aiModule.resolveAiSettings(configStore, 'classifier'),
-          status: classifyErrors.length ? 'failed' : 'succeeded', attempts: 1,
-          errorMessage: classifyErrors.join('；')
-        });
       }
 
       // 4. 保存任务
@@ -366,15 +352,6 @@ function createNovelFetchWorkshopRouter({
   });
 
   // GET /config：读取工作台配置（主配置 / 平台表 / 风格表 / AI 配置）
-  router.get('/platforms', async (req, res) => {
-    try {
-      const { configStore } = await resources(req);
-      return res.json({ platforms: visibleWorkshopPlatforms(configStore) });
-    } catch (error) {
-      return res.status(500).json({ error: error.message || '读取平台表失败' });
-    }
-  });
-
   router.get('/config', async (req, res) => {
     try {
       const { tasks, configStore } = await resources(req);
@@ -517,4 +494,4 @@ function createNovelFetchWorkshopRouter({
   return router;
 }
 
-module.exports = { createNovelFetchWorkshopRouter, visibleWorkshopPlatforms };
+module.exports = { createNovelFetchWorkshopRouter };

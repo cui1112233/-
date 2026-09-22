@@ -26,14 +26,15 @@ function readableErrorMessage(text, status) {
   return text || `请求失败：${status}`;
 }
 
-function notifyApiFailure({ path, method, status, message }) {
+function notifyApiFailure({ path, method, status, message, sessionAuthFailure = false }) {
   if (path === '/api/client-errors' || typeof window === 'undefined') return;
   window.dispatchEvent(new CustomEvent('qiantie:api-error', {
     detail: {
       source: path,
       method: method || 'GET',
       status: Number.isInteger(status) ? status : 0,
-      message: message || '请求失败，请稍后重试。'
+      message: message || '请求失败，请稍后重试。',
+      sessionAuthFailure: sessionAuthFailure === true
     }
   }));
 }
@@ -69,7 +70,7 @@ export async function apiRequest(path, options = {}) {
     // response as a new login failure.
     const sessionStillCurrent = getToken() === token;
     reportClientError(failure);
-    if (sessionStillCurrent && !options.silent && !options.suppressGlobalError) notifyApiFailure({ ...failure, path });
+    if (sessionStillCurrent && !options.silent && !options.suppressGlobalError) notifyApiFailure({ ...failure, path, sessionAuthFailure: true });
     // A slow request from an older account must never erase a newer session.
     // Notify before clearing so the layout can compare the request token with
     // the session that is currently active.

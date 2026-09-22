@@ -4,6 +4,10 @@ export function getConfig() {
   return apiRequest('/api/config');
 }
 
+export function listAvailableModels(kind) {
+  return apiRequest(`/api/models?kind=${encodeURIComponent(kind)}`);
+}
+
 export function canManageModelCatalog(config) {
   return config?.canManageApi === true;
 }

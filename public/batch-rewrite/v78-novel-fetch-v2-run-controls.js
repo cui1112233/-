@@ -187,6 +187,9 @@
     if (preview) preview.textContent = message;
     const result = $('processResult');
     if (result && !result.textContent.trim()) result.textContent = message;
+    const tone = /失败|错误|异常|超时/.test(text(message)) ? 'error' : /正在|处理中|验证|读取|保存/.test(text(message)) ? 'working' : /完成|成功|已创建|已删除|已取消/.test(text(message)) ? 'success' : 'info';
+    if (typeof window.qiantiePublishNovelFetchStatus === 'function') window.qiantiePublishNovelFetchStatus(message, tone);
+    else if (window.parent && window.parent !== window) window.parent.postMessage({ type: 'qiantie:novel-fetch-status', text: text(message), tone }, window.location.origin);
   }
 
   function ensureScheduleDialog() {
@@ -224,10 +227,11 @@
           body: JSON.stringify({ runAt: runAt.toISOString(), inputSnapshot: snapshot })
         });
         result.textContent = `已定时：${runAt.toLocaleString()}`;
-        setWorkMessage(`定时处理已创建：${runAt.toLocaleString()}`);
+        setWorkMessage('定时完成');
         window.setTimeout(() => dialog.close(), 650);
       } catch (error) {
         result.textContent = error.message || '定时处理创建失败';
+        setWorkMessage(`定时失败：${error.message || '定时处理创建失败'}`);
       } finally {
         button.disabled = false;
       }
@@ -239,6 +243,7 @@
     const snapshot = buildCurrentRunSnapshot();
     if (!text(snapshot.input_text).trim()) { setWorkMessage('请先填写批量输入'); return; }
     if (!snapshot.target_versions.length) { setWorkMessage('请至少选择一个文案版本'); return; }
+    setWorkMessage('正在定时中....');
     const dialog = ensureScheduleDialog();
     const date = new Date(Date.now() + 10 * 60 * 1000);
     const pad = value => String(value).padStart(2, '0');
@@ -251,7 +256,7 @@
   function scheduleStatusLabel(item = {}) {
     if (item.enabled === false || item.status === 'cancelled') return '已取消';
     const labels = { scheduled: '等待执行', running: '处理中', done: '已完成', failed: '失败' };
-    return labels[item.status] || text(item.status || '等待执行');
+    return labels[item.status] || (/^[a-z0-9_:-]+$/i.test(text(item.status)) ? '等待处理' : text(item.status || '等待执行'));
   }
 
   function scheduleTargetLabel(item = {}) {
@@ -305,6 +310,9 @@
       const status = document.createElement('small');
       status.textContent = scheduleStatusLabel(item);
 
+      const upload = document.createElement('small');
+      upload.textContent = item.autoSubmit === false ? '上传：需人工提交' : '上传：自动上传';
+
       const actions = document.createElement('div');
       actions.className = 'v78-schedule-row-actions';
       if (item.enabled !== false && item.status === 'scheduled') {
@@ -320,7 +328,7 @@
       remove.addEventListener('click', () => void deleteSchedule(item.id));
       actions.appendChild(remove);
 
-      row.append(when, versions, status, actions);
+      row.append(when, versions, upload, status, actions);
       list.appendChild(row);
     }
   }
@@ -333,10 +341,12 @@
       const schedules = Array.isArray(data?.schedules) ? data.schedules : [];
       renderScheduleList(schedules);
       if (result) result.textContent = `共 ${schedules.length} 条定时任务`;
+      setWorkMessage(`已读取定时任务：${schedules.length} 条`);
       return schedules;
     } catch (error) {
       renderScheduleList([]);
       if (result) result.textContent = error.message || '定时任务读取失败';
+      setWorkMessage(`定时任务读取失败：${error.message || '请稍后重试'}`);
       return [];
     }
   }
@@ -350,9 +360,11 @@
         body: JSON.stringify({ enabled: false, status: 'cancelled' })
       });
       if (result) result.textContent = '定时任务已取消';
+      setWorkMessage('定时任务已取消');
       await loadSchedules();
     } catch (error) {
       if (result) result.textContent = error.message || '取消定时任务失败';
+      setWorkMessage(`取消定时任务失败：${error.message || '请稍后重试'}`);
     }
   }
 
@@ -363,9 +375,11 @@
     try {
       await api(`/schedules/${encodeURIComponent(text(id))}`, { method: 'DELETE' });
       if (result) result.textContent = '定时记录已删除';
+      setWorkMessage('定时记录已删除');
       await loadSchedules();
     } catch (error) {
       if (result) result.textContent = error.message || '删除定时记录失败';
+      setWorkMessage(`删除定时记录失败：${error.message || '请稍后重试'}`);
     }
   }
 
@@ -406,7 +420,7 @@
       const button = document.createElement('button');
       button.id = 'v78ScheduleBtn';
       button.type = 'button';
-      button.textContent = '定时处理';
+      button.textContent = '开始定时';
       button.addEventListener('click', openScheduleDialog);
       processBtn.insertAdjacentElement('afterend', button);
     }

@@ -21,19 +21,21 @@ const full = { width: '100%' };
 const CHANGE_IMPACT_DEBOUNCE_MS = 250;
 
 const VIDEO_PROVIDERS = [
-  { value: 'personal_api', label: '个人中心 API · yd2.0-mini' },
-  { value: 'doubao_local_executor', label: '豆包本地执行器' },
-  { value: 'autodl_comfyui', label: 'AutoDL · MiniMax H3（自动文生/图生）' }
+  { value: 'personal_api', label: 'API 配置模型' },
+  { value: 'doubao_local_executor', label: '本地执行器模型' },
+  { value: 'autodl_comfyui', label: 'API 配置模型' }
 ];
 
-const VIDEO_MODELS = [
-  { value: 'yd2.0-mini', label: '个人中心 API · yd2.0-mini · 最大 15s' },
-  { value: 'doubao-seedance', label: '豆包本地执行器 · Seedance' },
-  { value: 'minimax-h3-video', label: 'AutoDL · MiniMax H3 · 最大 15s' },
-  { value: 'seedance-pro', label: 'Seedance Video Pro · 最大 15s' },
-  { value: 'seedance-fast', label: 'Seedance Video Fast · 最大 10s' },
-  { value: 'video-model-c', label: 'Video Model C · 最大 12s' }
-];
+function configuredModelOptions(models = []) {
+  return (Array.isArray(models) ? models : [])
+    .filter(model => model?.enabled !== false)
+    .map(model => ({
+      value: model.id || model.modelId,
+      label: model.displayName || model.name || model.modelId || model.id
+    }))
+    .filter(option => option.value);
+}
+
 
 function SettingField({ label, description, children }) {
   return <div className="bf11-setting-field">
@@ -60,6 +62,8 @@ export function ProductionSettingsDrawer({
   onSaveDraft,
   onSavePersonalPrompt,
   videoProviders = {},
+  apiModels = {},
+  promptCatalog = [],
   localExecutors = [],
   onCreateLocalExecutorPairing
 }) {
@@ -73,6 +77,9 @@ export function ProductionSettingsDrawer({
   const impactRequestRef = useRef(0);
   const [pairingBusy, setPairingBusy] = useState(false);
   const [pairingSecret, setPairingSecret] = useState(null);
+  const configuredTextModels = useMemo(() => configuredModelOptions(apiModels.text), [apiModels.text]);
+  const configuredImageModels = useMemo(() => configuredModelOptions(apiModels.image), [apiModels.image]);
+  const configuredVideoModels = useMemo(() => configuredModelOptions(apiModels.video), [apiModels.video]);
 
   useEffect(() => {
     if (impactTimerRef.current) {
@@ -248,6 +255,27 @@ export function ProductionSettingsDrawer({
 
       <ChangeImpactNotice result={impactResult} loading={impactLoading} />
 
+      <Divider orientation="left">提示词配置</Divider>
+      <section className="bf11-setting-section">
+        <Typography.Text type="secondary">提示词来自管理后台“系统预设词 → 批量工厂”。下拉框只显示已发布提示词名称和版本。</Typography.Text>
+        {[
+          ['hook', 'Hook 提示词'],
+          ['director', 'Director 提示词'],
+          ['visual', '画面提示词'],
+          ['video', '视频提示词'],
+          ['audio_match', '音频匹配提示词'],
+          ['shot_merge', 'Shot 合成提示词'],
+          ['book_merge', '成片合成提示词']
+        ].map(([type, label]) => {
+          const options = promptCatalog.filter(item => item?.type === type && item?.enabled !== false)
+            .map(item => ({ value: item.id, label: item.version ? label + ' · ' + item.name + ' · v' + item.version : label + ' · ' + item.name }));
+          return <SettingField key={type} label={label} description="由后台预设词库动态提供。">
+            <Select allowClear placeholder="继承系统默认提示词" value={form.promptSelections?.[type]} options={options}
+              onChange={value => patch({ promptSelections: { ...(form.promptSelections || {}), [type]: value || '' } })} />
+          </SettingField>;
+        })}
+      </section>
+
       <Divider orientation="left">基础生产设置</Divider>
       <section className="bf11-setting-section">
         <SettingField label="生产方式" description="未选择时继承系统层；选择后写入当前批次 patch。">
@@ -282,6 +310,28 @@ export function ProductionSettingsDrawer({
             value={form.assetPromptPresetId}
             onChange={assetPromptPresetId => patch({ assetPromptPresetId })}
             options={[{ value: 'standard-asset-extraction', label: '标准资产提取' }]}
+          />
+        </SettingField>
+
+        <SettingField label="文本模型" description="Director / Hook 只使用 API 配置中已启用的文本模型。">
+          <Select
+            allowClear
+            placeholder="继承系统文本模型"
+            value={form.textModelId}
+            onChange={textModelId => patch({ textModelId })}
+            options={configuredTextModels}
+            style={full}
+          />
+        </SettingField>
+
+        <SettingField label="图片模型" description="人物、场景、道具和画面图生成使用 API 配置中已启用的图片模型。">
+          <Select
+            allowClear
+            placeholder="继承系统图片模型"
+            value={form.imageModelId}
+            onChange={imageModelId => patch({ imageModelId })}
+            options={configuredImageModels}
+            style={full}
           />
         </SettingField>
 
@@ -323,13 +373,14 @@ export function ProductionSettingsDrawer({
             allowClear
             placeholder="继承系统模型"
             value={form.videoModelId}
-            onChange={videoModelId => patch({ videoModelId })}
-            options={VIDEO_MODELS.filter(option => {
-              const provider = form.videoProvider || 'personal_api';
-              if (provider === 'doubao_local_executor') return option.value === 'doubao-seedance';
-              if (provider === 'autodl_comfyui') return option.value === 'minimax-h3-video';
-              return option.value === 'yd2.0-mini';
-            })}
+            onChange={videoModelId => {
+              const selected = (apiModels.video || []).find(model => (model.id || model.modelId) === videoModelId);
+              const videoProvider = selected?.adapterKind === 'local_executor_video'
+                ? 'doubao_local_executor'
+                : selected?.adapterKind === 'autodl_comfyui_video' ? 'autodl_comfyui' : 'personal_api';
+              patch({ videoModelId, videoProvider });
+            }}
+            options={configuredVideoModels}
           />
         </SettingField>
 

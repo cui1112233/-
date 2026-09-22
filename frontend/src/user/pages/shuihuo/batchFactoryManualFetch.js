@@ -14,3 +14,13 @@ export function manualBookIDsFromInput(inputText = '') {
 export function hasFetchedManualSources(bookIds, sourceTextByBookId) {
   return bookIds.length > 0 && bookIds.every(bookId => String(sourceTextByBookId?.[bookId] || '').trim());
 }
+
+export function buildManualBatchSubmission({ title, scheduledAt = '', automationEnabled = false, autoPublishEnabled = false, ...input }) {
+  return {
+    ...input,
+    title: String(title || '').trim(),
+    scheduledAt: String(scheduledAt || ''),
+    automationEnabled: automationEnabled === true,
+    autoPublishEnabled: automationEnabled === true && autoPublishEnabled === true
+  };
+}

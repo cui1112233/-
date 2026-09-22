@@ -1,13 +1,24 @@
+document.documentElement.classList.add("qiantie-novel-fetch-hydrating");
+
 const state = {
   config: null,
   tasks: [],
+  allTasks: [],
   selectedId: "",
   selectedIds: new Set(),
   sensitiveProcessingIds: new Set(),
+  aiProcessingIds: new Set(),
   pendingRuleSuggestions: null,
   pendingOpeningItem: null,
   activeProcessJobId: "",
   taskDate: "",
+  currentBatchIds: new Set(),
+  currentBatchDate: "",
+  textModels: [],
+  viewMode: "current",
+  modalBusy: new Set(),
+  detailRefreshTimer: null,
+  detailViewKind: "",
 };
 
 const DEFAULT_COLUMN_ORDER = "书籍ID,书名,推荐理由,男女频,标签,评级";
@@ -24,6 +35,7 @@ const REWRITE_METHOD_OPTIONS = [
   { id: "instruction", name: "批量改文指令库" },
 ];
 let workFormSaveTimer = null;
+let textModelPersistPromise = null;
 
 const $ = (id) => document.getElementById(id);
 
@@ -39,6 +51,13 @@ function pretty(value) {
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value || {}));
+}
+
+function mergeConfigResponse(nextConfig) {
+  const knowledgeLoaded = state.config?.knowledge_loaded === true || nextConfig?.knowledge_loaded === true;
+  state.config = { ...(nextConfig || {}), knowledge_loaded: knowledgeLoaded };
+  if (knowledgeLoaded) renderKnowledgeSummary(state.config.knowledge_summary || {});
+  return state.config;
 }
 
 function numberValue(id, fallback) {
@@ -64,13 +83,19 @@ function syncGunpingMaterialCount() {
 }
 
 async function api(path, options = {}) {
+  if (window.QiantieNovelFetchRuntime && !options.bypassRuntime) {
+    return window.QiantieNovelFetchRuntime.api(path, options);
+  }
   const legacyPath = String(path || "").replace(/^\/api/, "");
   const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
   const token = localStorage.getItem("auth_token") || "";
   if (token) headers.Authorization = `Bearer ${token}`;
   let response;
   try {
-    response = await fetch(`${API_ROOT}${legacyPath}`, { headers, ...options });
+    const requestUrl = /^\/api\/models(?:\?|$)/.test(String(path || ""))
+      ? String(path)
+      : `${API_ROOT}${legacyPath}`;
+    response = await fetch(requestUrl, { headers, ...options });
   } catch (error) {
     reportBatchIssue("network", path, error.message || "网络请求失败");
     throw error;
@@ -84,11 +109,24 @@ async function api(path, options = {}) {
   }
   if (!response.ok) {
     // 兼容本工作台接口使用的 { error } 结构，避免把可操作的原因吞成“HTTP 400”。
-    const error = new Error(data.error || data.detail || data.message || data.raw || `HTTP ${response.status}`);
+    const error = new Error(normalizeBatchErrorMessage(data.error || data.detail || data.message || data.raw, response.status));
+    error.status = response.status;
     reportBatchIssue("response", path, error.message, response.status, options.method || "GET");
     throw error;
   }
   return data;
+}
+
+function normalizeBatchErrorMessage(value, status) {
+  const source = String(value || "");
+  const raw = source.replace(/<!--[\s\S]*?-->/g, " ").replace(/<[^>]*>/g, " ").replace(/&lt;|&gt;|&amp;/g, " ").replace(/\s+/g, " ").trim();
+  const match = source.match(/\b(502|503|504)\b/);
+  const code = Number(status) || (match ? Number(match[1]) : 0);
+  if (code === 502) return "网关暂时不可用（502），任务已保留，请稍后重试";
+  if (code === 503) return "服务暂时不可用（503），任务已保留，请稍后重试";
+  if (code === 504) return "服务响应超时（504），任务已保留，请稍后重试";
+  if (!raw || /^(bad gateway|service unavailable|gateway timeout)$/i.test(raw)) return `请求失败${code ? `（${code}）` : ""}，任务已保留，请稍后重试`;
+  return raw.slice(0, 4000);
 }
 
 // External 121 checks must always settle so the UI cannot remain in a loading state.
@@ -189,6 +227,8 @@ function saveWorkFormState() {
 }
 
 async function saveWorkFormStateNow() {
+  clearTimeout(workFormSaveTimer);
+  workFormSaveTimer = null;
   const formState = collectWorkFormState();
   try {
     localStorage.setItem(WORK_FORM_STORAGE_KEY, JSON.stringify(formState));
@@ -199,6 +239,10 @@ async function saveWorkFormStateNow() {
     method: "POST",
     body: JSON.stringify({ state: formState }),
   }).catch(() => {});
+}
+
+function persistWorkFormChoiceNow() {
+  void saveWorkFormStateNow();
 }
 
 function newerWorkFormState(localState, serverState) {
@@ -275,17 +319,17 @@ function restoreWorkFormState() {
 function bindWorkFormPersistence() {
   for (const id of ["platformSelect"]) {
     const element = $(id);
-    if (element) element.addEventListener("change", saveWorkFormState);
+    if (element) element.addEventListener("change", persistWorkFormChoiceNow);
   }
   for (const id of ["inputText"]) {
     const element = $(id);
     if (element) element.addEventListener("input", saveWorkFormState);
   }
   const sensitiveAiToggle = $("sensitiveAiProcessEnabled");
-  if (sensitiveAiToggle) sensitiveAiToggle.addEventListener("change", saveWorkFormState);
+  if (sensitiveAiToggle) sensitiveAiToggle.addEventListener("change", persistWorkFormChoiceNow);
   const persistVersionSelection = event => {
     if (!event.target.matches('.process-version, [id^="processAiMethod"], #v78TargetVersions input, [id^="v78RunAiMethod"]')) return;
-    saveWorkFormState();
+    persistWorkFormChoiceNow();
     updateVersionConfigSummary();
   };
   document.addEventListener('change', persistVersionSelection);
@@ -327,6 +371,22 @@ function updateVersionConfigSummary() {
     : "未选择版本";
 }
 
+function setModalBusy(id, busy) {
+  const key = String(id || "").trim();
+  if (!key) return;
+  if (busy) state.modalBusy.add(key);
+  else state.modalBusy.delete(key);
+  const dialog = $(key);
+  if (dialog) {
+    dialog.dataset.modalBusy = busy ? "true" : "false";
+    dialog.setAttribute("aria-busy", busy ? "true" : "false");
+  }
+}
+
+function isModalBusy(id) {
+  return state.modalBusy.has(String(id || "").trim());
+}
+
 function openVersionConfigCard() {
   const dialog = $("versionConfigCard");
   if (!dialog) return;
@@ -365,6 +425,7 @@ function syncVersionPromptConfigToForm() {
 function closeVersionConfigCard() {
   const dialog = $("versionConfigCard");
   if (!dialog) return;
+  if (isModalBusy("versionConfigCard")) return;
   if (typeof dialog.close === "function") dialog.close();
   else dialog.removeAttribute("open");
 }
@@ -404,6 +465,7 @@ function renderWorkflowConfig(appCfg) {
   const workflow = appCfg.workflow || {};
   const fetch = appCfg.fetch || {};
   const rewrite = appCfg.rewrite || {};
+  const storage = appCfg.storage || {};
   $("workflowAutoClassify").checked = workflow.auto_classify_missing !== false;
   $("workflowAutoFetch").checked = workflow.auto_fetch_original !== false;
   $("workflowAutoRewrite").checked = workflow.auto_rewrite_after_fetch !== false;
@@ -449,8 +511,21 @@ function joinLooseList(value) {
 function ensureKnowledgeConfig() {
   state.config.knowledge = state.config.knowledge || {};
   state.config.knowledge.high_imitation = state.config.knowledge.high_imitation || { prompts: [], references: [] };
-  state.config.knowledge.high_imitation.prompts = asArray(state.config.knowledge.high_imitation.prompts);
-  state.config.knowledge.high_imitation.references = asArray(state.config.knowledge.high_imitation.references);
+  const high = state.config.knowledge.high_imitation;
+  high.prompts = asArray(high.prompts);
+  high.references = asArray(high.references);
+  if (!high.references.length && Array.isArray(high.items) && high.items.length) {
+    high.references = high.items.map((item, index) => {
+      const source = item && typeof item === "object" ? item : {};
+      return {
+        ...source,
+        id: source.id || `high_${String(index + 1).padStart(3, "0")}`,
+        name: source.name || source.title || "",
+        reference_text: source.reference_text || source.content || "",
+        enabled: source.enabled !== false,
+      };
+    });
+  }
   state.config.knowledge.opening_phrases = state.config.knowledge.opening_phrases || { items: [] };
   state.config.knowledge.opening_phrases.items = asArray(state.config.knowledge.opening_phrases.items);
   state.config.knowledge.opening_analyzer = state.config.knowledge.opening_analyzer || {};
@@ -540,6 +615,8 @@ function ensureWebSubmitConfig() {
     retry_times: Math.max(0, Number(current.retry_times) || 1),
     upload_profiles: asArray(current.upload_profiles),
     profile_bindings: current.profile_bindings && typeof current.profile_bindings === 'object' ? current.profile_bindings : {},
+    organization: String(current.organization || '1'),
+    organization_catalog: asArray(current.organization_catalog),
     advanced: {
       tl5: Number(current.advanced?.tl5) === 1 ? 1 : 0,
       jieyaNum,
@@ -583,7 +660,11 @@ function libraryDefinition(type = "") {
   const defs = {
     high_imitation: {
       title: "高仿文章库",
-      getItems: () => state.config.knowledge.high_imitation.references,
+      getItems: () => {
+        const high = state.config.knowledge.high_imitation;
+        const references = asArray(high.references);
+        return references.length ? references : asArray(high.items);
+      },
       setItems: (items) => {
         state.config.knowledge.high_imitation.references = items;
       },
@@ -1464,6 +1545,77 @@ function renderKnowledgeSummary(summary) {
 
 function renderAiConfig(appCfg) {
   applyAiSettingsToForm(appCfg.ai || {});
+  const selectedId = appCfg.text_model_id || appCfg.textModelId || "";
+  const select = $("textModelSelect");
+  if (select) {
+    select.onchange = () => {
+      const modelId = String(select.value || "").trim();
+      void persistSelectedTextModel(modelId).catch(error => {
+        if ($("textModelStatus")) $("textModelStatus").textContent = `保存文本模型失败：${error.message || "请稍后重试"}`;
+      });
+    };
+  }
+  void loadTextModels(selectedId);
+}
+
+async function persistSelectedTextModel(modelId) {
+  const id = String(modelId || "").trim();
+  if (!id || !state.config?.app_config) return null;
+  if (state.config.app_config.text_model_id === id && state.__persistedTextModelId === id) return textModelPersistPromise || null;
+  state.config.app_config.text_model_id = id;
+  state.__persistedTextModelId = id;
+  if (textModelPersistPromise) await textModelPersistPromise;
+  textModelPersistPromise = api("/api/config", {
+    method: "POST",
+    body: JSON.stringify({ app_config: { text_model_id: id } }),
+  }).then(result => {
+    if (result?.config) mergeConfigResponse({ ...state.config, ...result.config });
+    return result;
+  }).catch(error => {
+    if (state.config?.app_config?.text_model_id === id) state.config.app_config.text_model_id = "";
+    state.__persistedTextModelId = "";
+    throw error;
+  }).finally(() => {
+    textModelPersistPromise = null;
+  });
+  return textModelPersistPromise;
+}
+
+async function loadTextModels(selectedId = "") {
+  const select = $("textModelSelect");
+  const status = $("textModelStatus");
+  if (!select) return;
+  try {
+    const result = await api("/api/models?kind=text");
+    const models = Array.isArray(result.models) ? result.models : [];
+    state.textModels = models;
+    select.innerHTML = "";
+    if (!models.length) {
+      select.innerHTML = '<option value="">暂无可用文本模型，请先在 API 配置中启用</option>';
+      select.value = "";
+      if (status) status.textContent = "暂无已启用的文本模型";
+      return;
+    }
+    for (const model of models) {
+      const option = document.createElement("option");
+      option.value = model.id || model.modelId || "";
+      option.textContent = model.displayName || model.name || model.modelId || model.id;
+      select.appendChild(option);
+    }
+    const value = models.some(model => String(model.id || model.modelId) === String(selectedId))
+      ? String(selectedId)
+      : String(models[0].id || models[0].modelId || "");
+    select.value = value;
+    if (value && String(selectedId || "") !== value) {
+      void persistSelectedTextModel(value).catch(error => {
+        if (status) status.textContent = `保存文本模型失败：${error.message || "请稍后重试"}`;
+      });
+    }
+    if (status) status.textContent = "已连接导航栏 API 配置，执行时使用所选模型";
+  } catch (error) {
+    select.innerHTML = `<option value="">读取文本模型失败</option>`;
+    if (status) status.textContent = `读取模型失败：${error.message || "请稍后重试"}`;
+  }
 }
 
 function renderPresetControls(appCfg) {
@@ -1492,9 +1644,6 @@ function renderPresetControls(appCfg) {
 }
 
 function applyAiSettingsToForm(settings) {
-  $("aiBaseUrl").value = settings.base_url || "";
-  $("aiApiKey").value = settings.api_key || "";
-  $("aiModel").value = settings.model || "";
   $("aiTimeout").value = settings.timeout_seconds || 180;
   $("aiConcurrency").value = settings.max_concurrency || 6;
   $("aiRetries").value = settings.retry_times ?? 2;
@@ -1512,9 +1661,6 @@ function applyAiSettingsToForm(settings) {
 
 function readAiSettingsFromForm() {
   return {
-    base_url: $("aiBaseUrl").value.trim(),
-    api_key: $("aiApiKey").value.trim(),
-    model: $("aiModel").value.trim(),
     timeout_seconds: numberValue("aiTimeout", 180),
     max_concurrency: numberValue("aiConcurrency", 6),
     retry_times: numberValue("aiRetries", 2),
@@ -1574,10 +1720,24 @@ function renderWebSubmitConfig(settings = {}) {
   $("webProfileBindingsJson").value = JSON.stringify(cfg.profile_bindings || {}, null, 2);
   renderWebDefaultProfileOptions(cfg.upload_profiles || [], cfg.selected_profile || "");
   renderWebVersionProfileBindings(cfg.upload_profiles || [], cfg.profile_bindings || {});
+  renderWebOrganizationOptions(cfg.organization_catalog || [], cfg.organization || "1");
 
   updateResubmitHint();
   renderWebSubmitMode();
   renderWebLoginStatus(cfg);
+}
+
+function renderWebOrganizationOptions(catalog, selected) {
+  const select = $("webOrganization");
+  if (!select) return;
+  const items = asArray(catalog);
+  const options = items.length ? items.map(item => {
+    const id = String(item?.id || "").trim();
+    const name = String(item?.name || id).trim();
+    return id ? `<option value="${escapeHtml(id)}" ${id === String(selected || "") ? "selected" : ""}>${escapeHtml(name)}（ID ${escapeHtml(id)}）</option>` : "";
+  }).join("") : `<option value="${escapeHtml(String(selected || "1"))}">默认组织（ID ${escapeHtml(String(selected || "1"))}）</option>`;
+  select.innerHTML = options;
+  select.value = String(selected || "1");
 }
 
 function renderWebLoginStatus(settings = {}) {
@@ -1597,11 +1757,22 @@ async function openWebLoginDialog() {
     dialog.id = "webLoginDialog";
     dialog.innerHTML = `<form method="dialog" class="login-dialog-form"><h3>登录批量后台</h3><p class="form-hint">登录后处理页会显示账号和状态点，提交任务时自动复用此会话。</p><label>账号<input id="webLoginUsername" autocomplete="username"></label><label>密码<input id="webLoginPassword" type="password" autocomplete="current-password"></label><div class="actions"><button value="cancel">取消</button><button id="webLoginSubmit" value="default" class="primary">保存并验证</button></div><span id="webLoginResult"></span></form>`;
     document.body.appendChild(dialog);
+    dialog.addEventListener("pointerdown", event => {
+      if (event.target === dialog && !isModalBusy("webLoginDialog")) dialog.close();
+    });
+    dialog.addEventListener("click", event => {
+      if (event.target === dialog && !isModalBusy("webLoginDialog")) dialog.close();
+    });
+    dialog.addEventListener("cancel", event => {
+      if (isModalBusy("webLoginDialog")) event.preventDefault();
+    });
     dialog.addEventListener("submit", async (event) => {
       if (event.submitter?.id !== "webLoginSubmit") return;
       event.preventDefault();
       const result = $("webLoginResult"); result.textContent = "验证中...";
-      $("webLoginSubmit").disabled = true;
+      const loginButtons = dialog.querySelectorAll("button");
+      loginButtons.forEach(button => { button.disabled = true; });
+      setModalBusy("webLoginDialog", true);
       try {
         const username = $("webLoginUsername").value.trim();
         const password = $("webLoginPassword").value;
@@ -1618,7 +1789,12 @@ async function openWebLoginDialog() {
         result.textContent = "登录批量后台成功";
         if (state.webLoginSession) setTimeout(() => dialog.close(), 500);
       } catch (error) { state.webLoginSession = false; renderWebLoginStatus(state.config.web_submit || {}); result.textContent = error.message; }
-      finally { $("webLoginSubmit").disabled = false; }
+      finally {
+        const passwordInput = $("webLoginPassword");
+        if (passwordInput) passwordInput.value = "";
+        loginButtons.forEach(button => { button.disabled = false; });
+        setModalBusy("webLoginDialog", false);
+      }
     });
   }
   $("webLoginUsername").value = state.config?.web_submit?.username || "";
@@ -1707,6 +1883,7 @@ function syncFormToWebSubmitConfig() {
   cfg.profile_bindings = webProfileBindingsFromForm();
   $("webProfileBindingsJson").value = JSON.stringify(cfg.profile_bindings);
   cfg.selected_profile = $("webDefaultProfile").value;
+  cfg.organization = $("webOrganization")?.value || cfg.organization || "1";
   cfg.submit_versions = selectedProcessVersions();
   return cfg;
 }
@@ -1757,11 +1934,11 @@ async function saveVersionConfigAuthority() {
     platforms: JSON.parse($("platformsText").value),
     styles: JSON.parse($("stylesText").value),
     sensitive: state.config.sensitive || { groups: [] },
-    knowledge: state.config.knowledge || {},
+    ...(state.config.knowledge_loaded ? { knowledge: state.config.knowledge || {} } : {}),
   };
   const data = await api("/api/config", { method: "POST", body: JSON.stringify(payload) });
   if (!data?.config) throw new Error("版本配置保存失败：服务器没有返回保存结果");
-  state.config = data.config;
+  mergeConfigResponse(data.config);
   try { localStorage.setItem(WORK_FORM_STORAGE_KEY, JSON.stringify(formState)); } catch (_) {}
   renderConfig();
   return data.config;
@@ -1775,13 +1952,17 @@ async function confirmWebSubmitSelection() {
     return;
   }
   if (status) status.textContent = "正在保存版本配置...";
+  setModalBusy("versionConfigCard", true);
   try {
     await saveVersionConfigAuthority();
     if (status) status.textContent = `已保存：${versions.map(version => version === "original" ? "原文" : version.toUpperCase()).join("、")}；任务会直接使用这些版本。`;
     updateVersionConfigSummary();
+    setModalBusy("versionConfigCard", false);
     closeVersionConfigCard();
   } catch (error) {
     if (status) status.textContent = error.message;
+  } finally {
+    setModalBusy("versionConfigCard", false);
   }
 }
 
@@ -1806,9 +1987,10 @@ async function waitWebSubmitOperation(id) {
 }
 
 async function syncWebSubmit(kind) {
-  const label = kind === "styles" ? "批量风格类型" : "批量后台配置";
+  const label = kind === "styles" ? "批量风格类型" : kind === "organizations" ? "组织归属" : "批量后台配置";
   setSiteSubmitStatus(`正在同步${label}...`);
   setVersionConfigStatus(`正在同步${label}...`);
+  setModalBusy("versionConfigCard", true);
   try {
     await saveWebSubmitConfig(true);
     const operation = await api("/api/web-submit/operations", {
@@ -1831,6 +2013,8 @@ async function syncWebSubmit(kind) {
   } catch (error) {
     setSiteSubmitStatus(error.message);
     setVersionConfigStatus(error.message);
+  } finally {
+    setModalBusy("versionConfigCard", false);
   }
 }
 
@@ -1944,8 +2128,8 @@ async function loadWebSubmitHistory() {
   }
 }
 
-function webSubmitRequestPayload(mode, force = false) {
-  const ids = mode === "selected" ? selectedTaskIds() : [];
+function webSubmitRequestPayload(mode, force = false, explicitIds = null) {
+  const ids = mode === "selected" ? (Array.isArray(explicitIds) ? explicitIds.map(id => String(id || "").trim()).filter(Boolean) : selectedTaskIds()) : [];
   return {
     mode,
     ids,
@@ -1986,14 +2170,15 @@ async function previewWebSubmit(mode) {
   }
 }
 
-async function submitWebSubmit(mode) {
-  if (mode === "selected" && !selectedTaskIds().length) {
+async function submitWebSubmit(mode, explicitIds = null) {
+  const selectedIdsForSubmit = mode === "selected" && Array.isArray(explicitIds) ? explicitIds.map(id => String(id || "").trim()).filter(Boolean) : selectedTaskIds();
+  if (mode === "selected" && !selectedIdsForSubmit.length) {
     setSiteSubmitStatus("先选择任务");
     setBatchStatus("先选择任务");
     showWebSubmitSelectionRequired();
     return;
   }
-  const label = mode === "all" ? "全部任务" : (mode === "failed" ? "提交失败任务" : `${selectedTaskIds().length} 个选中任务`);
+  const label = mode === "all" ? "全部任务" : (mode === "failed" ? "提交失败任务" : `${selectedIdsForSubmit.length} 个选中任务`);
   if (!confirm(`确认提交${label}到网站？系统会按平台、男女频、风格类型自动分组上传。`)) return;
   setBatchStatus(`排队中：${label}`);
   setSiteSubmitStatus(`正在提交${label}...`);
@@ -2003,7 +2188,7 @@ async function submitWebSubmit(mode) {
     setBatchStatus(`上传中：${label}`);
     const submitPromise = api("/api/web-submit/submit", {
       method: "POST",
-      body: JSON.stringify(webSubmitRequestPayload(mode, mode === "failed")),
+      body: JSON.stringify(webSubmitRequestPayload(mode, mode === "failed", selectedIdsForSubmit)),
     });
     polling = true;
     const poll = (async () => {
@@ -2040,14 +2225,21 @@ function siteSubmitText(task) {
   // 同一版本曾失败但后来已成功提交时，成功结果才是当前状态；
   // 失败记录仍保留在“记录”和“问题日志”中供追溯。
   const parts = [];
-  if (done.length) parts.push(`已提交：${done.join(",")}`);
-  if (uploading.length) parts.push(`上传中：${uploading.join(",")}`);
-  if (queued.length) parts.push(`排队中：${queued.join(",")}`);
-  if (accepted.length) parts.push(`待确认：${accepted.join(",")}`);
-  if (failed.length) parts.push(`失败：${failed.join(",")}`);
+  if (done.length) parts.push(`已提交：${done.map(displayVersionLabel).join(",")}`);
+  if (uploading.length) parts.push(`上传中：${uploading.map(displayVersionLabel).join(",")}`);
+  if (queued.length) parts.push(`排队中：${queued.map(displayVersionLabel).join(",")}`);
+  if (accepted.length) parts.push(`待确认：${accepted.map(displayVersionLabel).join(",")}`);
+  if (failed.length) parts.push(`失败：${failed.map(displayVersionLabel).join(",")}`);
   if (parts.length) return parts.join("；");
   if (task.site_submit_status) return task.site_submit_status;
   return "未提交";
+}
+
+function displayVersionLabel(version) {
+  const value = String(version || "").trim().toLowerCase();
+  if (value === "original") return "原文";
+  if (/^ai[1-5]$/.test(value)) return value.toUpperCase();
+  return String(version || "").trim();
 }
 
 function groupCardHtml(group) {
@@ -2116,7 +2308,7 @@ function renderWebSubmitGroups(data = {}) {
 function statusClass(value) {
   const text = String(value || "");
   if (text.includes("failed") || text.includes("失败")) return "status-error";
-  if (text.includes("waiting") || text.includes("等待") || text.includes("pending") || text.includes("待确认") || text.includes("排队中") || text.includes("上传中") || text.includes("accepted") || text.includes("partial") || text.includes("submitting") || text.includes("提交中") || text.includes("dry_run")) return "status-warn";
+  if (text.includes("waiting") || text.includes("等待") || text.includes("pending") || text.includes("待确认") || text.includes("排队中") || text.includes("上传中") || text.includes("accepted") || text.includes("partial") || text.includes("submitting") || text.includes("提交中") || text.includes("generating") || text.includes("dry_run")) return "status-warn";
   if (text.includes("done") || text.includes("完成") || text.includes("classified") || text.includes("submitted") || text.includes("已提交")) return "status-ok";
   return "";
 }
@@ -2147,7 +2339,8 @@ function originalStatusText(task) {
     const raw = Number(task.original_raw_chars ?? task.originalRawChars ?? 0);
     const maxTxt = Number(task.max_txt ?? task.maxTxt ?? 0);
     const processed = raw > 0 && maxTxt > 0 ? Math.min(maxTxt, raw) : Number(task.original_chars ?? task.originalChars ?? 0);
-    return raw > 0 ? `${processed}/${raw}` : `${processed}字`;
+    const text = raw > 0 ? `${processed}/${raw}` : `${processed}字`;
+    return task.original_refresh_error ? `${text}（刷新失败，已保留）` : text;
   }
   if (task.original_status === "process_failed") {
     return `已抓取${task.original_raw_chars ? ` ${task.original_raw_chars}字` : ""} / 规则失败`;
@@ -2165,17 +2358,73 @@ function taskStatusText(value, fallback = "") {
   const text = String(value || "").trim();
   const labels = {
     created: "待处理", queued: "排队中", running: "正在执行中…", processing: "正在执行中…", input_ready: "分类信息已就绪", classified: "已完成判断", classifying: "AI判断中…", classify_failed: "判断失败",
-    fetching: "正在抓取", fetched: "已抓取", done: "已完成", original_done: "原文已就绪", original_failed: "原文抓取失败",
-    generating: "正在生成AI文案…", generated: "已生成", ai_done: "AI文案已生成", ai_failed: "AI生成失败", process_failed: "处理失败",
+    original: "原文", fetching: "正在抓取", fetched: "已抓取", done: "已完成", original_processing: "原文处理中", original_done: "原文已就绪", original_failed: "原文抓取失败",
+    ai_processing: "AI文案处理中",
+    generating: "正在生成AI文案…", generated: "已生成", ai_done: "AI文案已生成", ai_partial: "AI文案部分完成", ai_failed: "AI生成失败", process_failed: "处理失败",
     waiting_ai_config: "等待 AI 配置", waiting_original: "等待原文", waiting_classifier_config: "等待分类模型配置",
     uploading: "上传中", submitted: "已提交", accepted_pending: "已接收，待确认", failed: "失败", waiting_config: "等待配置", skipped: "已跳过", interrupted: "已中断"
   };
   return labels[text] || text || fallback;
 }
 
+function classifyStatusDisplay(task = {}) {
+  const label = taskStatusText(task.classify_status, task.classifier_model ? "已完成判断" : "待判断");
+  const reason = String(task.classify_error || task.classifyError || "").trim();
+  if (!reason) return escapeHtml(label);
+  return `<span class="task-status-main">${escapeHtml(label)}</span><small class="task-status-reason">分类错误：${escapeHtml(reason)}</small>`;
+}
+
+function classifyDetailText(meta = {}) {
+  const label = taskStatusText(meta.classify_status, "待判断");
+  const reason = String(meta.classify_error || meta.classifyError || "").trim();
+  return reason ? `${label}（分类错误：${reason}）` : label;
+}
+
+function aiStatusDisplay(task = {}, aiText = '') {
+  const reason = String(task.ai_error || task.aiError || '').trim();
+  if (task.ai_status === 'generating' || task.ai_status === 'ai_processing') return `<span class="task-spinner" aria-hidden="true"></span>${escapeHtml(aiText)}`;
+  if (!reason) return escapeHtml(aiText);
+  return `<span class="task-status-main">${escapeHtml(aiText)}</span><small class="task-status-reason">AI错误：${escapeHtml(reason)}</small>`;
+}
+
+function aiCopyStatusText(task = {}, selectedAi = [], generatedAi = []) {
+  const status = String(task.ai_status || task.aiStatus || '').trim().toLowerCase();
+  const current = String(task.ai_current_version || task.aiCurrentVersion || '').trim().toUpperCase();
+  const selectedCount = selectedAi.length;
+  const generatedCount = generatedAi.filter(version => !selectedAi.length || selectedAi.includes(version)).length;
+  const count = selectedCount ? `${generatedCount}/${selectedCount}` : (generatedCount ? `${generatedCount}/${generatedCount}` : '');
+  const reason = String(task.ai_error || task.aiError || '').trim();
+  const reasonText = reason ? normalizeBatchErrorMessage(reason, task.ai_upstream_code || task.aiUpstreamCode) : '';
+  if (status === 'generating' || status === 'ai_processing') return `生成中${current ? `（${current}）` : ''}`;
+  if (status === 'waiting_original') return '等待原文';
+  if (status === 'waiting_ai_config') return '等待 AI 配置';
+  if (status === 'failed' || status === 'ai_failed') return `失败${current ? `（${current}）` : ''}${reasonText ? `：${reasonText.slice(0, 120)}` : ''}`;
+  if (status === 'partial' || status === 'ai_partial') return `部分完成${count ? `（${count}）` : ''}${reasonText ? `：${reasonText.slice(0, 120)}` : ''}`;
+  if (status === 'done' || status === 'ai_done') return `已生成${count ? `（${count}）` : ''}`;
+  if (generatedCount) return `已生成${count}`;
+  if (selectedCount) return `待生成（0/${selectedCount}）`;
+  return '未生成';
+}
+
+function taskOverallStatusText(task = {}) {
+  const aiStatus = String(task.ai_status || task.aiStatus || '').trim().toLowerCase();
+  if (aiStatus === 'failed' || aiStatus === 'ai_failed') return 'AI文案失败';
+  if (aiStatus === 'partial' || aiStatus === 'ai_partial') return 'AI文案部分完成';
+  if (aiStatus === 'done' || aiStatus === 'ai_done') return 'AI文案已完成';
+  if (aiStatus === 'waiting_original') return '等待原文';
+  if (aiStatus === 'waiting_ai_config') return '等待 AI 配置';
+  return taskStatusText(task.status, '待处理');
+}
+
 function taskDateKey(task) {
-  const value = task.updated_at || task.updatedAt || task.created_at || task.createdAt || "";
+  const value = task.batch_created_at || task.batchCreatedAt || task.created_at || task.createdAt || task.updated_at || task.updatedAt || "";
   const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function dateKeyFromValue(value) {
+  const date = new Date(value || "");
   if (Number.isNaN(date.getTime())) return "";
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
@@ -2185,11 +2434,61 @@ function todayDateKey() {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
-function renderTasks(tasks) {
+function shiftTaskDateKey(value, offset) {
+  const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return todayDateKey();
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  date.setUTCDate(date.getUTCDate() + Number(offset || 0));
+  return date.toISOString().slice(0, 10);
+}
+
+function setCurrentBatchFromResult(result = {}, timestamp = "") {
+  const ids = Array.isArray(result.current_batch_ids)
+    ? result.current_batch_ids.map(id => String(id || "")).filter(Boolean)
+    : [];
+  const batchDate = dateKeyFromValue(timestamp) || todayDateKey();
+  state.currentBatchDate = batchDate === todayDateKey() ? batchDate : todayDateKey();
+  state.currentBatchIds = batchDate === todayDateKey() ? new Set(ids) : new Set();
+  state.viewMode = "current";
+  state.taskDate = state.currentBatchDate;
+}
+
+function currentTaskList(tasks) {
+  const list = Array.isArray(tasks) ? tasks : [];
+  const selectedDate = state.taskDate || todayDateKey();
+  if (state.viewMode === "current" && state.currentBatchIds.size) {
+    return list.filter(task => state.currentBatchIds.has(String(task.id || task.book_id || "")));
+  }
+  return list.filter(task => taskDateKey(task) === selectedDate);
+}
+
+function taskIdentity(task) {
+  return String(task?.id || task?.book_id || task?.bookId || '').trim();
+}
+
+function mergeTasksKeepingIds(incomingTasks, preserveIds = []) {
+  const incoming = Array.isArray(incomingTasks) ? incomingTasks : [];
+  const wanted = new Set((Array.isArray(preserveIds) ? preserveIds : [preserveIds]).map(id => String(id || '').trim()).filter(Boolean));
+  if (!wanted.size || !Array.isArray(state.allTasks) || !state.allTasks.length) return incoming;
+  const incomingIds = new Set(incoming.map(taskIdentity));
+  const missing = state.allTasks.filter(task => {
+    const id = taskIdentity(task);
+    return wanted.has(id) && id && !incomingIds.has(id);
+  });
+  const merged = incoming.slice();
+  for (const task of missing) {
+    const originalIndex = state.allTasks.indexOf(task);
+    merged.splice(Math.min(Math.max(0, originalIndex), merged.length), 0, task);
+  }
+  return merged;
+}
+
+function renderTasks(tasks, options = {}) {
   const selectedDate = state.taskDate || todayDateKey();
   state.taskDate = selectedDate;
   if ($("taskDateFilter")) $("taskDateFilter").value = selectedDate;
-  state.tasks = (tasks || []).filter((task) => taskDateKey(task) === selectedDate);
+  const list = Array.isArray(tasks) ? tasks : [];
+  state.tasks = options.preserveVisible ? list : currentTaskList(list);
   const visibleIds = new Set(state.tasks.map((task) => String(task.id || "")));
   state.selectedIds = new Set([...state.selectedIds].filter((id) => visibleIds.has(id)));
   const body = $("tasksBody");
@@ -2202,6 +2501,7 @@ function renderTasks(tasks) {
   for (const task of state.tasks) {
     const id = String(task.id || "");
     const sensitiveRunning = state.sensitiveProcessingIds.has(id);
+    const aiBusy = state.aiProcessingIds.has(id);
     const sensitiveHits = Number(task.sensitive_hit_count || 0);
     const sensitiveFixed = Number(task.sensitive_fixed_count || 0);
     const sensitiveFailed = Number(task.sensitive_failed_count || 0);
@@ -2214,9 +2514,8 @@ function renderTasks(tasks) {
     const originalText = originalStatusText(task);
     const selectedAi = asArray(task.selected_versions).filter(version => /^ai[1-5]$/.test(version));
     const generatedAi = asArray(task.ai_files);
-    const aiText = selectedAi.length
-      ? `${generatedAi.map(version => version.toUpperCase()).join("、") || "待生成"}（${generatedAi.length}/${selectedAi.length}）`
-      : "本次未选择 AI 文案";
+    const aiTask = aiBusy ? { ...task, ai_status: 'generating', ai_current_version: task.ai_current_version || selectedAi[0] || 'ai1' } : task;
+    const aiText = aiCopyStatusText(aiTask, selectedAi, generatedAi);
     const siteText = siteSubmitText(task);
     tr.innerHTML = `
       <td><input class="task-check" type="checkbox" data-id="${escapeHtml(id)}" ${state.selectedIds.has(id) ? "checked" : ""} /></td>
@@ -2225,15 +2524,15 @@ function renderTasks(tasks) {
       <td>${escapeHtml(task.platform_name || "")}</td>
       <td>${escapeHtml(task.style || "")}</td>
       <td>${escapeHtml(task.gender || "")}</td>
-      <td class="${statusClass(task.classify_status)}">${escapeHtml(taskStatusText(task.classify_status, task.classifier_model ? "已完成判断" : "待判断"))}</td>
-      <td class="${statusClass(task.original_status)}">${escapeHtml(originalText)}</td>
-      <td class="${statusClass(task.ai_status)}">${escapeHtml(aiText)}</td>
+      <td class="${statusClass(task.classify_status)}" title="${escapeHtml(task.classify_error || task.classifyError || "")}">${classifyStatusDisplay(task)}</td>
+      <td class="${statusClass(task.original_status)}">${escapeHtml(originalText)}${task.original_error ? `<div class="task-error-detail" title="${escapeHtml(task.original_error)}">${escapeHtml(task.original_error)}</div>` : ""}</td>
+      <td class="${statusClass(aiTask.ai_status)}" title="${escapeHtml(task.ai_error || task.aiError || '')}">${aiStatusDisplay(aiTask, aiText)}</td>
       <td class="${statusClass(siteText)}">${escapeHtml(siteText)}</td>
-      <td class="${statusClass(task.status)}">${escapeHtml(taskStatusText(task.status, "待处理"))}</td>
+      <td class="${statusClass(taskOverallStatusText(task))}">${escapeHtml(taskOverallStatusText(task))}</td>
       <td class="task-actions">
         <button data-action="detail" data-id="${escapeHtml(id)}">查看</button>
         <button data-action="fetch" data-id="${escapeHtml(id)}">抓原文</button>
-        <button data-action="ai" data-id="${escapeHtml(id)}">生成AI</button>
+        <button data-action="ai" data-id="${escapeHtml(id)}" ${aiBusy ? "disabled" : ""} aria-busy="${aiBusy ? "true" : "false"}">${aiBusy ? "生成中…" : "生成AI文案"}</button>
         <button data-action="sensitive" data-id="${escapeHtml(id)}" ${sensitiveRunning ? "disabled" : ""}>${sensitiveLabel}</button>
         <button data-action="siteLog" data-id="${escapeHtml(id)}">提交日志</button>
       </td>
@@ -2244,8 +2543,30 @@ function renderTasks(tasks) {
 }
 
 function renderDetail(data) {
-  const meta = data.meta || {};
-  $("detailTitle").textContent = meta.book_id || meta.id || "详情";
+  const rawMeta = data.meta || {};
+  const meta = {
+    ...rawMeta,
+    book_id: rawMeta.book_id || rawMeta.bookId || rawMeta.id || "",
+    book_name: rawMeta.book_name || rawMeta.bookName || "",
+    platform_name: rawMeta.platform_name || rawMeta.platformName || "",
+    platform_id: rawMeta.platform_id || rawMeta.platformId || "",
+    original_error: rawMeta.original_error || rawMeta.originalErrorMessage || rawMeta.error || "",
+    original_error_code: rawMeta.original_error_code || rawMeta.originalErrorCode || "",
+    original_upstream_code: rawMeta.original_upstream_code ?? rawMeta.originalUpstreamCode ?? "",
+    classify_error: rawMeta.classify_error || rawMeta.classifyError || "",
+    ai_status: rawMeta.ai_status || rawMeta.aiStatus || "",
+    ai_error: rawMeta.ai_error || rawMeta.aiError || "",
+    ai_current_version: rawMeta.ai_current_version || rawMeta.aiCurrentVersion || "",
+    ai_generated_count: rawMeta.ai_generated_count ?? rawMeta.aiGeneratedCount ?? 0,
+    ai_last_attempt_error: rawMeta.ai_last_attempt_error || rawMeta.aiLastAttemptError || "",
+    site_submit_error: rawMeta.site_submit_error || rawMeta.siteSubmitError || "",
+    created_at: rawMeta.created_at || rawMeta.createdAt || "",
+    updated_at: rawMeta.updated_at || rawMeta.updatedAt || "",
+    error: rawMeta.error || "",
+  };
+  const detailId = meta.book_id || meta.id || "";
+  const detailAiBusy = state.aiProcessingIds.has(String(detailId)) || meta.ai_status === "generating" || meta.ai_status === "ai_processing";
+  $("detailTitle").textContent = detailId || "详情";
   const knowledgeHistory = meta.rewrite_knowledge_history || [];
   const sensitiveFixed = data.sensitive_fixed || {};
   const sensitiveItems = asArray(sensitiveFixed.items).filter((item) => item && item.status === "done");
@@ -2276,13 +2597,31 @@ function renderDetail(data) {
       ${metaItem("平台", `${meta.platform_name || ""} ${meta.platform_id || ""}`)}
       ${metaItem("风格", meta.style)}
       ${metaItem("男女频", meta.gender)}
-      ${metaItem("AI判断", taskStatusText(meta.classify_status))}
-      ${metaItem("分类模型", meta.classifier_model)}
+      ${metaItem("AI判断", classifyDetailText(meta))}
+      ${metaItem("分类模型（历史分类）", meta.classifier_model)}
       ${metaItem("状态", taskStatusText(meta.status))}
+      ${metaItem("原文失败原因", meta.original_error || "")}
+      ${metaItem("原文错误码", meta.original_error_code || "")}
+      ${metaItem("上游错误码", meta.original_upstream_code ?? "")}
+      ${metaItem("原文刷新失败原因", meta.original_refresh_error || "")}
+      ${metaItem("原文刷新错误码", meta.original_refresh_error_code || "")}
+      ${metaItem("原文刷新时间", meta.original_refresh_at || "")}
       ${metaItem("原文字数", meta.original_chars || 0)}
       ${metaItem("敏感词处理", `${meta.sensitive_mode || ""} ${meta.sensitive_status || ""}`)}
+      ${metaItem("敏感词模型（本次执行）", meta.sensitive_model)}
       ${metaItem("命中/修复", `${meta.sensitive_hit_count || 0} / ${meta.sensitive_fixed_count || 0}`)}
       ${metaItem("AI状态", taskStatusText(meta.ai_status))}
+      ${metaItem("AI失败原因", meta.ai_error || "")}
+      ${metaItem("AI当前版本", meta.ai_current_version || "")}
+      ${metaItem("AI已生成数量", meta.ai_generated_count || 0)}
+      ${metaItem("AI尝试次数", meta.ai_last_attempt_count || 0)}
+      ${metaItem("AI最后执行时间", meta.ai_last_attempt_at || "")}
+      ${metaItem("AI最近失败", meta.ai_last_attempt_error || "无")}
+      ${metaItem("分类失败原因", meta.classify_error || "")}
+      ${metaItem("网站提交失败原因", meta.site_submit_error || "")}
+      ${metaItem("任务错误", meta.error || "")}
+      ${metaItem("创建时间", meta.created_at || "")}
+      ${metaItem("最后更新时间", meta.updated_at || "")}
       ${metaItem("改文模型", meta.rewrite_model)}
       ${metaItem("改文方案", knowledge.strategy_name || knowledge.strategy || "")}
       ${metaItem("改文模板", knowledge.rewrite_template_name || "")}
@@ -2294,9 +2633,10 @@ function renderDetail(data) {
     <div class="actions">
       <button id="detailPrevBtn" ${adjacentTaskId(-1) ? "" : "disabled"}>上一条</button>
       <button id="detailNextBtn" ${adjacentTaskId(1) ? "" : "disabled"}>下一条</button>
-      <button id="detailCloseBtn">关闭</button>
+      <button id="detailCloseBtn" type="button">关闭</button>
+      <button id="detailRefreshBtn" type="button">刷新详情</button>
       <button id="detailFetchBtn">重新抓原文</button>
-      <button id="detailAiBtn">生成AI文案</button>
+      <button id="detailAiBtn" ${detailAiBusy ? "disabled" : ""} aria-busy="${detailAiBusy ? "true" : "false"}">${detailAiBusy ? "生成中…" : "生成AI文案"}</button>
       <button id="detailTraceBtn">规则追踪</button>
       <button id="detailSensitiveBtn">重跑敏感词（当前文案）</button>
       ${data.has_original_raw ? `<button id="detailRestoreBtn">从备份恢复原文</button>` : ""}
@@ -2306,11 +2646,22 @@ function renderDetail(data) {
       <pre>${escapeHtml(data.original || "")}</pre>
     </div>
     ${aiBlocks}
+    <div class="text-block">
+      <h3>最近处理日志</h3>
+      <div class="logs-list">${asArray(data.logs).slice(-20).reverse().map(item => {
+        const event = item?.event || "事件";
+        const time = item?.time || "";
+        const payload = item?.data && typeof item.data === "object" ? item.data : {};
+        const reason = payload.error || payload.message || payload.reason || payload.status || "";
+        return `<div class="log-row"><b>${escapeHtml(time)}</b> ${escapeHtml(event)}${reason ? `：${escapeHtml(reason)}` : ""}</div>`;
+      }).join("") || `<div class="log-row">暂无处理日志</div>`}</div>
+    </div>
   `;
-  $("detailCloseBtn").onclick = closeTaskDetail;
+  bindDetailCloseControl();
   $("detailPrevBtn").onclick = () => { const id = adjacentTaskId(-1); if (id) showTask(id); };
   $("detailNextBtn").onclick = () => { const id = adjacentTaskId(1); if (id) showTask(id); };
   $("detailFetchBtn").onclick = () => refetchTask(meta.book_id || meta.id);
+  $("detailRefreshBtn").onclick = () => { void refreshTaskDetail(meta.book_id || meta.id); };
   $("detailAiBtn").onclick = () => generateAi(meta.book_id || meta.id);
   $("detailTraceBtn").onclick = () => showRulesTrace(meta.book_id || meta.id);
   $("detailSensitiveBtn").onclick = () => reprocessSensitive([meta.book_id || meta.id], false);
@@ -2378,7 +2729,9 @@ function renderSensitiveLog(data) {
       <h3>相关处理日志</h3>
       <div class="logs-list">${eventRows || `<div class="log-row">暂无相关日志</div>`}</div>
     </div>
+    <div class="actions">${detailCloseControl()}</div>
   `;
+  bindDetailCloseControl();
 }
 
 function renderRulesTrace(data) {
@@ -2494,7 +2847,9 @@ function renderSiteSubmitLog(data) {
       <h3>上传过程日志</h3>
       <div class="logs-list">${eventRows || `<div class="log-row">暂无相关日志</div>`}</div>
     </div>
+    <div class="actions">${detailCloseControl()}</div>
   `;
+  bindDetailCloseControl();
 }
 
 function metaItem(label, value) {
@@ -2502,7 +2857,7 @@ function metaItem(label, value) {
 }
 
 function escapeHtml(value) {
-  return String(value || "")
+  return String(value ?? "")
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
@@ -2510,14 +2865,36 @@ function escapeHtml(value) {
 }
 
 async function loadConfig() {
-  state.config = await api("/api/config");
+  state.config = await api("/api/bootstrap");
+  state.config.knowledge_loaded = state.config.knowledge_loaded === true;
   renderConfig();
 }
 
-async function loadTasks() {
-  const data = await api("/api/tasks");
-  renderTasks(data.tasks || []);
-  $("summaryText").textContent = `${state.taskDate} 显示 ${state.tasks.length} 个任务；历史任务可切换日期查看`;
+async function ensureKnowledgeLoaded() {
+  if (state.config?.knowledge_loaded) return;
+  const status = $("knowledgeStatus");
+  if (status) status.textContent = "正在读取知识库...";
+  state.config = { ...state.config, ...await api("/api/config"), knowledge_loaded: true };
+  renderKnowledgeSummary(state.config.knowledge_summary || {});
+  if (status) status.textContent = "";
+}
+
+async function loadTasks(options = {}) {
+  const taskPath = state.viewMode === "date" && state.taskDate
+    ? `/api/tasks?${new URLSearchParams({ date: state.taskDate }).toString()}`
+    : "/api/tasks";
+  const data = await api(taskPath);
+  const incomingTasks = Array.isArray(data.tasks) ? data.tasks : [];
+  if (options.preserveOnEmpty && incomingTasks.length === 0 && Array.isArray(state.allTasks) && state.allTasks.length > 0) {
+    const fallbackTasks = Array.isArray(state.tasks) && state.tasks.length ? state.tasks : state.allTasks;
+    renderTasks(fallbackTasks, { preserveVisible: true });
+    return data;
+  }
+  state.allTasks = mergeTasksKeepingIds(incomingTasks, options.preserveIds || []);
+  renderTasks(state.allTasks);
+  $("summaryText").textContent = state.viewMode === "current"
+    ? `${state.taskDate} 当前批次显示 ${state.tasks.length} 个任务；历史任务请切换查看日期`
+    : `${state.taskDate} 显示 ${state.tasks.length} 个任务；历史任务可切换日期查看`;
 }
 
 async function refreshTasksAndSubmitHistory() {
@@ -2628,7 +3005,22 @@ async function restoreLatestProcessJob() {
     const data = await api("/api/process/jobs/latest");
     const job = data.latest || {};
     if (!job.id) {
-      if (!box.textContent.trim()) box.textContent = "暂无处理记录。";
+      box.textContent = "暂无正在处理的任务。";
+      return;
+    }
+    if (job.status === "done" && Array.isArray(job.result?.current_batch_ids)) {
+      setCurrentBatchFromResult(job.result, job.completed_at || job.updated_at || job.started_at);
+      renderTasks(state.allTasks);
+      $("summaryText").textContent = `${state.taskDate} 当前批次显示 ${state.tasks.length} 个任务；历史任务请切换查看日期`;
+    } else if (job.status !== "running") {
+      setCurrentBatchFromResult({}, new Date().toISOString());
+      renderTasks(state.allTasks);
+      $("summaryText").textContent = `${state.taskDate} 当前批次暂无任务；历史任务请切换查看日期`;
+    }
+    // A completed job is represented by the current-batch view above. Do not
+    // replay its old summary into the live status area on every page entry.
+    if (job.status !== "running") {
+      box.textContent = "暂无正在处理的任务。";
       return;
     }
     state.activeProcessJobId = job.id;
@@ -2670,6 +3062,10 @@ async function processInput() {
   }
   button.disabled = true;
   try {
+    setCurrentBatchFromResult({}, new Date().toISOString());
+    const textModelId = String($("textModelSelect")?.value || "").trim();
+    if (!textModelId) throw new Error("请先在小说获取页面选择文本模型");
+    await persistSelectedTextModel(textModelId);
     await saveWorkFormStateNow();
     await saveWebSubmitConfig(true);
     $("processResult").textContent = [
@@ -2686,6 +3082,7 @@ async function processInput() {
       ai_slot_methods: processAiMethods(),
       profile_bindings: webProfileBindingsFromForm(),
       sensitive_ai_enabled: sensitiveAiProcessEnabled(),
+      text_model_id: textModelId,
     };
     const job = await api("/api/process/start", {
       method: "POST",
@@ -2695,7 +3092,10 @@ async function processInput() {
     $("processResult").textContent = renderProcessJob(job);
     const result = await pollProcessJob(job.id);
     $("processResult").textContent = renderProcessResult(result);
-    renderTasks(result.tasks || []);
+    setCurrentBatchFromResult(result, new Date().toISOString());
+    state.allTasks = result.tasks || state.allTasks;
+    renderTasks(state.allTasks);
+    $("summaryText").textContent = `${state.taskDate} 当前批次显示 ${state.tasks.length} 个任务；历史任务请切换查看日期`;
   } catch (error) {
     $("processResult").textContent = error.message;
   } finally {
@@ -2703,16 +3103,44 @@ async function processInput() {
   }
 }
 
+function stopTaskDetailRefresh() {
+  if (state.detailRefreshTimer) window.clearInterval(state.detailRefreshTimer);
+  state.detailRefreshTimer = null;
+}
+
+async function refreshTaskDetail(id) {
+  if (!id || state.detailViewKind !== "task" || String(state.selectedId) !== String(id)) return;
+  try {
+    const data = await api(`/api/tasks/${id}`);
+    if (state.detailViewKind === "task" && String(state.selectedId) === String(id)) renderDetail(data);
+  } catch (error) {
+    setBatchStatus(`详情刷新失败：${error.message || "请稍后重试"}`);
+  }
+}
+
+function startTaskDetailRefresh(id) {
+  stopTaskDetailRefresh();
+  state.detailViewKind = "task";
+  state.detailRefreshTimer = window.setInterval(() => { void refreshTaskDetail(id); }, 2500);
+}
+
 async function showTask(id) {
+  stopTaskDetailRefresh();
   state.selectedId = id;
   const data = await api(`/api/tasks/${id}`);
+  state.detailViewKind = "task";
   renderDetail(data);
   activateTab("tasks");
   document.body.classList.add("detail-modal-open");
+  startTaskDetailRefresh(id);
   focusTaskDetail();
 }
 
-function closeTaskDetail() { document.body.classList.remove("detail-modal-open"); }
+function closeTaskDetail() { stopTaskDetailRefresh(); state.detailViewKind = ""; document.body.classList.remove("detail-modal-open"); }
+function detailCloseControl() { return '<button id="detailCloseBtn" type="button">关闭</button>'; }
+function bindDetailCloseControl() {
+  $("detailCloseBtn")?.addEventListener("click", event => { event.preventDefault(); event.stopPropagation(); closeTaskDetail(); });
+}
 
 function adjacentTaskId(direction) {
   const index = state.tasks.findIndex((task) => String(task.id || "") === String(state.selectedId || ""));
@@ -2725,6 +3153,8 @@ function focusTaskDetail() {
 }
 
 async function showSensitiveLog(id) {
+  stopTaskDetailRefresh();
+  state.detailViewKind = "sensitive";
   state.selectedId = id;
   const data = await api(`/api/tasks/${id}/sensitive-log`);
   renderSensitiveLog(data);
@@ -2734,6 +3164,8 @@ async function showSensitiveLog(id) {
 }
 
 async function showRulesTrace(id) {
+  stopTaskDetailRefresh();
+  state.detailViewKind = "rules";
   state.selectedId = id;
   const data = await api(`/api/tasks/${id}/rules-trace`);
   renderRulesTrace(data);
@@ -2743,6 +3175,8 @@ async function showRulesTrace(id) {
 }
 
 async function showSiteSubmitLog(id) {
+  stopTaskDetailRefresh();
+  state.detailViewKind = "site-submit";
   state.selectedId = id;
   const data = await api(`/api/tasks/${id}/site-submit-log`);
   renderSiteSubmitLog(data);
@@ -2753,12 +3187,13 @@ async function showSiteSubmitLog(id) {
 
 async function refetchTask(id) {
   if (!id) return;
-  await api(`/api/tasks/${id}/fetch`, {
+  const result = await api(`/api/tasks/${id}/fetch`, {
     method: "POST",
     body: JSON.stringify({ sensitive_ai_enabled: sensitiveAiProcessEnabled() }),
   });
   await loadTasks();
   await showTask(id);
+  if (result?.status === "refresh_failed") setBatchStatus(result.message || "本次刷新原文失败，已保留原文");
 }
 
 async function restoreOriginal(id) {
@@ -2773,20 +3208,62 @@ async function restoreOriginal(id) {
 }
 
 async function generateAi(id) {
-  if (!id) return;
+  if (!id || state.aiProcessingIds.has(id)) return;
   const task = state.tasks.find(item => String(item.id || item.book_id || "") === String(id));
-  const selectedVersions = asArray(task?.selected_versions).length ? task.selected_versions : selectedProcessVersions();
-  await api(`/api/tasks/${id}/generate-ai`, {
-    method: "POST",
-    body: JSON.stringify({ selected_versions: selectedVersions, ai_slot_methods: task?.ai_slot_methods || processAiMethods(), sensitive_ai_enabled: sensitiveAiProcessEnabled() }),
-  });
-  await loadTasks();
-  await showTask(id);
+  if (!task) {
+    setBatchStatus("未找到要生成AI文案的任务，请刷新任务列表");
+    return;
+  }
+  const label = task.book_name || task.book_id || id;
+  let tasksLoaded = false;
+  state.aiProcessingIds.add(id);
+  renderTasks(state.allTasks);
+  setBatchStatus(`正在生成AI文案：${label}`);
+  try {
+    const selectedVersions = asArray(task?.selected_versions).length ? task.selected_versions : selectedProcessVersions();
+    const response = await api(`/api/tasks/${id}/generate-ai`, {
+      method: "POST",
+      body: JSON.stringify({ selected_versions: selectedVersions, ai_slot_methods: task?.ai_slot_methods || processAiMethods(), sensitive_ai_enabled: sensitiveAiProcessEnabled() }),
+    });
+    if (response?.status && response.status !== "done") {
+      throw new Error(response.error || response.result?.error || `AI文案生成${response.status}`);
+    }
+    const verification = await api(`/api/tasks/${encodeURIComponent(id)}`);
+    const verifiedMeta = verification?.meta || {};
+    const requestedAi = selectedVersions.filter(version => /^ai[1-5]$/.test(String(version || "").toLowerCase())).map(version => String(version).toLowerCase());
+    const generatedAi = asArray(verifiedMeta.ai_generated_versions || verifiedMeta.ai_files).map(version => String(version || "").toLowerCase());
+    const verificationError = verifiedMeta.ai_error || verifiedMeta.aiError || "";
+    if (verificationError) throw new Error(verificationError);
+    if (requestedAi.length && !requestedAi.every(version => generatedAi.includes(version))) {
+      throw new Error("AI文案生成未完成，请查看任务详情和失败原因");
+    }
+    await loadTasks({ preserveOnEmpty: true, preserveIds: [id] });
+    tasksLoaded = true;
+    await refreshTaskDetail(id);
+    setBatchStatus(`AI文案生成已完成：${label}`);
+  } catch (error) {
+    setBatchStatus(`生成AI文案失败：${normalizeBatchErrorMessage(error?.message, error?.status)}`);
+  } finally {
+    if (!tasksLoaded) {
+      try { await loadTasks({ preserveOnEmpty: true, preserveIds: [id] }); } catch (_) { /* keep the original generation error visible */ }
+    }
+    await refreshTaskDetail(id);
+    state.aiProcessingIds.delete(id);
+    renderTasks(state.allTasks);
+  }
 }
 
 function selectedTaskIds() {
   return [...state.selectedIds];
 }
+
+// The V2 parsed-book picker is rendered by a separate script. Keep its
+// selection authoritative for the legacy task actions that it exposes.
+window.addEventListener("qiantie-v78-task-selection", event => {
+  const ids = Array.isArray(event?.detail?.ids) ? event.detail.ids.map(id => String(id || "").trim()).filter(Boolean) : [];
+  state.selectedIds = new Set(ids);
+  updateSelectedCount();
+});
 
 function setBatchStatus(text) {
   $("batchStatus").textContent = text || "";
@@ -2943,10 +3420,29 @@ async function batchDelete(mode) {
   }
 }
 
+function failedTaskIds(tasks) {
+  const ids = new Set();
+  for (const task of (Array.isArray(tasks) ? tasks : [])) {
+    const status = [
+      task.status, task.classify_status, task.classify_error,
+      task.original_status, task.original_error, task.original_error_code,
+      task.sensitive_status, task.ai_status, task.ai_error,
+      task.site_submit_status, task.site_submit_error
+    ].filter(Boolean).join(' ');
+    const failedSubmit = asArray(task.site_submit_failed_versions).length > 0;
+    const sensitiveFailed = Number(task.sensitive_failed_count || 0) > 0;
+    if (failedSubmit || sensitiveFailed || /(failed|error|timeout|interrupted|incomplete|失败|错误|超时|中断|未完成|121异常|partial|部分)/i.test(status)) {
+      const id = String(task.id || task.book_id || '').trim();
+      if (id) ids.add(id);
+    }
+  }
+  return [...ids];
+}
+
 async function batchRetry(mode) {
-  const ids = mode === "selected" ? selectedTaskIds() : [];
-  if (mode === "selected" && !ids.length) {
-    setBatchStatus("先选择任务");
+  const ids = mode === "selected" ? selectedTaskIds() : failedTaskIds(state.tasks);
+  if (!ids.length) {
+    setBatchStatus(mode === "selected" ? "先选择任务" : "当前列表没有失败任务");
     return;
   }
   const label = mode === "failed" ? "失败任务" : `${ids.length} 个选中任务`;
@@ -2954,12 +3450,36 @@ async function batchRetry(mode) {
   try {
     const result = await api("/api/tasks/batch-retry", {
       method: "POST",
-      body: JSON.stringify({ mode, ids, sensitive_ai_enabled: sensitiveAiProcessEnabled() }),
+      // “重试失败”固定使用当前任务表可见的失败 ID，保持表格从上到下的执行顺序，
+      // 不把日期筛选外的历史失败任务混入本次队列。
+      body: JSON.stringify({ mode: "selected", ids, sensitive_ai_enabled: sensitiveAiProcessEnabled() }),
     });
     renderTasks(result.tasks || []);
-    setBatchStatus(`已重试 ${result.retried || 0} 个，失败 ${result.failed || 0} 个`);
+    const stageLabels = { classify: "AI 判断", original: "原文抓取", sensitive: "敏感词处理", rewrite: "AI 文案生成", submit: "网站提交" };
+    const stageCounts = result.retry_stage_counts || {};
+    const stageSummary = Object.entries(stageCounts)
+      .map(([stage, count]) => `${stageLabels[stage] || stage} ${count} 个`)
+      .join("，");
+    const deduplicated = Number(result.deduplicated) || 0;
+    const throughput = result.throughput || {};
+    const active = throughput.active || {};
+    const limits = throughput.limits || {};
+    const capacity = Object.keys(limits).length
+      ? `；资源池 抓取 ${active.fetch || 0}/${limits.fetch || 0}，改文 ${active.rewrite || 0}/${limits.rewrite || 0}，提交 ${active.submit || 0}/${limits.submit || 0}${throughput.paused ? "（负载保护中）" : ""}`
+      : "";
+    const duplicateText = deduplicated ? `；已在队列 ${deduplicated} 个` : "";
+    setBatchStatus((stageSummary
+      ? `正在按失败步骤重试：${stageSummary}；已加入队列 ${result.retried || 0} 个`
+      : `已重试 ${result.retried || 0} 个，失败 ${result.failed || 0} 个`) + duplicateText + capacity);
+    if (Number(result.retried) > 0) {
+      window.dispatchEvent(new CustomEvent("qiantie-novel-fetch-retry-queued", {
+        detail: { ids: ids.slice(), retried: Number(result.retried) || 0 }
+      }));
+    }
+    return result;
   } catch (error) {
     setBatchStatus(error.message);
+    return null;
   }
 }
 
@@ -3028,9 +3548,44 @@ async function reprocessSensitive(ids, restoreFromBackup) {
     }
   }
   const summary = `${label}完成：已处理 ${processed} 个${restoreFromBackup ? `，已恢复 ${restored} 个` : ""}，失败 ${failed} 个`;
-  setBatchStatus(firstError ? `${summary}（${firstError}）` : summary);
-  showBatchToast(firstError || failed ? `${summary}${firstError ? `：${firstError}` : ""}` : summary, failed ? "warning" : "success");
+  const detail = firstError ? `${summary}：${firstError}` : summary;
+  setBatchStatus(detail);
+  const processResult = $("processResult");
+  if (processResult) processResult.textContent = detail;
   if (state.selectedId && selected.includes(String(state.selectedId))) await showTask(state.selectedId);
+}
+
+// The V2 login hotfix is loaded after this legacy client. Both layers need the
+// same environment result, but must never probe the Browser Worker twice in
+// parallel during a page switch (the second result used to overwrite a good
+// session with a transient timeout).
+window.qiantieEnsureWebLoginEnvironment = function qiantieEnsureWebLoginEnvironment() {
+  if (window.__qiantieWebLoginEnvironmentPromise) return window.__qiantieWebLoginEnvironmentPromise;
+  window.__qiantieWebLoginEnvironmentPromise = api("/api/web-submit/environment")
+    .then(environment => {
+      state.webLoginSession = environment?.ok === true;
+      renderWebLoginStatus(state.config?.web_submit || {});
+      return environment;
+    })
+    .catch(error => {
+      state.webLoginSession = false;
+      renderWebLoginStatus(state.config?.web_submit || {});
+      throw error;
+    });
+  return window.__qiantieWebLoginEnvironmentPromise;
+};
+
+async function updateSelectedAiCount() {
+  const ids = selectedTaskIds();
+  const count = Number($("batchAiCount")?.value || 1);
+  if (!ids.length) return setBatchStatus("先选择任务");
+  if (!Number.isInteger(count) || count < 1 || count > 20) return setBatchStatus("AI数量需为 1 到 20");
+  setBatchStatus("正在调整 AI 数量...");
+  try {
+    const result = await api("/api/tasks/batch-ai-count", { method: "POST", body: JSON.stringify({ ids, ai_count: count }) });
+    setBatchStatus(`已调整 ${result.updated || 0} 个任务的 AI 数量为 ${count}`);
+    await refreshTasksAndSubmitHistory();
+  } catch (error) { setBatchStatus(error.message); }
 }
 
 async function startSensitiveProcessing() {
@@ -3046,6 +3601,10 @@ async function startSensitiveProcessing() {
 function openWebSubmitFromTasks() {
   void submitWebSubmit("selected");
 }
+
+// V2 action bars use this explicit bridge instead of dispatching a synthetic click
+// against the legacy button, which may be replaced while switching task panels.
+window.qiantieSubmitSelectedTasks = ids => void submitWebSubmit("selected", ids);
 
 function selectAllVisibleTasks() {
   for (const task of state.tasks) {
@@ -3096,7 +3655,8 @@ function syncFormToAppConfig() {
   };
   ensureKnowledgeConfig();
   state.config.knowledge.usage_prompt = $("knowledgeUsagePrompt")?.value || "";
-  cfg.ai = readAiSettingsFromForm();
+  cfg.ai = { ...(cfg.ai || {}), ...readAiSettingsFromForm() };
+  cfg.text_model_id = $("textModelSelect")?.value || cfg.text_model_id || cfg.textModelId || "";
   cfg.ai_assignments = {
     classifier: $("classifierSelect").value || "__current__",
     rewrite: $("rewriteSelect").value || "__current__",
@@ -3119,13 +3679,13 @@ async function saveConfig(throwOnError = false) {
       platforms: JSON.parse($("platformsText").value),
       styles: JSON.parse($("stylesText").value),
       sensitive: state.config.sensitive || { groups: [] },
-      knowledge: state.config.knowledge || {},
+      ...(state.config.knowledge_loaded ? { knowledge: state.config.knowledge || {} } : {}),
     };
     const data = await api("/api/config", {
       method: "POST",
       body: JSON.stringify(payload),
     });
-    state.config = data.config;
+    mergeConfigResponse(data.config);
     renderConfig();
     if (activePresetId && $("presetSelect")) {
       $("presetSelect").value = activePresetId;
@@ -3147,7 +3707,7 @@ async function saveCurrentPreset() {
   const cfg = syncFormToAppConfig();
   const presets = cfg.ai_presets || [];
   const selectedId = $("presetSelect").value;
-  const name = $("presetName").value.trim() || $("aiModel").value.trim() || `预设${presets.length + 1}`;
+  const name = $("presetName").value.trim() || $("textModelSelect")?.selectedOptions?.[0]?.textContent?.trim() || `预设${presets.length + 1}`;
   let id = selectedId && selectedId !== "" ? selectedId : `preset_${Date.now()}`;
   if (!presets.some((item) => item.id === id)) {
     id = `preset_${Date.now()}`;
@@ -3192,18 +3752,13 @@ async function deleteSelectedPreset() {
 async function testAi() {
   $("aiTestStatus").textContent = "测试中...";
   try {
-    const settings = readAiSettingsFromForm();
-    // 密钥可能不会回填到密码框。此时不能把空密钥覆盖到测试请求里，
-    // 应改用服务端已保存、且已被“当前预设”选中的改文模型。
-    const completeInForm = Boolean(settings.base_url && settings.api_key && settings.model);
     const result = await api("/api/ai/test", {
       method: "POST",
       body: JSON.stringify({
         purpose: "rewrite",
-        ...(completeInForm ? { settings: { ...settings, baseUrl: settings.base_url, apiKey: settings.api_key } } : {}),
       }),
     });
-    $("aiTestStatus").textContent = `成功：${result.content || "ok"}${completeInForm ? "" : "（已使用已保存的当前预设）"}`;
+    $("aiTestStatus").textContent = `成功：${result.content || "ok"}（已使用所选文本模型）`;
   } catch (error) {
     $("aiTestStatus").textContent = error.message;
   }
@@ -3336,7 +3891,15 @@ document.addEventListener("click", async (event) => {
   if (button.classList.contains("tab")) {
     activateTab(button.dataset.tab);
     if (button.dataset.tab === "tasks") await refreshTasksAndSubmitHistory();
-    if (button.dataset.tab === "knowledge") renderLibraryManager(Number($("libraryItemSelect")?.value || 0));
+    if (button.dataset.tab === "knowledge") {
+      try {
+        await ensureKnowledgeLoaded();
+        renderLibraryManager(Number($("libraryItemSelect")?.value || 0));
+      } catch (error) {
+        const status = $("knowledgeStatus");
+        if (status) status.textContent = error.message || "知识库读取失败";
+      }
+    }
     if (button.dataset.tab === "rules") renderRuleEditor();
     if (button.dataset.tab === "logs") await loadRecords();
     return;
@@ -3357,10 +3920,17 @@ document.addEventListener("change", (event) => {
   if (target.id === "sensitiveGroupSelect" || target.id === "sensitiveRuleSelect") renderSensitiveRuleEditor();
   if (target.id === "ruleItemSelect") renderRuleEditor(Number(target.value || 0));
   if (target.id === "taskDateFilter") {
+    state.viewMode = "date";
     state.taskDate = target.value || todayDateKey();
     void loadTasks();
   }
 });
+
+document.addEventListener("pointerdown", event => {
+  if (!document.body.classList.contains("detail-modal-open")) return;
+  if (event.target.closest("#detail")) return;
+  closeTaskDetail();
+}, true);
 
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") closeTaskDetail();
@@ -3413,15 +3983,21 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("versionConfigCloseBtnBottom").onclick = closeVersionConfigCard;
   $("versionConfigCard").addEventListener("cancel", event => {
     event.preventDefault();
-    closeVersionConfigCard();
+    if (!isModalBusy("versionConfigCard")) closeVersionConfigCard();
+  });
+  $("versionConfigCard").addEventListener("pointerdown", event => {
+    if (event.target === $("versionConfigCard") && !isModalBusy("versionConfigCard")) closeVersionConfigCard();
   });
   $("versionConfigCard").addEventListener("click", event => {
-    if (event.target === $("versionConfigCard")) closeVersionConfigCard();
+    if (event.target === $("versionConfigCard") && !isModalBusy("versionConfigCard")) closeVersionConfigCard();
   });
   $("processBtn").onclick = processInput;
   $("refreshBtn").onclick = refreshTasksAndSubmitHistory;
   $("taskRefreshBtn").onclick = refreshTasksAndSubmitHistory;
-  $("taskTodayBtn").onclick = async () => { state.taskDate = todayDateKey(); await refreshTasksAndSubmitHistory(); };
+  $("taskTodayBtn").onclick = async () => { state.viewMode = "date"; state.taskDate = todayDateKey(); await refreshTasksAndSubmitHistory(); };
+  $("taskPrevDayBtn").onclick = async () => { state.viewMode = "date"; state.taskDate = shiftTaskDateKey(state.taskDate || todayDateKey(), -1); await refreshTasksAndSubmitHistory(); };
+  $("taskNextDayBtn").onclick = async () => { state.viewMode = "date"; state.taskDate = shiftTaskDateKey(state.taskDate || todayDateKey(), 1); await refreshTasksAndSubmitHistory(); };
+  $("taskDefaultViewBtn").onclick = async () => { state.viewMode = "current"; state.taskDate = state.currentBatchDate || todayDateKey(); await refreshTasksAndSubmitHistory(); };
   $("taskToggleBtn").onclick = () => { const details = $("taskListDetails"); details.open = !details.open; $("taskToggleBtn").textContent = details.open ? "收起任务" : "展开任务"; };
   $("selectAllBtn").onclick = selectAllVisibleTasks;
   $("clearSelectedBtn").onclick = clearSelectedTasks;
@@ -3431,6 +4007,8 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("applyRulesSelectedBtn").onclick = () => applyRules("selected");
   $("applyRulesAllBtn").onclick = () => applyRules("all");
   $("openWebSubmitBtn").onclick = openWebSubmitFromTasks;
+  $("submitTaskAllBtn").onclick = () => void submitWebSubmit("all");
+  $("updateAiCountSelectedBtn").onclick = updateSelectedAiCount;
   $("deleteSelectedBtn").onclick = () => batchDelete("selected");
   $("deleteFailedBtn").onclick = () => batchDelete("failed");
   $("deleteAllBtn").onclick = () => batchDelete("all");
@@ -3462,17 +4040,20 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("ruleAiApplyBtn").onclick = applyRuleSuggestions;
   $("syncWebProfilesBtn").onclick = () => syncWebSubmit("configs");
   $("syncWebStylesBtn").onclick = () => syncWebSubmit("styles");
+  $("syncWebOrganizationsBtn").onclick = () => syncWebSubmit("organizations");
   $("confirmWebSubmitSelectionBtn").onclick = confirmWebSubmitSelection;
   $("webAllowResubmit").onchange = updateResubmitHint;
   $("platformSelect").onchange = updatePlatformHint;
-  await loadConfig();
-  void (async () => {
-    try {
-      const environment = await api("/api/web-submit/environment");
-      state.webLoginSession = environment.ok === true;
-      renderWebLoginStatus(state.config?.web_submit || {});
-    } catch (_) { state.webLoginSession = false; renderWebLoginStatus(state.config?.web_submit || {}); }
-  })();
-  await loadTasks();
+  // 121 环境验证可能触发 Browser Worker，最慢时会等待超时。它只影响
+  // 提交能力，不应阻塞小说获取工作台首次进入；配置和任务先完成后立即展示。
+  void window.qiantieEnsureWebLoginEnvironment().catch(error => {
+    setBatchStatus(error?.message || "121 登录状态检查失败");
+  });
+  try {
+    await Promise.allSettled([loadConfig(), loadTasks()]);
+  } finally {
+    document.documentElement.classList.remove("qiantie-novel-fetch-hydrating");
+    window.parent?.postMessage({ type: "qiantie:novel-fetch-ready" }, window.location.origin);
+  }
   await restoreLatestProcessJob();
 });

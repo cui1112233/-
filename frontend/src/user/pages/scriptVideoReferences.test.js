@@ -2,7 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildScriptVideoPayload,
+  collectShotReferenceDiagnostics,
+  collectShotReferenceDescriptors,
   collectShotReferenceImages,
+  extractShotMentionNames,
   getEntityMedia,
   setEntityMainImage,
   toggleShotReferenceState
@@ -65,6 +68,45 @@ test('collects only current-shot entities in character-first then scene order', 
   ]);
 });
 
+test('parses adjacent at-mentions in first-seen order', () => {
+  assert.deepEqual(
+    extractShotMentionNames('@林溪@公司办公室，@林溪。'),
+    ['林溪', '公司办公室']
+  );
+});
+
+test('adds current-script main images named by at-mentions and keeps text matches deduplicated', () => {
+  const lin = entity('lin', '林溪', [], 'https://img.example/lin.png');
+  const office = entity('office', '公司办公室', [], 'https://img.example/office.png');
+
+  assert.deepEqual(
+    collectShotReferenceDescriptors({
+      shotText: '林溪走入@公司办公室，随后@林溪。',
+      extractInfo: info([lin], [office])
+    }).map(({ url, source }) => ({ url, source })),
+    [
+      { url: 'https://img.example/lin.png', source: 'text' },
+      { url: 'https://img.example/office.png', source: 'mention' }
+    ]
+  );
+});
+
+test('does not add images for empty, unknown, or no-main-image at-mentions', () => {
+  const lin = entity('lin', '林溪', [], '');
+  assert.deepEqual(collectShotReferenceImages({ shotText: '@ @未知 @林溪', extractInfo: info([lin]) }), []);
+});
+
+test('reports unresolved at-mentions without adding reference images', () => {
+  const lin = entity('lin', '林溪', [], '');
+  assert.deepEqual(
+    collectShotReferenceDiagnostics({ shotText: '@林溪 @未知', extractInfo: info([lin]) }),
+    [
+      { name: '林溪', reason: 'missing_main_image' },
+      { name: '未知', reason: 'missing_entity' }
+    ]
+  );
+});
+
 test('deduplicates URLs and caps H3 references at nine', () => {
   const characters = Array.from({ length: 10 }, (_, index) => entity(`character-${index}`, `角色${index + 1}`, [], `https://img.example/${index}.png`));
   const scenes = [
@@ -116,5 +158,20 @@ test('all video payloads carry selected references while capping at nine', () =>
     prompt: '林溪转身',
     modelKey: 'yd2-mini-video',
     imageUrls: imageUrls.slice(0, 9)
+  });
+});
+
+test('builds Seedance payload with selected duration and resolution', () => {
+  assert.deepEqual(buildScriptVideoPayload({
+    prompt: '夜晚的城市雨巷',
+    modelKey: 'seedance-2-0-official',
+    duration: 15,
+    resolution: '720p',
+    imageUrls: []
+  }), {
+    prompt: '夜晚的城市雨巷',
+    modelKey: 'seedance-2-0-official',
+    duration: 15,
+    resolution: '720p'
   });
 });

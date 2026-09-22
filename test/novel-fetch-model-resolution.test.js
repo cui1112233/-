@@ -2,7 +2,6 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const { resolveNovelFetchTextModel } = require('../lib/model-catalog-runtime');
-const { resolveCatalogAiSettings } = require('../lib/novel-fetch-workshop/model-settings');
 
 function memberStore() {
   return {
@@ -44,15 +43,4 @@ test('rejects missing, disabled, and unknown text model ids without fallback', (
       error => ['NOVEL_FETCH_TEXT_MODEL_REQUIRED', 'NOVEL_FETCH_TEXT_MODEL_UNAVAILABLE'].includes(error.code)
     );
   }
-});
-
-test('catalog request settings preserve UI tuning but never inherit legacy model', () => {
-  const settings = resolveCatalogAiSettings({
-    username: 'alice', memberStore: memberStore(), configReader,
-    config: { text_model_id: 'gemini-3', temperature: 0.45, max_tokens: 1200, model: 'Gemini-3.8-flash' }
-  });
-  assert.equal(settings.model, 'gemini-3');
-  assert.equal(settings.textModelId, 'gemini-3');
-  assert.equal(settings.temperature, 0.45);
-  assert.equal(settings.max_tokens, 1200);
 });

@@ -63,8 +63,21 @@ export async function listManagedModelsByKind(kind) {
   return Array.isArray(result?.models) ? result.models : [];
 }
 
+export async function getManagedModelQuotas() {
+  const result = await apiRequest('/api/config/models/quotas');
+  return Array.isArray(result?.quotas) ? result.quotas : [];
+}
+
 export function createManagedModel(model) {
   return apiRequest('/api/config/models', { method: 'POST', body: JSON.stringify(model) });
+}
+
+export function testManagedTextModel(model, existingModelId = '') {
+  return apiRequest('/api/config/models/test', {
+    method: 'POST',
+    body: JSON.stringify({ ...model, ...(existingModelId ? { existingModelId } : {}) }),
+    suppressGlobalError: true
+  });
 }
 
 export function updateManagedModel(modelId, patch) {

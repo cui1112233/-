@@ -115,6 +115,19 @@ export function BookSettingsModal({
       </div>
 
       <div className="bf11-scoped-setting-row">
+        <div>
+          <Typography.Text strong>目标切分时长</Typography.Text>
+          <Typography.Text type="secondary">写入当前小说的 Director 最大单段时长；保存后需重新执行 Director，已有分镜不会被静默改写。</Typography.Text>
+        </div>
+        <SparseChoice
+          inheritedLabel="跟随批次"
+          value={hasOwn(patch, 'maxVideoDuration') ? patch.maxVideoDuration : 'inherit'}
+          onChange={value => value === 'inherit' ? inheritField('maxVideoDuration') : setField('maxVideoDuration', value)}
+          options={[{ value: 10, label: '10 秒' }, { value: 15, label: '15 秒' }]}
+        />
+      </div>
+
+      <div className="bf11-scoped-setting-row">
         <div><Typography.Text strong>固定单 VIDEO</Typography.Text><Typography.Text type="secondary">未覆盖时继续交给 Go 解析上层设置。</Typography.Text></div>
         <SparseChoice
           inheritedLabel="跟随批次"

@@ -3,7 +3,7 @@ import { AudioLines, Clapperboard, Copy, Download, FileText, History, Pencil, Pl
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { deleteScriptConstraintPrompt, extractCharactersAndScenes, generateScript, getConstraintPresetTexts, listScriptConstraintPrompts, listScriptPresetCatalog, saveScriptConstraintPrompt, updateScriptConstraintPrompt } from '../../shared/api/generation';
 import { listHistory, saveHistory, updateHistoryVideoTasks } from '../../shared/api/history';
-import { getConfig } from '../../shared/api/config';
+import { getConfig, listAvailableModels } from '../../shared/api/config';
 import { playTaskSound } from '../../shared/notifications/taskSound';
 import { textToSpeech } from '../../shared/api/tts';
 import { getCurrentUsername } from '../../shared/api/auth';
@@ -23,19 +23,21 @@ import { getShotCardsWithinDuration, joinShotCards } from './scriptShotOutput';
 import { getSelectedShotMatches, getShotCardStarts, replaceAllSelectedShotMatches, replaceSelectedShotMatch } from './scriptShotReplace';
 import { buildFinalSegmentCard } from './scriptFinalSegment';
 import { resolveShotVideoDuration } from './scriptVideoDuration';
-import { buildScriptVideoPayload, collectShotReferenceImages, getEntityMedia } from './scriptVideoReferences';
+import { buildScriptVideoPayload, collectShotReferenceImages, getEntityMedia, toggleShotReferenceState } from './scriptVideoReferences';
+import { appendShotVideoTaskHistory, normalizeShotVideoTaskHistory } from './scriptShotVideoTasks';
+import { replaceRawShotCard } from './scriptShotCardEdit';
 import { ShotOutputCards } from '../components/ShotOutputCards';
 import EntityImagePanel from '../components/EntityImagePanel';
 import { createScriptVideo, getScriptVideoTask } from '../../shared/api/scriptVideo';
-import { listModels } from '../../shared/api/shuihuoProduction';
+import { loadScriptModelSelection, reconcileScriptModelSelection, saveScriptModelSelection } from './scriptModelSelection';
 
 function videoModelKey(model) {
-  return String(model?.key || model?.modelKey || '').trim();
+  return String(model?.key || model?.modelKey || model?.id || '').trim();
 }
 
 function videoModelLabel(model) {
   const key = videoModelKey(model);
-  const name = String(model?.name || key || '未命名视频模型').trim();
+  const name = String(model?.name || model?.displayName || key || '未命名视频模型').trim();
   return key === 'minimax-h3-video' && model?.configured === false
     ? `${name}（待配置 Token）`
     : name;
@@ -121,11 +123,17 @@ export function ScriptPage() {
   const [selectedShotIndexes, setSelectedShotIndexes] = useState(new Set());
   const [generatingShotIndexes, setGeneratingShotIndexes] = useState(() => new Set());
   const [shotVideoTasks, setShotVideoTasks] = useState({});
+  const [shotVideoTaskHistory, setShotVideoTaskHistory] = useState({});
   const [shotReferenceStates, setShotReferenceStates] = useState({});
   const [scriptVideoModelKey, setScriptVideoModelKey] = useState('yd2-mini-video');
+  const [canGenerateVideo, setCanGenerateVideo] = useState(false);
   const [scriptVideoModels, setScriptVideoModels] = useState([]);
   const [loadingScriptVideoModels, setLoadingScriptVideoModels] = useState(false);
+  const [scriptModels, setScriptModels] = useState({ text: [], image: [] });
+  const [scriptModelsLoaded, setScriptModelsLoaded] = useState(false);
+  const [scriptModelSelection, setScriptModelSelection] = useState({ textModelId: '', imageModelId: '' });
   const [previewVideoTask, setPreviewVideoTask] = useState(null);
+  const [previewVideoHistory, setPreviewVideoHistory] = useState({ open: false, shotIndex: 0, tasks: [] });
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyEntries, setHistoryEntries] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -134,15 +142,35 @@ export function ScriptPage() {
   const [shotFindText, setShotFindText] = useState('');
   const [shotReplaceText, setShotReplaceText] = useState('');
   const [shotMatchIndex, setShotMatchIndex] = useState(0);
+  const [editingShot, setEditingShot] = useState({ index: -1, text: '' });
+  const editingShotInputRef = useRef(null);
   const [activeEntity, setActiveEntity] = useState(null);
   const entityEditorSessionRef = useRef(0);
   const [fullscreenEditor, setFullscreenEditor] = useState(false);
   const [leftPanelWidth, setLeftPanelWidth] = useState(null);
   const [narrating, setNarrating] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    getMemberCenter().then(result => {
+      if (!active) return;
+      const member = result?.member;
+      setCanGenerateVideo(
+        ['dev', 'manager'].includes(member?.role)
+          || member?.apiScopes?.includes('*')
+          || member?.apiScopes?.includes('video')
+      );
+    }).catch(() => {
+      if (active) setCanGenerateVideo(false);
+    });
+    return () => { active = false; };
+  }, []);
+
   const [quickDirectorOpen, setQuickDirectorOpen] = useState(false);
   const [quickDirectorOptions, setQuickDirectorOptions] = useState({ matchAudio: false });
   const [sourceAudioUrl, setSourceAudioUrl] = useState('');
   const [sourceAudioDurationSeconds, setSourceAudioDurationSeconds] = useState(null);
+  const [sourceAudioError, setSourceAudioError] = useState('');
   const [instructionModalOpen, setInstructionModalOpen] = useState(false);
   const [pendingExtractionPreset, setPendingExtractionPreset] = useState('standard');
   const [constraintModalOpen, setConstraintModalOpen] = useState(false);
@@ -166,9 +194,18 @@ export function ScriptPage() {
   const selectedDuration = Form.useWatch('duration', form);
   const novelText = Form.useWatch('novelText', form) || '';
   useEffect(() => {
+    const saved = loadScriptModelSelection(window.localStorage, draftUsernameRef.current);
+    setScriptModelSelection(current => ({ textModelId: current.textModelId || saved.textModelId, imageModelId: current.imageModelId || saved.imageModelId }));
+    setScriptVideoModelKey(current => current || saved.videoModelKey || 'yd2-mini-video');
+  }, []);
+  useEffect(() => {
+    if (!scriptModelsLoaded) return;
+    saveScriptModelSelection(window.localStorage, draftUsernameRef.current, { ...scriptModelSelection, videoModelKey: scriptVideoModelKey });
+  }, [scriptModelsLoaded, scriptModelSelection, scriptVideoModelKey]);
+  useEffect(() => {
     let active = true;
     setLoadingScriptVideoModels(true);
-    listModels()
+    listAvailableModels('video')
       .then(result => {
         if (!active) return;
         const models = (Array.isArray(result?.models) ? result.models : [])
@@ -182,6 +219,31 @@ export function ScriptPage() {
       .finally(() => { if (active) setLoadingScriptVideoModels(false); });
     return () => { active = false; };
   }, []);
+  useEffect(() => {
+    let active = true;
+    Promise.all(['text', 'image'].map(kind => listAvailableModels(kind).then(result => [kind, Array.isArray(result?.models) ? result.models : []])))
+      .then(entries => {
+        if (!active) return;
+        const nextModels = Object.fromEntries(entries);
+        setScriptModels(nextModels);
+        setScriptModelSelection(current => {
+          const next = reconcileScriptModelSelection(current, nextModels);
+          if (next.unavailableKinds.length) message.warning(`已选${next.unavailableKinds.map(kind => kind === 'text' ? '文本模型' : '图片模型').join('、')}已下架，请重新选择`);
+          return { textModelId: next.textModelId, imageModelId: next.imageModelId };
+        });
+      })
+      .catch(error => { if (active) message.warning(error?.message || '读取剧本模型失败'); })
+      .finally(() => { if (active) setScriptModelsLoaded(true); });
+    return () => { active = false; };
+  }, []);
+  useEffect(() => {
+    if (!scriptModelsLoaded) return;
+    setScriptModelSelection(current => {
+      const next = reconcileScriptModelSelection(current, scriptModels);
+      if (next.unavailableKinds.length) message.warning(`已选${next.unavailableKinds.map(kind => kind === 'text' ? '文本模型' : '图片模型').join('、')}已下架，请重新选择`);
+      return { textModelId: next.textModelId, imageModelId: next.imageModelId };
+    });
+  }, [scriptModels, scriptModelsLoaded]);
   useEffect(() => { setSelectedShotIndexes(new Set()); }, [selectedFormat]);
   const rawShotCards = useMemo(() => {
     const parsed = getShotCardsWithinDuration(selectedFormat, output, selectedDuration);
@@ -250,6 +312,7 @@ export function ScriptPage() {
     sourceAudioUrlRef.current = nextUrl;
     setSourceAudioUrl(nextUrl);
     setSourceAudioDurationSeconds(null);
+    setSourceAudioError('');
   }
 
   function snapshotDraft(values = form.getFieldsValue()) {
@@ -268,7 +331,9 @@ export function ScriptPage() {
       output,
       editingOutput,
       shotVideoTasks,
+      videoTaskHistory: shotVideoTaskHistory,
       shotReferenceStates,
+      scriptModelSelection,
       generationStage: generationStage === 'extracting' || generationStage === 'generating' ? 'idle' : generationStage
     };
   }
@@ -289,6 +354,23 @@ export function ScriptPage() {
       setSelectedShotIndexes(current => new Set([...current].filter(index => index < nextCards.length)));
     }
     persistDraft(undefined, { output: nextOutput });
+  }
+
+  function insertShotMention(name) {
+    const input = editingShotInputRef.current?.resizableTextArea?.textArea || editingShotInputRef.current;
+    const start = Number.isInteger(input?.selectionStart) ? input.selectionStart : editingShot.text.length;
+    const end = Number.isInteger(input?.selectionEnd) ? input.selectionEnd : start;
+    const token = `@${name} `;
+    setEditingShot(current => ({ ...current, text: `${current.text.slice(0, start)}${token}${current.text.slice(end)}` }));
+    requestAnimationFrame(() => {
+      input?.focus?.();
+      input?.setSelectionRange?.(start + token.length, start + token.length);
+    });
+  }
+
+  function mentionCandidates(items) {
+    const query = (editingShot.text.match(/@([\u4e00-\u9fffA-Za-z0-9_-]*)$/)?.[1] || '').toLowerCase();
+    return query || /@$/.test(editingShot.text) ? (items || []).filter(item => formatEntity(item).toLowerCase().includes(query)) : [];
   }
 
   function replaceCurrentShotMatch() {
@@ -361,13 +443,16 @@ export function ScriptPage() {
         prompt,
         modelKey: scriptVideoModelKey,
         duration: resolvedDuration.duration,
-        resolution: '480p竖',
-        imageUrls: withoutReferences ? [] : collectShotReferenceImages({ shotText: prompt, extractInfo, shotIndex: index })
+        resolution: scriptVideoModelKey === 'minimax-h3-video' ? '480p竖' : '720p',
+        imageUrls: withoutReferences ? [] : collectShotReferenceImages({ shotText: prompt, extractInfo, shotIndex: index, shotReferenceStates })
       });
       const result = await createScriptVideo(videoPayload);
-      const nextVideoTasks = { ...shotVideoTasks, [index]: { taskId: result.taskId, status: 'processing' } };
+      const previousTask = shotVideoTasks[index];
+      const nextVideoTaskHistory = appendShotVideoTaskHistory(shotVideoTaskHistory, index, previousTask);
+      const nextVideoTasks = { ...shotVideoTasks, [index]: { taskId: result.taskId, status: 'processing', prompt } };
       setShotVideoTasks(nextVideoTasks);
-      if (historyId) updateHistoryVideoTasks(historyId, nextVideoTasks).catch(() => {});
+      setShotVideoTaskHistory(nextVideoTaskHistory);
+      if (historyId) updateHistoryVideoTasks(historyId, nextVideoTasks, nextVideoTaskHistory).catch(() => {});
       watchShotVideoTask(index, result.taskId);
       message.success(`已提交第 ${index + 1} 条分镜的视频任务（任务 ID：${result.taskId}）`);
     } catch (error) {
@@ -406,7 +491,10 @@ export function ScriptPage() {
       novelText: values.novelText || '',
       extractInfo,
       constraints: constraintsForFormat(outputConstraints, values.format, extractInfo),
+      textModelId: scriptModelSelection.textModelId,
+      imageModelId: scriptModelSelection.imageModelId,
       videoTasks: shotVideoTasks,
+      videoTaskHistory: shotVideoTaskHistory,
       shotReferenceStates
     });
     setCurrentHistoryId(historyId);
@@ -418,12 +506,16 @@ export function ScriptPage() {
       try {
         const task = await getScriptVideoTask(taskId);
         if (task.status === 'succeeded') {
-          setShotVideoTasks(current => ({ ...current, [index]: task }));
+          setShotVideoTasks(current => current[index]?.taskId === taskId
+            ? { ...current, [index]: { ...task, prompt: current[index].prompt } }
+            : current);
           message.success(`第 ${index + 1} 条分镜视频生成成功`);
           return;
         }
         if (task.status === 'failed') {
-          setShotVideoTasks(current => ({ ...current, [index]: task }));
+          setShotVideoTasks(current => current[index]?.taskId === taskId
+            ? { ...current, [index]: { ...task, prompt: current[index].prompt } }
+            : current);
           message.error(task.error || `第 ${index + 1} 条分镜视频生成失败`);
           return;
         }
@@ -452,7 +544,16 @@ export function ScriptPage() {
     setDraftConstraints(restoredConstraints);
     setOutput(entry.output); setEditingOutput(false); setGenerationStage('complete');
     setShotVideoTasks(entry.videoTasks || {});
+    setShotVideoTaskHistory(normalizeShotVideoTaskHistory(entry.videoTaskHistory));
     setShotReferenceStates(entry.shotReferenceStates || {});
+    const restoredSelection = { textModelId: entry.textModelId || '', imageModelId: entry.imageModelId || '' };
+    if (!scriptModelsLoaded) {
+      setScriptModelSelection(restoredSelection);
+    } else {
+      const restoredModels = reconcileScriptModelSelection(restoredSelection, scriptModels);
+      setScriptModelSelection({ textModelId: restoredModels.textModelId, imageModelId: restoredModels.imageModelId });
+      if (restoredModels.unavailableKinds.length) message.warning('历史记录中的模型已下架，请重新选择');
+    }
     setCurrentHistoryId(entry.id); setHistoryOpen(false);
     Object.entries(entry.videoTasks || {}).forEach(([index, task]) => { if (task.status === 'processing') watchShotVideoTask(Number(index), task.taskId); });
   }
@@ -472,7 +573,9 @@ export function ScriptPage() {
       setDraftConstraints(normalizeScriptConstraints(restoredDraft.constraints));
       setOutputConstraints(normalizeScriptConstraints(restoredDraft.outputConstraints || restoredDraft.constraints));
       setShotVideoTasks(restoredDraft.shotVideoTasks || {});
+      setShotVideoTaskHistory(normalizeShotVideoTaskHistory(restoredDraft.videoTaskHistory));
       setShotReferenceStates(restoredDraft.shotReferenceStates || {});
+      setScriptModelSelection(restoredDraft.scriptModelSelection || { textModelId: '', imageModelId: '' });
       Object.entries(restoredDraft.shotVideoTasks || {}).forEach(([index, task]) => {
         if (task.status === 'processing') watchShotVideoTask(Number(index), task.taskId);
       });
@@ -497,11 +600,11 @@ export function ScriptPage() {
   useEffect(() => {
     if (!draftReadyRef.current) return;
     persistDraft();
-  }, [extractInfo, output, editingOutput, generationStage, constraints, quickDirectorOptions, shotVideoTasks, shotReferenceStates]);
+  }, [extractInfo, output, editingOutput, generationStage, constraints, quickDirectorOptions, shotVideoTasks, shotVideoTaskHistory, shotReferenceStates, scriptModelSelection]);
 
   useEffect(() => {
-    if (currentHistoryId) updateHistoryVideoTasks(currentHistoryId, shotVideoTasks).catch(() => {});
-  }, [currentHistoryId, shotVideoTasks]);
+    if (currentHistoryId) updateHistoryVideoTasks(currentHistoryId, shotVideoTasks, shotVideoTaskHistory).catch(() => {});
+  }, [currentHistoryId, shotVideoTasks, shotVideoTaskHistory]);
 
   useEffect(() => {
     let active = true;
@@ -633,6 +736,7 @@ export function ScriptPage() {
     if (!input) return message.warning('请先输入或添加小说原文');
     const requestId = beginRequest('narrate');
     setNarrating(true);
+    setSourceAudioError('');
     dispatchPetState('working', { title: '原文配音正在生成' });
     try {
       const config = await getConfig();
@@ -657,6 +761,7 @@ export function ScriptPage() {
       }
     } catch (error) {
       if (!isCurrentRequest(requestId)) return;
+      setSourceAudioError(error.message || '原文配音失败，请检查配音配置后重试');
       message.error(error.message || '原文配音失败');
       dispatchPetState('error', { title: '原文配音生成失败', detail: error.message || '请检查配音模型配置后重试。' });
     } finally {
@@ -696,7 +801,7 @@ export function ScriptPage() {
   async function extractEntities(novelText) {
     const extractionPreset = selectAvailableExtractionPreset(form.getFieldValue('extractionPreset'), extractionPresets);
     if (!extractionPreset) throw new Error(extractionPresetError || '暂无已发布的提取指令');
-    const extractResponse = await extractCharactersAndScenes(novelText, extractionPreset);
+    const extractResponse = await extractCharactersAndScenes(novelText, extractionPreset, scriptModelSelection.textModelId);
     const extraction = normalizeExtraction(extractJSON(aiText(extractResponse)));
     if (!extraction.characters.length && !extraction.scenes.length) {
       throw new Error('模型未返回人物或场景，请检查提取模板或重试');
@@ -726,7 +831,6 @@ export function ScriptPage() {
     } catch (error) {
       if (!isCurrentRequest(requestId)) return;
       setGenerationStage('error');
-      message.error(error.message || '人物与场景提取失败');
       playTaskSound('warning', soundEnabled, soundVolume);
       dispatchPetState('error', { title: '人物与场景提取失败', detail: error.message || '请检查文本或提取模型后重试。' });
     } finally {
@@ -751,7 +855,6 @@ export function ScriptPage() {
     } catch (error) {
       if (!isCurrentRequest(requestId)) return;
       setGenerationStage('error');
-      message.error(error.message || '人物与场景重生失败');
       dispatchPetState('error', { title: '人物与场景重新提取失败', detail: error.message || '请检查模型配置后重试。' });
     } finally {
       if (isCurrentRequest(requestId)) setRegeneratingEntities(false);
@@ -780,7 +883,8 @@ export function ScriptPage() {
         ...entities,
         constraints: requestConstraints,
         matchAudio: quickDirectorOptions.matchAudio,
-        audioTotalSeconds: quickDirectorOptions.matchAudio ? sourceAudioDurationSeconds : null
+        audioTotalSeconds: quickDirectorOptions.matchAudio ? sourceAudioDurationSeconds : null,
+        textModelId: scriptModelSelection.textModelId
       });
       const nextOutput = aiText(scriptResponse);
       if (typeof nextOutput !== 'string' || !nextOutput.trim()) throw new Error('模型未返回剧本内容');
@@ -805,7 +909,9 @@ export function ScriptPage() {
           output: nextOutput,
           novelText: values.novelText,
           extractInfo,
-          constraints: requestConstraints
+          constraints: requestConstraints,
+          textModelId: scriptModelSelection.textModelId,
+          imageModelId: scriptModelSelection.imageModelId
         });
         if (!isCurrentRequest(requestId)) return;
         setCurrentHistoryId(historyId);
@@ -1069,7 +1175,12 @@ export function ScriptPage() {
   const activeItem = activeEntity?.isNew
     ? activeEntity.data
     : activeEntity ? extractInfo[activeEntity.type].find(item => item.id === activeEntity.id) : null;
-  const canGenerateScript = generationStage === 'extracted' || generationStage === 'complete';
+  // 草稿恢复或页面切换后阶段标记可能回到 idle，但已提取/手动添加的实体仍然有效。
+  // 只要存在人物或场景，就允许继续生成剧本；请求层仍会校验实际输入。
+  const canGenerateScript = generationStage === 'extracted'
+    || generationStage === 'complete'
+    || extractInfo.characters.length > 0
+    || extractInfo.scenes.length > 0;
   const extractionPreset = selectAvailableExtractionPreset(form.getFieldValue('extractionPreset'), extractionPresets);
   const selectedExtractionPreset = extractionPresets.find(item => item.id === extractionPreset);
   const extractionPresetName = selectedExtractionPreset?.name || extractionPresetError || '正在加载提取指令';
@@ -1202,6 +1313,17 @@ export function ScriptPage() {
           </div>
 
           <div className="script-instruction-status">当前提取指令：{extractionPresetName}</div>
+          {(sourceAudioUrl || narrating || sourceAudioError) ? (
+            <div className="script-source-audio-card" role="status" aria-live="polite">
+              <div className="script-source-audio-header">
+                <span>当前配音</span>
+                {sourceAudioDurationSeconds ? <span className="script-source-audio-duration">时长 {sourceAudioDurationSeconds} 秒</span> : null}
+              </div>
+              {sourceAudioUrl ? <audio className="script-source-audio" controls src={sourceAudioUrl} /> : null}
+              {narrating ? <div className="script-source-audio-status">正在生成原文配音...</div> : null}
+              {sourceAudioError ? <div className="script-source-audio-error">{sourceAudioError}</div> : null}
+            </div>
+          ) : null}
           {extracting ? <div className="script-generation-stage" role="status">正在提取人物与场景...</div> : null}
           {!extracting && generationStage === 'extracted' ? <div className="script-generation-stage">人物与场景已提取，请检查、编辑或重生后，再点击右侧“生成剧本”。</div> : null}
 
@@ -1218,6 +1340,9 @@ export function ScriptPage() {
         />
         <div className="script-right">
         <div className="script-tabs">
+          <Typography.Text strong>剧本生成</Typography.Text>
+          <Select style={{ width: 150 }} value={scriptModelSelection.textModelId || undefined} onChange={textModelId => setScriptModelSelection(current => ({ ...current, textModelId }))} placeholder="文本模型" options={scriptModels.text.map(model => ({ value: model.id, label: model.displayName || model.id }))} />
+          <Select style={{ width: 150 }} value={scriptModelSelection.imageModelId || undefined} onChange={imageModelId => setScriptModelSelection(current => ({ ...current, imageModelId }))} placeholder="图片模型" options={scriptModels.image.map(model => ({ value: model.id, label: model.displayName || model.id }))} />
           <Form.Item name="mode" noStyle>
             <Segmented
               options={[
@@ -1282,7 +1407,6 @@ export function ScriptPage() {
           </Space>
         </div>
         <div className="script-output">
-          {sourceAudioUrl && <audio className="script-source-audio" controls src={sourceAudioUrl} />}
           {output ? (
             isShotCardView ? <ShotOutputCards
               cards={shotCards}
@@ -1300,8 +1424,21 @@ export function ScriptPage() {
               onGenerateVideo={canGenerateVideo ? generateVideoForShot : null}
               generatingIndexes={generatingShotIndexes}
               videoTasks={shotVideoTasks}
+              videoTaskHistory={shotVideoTaskHistory}
               extractInfo={extractInfo}
+              shotReferenceStates={shotReferenceStates}
+              onToggleReference={(index, imageUrl) => {
+                const current = shotReferenceStates?.[index] || {};
+                const disabledImageUrls = new Set(current.disabledImageUrls || []);
+                if (disabledImageUrls.has(imageUrl)) disabledImageUrls.delete(imageUrl);
+                else disabledImageUrls.add(imageUrl);
+                const next = toggleShotReferenceState(shotReferenceStates, index, { disabledImageUrls: [...disabledImageUrls] });
+                setShotReferenceStates(next);
+                persistDraft(undefined, { shotReferenceStates: next });
+              }}
               onOpenVideo={setPreviewVideoTask}
+              onOpenVideoHistory={(shotIndex, tasks) => setPreviewVideoHistory({ open: true, shotIndex, tasks })}
+              onEditPrompt={index => setEditingShot({ index, text: rawShotCards[index] || '' })}
               output={output}
               activeMatch={shotReplaceOpen ? activeShotMatch : null}
               cardStarts={shotCardStarts}
@@ -1320,11 +1457,38 @@ export function ScriptPage() {
               <div className="script-empty-copy">先提取人物与场景，确认后再生成剧本</div>
             </div>
           )}
+          <Modal title="编辑分镜提示词" open={editingShot.index >= 0} onCancel={() => setEditingShot({ index: -1, text: '' })} onOk={() => {
+            const nextOutput = replaceRawShotCard(output, rawShotCards, editingShot.index, editingShot.text);
+            updateOutputDraft(nextOutput, true);
+            setEditingShot({ index: -1, text: '' });
+          }}>
+            <Space wrap style={{ marginBottom: 12 }}>
+              {mentionCandidates(extractInfo.characters).map(item => <Button key={`character-${item.id}`} size="small" onClick={() => insertShotMention(formatEntity(item))}>@人物 {formatEntity(item)}</Button>)}
+              {mentionCandidates(extractInfo.scenes).map(item => <Button key={`scene-${item.id}`} size="small" onClick={() => insertShotMention(formatEntity(item))}>@场景 {formatEntity(item)}</Button>)}
+            </Space>
+            <Input.TextArea ref={editingShotInputRef} value={editingShot.text} rows={12} placeholder="输入 @ 选择人物或场景，也可直接输入 @名称" onChange={event => setEditingShot(current => ({ ...current, text: event.target.value }))} />
+          </Modal>
         </div>
         </div>
       </div>
       <Modal title="生成的视频" open={Boolean(previewVideoTask?.videoUrl)} footer={null} onCancel={() => setPreviewVideoTask(null)} width={520}>
         {previewVideoTask?.videoUrl ? <video controls autoPlay style={{ width: '100%', maxHeight: '70vh' }} src={previewVideoTask.videoUrl} /> : null}
+      </Modal>
+      <Modal
+        title={`第 ${previewVideoHistory.shotIndex + 1} 条分镜历史视频`}
+        open={previewVideoHistory.open}
+        footer={null}
+        onCancel={() => setPreviewVideoHistory(current => ({ ...current, open: false }))}
+        width={560}
+      >
+        <Space direction="vertical" style={{ width: '100%' }} size={16}>
+          {previewVideoHistory.tasks.map((task, index) => (
+            <div key={task.taskId || index}>
+              <Typography.Text type="secondary">历史版本 {index + 1}{task.prompt ? ` · ${task.prompt.slice(0, 80)}` : ''}</Typography.Text>
+              {task.videoUrl ? <video controls preload="metadata" style={{ display: 'block', width: '100%', marginTop: 8 }} src={task.videoUrl} /> : <Typography.Paragraph type="secondary">该历史任务没有可播放地址</Typography.Paragraph>}
+            </div>
+          ))}
+        </Space>
       </Modal>
       <Modal
         title="匹配音频设置"
@@ -1357,7 +1521,10 @@ export function ScriptPage() {
         </Space>
       </Modal>
       <Modal title="剧本生成历史" open={historyOpen} footer={null} onCancel={() => setHistoryOpen(false)}>
-        {historyLoading ? <Typography.Text type="secondary">正在加载历史记录…</Typography.Text> : historyEntries.length ? historyEntries.map(entry => <Button key={entry.id} block style={{ height: 'auto', marginBottom: 8, textAlign: 'left', whiteSpace: 'normal' }} onClick={() => restoreHistory(entry)}><div>{entry.preview || '未命名剧本'}</div><Typography.Text type="secondary">{entry.duration || '-'} · 视频 {Object.keys(entry.videoTasks || {}).length} 个</Typography.Text></Button>) : <Typography.Text type="secondary">暂无生成历史</Typography.Text>}
+        {historyLoading ? <Typography.Text type="secondary">正在加载历史记录…</Typography.Text> : historyEntries.length ? historyEntries.map(entry => {
+          const archivedVideoCount = Object.values(entry.videoTaskHistory || {}).reduce((total, tasks) => total + (Array.isArray(tasks) ? tasks.length : 0), 0);
+          return <Button key={entry.id} block style={{ height: 'auto', marginBottom: 8, textAlign: 'left', whiteSpace: 'normal' }} onClick={() => restoreHistory(entry)}><div>{entry.preview || '未命名剧本'}</div><Typography.Text type="secondary">{entry.duration || '-'} · 视频 {Object.keys(entry.videoTasks || {}).length + archivedVideoCount} 个</Typography.Text></Button>;
+        }) : <Typography.Text type="secondary">暂无生成历史</Typography.Text>}
       </Modal>
       <Modal
         title="替换已选分镜文字"
@@ -1406,17 +1573,53 @@ export function ScriptPage() {
         </div>
       </Modal>
       <Modal
-        title="切换人物与场景提取指令"
+        title="选择基础设定（人物 / 场景）提示词"
         open={instructionModalOpen}
         onCancel={() => setInstructionModalOpen(false)}
         onOk={() => {
           form.setFieldValue('extractionPreset', pendingExtractionPreset);
+          setConstraints(current => ({
+            ...current,
+            enabled: true,
+            baseSetup: {
+              ...current.baseSetup,
+              enabled: true,
+              source: 'system',
+              presetId: pendingExtractionPreset,
+              personalPromptId: ''
+            }
+          }));
+          setDraftConstraints(current => ({
+            ...current,
+            enabled: true,
+            baseSetup: {
+              ...current.baseSetup,
+              enabled: true,
+              source: 'system',
+              presetId: pendingExtractionPreset,
+              personalPromptId: ''
+            }
+          }));
           setInstructionModalOpen(false);
-          persistDraft({ ...form.getFieldsValue(), extractionPreset: pendingExtractionPreset });
+          persistDraft({
+            ...form.getFieldsValue(),
+            extractionPreset: pendingExtractionPreset,
+            constraints: {
+              ...constraintsForNextGeneration(constraints),
+              enabled: true,
+              baseSetup: {
+                ...constraints.baseSetup,
+                enabled: true,
+                source: 'system',
+                presetId: pendingExtractionPreset,
+                personalPromptId: ''
+              }
+            }
+          });
         }}
         okText="保存"
       >
-        <Form.Item label="提取方案">
+        <Form.Item label="基础设定提示词">
           <Select
             value={pendingExtractionPreset}
             onChange={setPendingExtractionPreset}
@@ -1527,6 +1730,8 @@ export function ScriptPage() {
         novelText={form.getFieldValue('novelText')}
         extractionPreset={extractionPreset}
         existingEntitySummary={compactEntitySummary(extractInfo, activeEntity?.isNew ? '' : activeEntity?.id)}
+        textModelId={scriptModelSelection.textModelId}
+        imageModelId={scriptModelSelection.imageModelId}
         onChange={updateActiveEntity}
         onDelete={deleteActiveEntity}
       />
@@ -1690,7 +1895,7 @@ function EntitySection({ title, type, count, items, protagonistIds = [], onAdd, 
   );
 }
 
-function EntityEditor({ entity, type, assetId, editorSessionId, isNew, open, fullscreen, novelText, extractionPreset, existingEntitySummary, onClose, onToggleFullscreen, onChange, onDelete }) {
+function EntityEditor({ entity, type, assetId, editorSessionId, isNew, open, fullscreen, novelText, extractionPreset, existingEntitySummary, textModelId, imageModelId, onClose, onToggleFullscreen, onChange, onDelete }) {
   const [fields, setFields] = useState({});
   const [imageUrls, setImageUrls] = useState([]);
   const [mainImageUrl, setMainImageUrl] = useState('');
@@ -1707,9 +1912,6 @@ function EntityEditor({ entity, type, assetId, editorSessionId, isNew, open, ful
     setMainImageUrl(media.mainImageUrl || (media.imageUrls.length === 1 ? media.imageUrls[0] : ''));
     setEnrichment(null);
     setEnrichmentError('');
-    setGeneratingImage(false);
-    setUploadingImage(false);
-    setImageGenerationError('');
   }, [entity, open]);
 
   const fieldsToRender = visualFields(entity);
@@ -1735,7 +1937,8 @@ function EntityEditor({ entity, type, assetId, editorSessionId, isNew, open, ful
         novelText,
         entity: fields,
         existingEntitySummary,
-        extractionPreset
+        extractionPreset,
+        textModelId
       });
       const result = normalizeEntityEnrichment(response?.enrichment);
       setFields(current => applyEntityEnrichment(current, result));
@@ -1744,60 +1947,6 @@ function EntityEditor({ entity, type, assetId, editorSessionId, isNew, open, ful
       setEnrichmentError(error.message || '智能补全失败，请稍后重试');
     } finally {
       setEnriching(false);
-    }
-  }
-
-  async function uploadImage(event) {
-    const file = event.target.files?.[0];
-    event.target.value = '';
-    if (!file) return;
-    if (!String(file.type || '').startsWith('image/')) {
-      message.warning('请选择图片文件');
-      return;
-    }
-    if (file.size > 10 * 1024 * 1024) {
-      message.warning('图片大小不能超过 10MB');
-      return;
-    }
-    setUploadingImage(true);
-    setImageGenerationError('');
-    try {
-      const response = await uploadReferenceAssetImage({
-        asset_type: type === 'characters' ? 'character' : 'scene',
-        asset_id: String(entity?.id || `${type}-${Date.now()}`),
-        variant: 'source',
-        data_url: await readImageFileAsDataUrl(file)
-      });
-      const url = String(response?.url || '').trim();
-      if (!url) throw new Error('图片上传接口未返回图片地址');
-      appendAndSelectImage(url);
-      message.success('图片已上传');
-    } catch (error) {
-      setImageGenerationError(error.message || '图片上传失败，请稍后重试');
-    } finally {
-      setUploadingImage(false);
-    }
-  }
-
-  async function generateImage() {
-    if (!canGenerateImage) return;
-    setGeneratingImage(true);
-    setImageGenerationError('');
-    try {
-      const response = await generateReferenceAssetImage(buildReferenceAssetGenerationPayload({
-        type,
-        entity,
-        fields,
-        novelText,
-        extractionPreset
-      }));
-      const url = String(response?.url || '').trim();
-      if (!url) throw new Error('图片生成接口未返回图片地址');
-      appendAndSelectImage(url);
-    } catch (error) {
-      setImageGenerationError(error.message || '人物/场景图片生成失败，请稍后重试');
-    } finally {
-      setGeneratingImage(false);
     }
   }
 
@@ -1836,6 +1985,7 @@ function EntityEditor({ entity, type, assetId, editorSessionId, isNew, open, ful
           assetType={type === 'characters' ? 'character' : 'scene'}
           assetId={assetId}
           generationPayload={{ ...buildReferenceAssetGenerationPayload({ type, entity, fields, novelText, extractionPreset }), asset_id: assetId }}
+          imageModelId={imageModelId}
           imageUrls={imageUrls}
           mainImageUrl={mainImageUrl}
           requestKey={imageRequestKey}

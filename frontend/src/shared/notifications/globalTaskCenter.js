@@ -1,4 +1,10 @@
 export const GLOBAL_TASK_NOTIFICATION_EVENT = 'qiantie:task-notification';
+export const GLOBAL_STATUS_EVENT = 'qiantie:global-status';
+
+export function dispatchGlobalStatus({ text = '', tone = 'info', action = null } = {}) {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent(GLOBAL_STATUS_EVENT, { detail: { text: String(text || ''), tone, action } }));
+}
 
 const MAX_TEXT_LENGTH = 280;
 

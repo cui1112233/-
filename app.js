@@ -20,7 +20,7 @@ const { createPresetsRouter } = require('./routes/presets');
 const { createScriptConstraintPromptsRouter } = require('./routes/script-constraint-prompts');
 const { createConfigRouter } = require('./routes/config');
 const { createModelReferenceResolver } = require('./lib/model-reference-resolver');
-const { listVisibleModels } = require('./lib/model-catalog-runtime');
+const { listVisibleModels, resolveRuntimeModel } = require('./lib/model-catalog-runtime');
 const { MODEL_KINDS } = require('./lib/model-catalog');
 const chatRouter = require('./routes/chat');
 const ttsRouter = require('./routes/tts');
@@ -35,11 +35,15 @@ const { createNovelFetchRouter } = require('./routes/novel-fetch');
 const { createNovelFetchUploadRouter } = require('./routes/novel-fetch-upload');
 const { createNovelFetchWorkshopRouter } = require('./routes/novel-fetch-workshop');
 const { createBatchRewriteRouter } = require('./routes/batch-rewrite');
+const { createNovelFetchV2PageMiddleware } = require('./lib/novel-fetch-workshop/v2-page');
 const { createBatchFactoryRouter } = require('./routes/batch-factory');
 const { createBatchFactoryIntakeRouter } = require('./routes/batch-factory-intake');
 const { createBatchFactoryProductionRouter } = require('./routes/batch-factory-production');
 const { createBatchFactoryV11Router } = require('./routes/batch-factory-v11');
-const { createBatchFactoryV12Router, rejectLegacyV11Mutations } = require('./routes/batch-factory-v12');
+const { createBatchFactoryV12Router } = require('./routes/batch-factory-v12');
+const { createBatchFactoryV11ScheduleRouter } = require('./routes/batch-factory-v11-schedules');
+const { createBatchFactoryV11Scheduler } = require('./lib/batch-factory-v11-scheduler');
+const { createSignedBridgeHeaders } = require('./lib/batch-factory-v11/go-proxy');
 const { createMySQLBatchFactoryStoreFactory } = require('./lib/batch-factory/mysql-store');
 const { createAgentRouter } = require('./routes/agent');
 const { createAgentSkillsRouter } = require('./routes/agent-skills');
@@ -66,6 +70,7 @@ const { createMemberCenterRouter } = require('./routes/member-center');
 const { createAccountRecoveryRouter } = require('./routes/account-recovery');
 const { createTeamAdminRouter } = require('./routes/team-admin');
 const { createAccountAdminRouter } = require('./routes/account-admin');
+const { createProductionRetentionScheduler } = require('./lib/production-retention-scheduler');
 
 const NOVEL_PANEL_MODEL_PATHS = new Set([
   '/analyze', '/optimize-character-copy', '/optimize-character', '/optimize-all-characters',
@@ -88,7 +93,7 @@ function shuihuoAiRequestMeta(req) {
   return null;
 }
 
-function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptConstraintPromptStore, shuihuoGateway, agentStore, agentSkillStore, agentResponder, errorLogStore, novelPanelAiDiagnosticStore, novelPanelHistoryStore, novelPanelPremiumStore, novelFetchStore, memberStore, usageStore, passkeyStore, accountRecoveryStore, mailer, configReader, configWriter } = {}) {
+function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptConstraintPromptStore, shuihuoGateway, agentStore, agentSkillStore, agentResponder, errorLogStore, novelPanelAiDiagnosticStore, novelPanelHistoryStore, novelPanelPremiumStore, novelFetchStore, memberStore, usageStore, passkeyStore, accountRecoveryStore, mailer, configReader, configWriter, tosCleaner } = {}) {
   const app = express();
   const authRuntime = createAuthRuntime({ accountStore, tokenMap, sessionsPath });
   const systemDir = path.dirname(authRuntime.accountStore.files.audit);
@@ -114,6 +119,40 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   });
   const resolvedErrorLogStore = errorLogStore || createErrorLogStore();
   const usersDir = path.join(path.dirname(authRuntime.accountStore.files.audit), '..', 'users');
+  const resolvedProductionRetentionScheduler = createProductionRetentionScheduler({
+    usersDir,
+    configReader: configReader || readConfig,
+    tosCleaner,
+    logger: console
+  });
+  resolvedProductionRetentionScheduler.start();
+  const resolvedBatchFactoryV11Scheduler = createBatchFactoryV11Scheduler({
+    usersDir,
+    submit: async item => {
+      const base = String(process.env.QIANTIE_GO_BASE_URL || 'http://backend:4000').replace(/\/$/, '');
+      const productionPath = item.bookId
+        ? '/api/batch-factory/v11/batches/' + encodeURIComponent(item.batchId) + '/books/' + encodeURIComponent(item.bookId) + '/production'
+        : '/api/batch-factory/v11/batches/' + encodeURIComponent(item.batchId) + '/production';
+      const account = authRuntime.accountStore.getInternalAccount(item.username);
+      const response = await fetch(base + productionPath, {
+        method: 'POST',
+        headers: {
+          ...createSignedBridgeHeaders({
+            username: item.username,
+            isOwner: account?.isOwner === true,
+            method: 'POST',
+            pathname: productionPath,
+            secret: process.env.QIANTIE_BRIDGE_SECRET || '',
+            now: Date.now
+          }),
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ requestId: item.requestId, provider: item.provider })
+      });
+      if (!response.ok) throw new Error('定时生产提交失败（HTTP ' + response.status + '）');
+    }
+  });
+  resolvedBatchFactoryV11Scheduler.start();
   const resolvedNovelPanelAiDiagnosticStore = novelPanelAiDiagnosticStore || createNovelPanelAiDiagnosticStore({ usersDir });
   const resolvedNovelPanelHistoryStore = novelPanelHistoryStore || createNovelPanelHistoryStore({ usersDir });
   const resolvedNovelPanelPremiumStore = novelPanelPremiumStore || createNovelPanelPremiumStore({ usersDir });
@@ -124,10 +163,6 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
     memberStore: resolvedMemberStore,
     usageStore: resolvedUsageStore
   });
-  // Batch Factory V11 resolves a concrete, account-authorized catalog model on
-  // its trusted Node hop. Its selected model must not be blocked by the older
-  // legacy default-text-model validation performed by teamConfigReader.
-  const resolvedConfigReader = configReader || readConfig;
   const teamVideoConfigReader = createTeamConfigReader({
     accountStore: authRuntime.accountStore,
     memberStore: resolvedMemberStore,
@@ -137,7 +172,15 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   const resolvedChatRouter = chatRouter.createChatRouter({
     configReader: teamConfigReader,
     connectionConfigReader: readConfig,
-    upstreamRequest: createTeamUpstreamRequest({ usageStore: resolvedUsageStore, feature: 'chat' })
+    upstreamRequest: createTeamUpstreamRequest({ usageStore: resolvedUsageStore, feature: 'chat' }),
+    resolveTextModel: (username, modelId) => resolveRuntimeModel({
+      username,
+      kind: 'text',
+      modelId,
+      memberStore: resolvedMemberStore,
+      accountStore: authRuntime.accountStore,
+      configReader: readConfig
+    })
   });
   const resolvedAgentResponder = agentResponder || createTeamAgentResponder({
     accountStore: authRuntime.accountStore,
@@ -147,7 +190,9 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
 
   function requireOwnModelConfig(req, res, next) {
     const member = resolvedMemberStore.getMember(req.username);
-    if (member?.role === 'member') {
+    const owner = req.auth?.account?.isOwner === true
+      || authRuntime.accountStore.getInternalAccount(req.username)?.isOwner === true;
+    if (!owner && member?.role === 'member') {
       return res.status(403).json({ error: 'MEMBER 的模型连接由团队管理员统一提供。' });
     }
     return next();
@@ -155,7 +200,9 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
 
   function restrictMemberNovelPanelSettings(req, res, next) {
     const member = resolvedMemberStore.getMember(req.username);
-    if (member?.role === 'member' && req.method !== 'GET') {
+    const owner = req.auth?.account?.isOwner === true
+      || authRuntime.accountStore.getInternalAccount(req.username)?.isOwner === true;
+    if (!owner && member?.role === 'member' && req.method !== 'GET') {
       return res.status(403).json({ error: 'MEMBER 的模型连接由团队管理员统一提供。' });
     }
     return next();
@@ -200,7 +247,13 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
     if (!meta) return next();
     let authorization;
     try {
-      authorization = resolveTeamAuthorization({ memberStore: resolvedMemberStore, usageStore: resolvedUsageStore, username: req.username, scope: meta.scope });
+      authorization = resolveTeamAuthorization({
+        accountStore: authRuntime.accountStore,
+        memberStore: resolvedMemberStore,
+        usageStore: resolvedUsageStore,
+        username: req.username,
+        scope: meta.scope
+      });
     } catch (error) {
       return res.status(error?.status || 403).json({ error: error?.message || '当前账号没有 AI 使用权限', ...(error?.code ? { code: error.code } : {}) });
     }
@@ -234,7 +287,16 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.locals.novelPanelHistoryStore = resolvedNovelPanelHistoryStore;
   app.locals.novelPanelPremiumStore = resolvedNovelPanelPremiumStore;
   app.locals.novelFetchStore = resolvedNovelFetchStore;
+  app.locals.productionRetentionScheduler = resolvedProductionRetentionScheduler;
   app.locals.novelPanelConfig = username => teamConfigReader(username);
+  app.locals.resolveRuntimeModel = (username, kind, modelId) => resolveRuntimeModel({
+    username,
+    kind,
+    modelId,
+    memberStore: resolvedMemberStore,
+    accountStore: authRuntime.accountStore,
+    configReader: readConfig
+  });
 
   // 请求日志
   app.use((req, res, next) => {
@@ -264,12 +326,23 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
         res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
       }
     }));
+    app.get('/batch-rewrite/v2', createNovelFetchV2PageMiddleware());
     app.use('/batch-rewrite', express.static(path.join(frontendDist, 'batch-rewrite'), {
-      setHeaders(res) {
+      setHeaders(res, filePath) {
+        if (/\.(?:js|css)$/i.test(String(filePath || ''))) {
+          res.setHeader('Cache-Control', 'public, max-age=300');
+          return;
+        }
         res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
       }
     }));
   }
+
+  app.get('/yizhan-icon.png', (req, res, next) => {
+    const iconPath = path.join(frontendDist, 'yizhan-icon.png');
+    if (!fs.existsSync(iconPath)) return next();
+    return res.sendFile(iconPath);
+  });
 
   app.use('/pets', express.static(petsDir, {
     setHeaders(res) {
@@ -358,26 +431,30 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   const workshopOptions = {
     ...shuihuoGateway,
     systemDir: path.dirname(authRuntime.accountStore.files.audit),
-    memberStore: resolvedMemberStore,
-    configReader: configReader || readConfig
+    resolveRuntimeModel: app.locals.resolveRuntimeModel
   };
   app.use('/api/novel-fetch-workshop', createNovelFetchWorkshopRouter(workshopOptions));
-  app.use('/api/batch-rewrite', createBatchRewriteRouter({ ...workshopOptions, novelFetchStore: resolvedNovelFetchStore }));
-  app.use('/api/batch-factory/v11', apiAuth, rejectLegacyV11Mutations, createBatchFactoryV11Router({
-    presetStore: resolvedPresetStore,
-    memberStore: resolvedMemberStore,
-    configReader: resolvedConfigReader,
-    // V11's per-book 121 uploader uses the same account-scoped PHP session as
-    // the novel-fetch workshop.  Keep the session server-side; browser clients
-    // never receive or supply the target-site cookie.
-    novelFetchStore: resolvedNovelFetchStore
+  app.use('/api/batch-rewrite', createBatchRewriteRouter({
+    ...workshopOptions,
+    novelFetchStore: resolvedNovelFetchStore,
+    resolveRuntimeModel: app.locals.resolveRuntimeModel
   }));
+  app.use('/api/batch-factory/v11', apiAuth, createBatchFactoryV11Router({
+    memberStore: resolvedMemberStore,
+    accountStore: authRuntime.accountStore,
+    presetStore: resolvedPresetStore,
+    configReader: readConfig
+  }));
+  app.use('/api/batch-factory/v11', createBatchFactoryV11ScheduleRouter(resolvedBatchFactoryV11Scheduler));
+  const resolvedConfigReader = configReader || readConfig;
   app.use('/api/batch-factory/v12', apiAuth, createBatchFactoryV12Router({
+    ...shuihuoGateway,
     presetStore: resolvedPresetStore,
     memberStore: resolvedMemberStore,
     configReader: resolvedConfigReader,
     novelFetchStore: resolvedNovelFetchStore,
-    ...shuihuoGateway
+    goBaseUrl: process.env.QIANTIE_GO_BASE_URL,
+    bridgeSecret: process.env.QIANTIE_BRIDGE_SECRET
   }));
   app.use('/api/batch-factory', createBatchFactoryIntakeRouter({ store: resolvedBatchFactoryStore }));
   app.use('/api/batch-factory', createBatchFactoryRouter({ store: resolvedBatchFactoryStore, presetStore: resolvedPresetStore, shuihuoGateway, configReader: teamConfigReader, upstreamRequest: createTeamUpstreamRequest({ usageStore: resolvedUsageStore, feature: 'batch-factory' }) }));
@@ -394,19 +471,24 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
       return res.status(400).json({ error: '模型类型不合法' });
     }
     const member = resolvedMemberStore.getMember(req.username);
-    if (member?.role === 'member' && !resolvedMemberStore.canUseApi(req.username, kind)) {
+    const owner = req.auth?.account?.isOwner === true
+      || authRuntime.accountStore.getInternalAccount(req.username)?.isOwner === true;
+    if (!owner && member?.role === 'member' && !resolvedMemberStore.canUseApi(req.username, kind)) {
       return res.status(403).json({ error: '尚未获得该类型 API 使用权限' });
     }
     return res.json({ models: listVisibleModels({
       username: req.username,
       kind,
       memberStore: resolvedMemberStore,
+      accountStore: authRuntime.accountStore,
+      account: req.auth?.account,
       configReader: resolvedConfigReader
     }) });
   });
   app.use('/api/config', createConfigRouter({
     shuihuoGateway,
     memberStore: resolvedMemberStore,
+    accountStore: authRuntime.accountStore,
     configReader: resolvedConfigReader,
     configWriter: resolvedConfigWriter,
     isModelReferenced
@@ -414,6 +496,7 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   app.use('/api/script-video', createScriptVideoRouter({
     shuihuoGateway,
     memberStore: resolvedMemberStore,
+    accountStore: authRuntime.accountStore,
     configReader: teamVideoConfigReader
   }));
   app.use(['/api/test', '/api/test/text', '/api/test/image'], apiAuth, requireOwnModelConfig);
