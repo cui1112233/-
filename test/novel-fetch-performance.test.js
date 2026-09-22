@@ -17,8 +17,9 @@ test('V2 page injects a shared runtime before feature scripts', () => {
   const html = fs.readFileSync(path.join(root, 'frontend/public/batch-rewrite/index.html'), 'utf8');
   const injected = injectNovelFetchV2Script(html);
   assert.ok(injected.indexOf('v78-novel-fetch-v2-runtime.js') < injected.indexOf('app.js?v='));
-  assert.ok(injected.indexOf('app.js?v=20260922-task-model-stage-r2') < injected.indexOf('v78-novel-fetch-v2.js'));
-  assert.match(injected, /app\.js\?v=20260922-task-model-stage-r2/);
+  assert.ok(injected.indexOf('app.js?v=20260922-retry-progress-r1') < injected.indexOf('v78-novel-fetch-v2.js'));
+  assert.match(injected, /app\.js\?v=20260922-retry-progress-r1/);
+  assert.match(injected, /v78-novel-fetch-v2\.js\?v=20260922-retry-progress-r1/);
 });
 
 test('runtime provides single-flight requests and activity-aware polling', () => {

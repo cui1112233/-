@@ -3403,10 +3403,29 @@ async function batchDelete(mode) {
   }
 }
 
+function failedTaskIds(tasks) {
+  const ids = new Set();
+  for (const task of (Array.isArray(tasks) ? tasks : [])) {
+    const status = [
+      task.status, task.classify_status, task.classify_error,
+      task.original_status, task.original_error, task.original_error_code,
+      task.sensitive_status, task.ai_status, task.ai_error,
+      task.site_submit_status, task.site_submit_error
+    ].filter(Boolean).join(' ');
+    const failedSubmit = asArray(task.site_submit_failed_versions).length > 0;
+    const sensitiveFailed = Number(task.sensitive_failed_count || 0) > 0;
+    if (failedSubmit || sensitiveFailed || /(failed|error|timeout|interrupted|incomplete|失败|错误|超时|中断|未完成|121异常|partial|部分)/i.test(status)) {
+      const id = String(task.id || task.book_id || '').trim();
+      if (id) ids.add(id);
+    }
+  }
+  return [...ids];
+}
+
 async function batchRetry(mode) {
-  const ids = mode === "selected" ? selectedTaskIds() : [];
-  if (mode === "selected" && !ids.length) {
-    setBatchStatus("先选择任务");
+  const ids = mode === "selected" ? selectedTaskIds() : failedTaskIds(state.tasks);
+  if (!ids.length) {
+    setBatchStatus(mode === "selected" ? "先选择任务" : "当前列表没有失败任务");
     return;
   }
   const label = mode === "failed" ? "失败任务" : `${ids.length} 个选中任务`;
@@ -3414,7 +3433,9 @@ async function batchRetry(mode) {
   try {
     const result = await api("/api/tasks/batch-retry", {
       method: "POST",
-      body: JSON.stringify({ mode, ids, sensitive_ai_enabled: sensitiveAiProcessEnabled() }),
+      // “重试失败”固定使用当前任务表可见的失败 ID，保持表格从上到下的执行顺序，
+      // 不把日期筛选外的历史失败任务混入本次队列。
+      body: JSON.stringify({ mode: "selected", ids, sensitive_ai_enabled: sensitiveAiProcessEnabled() }),
     });
     renderTasks(result.tasks || []);
     const stageLabels = { classify: "AI 判断", original: "原文抓取", sensitive: "敏感词处理", rewrite: "AI 文案生成", submit: "网站提交" };
@@ -3425,8 +3446,15 @@ async function batchRetry(mode) {
     setBatchStatus(stageSummary
       ? `正在按失败步骤重试：${stageSummary}；已加入队列 ${result.retried || 0} 个`
       : `已重试 ${result.retried || 0} 个，失败 ${result.failed || 0} 个`);
+    if (Number(result.retried) > 0) {
+      window.dispatchEvent(new CustomEvent("qiantie-novel-fetch-retry-queued", {
+        detail: { ids: ids.slice(), retried: Number(result.retried) || 0 }
+      }));
+    }
+    return result;
   } catch (error) {
     setBatchStatus(error.message);
+    return null;
   }
 }
 

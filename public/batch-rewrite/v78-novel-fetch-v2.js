@@ -4,6 +4,7 @@
   const previewState = { active: false, tasks: [], selected: new Set(), originalInput: '' };
   let rerunSourceBatchId = '';
   let legacyTaskBridgeInstalled = false;
+  let retryProgressBridgeInstalled = false;
   let currentBatchTimer = null;
   const processLogState = { lines: [] };
 
@@ -500,6 +501,19 @@
     }
     return results;
   }
+
+  function installRetryProgressBridge() {
+    if (retryProgressBridgeInstalled) return;
+    retryProgressBridgeInstalled = true;
+    window.addEventListener('qiantie-novel-fetch-retry-queued', () => {
+      const runtime = window.QiantieNovelFetchRuntime;
+      runtime?.invalidate('/tasks');
+      runtime?.invalidate('/batches/current');
+      void refreshAllData();
+      runtime?.startPolling(refreshAllData);
+    });
+  }
+
   async function stopCurrentBatch() {
     try {
       await v2Api('/process/queue/stop', { method: 'POST', body: '{}' });
@@ -633,6 +647,7 @@
     mountCurrentBatch();
     mountTaskHistory();
     enforceSourceAlignedUi();
+    installRetryProgressBridge();
     void refreshAllData();
     let attempts = 0;
     const timer = window.setInterval(() => {
