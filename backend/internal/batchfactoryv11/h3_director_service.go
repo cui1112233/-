@@ -144,12 +144,22 @@ func (s *DirectorService) RunConfiguredH3Director(ctx context.Context, owner, ba
 }
 
 func directorRulesFromVideoPreset(body string) string {
-	for _, marker := range []string{"【批量工厂最终 Prompt 模板】", "## 最终 Prompt 模板"} {
-		if index := strings.Index(body, marker); index >= 0 {
-			return strings.TrimSpace(body[:index])
+	trimmed := strings.TrimSpace(body)
+	cutAt := len(trimmed)
+	// The original H3 normal template renders the final video prompt. It is not
+	// a director-rule section and conflicts with the persisted V12 H3 document
+	// that this stage must return. Keep the preceding original outline rules.
+	for _, marker := range []string{
+		"## 原 H3：h3.normal.template",
+		"## 原 H3：h3.normal.template__",
+		"【批量工厂最终 Prompt 模板】",
+		"## 最终 Prompt 模板",
+	} {
+		if index := strings.Index(trimmed, marker); index >= 0 && index < cutAt {
+			cutAt = index
 		}
 	}
-	return strings.TrimSpace(body)
+	return strings.TrimSpace(trimmed[:cutAt])
 }
 
 func configuredVideoPresetKey(preset AIReasoningPromptModule) string {
@@ -210,6 +220,12 @@ AI 只给出 preferred_duration 和正数 duration_weight 表达语义节奏；�
 	if body := strings.TrimSpace(preset.PromptBody); body != "" {
 		schema += "\n\n导演预设补充约束：\n" + body
 	}
+	// Imported H3 presets retain the original filmmaking rules, but their old
+	// terminal renderer (timeline_segments and Go-template placeholders) cannot
+	// coexist with Batch Factory's durable H3 director document. Put this last
+	// so it remains the single output authority even if an old rule calls itself
+	// "highest priority".
+	schema += "\n\n批量工厂运行期输出适配（最高优先级）：\n只输出 h3-director/v1 JSON 对象，不得输出 timeline_segments、timeline_segment、Markdown、Go 模板变量或最终 VIDEO Prompt。原 H3 规则中关于镜头质量、剧情可视化、微镜头、动作、机位、运镜、声音和连续性的要求必须保留；其历史终端输出格式仅映射为本协议的 director_cards[] 与 micro_shots[]。"
 	meta, _ := json.Marshal(map[string]any{
 		"video_source_revision":    source.Revision,
 		"video_source_hash":        source.Hash,

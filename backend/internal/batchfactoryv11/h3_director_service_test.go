@@ -81,13 +81,29 @@ func TestBuildH3DirectorContractProvidesExistingCharacterAssetsForStableSlotAlia
 }
 
 func TestDirectorRulesFromVideoPresetExcludesItsFinalPromptTemplate(t *testing.T) {
-	body := "原版 H3 导演规则\ncharacter_slot_ids\n【批量工厂最终 Prompt 模板】\n{{storyboard}}"
+	body := "原版 H3 导演规则\nDIRECTOR_MUST_COVER_RULES\ncharacter_slot_ids\n## 原 H3：h3.normal.template__v78.3.0.59\n{{.H3_CANONICAL_PROMPT}}\n【批量工厂最终 Prompt 模板】\n{{storyboard}}"
 	rules := directorRulesFromVideoPreset(body)
-	if !strings.Contains(rules, "character_slot_ids") {
+	if !strings.Contains(rules, "character_slot_ids") || !strings.Contains(rules, "DIRECTOR_MUST_COVER_RULES") {
 		t.Fatalf("director rules were lost: %q", rules)
 	}
-	if strings.Contains(rules, "{{storyboard}}") || strings.Contains(rules, "最终 Prompt 模板") {
+	if strings.Contains(rules, "{{storyboard}}") || strings.Contains(rules, "{{.H3_CANONICAL_PROMPT}}") || strings.Contains(rules, "h3.normal.template") || strings.Contains(rules, "最终 Prompt 模板") {
 		t.Fatalf("final prompt template leaked into director system prompt: %q", rules)
+	}
+}
+
+func TestBuildH3DirectorContractEndsWithBatchFactoryOutputAdapter(t *testing.T) {
+	contract := buildH3DirectorContract(
+		H3VideoSource{Revision: "source-r1", Hash: sourceDigest("第一行"), Text: "第一行"},
+		H3DirectorPreset{Key: "h3-director-normal", Revision: 1, PromptBody: "旧终端只返回 timeline_segments JSON"},
+		nil,
+	)
+	lastRules := strings.LastIndex(contract.SystemPrompt, "旧终端只返回 timeline_segments JSON")
+	lastAdapter := strings.LastIndex(contract.SystemPrompt, "批量工厂运行期输出适配（最高优先级）")
+	if lastRules < 0 || lastAdapter <= lastRules {
+		t.Fatalf("output adapter must be the final authority: %s", contract.SystemPrompt)
+	}
+	if !strings.Contains(contract.SystemPrompt[lastAdapter:], "只输出 h3-director/v1 JSON") {
+		t.Fatalf("final adapter lost H3 output contract: %s", contract.SystemPrompt[lastAdapter:])
 	}
 }
 
