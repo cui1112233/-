@@ -202,6 +202,12 @@ jobs:
           set_env QIANTIE_NODE_IMAGE "$node_image"
           set_env QIANTIE_GO_IMAGE "$go_image"
           set_env QIANTIE_RELEASE_SHA "$expected_sha"
+          # The public workbench includes the VIDEO → merge → publish chain.
+          # Provider credentials are still resolved per account at request time;
+          # these flags only expose the corresponding Go stages.
+          set_env QIANTIE_BATCH_FACTORY_V11_SLICE 5
+          set_env QIANTIE_BATCH_FACTORY_V11_PRODUCTION_ENABLED 1
+          set_env QIANTIE_BATCH_FACTORY_V11_LOCAL_MERGE_ENABLED 1
           cp "/tmp/v88-public-nginx-${expected_sha}.conf" nginx.conf
 
           docker compose -f docker-compose.yml config -q

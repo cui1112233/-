@@ -55,6 +55,15 @@ test('unified V88 deploy accepts the public runtime only when exact release iden
   assert.match(workflow, /expected_sha/);
 });
 
+test('unified V88 deploy enables the production and local-merge stages required by the public Batch Factory', () => {
+  // The UI always reads production status for every book.  Shipping a
+  // director-only Go slice makes that read look like an upstream outage and
+  // prevents the promised video-to-publish workflow from ever starting.
+  assert.match(workflow, /set_env QIANTIE_BATCH_FACTORY_V11_SLICE 5/);
+  assert.match(workflow, /set_env QIANTIE_BATCH_FACTORY_V11_PRODUCTION_ENABLED 1/);
+  assert.match(workflow, /set_env QIANTIE_BATCH_FACTORY_V11_LOCAL_MERGE_ENABLED 1/);
+});
+
 test('unified V88 deploy feeds smoke scripts and JSON through unambiguous stdin channels', () => {
   assert.match(workflow, /docker exec -i "\$node_id" node -/);
   assert.doesNotMatch(workflow, /python3 - "\$expected_sha" <[^\n]+ <<['"]?PY/);
