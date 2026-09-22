@@ -62,11 +62,35 @@ func TestRunH3DirectorPersistsTheStructuredStyleSystemResult(t *testing.T) {
 	}
 }
 
+func TestRunH3DirectorSendsOnlyCharacterAssetReferences(t *testing.T) {
+	store, batch, book := seedDirectorBook(t, "original", false)
+	seedH3CharacterAssets(t, store, batch.ID, book.ID)
+	if _, err := store.CreateBookAsset(context.Background(), "alice", batch.ID, book.ID, CreateBookAssetInput{Kind: "scene", Name: "不应发送的历史场景", Prompt: "完整场景资产"}); err != nil {
+		t.Fatal(err)
+	}
+	sourceText := "五岁的我刚被认回豪门，爸妈就甩下一百万生活费。\n把我和陆晚晚扔在别墅里大眼瞪小眼。\n三个月后，爸妈提前回国，想给我们一个惊喜。"
+	provider := &queuedDirectorProvider{values: []string{string(readH3Fixture(t, "h3_v12_complete_director_trace.json"))}}
+	_, err := (&DirectorService{Store: store, Provider: provider}).RunH3Director(context.Background(), "alice", batch.ID, book.ID, H3DirectorRunRequest{
+		VideoSource: H3VideoSource{Revision: "video-source-acceptance001-r1", Hash: sourceDigest(sourceText), Text: sourceText},
+		Preset:      H3DirectorPreset{Key: "h3-director-normal", Revision: 1},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prompt := provider.calls[0].UserPrompt
+	if strings.Contains(prompt, "不应发送的历史场景") || strings.Contains(prompt, "完整场景资产") {
+		t.Fatalf("director request leaked the full asset library: %s", prompt)
+	}
+	if !strings.Contains(prompt, `"asset_id"`) || !strings.Contains(prompt, `"canonical_name"`) {
+		t.Fatalf("director request lost compact character binding references: %s", prompt)
+	}
+}
+
 func TestBuildH3DirectorContractProvidesExistingCharacterAssetsForStableSlotAliases(t *testing.T) {
 	source := H3VideoSource{Revision: "video-source-r1", Hash: sourceDigest("江小姐的老公来了。"), Text: "江小姐的老公来了。"}
-	assets := []NamedPrompt{
-		{Name: "江淮雪", Prompt: "年轻女性，医院病房中穿病号服。"},
-		{Name: "周临", Prompt: "成年男性，身材修长，气质冷峻。"},
+	assets := []H3DirectorCharacterAsset{
+		{AssetID: "asset-jiang", CanonicalName: "江淮雪", Appearance: "年轻女性，医院病房中穿病号服。", Revision: 1},
+		{AssetID: "asset-zhou", CanonicalName: "周临", Appearance: "成年男性，身材修长，气质冷峻。", Revision: 1},
 	}
 	contract := buildH3DirectorContract(source, H3DirectorPreset{Key: "h3-director-normal", Revision: 1}, assets)
 	if !strings.Contains(contract.SystemPrompt, "canonical_name 必须优先使用已有人物资产的精确 name") {
@@ -75,7 +99,7 @@ func TestBuildH3DirectorContractProvidesExistingCharacterAssetsForStableSlotAlia
 	if !strings.Contains(contract.SystemPrompt, "不得使用 ?、??、unknown、未知人物作为 slot_id 或连续性对象的键") {
 		t.Fatalf("director contract does not forbid unresolved continuity placeholders: %s", contract.SystemPrompt)
 	}
-	if !strings.Contains(contract.UserPrompt, `"name":"江淮雪"`) || !strings.Contains(contract.UserPrompt, `"name":"周临"`) {
+	if !strings.Contains(contract.UserPrompt, `"canonical_name":"江淮雪"`) || !strings.Contains(contract.UserPrompt, `"canonical_name":"周临"`) || !strings.Contains(contract.UserPrompt, `"asset_id":"asset-jiang"`) {
 		t.Fatalf("director contract lost existing character assets: %s", contract.UserPrompt)
 	}
 }

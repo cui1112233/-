@@ -19,6 +19,17 @@ type H3DirectorRunRequest struct {
 	SmartUnifiedStyle string           `json:"smart_unified_style,omitempty"`
 }
 
+// H3DirectorCharacterAsset is the only persisted-asset context sent to the
+// director model. The director needs stable character IDs for slot binding;
+// scenes and props remain in the book library and are injected later only when
+// the final-prompt switches permit them.
+type H3DirectorCharacterAsset struct {
+	AssetID       string `json:"asset_id"`
+	CanonicalName string `json:"canonical_name"`
+	Appearance    string `json:"appearance"`
+	Revision      int64  `json:"revision"`
+}
+
 func (s *DirectorService) RunH3Director(ctx context.Context, owner, batchID, bookID string, request H3DirectorRunRequest) (DirectorRevision, error) {
 	if err := s.validate(); err != nil {
 		return DirectorRevision{}, err
@@ -42,12 +53,7 @@ func (s *DirectorService) RunH3Director(ctx context.Context, owner, batchID, boo
 	if err != nil {
 		return DirectorRevision{}, err
 	}
-	knownCharacters := make([]NamedPrompt, 0, len(book.AssetRecords))
-	for _, asset := range book.AssetRecords {
-		if asset.Kind == "character" && strings.TrimSpace(asset.Name) != "" {
-			knownCharacters = append(knownCharacters, NamedPrompt{Name: asset.Name, Prompt: asset.Prompt})
-		}
-	}
+	knownCharacters := h3DirectorCharacterAssets(book.AssetRecords)
 	analysis, err := parseSmartUnifiedAnalysis(request.SmartUnifiedStyle)
 	if err != nil {
 		return DirectorRevision{}, err
@@ -56,8 +62,6 @@ func (s *DirectorService) RunH3Director(ctx context.Context, owner, batchID, boo
 	if analysis != nil {
 		contract.UserPrompt += "\n\n已冻结的全片统一视觉风格（只用于导演一致性，不得改写剧情事实）：\n" + analysis.Prompt
 	}
-	assetContext, _ := json.Marshal(book.AssetRecords)
-	contract.UserPrompt += "\n\n权威单书资产（人物必须引用 asset_id）：\n" + string(assetContext)
 	completion, err := s.Provider.Complete(ctx, contract)
 	if err != nil {
 		return DirectorRevision{}, err
@@ -91,6 +95,17 @@ func (s *DirectorService) RunH3Director(ctx context.Context, owner, batchID, boo
 		result.SmartUnifiedAnalysis = analysis
 	}
 	return s.Store.PersistDirectorRevision(ctx, owner, book, snapshot, source.Hash, "", result)
+}
+
+func h3DirectorCharacterAssets(assets []BookAsset) []H3DirectorCharacterAsset {
+	characters := make([]H3DirectorCharacterAsset, 0, len(assets))
+	for _, asset := range assets {
+		if asset.Kind != "character" || strings.TrimSpace(asset.ID) == "" || strings.TrimSpace(asset.Name) == "" || strings.TrimSpace(asset.Prompt) == "" {
+			continue
+		}
+		characters = append(characters, H3DirectorCharacterAsset{AssetID: asset.ID, CanonicalName: asset.Name, Appearance: asset.Prompt, Revision: asset.Revision})
+	}
+	return characters
 }
 
 // RunConfiguredH3Director is the stage-runner entrypoint for new V12 runs.
@@ -202,7 +217,7 @@ func h3SnapshotForBook(batch Batch, book Book) (DirectorSnapshot, error) {
 	return DirectorSnapshot{Effective: effective, Mode: "h3", MaxVideoDuration: maxDuration, AspectRatio: aspect}, nil
 }
 
-func buildH3DirectorContract(source H3VideoSource, preset H3DirectorPreset, knownCharacters []NamedPrompt) TextCompletionRequest {
+func buildH3DirectorContract(source H3VideoSource, preset H3DirectorPreset, knownCharacters []H3DirectorCharacterAsset) TextCompletionRequest {
 	schema := `你是 H3 结构化导演内核。只输出一个 JSON 对象，不要 Markdown。
 必须输出 schema_version="h3-director/v1"、writer="batch-factory-v12"、video_source_revision、video_source_hash、video_source_non_empty_line_count、director_preset_key、director_preset_revision、visual_baseline、character_roster[]、director_cards[]。
 character_roster 每项={"slot_id":"C001","slot_token":"S1","canonical_name":"人物资产姓名","asset_id":"输入的人物资产ID","aliases":[]}；不得独立生成外形，appearance 由后端从绑定资产填入。只引用已有资产；不存在或有歧义时不得编造资产ID。
