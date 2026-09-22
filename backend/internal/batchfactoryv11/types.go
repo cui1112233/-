@@ -294,6 +294,7 @@ type Store interface {
 	CreateIntake(context.Context, string, NovelFetchIntakeInput) (Intake, error)
 	GetIntake(context.Context, string, string) (Intake, error)
 	CreateBatchFromIntake(context.Context, string, string, CreateBatchInput) (Batch, error)
+	AppendBooksFromIntake(context.Context, string, string, string, bool) (Batch, error)
 	CreateBatch(context.Context, string, CreateBatchInput) (Batch, error)
 	ListBatches(context.Context, string) ([]Batch, error)
 	GetBatch(context.Context, string, string) (Batch, error)

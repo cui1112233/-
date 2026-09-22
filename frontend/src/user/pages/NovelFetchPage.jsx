@@ -13,6 +13,7 @@ import {
   saveWorkshopKnowledge, saveWorkshopOpening, suggestWorkshopRules, testWorkshopAi
 } from '../../shared/api/novelFetchWorkshop';
 import './novel-fetch.css';
+import { batchFactoryNovelFetchHandoffPath } from './shuihuo/batchFactoryNovelFetchHandoff';
 
 const TABS = [
   { key: 'process', label: '处理' },
@@ -60,6 +61,16 @@ export function NovelFetchPage({ theme }) {
   const [frameReady, setFrameReady] = useState(false);
   const syncTheme = () => frameRef.current?.contentWindow?.postMessage({ type: 'qiantie-theme-sync', theme: theme === 'light' ? 'light' : 'dark' }, '*');
   useEffect(() => { syncTheme(); }, [theme]);
+  useEffect(() => {
+    const receiveHandoff = event => {
+      if (event.origin !== window.location.origin || event.data?.type !== 'qiantie:batch-factory-intake') return;
+      const intakeId = String(event.data?.intakeId || '').trim();
+      if (!intakeId) return;
+      window.location.assign(batchFactoryNovelFetchHandoffPath(intakeId));
+    };
+    window.addEventListener('message', receiveHandoff);
+    return () => window.removeEventListener('message', receiveHandoff);
+  }, []);
   return <div className={`novel-fetch-frame-shell${frameReady ? ' is-ready' : ''}`}><iframe ref={frameRef} className="novel-fetch-original-workbench" title="批量原文改文系统" src={`/batch-rewrite/index.html?theme=${theme === 'light' ? 'light' : 'dark'}`} onLoad={() => { syncTheme(); requestAnimationFrame(() => setFrameReady(true)); }} /></div>;
 }
 

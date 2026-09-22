@@ -71,6 +71,56 @@ func TestNovelFetchIntakeIsConsumedExactlyOnce(t *testing.T) {
 	}
 }
 
+func TestNovelFetchIntakeAppendsToCurrentBatchAndRetainsSourceBookID(t *testing.T) {
+	ctx := context.Background()
+	s := NewMemoryStore()
+	batch, err := s.CreateBatch(ctx, "alice", CreateBatchInput{Title: "当前批量", Books: []CreateBookInput{{BookID: "origin-1", Title: "原书"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	intake, err := s.CreateIntake(ctx, "alice", NovelFetchIntakeInput{Books: []CreateBookInput{{BookID: "origin-2", SourceTaskID: "task-2", Title: "AI1·新书", SourceText: "已确认正文", SourceMetadata: map[string]any{"sourceContentVersion": "ai1"}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err := s.AppendBooksFromIntake(ctx, "alice", batch.ID, intake.ID, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(updated.Books) != 2 {
+		t.Fatalf("books=%+v", updated.Books)
+	}
+	got := updated.Books[1]
+	if got.BookID != "origin-2" || got.SourceTaskID != "task-2" || got.Title != "AI1·新书" || got.SourceText != "已确认正文" || got.SourceMetadata["sourceContentVersion"] != "ai1" {
+		t.Fatalf("appended book=%+v", got)
+	}
+	if _, err := s.AppendBooksFromIntake(ctx, "alice", batch.ID, intake.ID, false); err != ErrConflict {
+		t.Fatalf("second append err=%v", err)
+	}
+}
+
+func TestNovelFetchIntakeRequiresConfirmationBeforeAddingSameSourceBookAgain(t *testing.T) {
+	ctx := context.Background()
+	s := NewMemoryStore()
+	batch, err := s.CreateBatch(ctx, "alice", CreateBatchInput{Title: "当前批量", Books: []CreateBookInput{{BookID: "origin-1", Title: "原书"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	intake, err := s.CreateIntake(ctx, "alice", NovelFetchIntakeInput{Books: []CreateBookInput{{BookID: "origin-1", Title: "AI1·原书", SourceText: "AI 正文"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AppendBooksFromIntake(ctx, "alice", batch.ID, intake.ID, false); err != ErrConflict {
+		t.Fatalf("unconfirmed duplicate err=%v", err)
+	}
+	updated, err := s.AppendBooksFromIntake(ctx, "alice", batch.ID, intake.ID, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(updated.Books) != 2 || updated.Books[1].BookID != "origin-1" || updated.Books[1].Title != "AI1·原书" {
+		t.Fatalf("confirmed duplicate=%+v", updated.Books)
+	}
+}
+
 func TestNovelFetchIntakeDeduplicatesSourceBookIDs(t *testing.T) {
 	ctx := context.Background()
 	s := NewMemoryStore()
@@ -83,6 +133,25 @@ func TestNovelFetchIntakeDeduplicatesSourceBookIDs(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(got.Books) != 2 || got.Books[0].ID != "207" || got.Books[1].ID != "208" {
+		t.Fatalf("books=%+v", got.Books)
+	}
+}
+
+func TestNovelFetchIntakeKeepsDistinctContentVersionsForTheSameSourceBook(t *testing.T) {
+	ctx := context.Background()
+	s := NewMemoryStore()
+	intake, err := s.CreateIntake(ctx, "alice", NovelFetchIntakeInput{Books: []CreateBookInput{
+		{BookID: "207", Title: "原书", SourceText: "原文", SourceMetadata: map[string]any{"sourceContentVersion": "original"}},
+		{BookID: "207", Title: "AI1·原书", SourceText: "AI 正文", SourceMetadata: map[string]any{"sourceContentVersion": "ai1"}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got NovelFetchIntakeInput
+	if err := json.Unmarshal(intake.Payload, &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Books) != 2 || got.Books[0].Title != "原书" || got.Books[1].Title != "AI1·原书" {
 		t.Fatalf("books=%+v", got.Books)
 	}
 }
@@ -124,7 +193,6 @@ func TestSliceOneChangeImpactDoesNotClaimDirectorInvalidation(t *testing.T) {
 	}
 }
 
-
 func TestNovelFetchBatchKeepsExplicitSourceBookID(t *testing.T) {
 	ctx := context.Background()
 	s := NewMemoryStore()
@@ -142,7 +210,6 @@ func TestNovelFetchBatchKeepsExplicitSourceBookID(t *testing.T) {
 		t.Fatalf("book=%+v", batch.Books)
 	}
 }
-
 
 func TestNovelFetchBatchKeepsSourceLineageFields(t *testing.T) {
 	ctx := context.Background()

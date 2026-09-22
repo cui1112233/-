@@ -544,6 +544,60 @@ func (s *MemoryStore) CreateBatchFromIntake(ctx context.Context, owner, intakeID
 	s.mu.Unlock()
 	return batch, nil
 }
+
+// AppendBooksFromIntake adds a frozen Novel Fetch content snapshot to the
+// currently selected batch. An intake is single-use: a caller must explicitly
+// allow duplicate source Book IDs before an alternate content version is added.
+func (s *MemoryStore) AppendBooksFromIntake(_ context.Context, owner, batchID, intakeID string, allowDuplicate bool) (Batch, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ownedIntake, ok := s.intakes[intakeID]
+	if !ok || ownedIntake.Owner != owner {
+		return Batch{}, ErrNotFound
+	}
+	if ownedIntake.Value.ConsumedAt != nil {
+		return Batch{}, ErrConflict
+	}
+	ownedBatch, ok := s.batches[batchID]
+	if !ok || ownedBatch.Owner != owner {
+		return Batch{}, ErrNotFound
+	}
+	var intake NovelFetchIntakeInput
+	if err := json.Unmarshal(ownedIntake.Value.Payload, &intake); err != nil {
+		return Batch{}, ErrInvalid
+	}
+	batch := ownedBatch.Value
+	existing := map[string]bool{}
+	for _, book := range batch.Books {
+		if book.BookID != "" {
+			existing[book.BookID] = true
+		}
+	}
+	if !allowDuplicate {
+		for _, raw := range intake.Books {
+			if source := sourceBookID(raw); source != "" && existing[source] {
+				return Batch{}, ErrConflict
+			}
+		}
+	}
+	now := time.Now().UTC()
+	for _, raw := range intake.Books {
+		bookInput := normalizeNovelFetchBook(raw)
+		bookID := s.id("book")
+		sourceID := sourceBookID(bookInput)
+		if sourceID == "" {
+			sourceID = bookID
+		}
+		batch.Books = append(batch.Books, Book{ID: bookID, BatchID: batch.ID, BookID: sourceID, Title: bookInput.Title, SourceText: bookInput.SourceText, SourceTaskID: bookInput.SourceTaskID, Platform: bookInput.Platform, TxtText: bookInput.TxtText, TxtFileName: bookInput.TxtFileName, SourceMetadata: bookInput.SourceMetadata, Revision: 1, Videos: []Video{}})
+	}
+	batch.Revision++
+	batch.UpdatedAt = now
+	s.batches[batchID] = memoryOwned[Batch]{Owner: owner, Value: batch}
+	intakeRecord := ownedIntake.Value
+	intakeRecord.ConsumedAt = &now
+	s.intakes[intakeID] = memoryOwned[Intake]{Owner: owner, Value: intakeRecord}
+	return hydrateMemoryBatchSettingsState(batch, s.patches, s.hooks, s.directors, s.bookAssets), nil
+}
 func (s *MemoryStore) CreateBatch(_ context.Context, owner string, input CreateBatchInput) (Batch, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

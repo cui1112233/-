@@ -1,6 +1,9 @@
 package batchfactoryv11
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 // normalizeNovelFetchIntake keeps the first occurrence of each explicit source
 // Book ID. Empty IDs are retained because they do not provide a stable
@@ -31,12 +34,26 @@ func sourceBookID(book CreateBookInput) string {
 	return book.BookID
 }
 
+func sourceContentVersion(book CreateBookInput) string {
+	if book.SourceMetadata == nil {
+		return ""
+	}
+	value, ok := book.SourceMetadata["sourceContentVersion"]
+	if !ok || value == nil {
+		return ""
+	}
+	return strings.TrimSpace(fmt.Sprint(value))
+}
+
 func normalizeNovelFetchIntake(input NovelFetchIntakeInput) NovelFetchIntakeInput {
 	out := NovelFetchIntakeInput{Metadata: input.Metadata, Books: make([]CreateBookInput, 0, len(input.Books))}
 	seen := map[string]struct{}{}
 	for _, book := range input.Books {
 		book = normalizeNovelFetchBook(book)
 		key := sourceBookID(book)
+		if version := sourceContentVersion(book); key != "" && version != "" {
+			key += "\x00" + version
+		}
 		if key != "" {
 			if _, exists := seen[key]; exists {
 				continue

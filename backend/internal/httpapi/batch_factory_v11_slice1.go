@@ -124,6 +124,25 @@ func registerSliceOneRoutes(mux *http.ServeMux, store batchfactoryv11.Store) {
 		}
 		writeJSON(w, http.StatusCreated, map[string]any{"batch": batch})
 	})
+	mux.HandleFunc("POST /api/batch-factory/v11/batches/{batchId}/intakes/{intakeId}/books", func(w http.ResponseWriter, r *http.Request) {
+		owner, ok := bridgeOwner(r)
+		if !ok {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			return
+		}
+		var input struct {
+			AllowDuplicate bool `json:"allowDuplicate"`
+		}
+		if !decodeJSON(w, r, &input) {
+			return
+		}
+		batch, err := store.AppendBooksFromIntake(r.Context(), owner, r.PathValue("batchId"), r.PathValue("intakeId"), input.AllowDuplicate)
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"batch": batch})
+	})
 	mux.HandleFunc("GET /api/batch-factory/v11/batches", func(w http.ResponseWriter, r *http.Request) {
 		owner, ok := bridgeOwner(r)
 		if !ok {

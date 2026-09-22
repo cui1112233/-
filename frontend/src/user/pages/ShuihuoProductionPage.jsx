@@ -6,7 +6,8 @@ import { batchFactoryBatchFromResponse, batchFactoryCoverFrom, batchFactoryProje
 import { ProjectsView } from './shuihuo/ProjectsView';
 import { AssetsView } from './shuihuo/AssetsView';
 import { confirmSegmentation, createProject, deleteProject, getProductionHealth, getProject, listModels, listProjects, paragraphSegmentation, replaceProjectSource, smartSegmentation } from '../../shared/api/shuihuoProduction';
-import { createManualIntake, getBatch, getProductionStatus, listBatches, listBookAssetImages, listBookAssets, startBatchAutomation } from '../../shared/api/batchFactoryV11';
+import { appendNovelFetchIntake, createBatchFromIntake, createManualIntake, getBatch, getIntake, getProductionStatus, listBatches, listBookAssetImages, listBookAssets, startBatchAutomation } from '../../shared/api/batchFactoryV11';
+import { BATCH_FACTORY_ACTIVE_BATCH_STORAGE_KEY, novelFetchIntakeBooks, pendingNovelFetchIntakeId } from './shuihuo/batchFactoryNovelFetchHandoff';
 import './shuihuo-production.css';
 
 const modelNames = { text: '文本模型', image: '图片模型', video: '视频模型', audio: '配音模型' };
@@ -29,6 +30,7 @@ export function ShuihuoProductionPage({ openBatchOnLoad = false }) {
   const mountedRef = useRef(true);
   const projectRequestRef = useRef(0);
   const refreshRequestRef = useRef(0);
+  const novelFetchHandoffRef = useRef('');
 
   useEffect(() => {
     mountedRef.current = true;
@@ -124,7 +126,9 @@ export function ShuihuoProductionPage({ openBatchOnLoad = false }) {
   const openProject = useCallback(async project => {
     try {
       if (isBatchFactoryV11Project(project)) {
-        setActiveBatchProject(batchFactoryBatchFromResponse(await getBatch(project.batchId)));
+        const batch = batchFactoryBatchFromResponse(await getBatch(project.batchId));
+        localStorage.setItem(BATCH_FACTORY_ACTIVE_BATCH_STORAGE_KEY, batch.id);
+        setActiveBatchProject(batch);
         setView('batch-novels');
         return;
       }
@@ -182,6 +186,7 @@ export function ShuihuoProductionPage({ openBatchOnLoad = false }) {
   async function handleCreateBatch(input) {
     const created = await createManualIntake(input);
     const batch = created.batch;
+    localStorage.setItem(BATCH_FACTORY_ACTIVE_BATCH_STORAGE_KEY, batch.id);
     setActiveBatchProject(batch);
     setView('batch-novels');
     await refreshProjects();
@@ -200,6 +205,70 @@ export function ShuihuoProductionPage({ openBatchOnLoad = false }) {
     }
     return batch;
   }
+
+  useEffect(() => {
+    const intakeId = pendingNovelFetchIntakeId(window.location.search);
+    if (!intakeId || novelFetchHandoffRef.current === intakeId) return;
+    novelFetchHandoffRef.current = intakeId;
+    let cancelled = false;
+    const clearHandoffQuery = () => window.history.replaceState({}, '', '/shuihuo-production');
+    const openImportedBatch = async batch => {
+      if (cancelled || !batch?.id) return;
+      localStorage.setItem(BATCH_FACTORY_ACTIVE_BATCH_STORAGE_KEY, batch.id);
+      setActiveBatchProject(batchFactoryBatchFromResponse(batch));
+      setView('batch-novels');
+      clearHandoffQuery();
+      await refreshProjects();
+    };
+    const join = async () => {
+      try {
+        const [intakeResult, currentBatchId] = await Promise.all([
+          getIntake(intakeId),
+          Promise.resolve(localStorage.getItem(BATCH_FACTORY_ACTIVE_BATCH_STORAGE_KEY) || '')
+        ]);
+        if (cancelled) return;
+        const intake = intakeResult?.intake || intakeResult;
+        const incoming = novelFetchIntakeBooks(intake);
+        if (!currentBatchId) {
+          const created = await createBatchFromIntake(intakeId, {
+            title: incoming.length === 1 ? `小说获取·${incoming[0]?.title || '新批量'}` : `小说获取·${incoming.length || 0}本`
+          });
+          await openImportedBatch(created?.batch || created);
+          message.success('小说获取内容已登记到新批量');
+          return;
+        }
+        const current = await getBatch(currentBatchId);
+        if (cancelled) return;
+        const batch = current?.batch || current;
+        const existingSourceIDs = new Set((batch?.books || []).map(book => String(book?.bookId || '').trim()).filter(Boolean));
+        const duplicates = incoming.filter(book => existingSourceIDs.has(String(book?.bookId || book?.id || '').trim()));
+        const append = async allowDuplicate => {
+          const updated = await appendNovelFetchIntake(batch.id, intakeId, { allowDuplicate });
+          await openImportedBatch(updated?.batch || updated);
+          message.success('小说获取内容已登记到当前批量');
+        };
+        if (!duplicates.length) {
+          await append(false);
+          return;
+        }
+        Modal.confirm({
+          title: '当前批量已有同源小说',
+          content: `发现 ${duplicates.length} 本同一 Book ID 的内容。允许后会作为 AI1·原书名等新版本加入；上传视频管理系统仍使用原 Book ID。`,
+          okText: '允许加入',
+          cancelText: '暂不加入',
+          onOk: () => append(true),
+          onCancel: () => { novelFetchHandoffRef.current = ''; }
+        });
+      } catch (error) {
+        if (!cancelled) {
+          novelFetchHandoffRef.current = '';
+          message.error(error?.message || '小说获取交接失败');
+        }
+      }
+    };
+    join();
+    return () => { cancelled = true; };
+  }, [refreshProjects]);
   async function handleImported(readModel, segmentationMode) {
     try {
       await segmentAndOpenProject(readModel, segmentationMode);

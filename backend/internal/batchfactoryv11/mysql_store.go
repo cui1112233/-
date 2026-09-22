@@ -103,6 +103,105 @@ func (s *MySQLStore) CreateBatchFromIntake(ctx context.Context, owner, intakeID 
 	return batch, nil
 }
 
+// AppendBooksFromIntake keeps the selected Novel Fetch content version as a
+// new book record in an existing batch. It never replaces previously produced
+// book data, and it consumes the one-time intake only after the whole append
+// transaction succeeds.
+func (s *MySQLStore) AppendBooksFromIntake(ctx context.Context, owner, batchID, intakeID string, allowDuplicate bool) (Batch, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Batch{}, err
+	}
+	defer tx.Rollback()
+	var payload []byte
+	var consumed sql.NullTime
+	if err = tx.QueryRowContext(ctx, `SELECT payload_json,consumed_at FROM batch_factory_v11_intakes WHERE id=? AND owner_username=? FOR UPDATE`, intakeID, owner).Scan(&payload, &consumed); errors.Is(err, sql.ErrNoRows) {
+		return Batch{}, ErrNotFound
+	} else if err != nil {
+		return Batch{}, err
+	}
+	if consumed.Valid {
+		return Batch{}, ErrConflict
+	}
+	var batchRevision int64
+	if err = tx.QueryRowContext(ctx, `SELECT revision FROM batch_factory_v11_batches WHERE id=? AND owner_username=? FOR UPDATE`, batchID, owner).Scan(&batchRevision); errors.Is(err, sql.ErrNoRows) {
+		return Batch{}, ErrNotFound
+	} else if err != nil {
+		return Batch{}, err
+	}
+	var intake NovelFetchIntakeInput
+	if err = json.Unmarshal(payload, &intake); err != nil {
+		return Batch{}, ErrInvalid
+	}
+	existing := map[string]bool{}
+	rows, err := tx.QueryContext(ctx, `SELECT COALESCE(source_book_id,'') FROM batch_factory_v11_book_records r JOIN batch_factory_v11_books b ON b.id=r.book_id WHERE b.batch_id=? AND b.owner_username=? FOR UPDATE`, batchID, owner)
+	if err != nil {
+		return Batch{}, err
+	}
+	for rows.Next() {
+		var sourceID string
+		if err := rows.Scan(&sourceID); err != nil {
+			rows.Close()
+			return Batch{}, err
+		}
+		if sourceID != "" {
+			existing[sourceID] = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return Batch{}, err
+	}
+	rows.Close()
+	if !allowDuplicate {
+		for _, raw := range intake.Books {
+			if sourceID := sourceBookID(raw); sourceID != "" && existing[sourceID] {
+				return Batch{}, ErrConflict
+			}
+		}
+	}
+	var nextOrdinal int
+	if err = tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(ordinal)+1,0) FROM batch_factory_v11_books WHERE batch_id=? AND owner_username=?`, batchID, owner).Scan(&nextOrdinal); err != nil {
+		return Batch{}, err
+	}
+	now := time.Now().UTC()
+	for _, raw := range intake.Books {
+		bookInput := normalizeNovelFetchBook(raw)
+		bookID, err := newID("book")
+		if err != nil {
+			return Batch{}, err
+		}
+		sourceID := sourceBookID(bookInput)
+		if sourceID == "" {
+			sourceID = bookID
+		}
+		if _, err = tx.ExecContext(ctx, `INSERT INTO batch_factory_v11_books(id,batch_id,owner_username,ordinal,revision,created_at,updated_at) VALUES(?,?,?,?,1,?,?)`, bookID, batchID, owner, nextOrdinal, now, now); err != nil {
+			return Batch{}, err
+		}
+		nextOrdinal++
+		var metadata any
+		if len(bookInput.SourceMetadata) > 0 {
+			metadata, err = json.Marshal(bookInput.SourceMetadata)
+			if err != nil {
+				return Batch{}, ErrInvalid
+			}
+		}
+		if _, err = tx.ExecContext(ctx, `INSERT INTO batch_factory_v11_book_records(book_id,source_book_id,source_task_id,platform,title,source_text,txt_text,txt_file_name,source_metadata_json) VALUES(?,?,?,?,?,?,?,?,?)`, bookID, nullableString(sourceID), nullableString(bookInput.SourceTaskID), nullableString(bookInput.Platform), bookInput.Title, nullableString(bookInput.SourceText), nullableString(bookInput.TxtText), nullableString(bookInput.TxtFileName), metadata); err != nil {
+			return Batch{}, err
+		}
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE batch_factory_v11_batches SET revision=?,updated_at=? WHERE id=? AND owner_username=?`, batchRevision+1, now, batchID, owner); err != nil {
+		return Batch{}, err
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE batch_factory_v11_intakes SET consumed_at=? WHERE id=? AND owner_username=?`, now, intakeID, owner); err != nil {
+		return Batch{}, err
+	}
+	if err = tx.Commit(); err != nil {
+		return Batch{}, err
+	}
+	return s.GetBatch(ctx, owner, batchID)
+}
+
 func (s *MySQLStore) CreateBatch(ctx context.Context, owner string, input CreateBatchInput) (Batch, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {

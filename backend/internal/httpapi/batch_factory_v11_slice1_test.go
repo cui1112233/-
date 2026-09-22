@@ -132,6 +132,33 @@ func TestCreateBatchFromOtherOwnersIntakeReturnsNotFound(t *testing.T) {
 	}
 }
 
+func TestNovelFetchIntakeCanJoinTheCurrentBatchOnlyAfterDuplicateConfirmation(t *testing.T) {
+	now := time.Unix(1700000000, 0)
+	store := batchfactoryv11.NewMemoryStore()
+	batch, err := store.CreateBatch(context.Background(), "alice", batchfactoryv11.CreateBatchInput{Title: "当前批量", Books: []batchfactoryv11.CreateBookInput{{BookID: "source-1", Title: "原书"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	intake, err := store.CreateIntake(context.Background(), "alice", batchfactoryv11.NovelFetchIntakeInput{Books: []batchfactoryv11.CreateBookInput{{BookID: "source-1", SourceTaskID: "task-1", Title: "AI1·原书", SourceText: "AI 正文"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	api := NewRouter(RouterOptions{BridgeSecret: "secret", Now: func() time.Time { return now }, Slice: 1, Store: store})
+	path := "/api/batch-factory/v11/batches/" + batch.ID + "/intakes/" + intake.ID + "/books"
+	blocked := signedJSONRequest(t, api, now, "alice", http.MethodPost, path, map[string]any{"allowDuplicate": false})
+	if blocked.Code != http.StatusConflict {
+		t.Fatalf("unconfirmed status=%d body=%s", blocked.Code, blocked.Body.String())
+	}
+	joined := signedJSONRequest(t, api, now, "alice", http.MethodPost, path, map[string]any{"allowDuplicate": true})
+	if joined.Code != http.StatusOK {
+		t.Fatalf("confirmed status=%d body=%s", joined.Code, joined.Body.String())
+	}
+	got := decodeBody[map[string]batchfactoryv11.Batch](t, joined)["batch"]
+	if len(got.Books) != 2 || got.Books[1].BookID != "source-1" || got.Books[1].Title != "AI1·原书" || got.Books[1].SourceText != "AI 正文" {
+		t.Fatalf("batch=%+v", got)
+	}
+}
+
 func TestSliceOneRequiredHTTPRoutesAreRegistered(t *testing.T) {
 	now := time.Unix(1700000000, 0)
 	api := NewRouter(RouterOptions{BridgeSecret: "secret", Now: func() time.Time { return now }, Slice: 1, Store: batchfactoryv11.NewMemoryStore()})
