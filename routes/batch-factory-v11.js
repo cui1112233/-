@@ -1134,6 +1134,28 @@ function automationPublishSettings(batch, book, frozenSettings) {
   return automationEffectiveSettings(batch, book).publishSettings || {};
 }
 
+const EMPTY_AUTOMATION_COUNTS = Object.freeze({ total: 0, ready: 0, running: 0, pending: 0, failed: 0, blocked: 0 });
+
+function safeAutomationStatus(automation, context, logger = console) {
+  try {
+    const status = automation.status(context);
+    if (!status || typeof status !== 'object' || Array.isArray(status)) throw new Error('自动化状态不是对象');
+    return status;
+  } catch (error) {
+    logger.error?.('[batch-factory-automation] status read failed', {
+      batchId: context?.batchId || '',
+      owner: context?.owner || '',
+      message: String(error?.message || '')
+    });
+    return {
+      state: 'unavailable',
+      diagnosticCode: 'AUTOMATION_STATUS_UNAVAILABLE',
+      counts: { ...EMPTY_AUTOMATION_COUNTS },
+      books: []
+    };
+  }
+}
+
 function automationH3Document(book) {
   const output = object(book?.directorRevision?.output);
   return object(output.h3_director || output.h3Director);
@@ -1447,7 +1469,7 @@ function createBatchFactoryV11Router(options = {}) {
   });
 
   router.get('/batches/:batchId/automation', (req, res) => {
-    res.json({ automation: automation.status(automationContext(req)) });
+    res.json({ automation: safeAutomationStatus(automation, automationContext(req), upstreamOptions.logger || console) });
   });
   router.post('/batches/:batchId/automation/start', async (req, res) => {
     try {
@@ -1603,6 +1625,7 @@ module.exports = {
   batchFactory121OrganizationsPath,
   organizationOptions,
   automationPublishSettings,
+  safeAutomationStatus,
   listBatchFactory121Organizations,
   fetchBatchFactory121Media,
   submitBatchFactoryBookTo121,

@@ -22,8 +22,19 @@ const {
   parseBatchBookClassification,
   ensureBatchFactory121ResubmissionAllowed,
   persisted121PublicationMetadata,
-  v11JSONRequest
+  v11JSONRequest,
+  safeAutomationStatus
 } = require('./batch-factory-v11');
+
+test('automation status degrades to a readable idle state when its controller throws', () => {
+  const result = safeAutomationStatus({
+    status() { throw new Error('legacy automation state is unreadable'); }
+  }, { owner: 'alice', batchId: 'batch-1' });
+
+  assert.equal(result.state, 'unavailable');
+  assert.equal(result.diagnosticCode, 'AUTOMATION_STATUS_UNAVAILABLE');
+  assert.deepEqual(result.counts, { total: 0, ready: 0, running: 0, pending: 0, failed: 0, blocked: 0 });
+});
 
 test('identifies the explicit per-book 121 publish action without matching other V11 routes', () => {
   assert.deepEqual(
