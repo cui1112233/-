@@ -82,15 +82,24 @@ func (p *OpenAICompatibleProvider) Complete(ctx context.Context, input TextCompl
 	var decoded struct {
 		Choices []struct {
 			Message struct { Content string `json:"content"` } `json:"message"`
-			Text string `json:"text"`
+			Text         string `json:"text"`
+			FinishReason string `json:"finish_reason"`
 		} `json:"choices"`
 	}
 	if err := json.Unmarshal(raw, &decoded); err != nil || len(decoded.Choices) == 0 {
 		return "", fmt.Errorf("director provider returned an invalid response")
 	}
-	content := strings.TrimSpace(decoded.Choices[0].Message.Content)
+	choice := decoded.Choices[0]
+	// A partial JSON response must never reach the H3 parser as a generic
+	// "invalid input".  OpenAI-compatible services expose this condition as
+	// finish_reason=length; make it retryable and tell the caller to use a
+	// model/output budget that can complete the frozen director contract.
+	if strings.EqualFold(strings.TrimSpace(choice.FinishReason), "length") {
+		return "", fmt.Errorf("director provider output truncated (finish_reason=length)")
+	}
+	content := strings.TrimSpace(choice.Message.Content)
 	if content == "" {
-		content = strings.TrimSpace(decoded.Choices[0].Text)
+		content = strings.TrimSpace(choice.Text)
 	}
 	if content == "" {
 		return "", fmt.Errorf("director provider returned empty content")
