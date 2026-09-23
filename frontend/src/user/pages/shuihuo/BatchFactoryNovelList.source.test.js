@@ -122,6 +122,11 @@ test('stores 121 material reuse and horizontal flip in publish settings and show
   assert.match(source, /本次水平翻转：/);
 });
 
+test('keeps an unverified video management system session readable in the upload dialog', () => {
+  assert.match(source, /<Tag color=\{publishSessionReady \? 'green' : 'error'\}>/);
+  assert.match(source, /121 后台账号尚未登录或未验证/);
+});
+
 test('selects Batch Factory image, text and video models from enabled Personal Center models', () => {
   assert.match(engineSource, /import \{ listAvailableModels \} from '\.\.\/\.\.\/\.\.\/shared\/api\/modelCatalog'/);
   assert.match(engineSource, /listAvailableModels\('image'\)/);
