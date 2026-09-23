@@ -2002,6 +2002,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
 	const [mediaBook, setMediaBook] = useState(null);
 	const [mediaVideoId, setMediaVideoId] = useState('');
 	const [mediaStartTab, setMediaStartTab] = useState('clips');
+	const [pendingMediaPrompt, setPendingMediaPrompt] = useState(null);
 	const [rowStoryboardSelection, setRowStoryboardSelection] = useState({});
   const [unifiedSettingsOpen, setUnifiedSettingsOpen] = useState(false);
   const [logsOpen, setLogsOpen] = useState(false);
@@ -2034,6 +2035,15 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
     const refreshed = books.find(book => book.id === mediaBook.id);
     if (refreshed && refreshed.revision !== mediaBook.revision) setMediaBook(refreshed);
   }, [books, mediaBook]);
+	useEffect(() => {
+		if (!pendingMediaPrompt || mediaBook) return;
+		const nextBook = books.find(book => book.id === pendingMediaPrompt.bookId);
+		if (nextBook) {
+			setPromptVideoId(pendingMediaPrompt.frameKey || '');
+			setPromptBook(nextBook);
+		}
+		setPendingMediaPrompt(null);
+	}, [books, mediaBook, pendingMediaPrompt]);
 	const batchProgress = batchFactoryBatchProgress(books, { productionStatus, mergeStatus, stageSummaries });
 	const progressSegments = [
 		{ key: 'uploaded', label: '上传成功', count: batchProgress.uploaded },
@@ -2696,7 +2706,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
         productionReason={productionCapability.reason}
         initialVideoId={mediaVideoId}
         initialTab={mediaStartTab}
-        onOpenDirector={frameKey => { setPromptVideoId(frameKey || ''); setPromptBook(mediaBook); setMediaBook(null); }}
+        onOpenDirector={frameKey => { setPendingMediaPrompt({ bookId: mediaBook.id, frameKey: frameKey || '' }); setMediaBook(null); }}
       /> : null}
     </Modal>
 

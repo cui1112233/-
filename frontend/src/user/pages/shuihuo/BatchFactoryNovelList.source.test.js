@@ -904,6 +904,15 @@ test('uses the same media-library structure for an H3 director card before VIDEO
   assert.match(panel, /查看导演提示词/);
 });
 
+test('closes the media library before opening its director prompt', () => {
+  assert.match(source, /const \[pendingMediaPrompt, setPendingMediaPrompt\] = useState\(null\);/);
+  assert.match(source, /if \(!pendingMediaPrompt \|\| mediaBook\) return;/);
+  assert.match(source, /setPromptVideoId\(pendingMediaPrompt\.frameKey \|\| ''\);/);
+  assert.match(source, /setPromptBook\(nextBook\);/);
+  assert.match(source, /setPendingMediaPrompt\(null\);/);
+  assert.match(source, /onOpenDirector=\{frameKey => \{ setPendingMediaPrompt\(\{ bookId: mediaBook\.id, frameKey: frameKey \|\| '' \}\); setMediaBook\(null\); \}\}/);
+});
+
 test('compiles a successful H3 director run from real TTS audio before exposing editable VIDEO cards', () => {
   assert.match(source, /measureH3Audio/);
   assert.match(source, /compileH3Video/);
