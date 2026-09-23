@@ -458,6 +458,33 @@ func reconcileV11BookAssetsLedger(ctx context.Context, tx *sql.Tx) error {
 	return nil
 }
 
+func v11ColumnExists(ctx context.Context, tx *sql.Tx, table, column string) (bool, error) {
+	var exists bool
+	err := tx.QueryRowContext(ctx, `SELECT EXISTS(
+  SELECT 1 FROM information_schema.columns
+  WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?
+)`, table, column).Scan(&exists)
+	return exists, err
+}
+
+func v11ColumnsExist(ctx context.Context, tx *sql.Tx, table string, columns ...string) (bool, error) {
+	for _, column := range columns {
+		exists, err := v11ColumnExists(ctx, tx, table, column)
+		if err != nil || !exists {
+			return exists, err
+		}
+	}
+	return true, nil
+}
+
+func adoptV11BookMergeLedger(ctx context.Context, tx *sql.Tx) (bool, error) {
+	return v11ColumnExists(ctx, tx, "batch_factory_v11_merge_jobs", "book_id")
+}
+
+func adoptV11MergeProgressLedger(ctx context.Context, tx *sql.Tx) (bool, error) {
+	return v11ColumnsExist(ctx, tx, "batch_factory_v11_merge_jobs", "timing_mode", "speed", "progress_phase", "progress_current", "progress_total")
+}
+
 func V11BookAssetImagesStatements() []string {
 	return []string{
 		`CREATE TABLE IF NOT EXISTS batch_factory_v11_book_asset_images (
@@ -562,11 +589,11 @@ func V11Migrations() []Migration {
 		{Version: 1100013, SQL: V11BookAssetImagesStatements(), CallbackChecksum: "batch-factory-v11-book-asset-images-v1"},
 		{Version: 1100014, SQL: V11ProductionAssetInputStatements(), CallbackChecksum: "batch-factory-v11-production-asset-input-v1"},
 		{Version: 1100015, SQL: V11BookStageRunsStatements(), CallbackChecksum: "batch-factory-v11-book-stage-runs-v1"},
-		{Version: 1100016, SQL: V11BookMergeStatements(), CallbackChecksum: "batch-factory-v11-book-merge-v1"},
+		{Version: 1100016, SQL: V11BookMergeStatements(), CallbackChecksum: "batch-factory-v11-book-merge-v1", Adopt: adoptV11BookMergeLedger},
 		{Version: 1100017, SQL: V11ProductionDurationStatements(), CallbackChecksum: "batch-factory-v11-production-durations-v1"},
 		{Version: 1100018, SQL: V11MergeSourceDurationStatements(), CallbackChecksum: "batch-factory-v11-merge-source-durations-v1"},
 		{Version: 1100019, SQL: V11ProductionLibraryStatements(), CallbackChecksum: "batch-factory-v11-production-library-v1"},
-		{Version: 1100020, SQL: V11MergeProgressStatements(), CallbackChecksum: "batch-factory-v11-merge-progress-v1"},
+		{Version: 1100020, SQL: V11MergeProgressStatements(), CallbackChecksum: "batch-factory-v11-merge-progress-v1", Adopt: adoptV11MergeProgressLedger},
 	}
 }
 

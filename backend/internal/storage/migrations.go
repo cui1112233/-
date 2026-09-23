@@ -23,6 +23,10 @@ type Migration struct {
 	// later migrations depend on its schema. It must be idempotent and must not
 	// alter a healthy schema.
 	Reconcile func(context.Context, *sql.Tx) error
+	// Adopt verifies that a historical schema change exists even though its
+	// ledger row is missing, then records the current checksum without trying
+	// to run non-idempotent ALTER TABLE statements again.
+	Adopt func(context.Context, *sql.Tx) (bool, error)
 }
 
 func checksumMatches(m Migration, recorded, expected string) bool {
@@ -120,6 +124,30 @@ func RunMigrations(ctx context.Context, db *sql.DB, migrations []Migration) erro
 		}
 		if err != sql.ErrNoRows {
 			return fmt.Errorf("read migration %d: %w", migration.Version, err)
+		}
+		if migration.Adopt != nil {
+			tx, beginErr := db.BeginTx(ctx, nil)
+			if beginErr != nil {
+				return fmt.Errorf("begin adopt migration %d: %w", migration.Version, beginErr)
+			}
+			adopted, adoptErr := migration.Adopt(ctx, tx)
+			if adoptErr != nil {
+				_ = tx.Rollback()
+				return fmt.Errorf("adopt migration %d: %w", migration.Version, adoptErr)
+			}
+			if adopted {
+				if _, insertErr := tx.ExecContext(ctx, `INSERT INTO schema_migrations(version, checksum, applied_at) VALUES (?, ?, CURRENT_TIMESTAMP(6))`, migration.Version, expected); insertErr != nil {
+					_ = tx.Rollback()
+					return insertErr
+				}
+				if commitErr := tx.Commit(); commitErr != nil {
+					return fmt.Errorf("commit adopt migration %d: %w", migration.Version, commitErr)
+				}
+				continue
+			}
+			if rollbackErr := tx.Rollback(); rollbackErr != nil {
+				return fmt.Errorf("rollback adopt migration %d: %w", migration.Version, rollbackErr)
+			}
 		}
 		tx, err := db.BeginTx(ctx, nil)
 		if err != nil {

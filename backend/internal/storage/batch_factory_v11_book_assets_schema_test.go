@@ -20,6 +20,12 @@ func TestV11BookAssetsMigrationIsAdditiveAndDurable(t *testing.T) {
 	if assetMigration.Reconcile == nil {
 		t.Fatal("book-assets migration must repair the verified historical ledger/table split before later foreign keys run")
 	}
+	if migrations[15].Version != 1100016 || migrations[15].Adopt == nil {
+		t.Fatal("book-merge migration must adopt only a verified pre-existing book_id column")
+	}
+	if migrations[19].Version != 1100020 || migrations[19].Adopt == nil {
+		t.Fatal("merge-progress migration must adopt only its complete verified column set")
+	}
 	sql := strings.ToLower(strings.Join(V11BookAssetsStatements(), "\n"))
 	for _, required := range []string{"batch_factory_v11_book_assets", "owner_username", "book_id", "kind", "prompt", "source", "revision"} {
 		if !strings.Contains(sql, required) {
