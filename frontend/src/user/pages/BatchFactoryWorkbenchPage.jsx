@@ -174,7 +174,7 @@ export default function BatchFactoryWorkbenchPage() {
   return <main className="shuihuo-production batch-factory-canonical-entry batch-factory-workbench-home">
     <section className="batch-factory-workbench-home-heading">
       <div><h1>批量工厂</h1><p>统一管理批次、单书配置、分镜生产与视频提交。</p></div>
-      <div className="batch-factory-workbench-home-actions"><Button icon={<ReloadOutlined />} loading={loading} onClick={() => refreshBatches()}>刷新</Button><Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>新建批量</Button></div>
+      <div className="batch-factory-workbench-home-actions"><Button onClick={() => window.location.assign('/shuihuo-production/creative')}>创作漫剧</Button><Button icon={<ReloadOutlined />} loading={loading} onClick={() => refreshBatches()}>刷新</Button><Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>新建批量</Button></div>
     </section>
     {loading ? <div className="batch-factory-workbench-home-state"><Spin /><span>正在读取批量工程</span></div> : null}
     {!loading && error ? <div className="batch-factory-workbench-home-state is-error"><strong>批量工程暂时无法读取</strong><span>{error}</span><Button onClick={() => refreshBatches()}>重试</Button></div> : null}
