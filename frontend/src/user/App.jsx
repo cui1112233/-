@@ -11,9 +11,6 @@ const TtsPage = lazy(() => import('./pages/TtsPage'));
 const NovelFetchPage = lazy(() => import('./pages/NovelFetchPage'));
 const NovelFetchWorkshopPage = lazy(() => import('./pages/NovelFetchWorkshopPage'));
 const BatchFactoryPage = lazy(() => import('./pages/BatchFactoryPage'));
-const BatchFactoryFromShuihuoPage = lazy(() => import('./pages/ShuihuoProductionPage').then(module => ({
-  default: () => <module.ShuihuoProductionPage openBatchOnLoad />
-})));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const MemberCenterPage = lazy(() => import('./pages/MemberCenterPage'));
 const ProfilePage = lazy(() => import('./pages/ProfilePage'));
@@ -44,7 +41,7 @@ function getPage(pathname) {
     '/script': ScriptPage,
     '/novel-fetch': NovelFetchPage,
     '/novel-fetch-workshop': NovelFetchWorkshopPage,
-    '/batch-factory': BatchFactoryFromShuihuoPage,
+    '/batch-factory': ShuihuoProductionPage,
     '/batch-factory-preview': BatchFactoryPage,
     '/history': HistoryPage,
     '/novel-panel': NovelPanelPage,
