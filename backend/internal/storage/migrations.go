@@ -15,6 +15,22 @@ type Migration struct {
 	Version          int
 	SQL              []string
 	CallbackChecksum string
+	// LegacyChecksums are deliberately narrow compatibility exceptions for a
+	// migration that was already applied by an earlier released binary. They
+	// prevent a historical ledger spelling from rerunning destructive DDL.
+	LegacyChecksums []string
+}
+
+func checksumMatches(m Migration, recorded, expected string) bool {
+	if recorded == expected {
+		return true
+	}
+	for _, legacy := range m.LegacyChecksums {
+		if recorded == legacy {
+			return true
+		}
+	}
+	return false
 }
 
 type MigrationLedger interface {
@@ -54,7 +70,7 @@ func RunMigrationPlan(ctx context.Context, ledger MigrationLedger, migrations []
 			return err
 		}
 		if exists {
-			if recorded != expected {
+			if !checksumMatches(migration, recorded, expected) {
 				return fmt.Errorf("migration %d checksum mismatch: recorded=%s expected=%s", migration.Version, recorded, expected)
 			}
 			continue
@@ -80,7 +96,7 @@ func RunMigrations(ctx context.Context, db *sql.DB, migrations []Migration) erro
 		var recorded string
 		err := db.QueryRowContext(ctx, `SELECT checksum FROM schema_migrations WHERE version = ?`, migration.Version).Scan(&recorded)
 		if err == nil {
-			if recorded != expected {
+			if !checksumMatches(migration, recorded, expected) {
 				return fmt.Errorf("migration %d checksum mismatch: recorded=%s expected=%s", migration.Version, recorded, expected)
 			}
 			continue

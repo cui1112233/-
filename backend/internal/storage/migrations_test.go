@@ -25,6 +25,25 @@ func TestRunMigrationPlanRejectsRecordedChecksumMismatch(t *testing.T) {
 	}
 }
 
+func TestRunMigrationPlanAcceptsOnlyExplicitLegacyChecksum(t *testing.T) {
+	m := Migration{
+		Version:         26,
+		SQL:             []string{"CREATE TABLE x (id BIGINT)"},
+		LegacyChecksums: []string{"legacy-verified"},
+	}
+	called := false
+	err := RunMigrationPlan(context.Background(), memoryLedger{26: "legacy-verified"}, []Migration{m}, func(context.Context, Migration) error {
+		called = true
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if called {
+		t.Fatal("an accepted legacy migration must not run again")
+	}
+}
+
 func TestV11FoundationSchemaHasNoTextDefault(t *testing.T) {
 	for _, statement := range V11FoundationStatements() {
 		upper := strings.ToUpper(statement)

@@ -72,6 +72,9 @@ func TestV11MigrationsSeparateVideoAndVisualPrompts(t *testing.T) {
 	if len(migrations) < 11 || migrations[10].Version != 1100011 || migrations[10].CallbackChecksum != "batch-factory-v11-separate-video-prompt-v1" {
 		t.Fatalf("last migration=%+v", migrations)
 	}
+	if got := migrations[10].LegacyChecksums; len(got) != 1 || got[0] != "0aa0615fbe3d1ffa5d13faee0acc76ec39c0b1232c687630ade52e9f041ab329" {
+		t.Fatalf("legacy prompt-split checksum=%#v", got)
+	}
 	statements := V11SeparateVideoPromptStatements()
 	if len(statements) != 3 || !strings.Contains(statements[0], "video_prompt") {
 		t.Fatalf("prompt separation migration=%+v", statements)
