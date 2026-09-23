@@ -123,8 +123,10 @@ test('stores 121 material reuse and horizontal flip in publish settings and show
 });
 
 test('keeps an unverified video management system session readable in the upload dialog', () => {
-  assert.match(source, /<Tag color=\{publishSessionReady \? 'green' : 'error'\}>/);
+  assert.match(source, /className={`batch-factory-publish-session-tag \${publishSessionReady \? 'is-ready' : 'is-unverified'}`}/);
   assert.match(source, /121 后台账号尚未登录或未验证/);
+  assert.match(stylesheet, /\.batch-factory-publish-session-tag\.is-unverified/);
+  assert.match(stylesheet, /background:\s*#4a1718\s*!important/);
 });
 
 test('selects Batch Factory image, text and video models from enabled Personal Center models', () => {

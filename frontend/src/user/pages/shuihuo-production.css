@@ -3333,3 +3333,21 @@ body.shuihuo-reference-shell
 }
 
 /* BF_ASSET_VERTICAL_ALIGN_AND_WORKBENCH_FILL_END */
+
+/* 上传确认弹窗的会话状态必须在深色工作台中保持可读。 */
+.batch-factory-publish-session-tag.ant-tag {
+  margin: 0;
+  font-weight: 700;
+}
+
+.batch-factory-publish-session-tag.is-unverified {
+  color: #ffd4cf !important;
+  border-color: #a94035 !important;
+  background: #4a1718 !important;
+}
+
+.batch-factory-publish-session-tag.is-ready {
+  color: #82e4c6 !important;
+  border-color: #3b7167 !important;
+  background: #183a39 !important;
+}
