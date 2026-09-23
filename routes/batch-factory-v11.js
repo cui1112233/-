@@ -582,9 +582,14 @@ function h3StyleSystemFieldObject(value, depth = 0) {
 // result envelopes. The H3 system preset still owns the same seven fields;
 // unwrap only a nested object that contains the required H3 field signature.
 function unwrapH3StyleSystemFields(content) {
-  const raw = String(content || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+  const raw = String(content || '').trim();
+  // Compatible providers sometimes prepend a short explanation before placing
+  // the required H3 object in a fenced JSON block. The model payload is still
+  // validated by parseSmartUnifiedVisualStyle; this only removes the wrapper.
+  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  const candidate = fenced ? String(fenced[1] || '').trim() : raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
   let parsed;
-  try { parsed = JSON.parse(raw); } catch (_) { return content; }
+  try { parsed = JSON.parse(candidate); } catch (_) { return content; }
   const fields = h3StyleSystemFieldObject(parsed);
   if (!fields) return content;
   return JSON.stringify(fields);

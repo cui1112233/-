@@ -254,6 +254,24 @@ test('asset preparation analyses style.system even when smart-unified display is
   assert.match(style, /影像媒介：真人数字电影短剧/);
 });
 
+test('asset preparation accepts style.system JSON wrapped in a model explanation', async () => {
+  const fields = {
+    final_genre: '现代都市短剧', genre: '现代都市短剧', trailer_style: '高级电影感', story_era: '当代都市',
+    negative_prompt: '无畸形', picture_limit_prompt: '无字幕', quality_constraint_prompt: '画面稳定'
+  };
+  const style = await analyzeBatchFactorySmartUnifiedStyle({
+    username: 'alice', batchId: 'batch-1', bookId: 'book-1', goBaseUrl: 'http://go.local', bridgeSecret: 'secret',
+    textProvider: { endpoint: 'http://text.local/v1/chat/completions', apiKey: 'key', model: 'text-model' },
+    fetchImpl: async (_url, init = {}) => {
+      if (init.method === 'GET') return new Response(JSON.stringify({
+        batch: { id: 'batch-1', settingsState: { patch: {} }, books: [{ id: 'book-1', sourceText: '完整视频原文', settingsState: { patch: {} }, assetRecords: [] }] }
+      }), { status: 200 });
+      return new Response(JSON.stringify({ choices: [{ message: { content: `分析如下：\n\n\`\`\`json\n${JSON.stringify(fields)}\n\`\`\`` } }] }), { status: 200 });
+    }
+  });
+  assert.match(style, /现代都市短剧；高级电影感；当代都市/);
+});
+
 test('asset preparation freezes the style.system result on the book for later director use', async () => {
   const calls = [];
   const fields = {
