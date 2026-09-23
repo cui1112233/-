@@ -589,7 +589,18 @@ function unwrapH3StyleSystemFields(content) {
   const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
   const candidate = fenced ? String(fenced[1] || '').trim() : raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
   let parsed;
-  try { parsed = JSON.parse(candidate); } catch (_) { return content; }
+  try {
+    parsed = JSON.parse(candidate);
+  } catch (_) {
+    // A few OpenAI-compatible models ignore the “JSON only” suffix but still
+    // return one complete H3 object between a leading and trailing sentence.
+    // Recover only that single outer object; the signature check below remains
+    // the authority for accepting it.
+    const firstObject = candidate.indexOf('{');
+    const lastObject = candidate.lastIndexOf('}');
+    if (firstObject < 0 || lastObject <= firstObject) return content;
+    try { parsed = JSON.parse(candidate.slice(firstObject, lastObject + 1)); } catch (_) { return content; }
+  }
   const fields = h3StyleSystemFieldObject(parsed);
   if (!fields) return content;
   return JSON.stringify(fields);
