@@ -17,21 +17,17 @@ test('shows selectable text and image models and sends the selected text model t
 });
 
 test('opens a per-shot editor with the shared image-aware @ asset menu', () => {
-  assert.match(page, /function insertShotMention\(name\)/);
-  assert.match(page, /function syncShotMention\(input, nextText\)/);
+  assert.match(page, /<InlineMentionEditor[\s\S]*ariaLabel="分镜提示词编辑"/);
   assert.match(page, /target=\{shotMention\}/);
-  assert.match(page, /onSelect=\{asset => insertShotMention\(asset\.name\)\}/);
-  assert.match(page, /placeholder="输入 @ 选择人物或场景，也可直接输入 @名称"/);
+  assert.match(page, /shotEditorRef\.current\?\.replaceTarget\(shotMention, asset\)/);
 });
 
 test('offers entity mentions while editing the complete script output', () => {
   assert.match(page, /const \[outputMention, setOutputMention\] = useState\(null\);/);
-  assert.match(page, /function syncOutputMention\(input, nextOutput\)/);
-  assert.match(page, /function insertOutputMention\(name\)/);
-  assert.match(page, /ref=\{editingOutputInputRef\}/);
-  assert.match(page, /onSelect=\{event => syncOutputMention\(event\.target, output\)\}/);
+  assert.match(page, /<InlineMentionEditor[\s\S]*ariaLabel="完整剧本编辑"/);
+  assert.match(page, /ref=\{outputEditorRef\}/);
   assert.match(page, /target=\{outputMention\}/);
-  assert.match(page, /onSelect=\{asset => insertOutputMention\(asset\.name\)\}/);
+  assert.match(page, /outputEditorRef\.current\?\.replaceTarget\(outputMention, asset\)/);
   assert.doesNotMatch(page, /outputMentionCandidates\(/);
 });
 

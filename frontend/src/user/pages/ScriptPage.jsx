@@ -27,7 +27,8 @@ import { buildScriptVideoPayload, collectShotReferenceImages, getEntityMedia } f
 import { ShotOutputCards } from '../components/ShotOutputCards';
 import EntityImagePanel from '../components/EntityImagePanel';
 import { MentionAssetMenu } from '../components/ScriptMentionAssetMenu';
-import { findMentionTarget } from '../components/mentionAssetMenu';
+import { InlineMentionEditor } from '../components/InlineMentionEditor';
+import { buildMentionAssets } from '../components/mentionAssetMenu';
 import { createScriptVideo, getScriptVideoTask } from '../../shared/api/scriptVideo';
 import { listModels } from '../../shared/api/shuihuoProduction';
 import { loadScriptModelSelection, reconcileScriptModelSelection, saveScriptModelSelection } from './scriptModelSelection';
@@ -143,15 +144,16 @@ export function ScriptPage() {
   const [shotReplaceText, setShotReplaceText] = useState('');
   const [shotMatchIndex, setShotMatchIndex] = useState(0);
   const [editingShot, setEditingShot] = useState({ index: -1, text: '' });
-  const editingShotInputRef = useRef(null);
+  const shotEditorRef = useRef(null);
   const [shotMention, setShotMention] = useState(null);
   const [outputMention, setOutputMention] = useState(null);
-  const editingOutputInputRef = useRef(null);
+  const outputEditorRef = useRef(null);
   const [activeEntity, setActiveEntity] = useState(null);
   const entityEditorSessionRef = useRef(0);
   const [fullscreenEditor, setFullscreenEditor] = useState(false);
   const [leftPanelWidth, setLeftPanelWidth] = useState(null);
   const [narrating, setNarrating] = useState(false);
+  const mentionAssets = useMemo(() => buildMentionAssets(null, extractInfo.characters, extractInfo.scenes), [extractInfo.characters, extractInfo.scenes]);
   useEffect(() => {
     let active = true;
     getMemberCenter().then(result => {
@@ -282,39 +284,16 @@ export function ScriptPage() {
       && sourceGenerationRef.current === request.sourceGeneration;
   }
 
-  function insertShotMention(name) {
+  function insertShotMention(asset) {
     if (!shotMention) return;
-    const input = editingShotInputRef.current?.resizableTextArea?.textArea || editingShotInputRef.current;
-    const { start, end } = shotMention;
-    const token = `@${name} `;
-    setEditingShot(current => ({ ...current, text: `${current.text.slice(0, start)}${token}${current.text.slice(end)}` }));
+    shotEditorRef.current?.replaceTarget(shotMention, asset);
     setShotMention(null);
-    requestAnimationFrame(() => {
-      input?.focus?.();
-      input?.setSelectionRange?.(start + token.length, start + token.length);
-    });
   }
 
-  function syncShotMention(input, nextText) {
-    setShotMention(findMentionTarget(input, nextText));
-  }
-
-  function syncOutputMention(input, nextOutput) {
-    setOutputMention(findMentionTarget(input, nextOutput));
-  }
-
-  function insertOutputMention(name) {
+  function insertOutputMention(asset) {
     if (!outputMention) return;
-    const token = `@${name} `;
-    const nextOutput = `${output.slice(0, outputMention.start)}${token}${output.slice(outputMention.end)}`;
-    updateOutputDraft(nextOutput);
+    outputEditorRef.current?.replaceTarget(outputMention, asset);
     setOutputMention(null);
-    requestAnimationFrame(() => {
-      const input = editingOutputInputRef.current?.resizableTextArea?.textArea || editingOutputInputRef.current;
-      const caret = outputMention.start + token.length;
-      input?.focus?.();
-      input?.setSelectionRange?.(caret, caret);
-    });
   }
 
   function invalidateRequests() {
@@ -1403,27 +1382,22 @@ export function ScriptPage() {
               activeMatch={shotReplaceOpen ? activeShotMatch : null}
               cardStarts={shotCardStarts}
             /> : <>
-              <Input.TextArea
-                ref={editingOutputInputRef}
+              {editingOutput ? <InlineMentionEditor
+                ref={outputEditorRef}
                 className="legacy-output"
                 value={output}
-                rows={24}
-                readOnly={!editingOutput}
-                onChange={event => {
-                  const nextOutput = event.target.value;
-                  updateOutputDraft(nextOutput);
-                  syncOutputMention(event.target, nextOutput);
-                }}
-                onSelect={event => syncOutputMention(event.target, output)}
-                onFocus={event => syncOutputMention(event.target, output)}
-              />
+                assets={mentionAssets}
+                ariaLabel="完整剧本编辑"
+                onChange={updateOutputDraft}
+                onMentionTarget={setOutputMention}
+              /> : <Input.TextArea className="legacy-output" value={output} rows={24} readOnly />}
               {editingOutput ? <MentionAssetMenu
                 target={outputMention}
                 characters={extractInfo.characters}
                 scenes={extractInfo.scenes}
-                onSelect={asset => insertOutputMention(asset.name)}
-                onAddImage={asset => openEntityEditor(asset.type, asset.id)}
-                onCreate={(type, name) => addEntity(type, name)}
+                onSelect={asset => insertOutputMention(asset)}
+                onAddImage={asset => { setOutputMention(null); openEntityEditor(asset.type, asset.id); }}
+                onCreate={(type, name) => { setOutputMention(null); addEntity(type, name); }}
               /> : null}
             </>
           ) : generating ? (
@@ -1446,18 +1420,21 @@ export function ScriptPage() {
             setShotMention(null);
             setEditingShot({ index: -1, text: '' });
           }}>
-            <Input.TextArea ref={editingShotInputRef} value={editingShot.text} rows={12} placeholder="输入 @ 选择人物或场景，也可直接输入 @名称" onChange={event => {
-              const nextText = event.target.value;
-              setEditingShot(current => ({ ...current, text: nextText }));
-              syncShotMention(event.target, nextText);
-            }} onSelect={event => syncShotMention(event.target, editingShot.text)} onFocus={event => syncShotMention(event.target, editingShot.text)} />
+            <InlineMentionEditor
+              ref={shotEditorRef}
+              value={editingShot.text}
+              assets={mentionAssets}
+              ariaLabel="分镜提示词编辑"
+              onChange={nextText => setEditingShot(current => ({ ...current, text: nextText }))}
+              onMentionTarget={setShotMention}
+            />
             <MentionAssetMenu
               target={shotMention}
               characters={extractInfo.characters}
               scenes={extractInfo.scenes}
-              onSelect={asset => insertShotMention(asset.name)}
-              onAddImage={asset => openEntityEditor(asset.type, asset.id)}
-              onCreate={(type, name) => addEntity(type, name)}
+              onSelect={asset => insertShotMention(asset)}
+              onAddImage={asset => { setShotMention(null); openEntityEditor(asset.type, asset.id); }}
+              onCreate={(type, name) => { setShotMention(null); addEntity(type, name); }}
             />
           </Modal>
         </div>
