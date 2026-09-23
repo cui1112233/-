@@ -144,6 +144,7 @@ test('submits only the requested book to the direct 121 publisher', async () => 
   const req = {
     username: 'alice',
     auth: { account: { isOwner: false } },
+    body: { organization: '1' },
     app: { locals: { novelFetchStore: { getSession: () => ({ cookie: 'PHPSESSID=ready' }) } } }
   };
   const responseFor = value => ({
