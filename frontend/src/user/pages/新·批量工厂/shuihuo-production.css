@@ -13,10 +13,6 @@
   background: var(--sh-bg);
 }
 
-.batch-factory-v11-embedded { min-height: 100%; }
-.batch-factory-v11-embedded-nav { display: flex; align-items: center; gap: 14px; padding: 12px 20px; border-bottom: 1px solid var(--sh-line); color: var(--sh-text); }
-.batch-factory-v11-embedded-nav > span { color: var(--sh-muted); font-size: 13px; }
-
 [data-theme='light'] .shuihuo-production { --sh-bg: #f5f8fb; --sh-panel: #ffffff; --sh-panel-strong: #eaf0f6; --sh-line: #d1dbe7; --sh-text: #162337; --sh-muted: #5d6f87; --sh-accent: #168e74; --sh-accent-dark: #cce9e0; }
 .shuihuo-theme-active { --sh-bg: #070b11; --sh-panel: #0e1621; --sh-panel-strong: #111b28; --sh-line: rgba(151, 168, 190, .16); --sh-text: #f5f7fb; --sh-muted: #8391a4; --sh-accent: #63dfc0; --sh-accent-dark: #23645d; --sh-danger: #f08a8a; }
 [data-theme='light'] .shuihuo-production,
@@ -76,7 +72,9 @@ body.shuihuo-reference-shell .legacy-content { padding: 0; overflow: auto; }
 .shuihuo-project-card { position: relative; display: grid; width: 200px; min-height: 200px; overflow: hidden; border: 1px solid #304158; border-radius: 2px; background: #1b293d; }
 .shuihuo-project-card:hover { border-color: #5b7596; }
 .shuihuo-project-card-open { display: grid; grid-template-rows: 128px 1fr; gap: 0; width: 100%; padding: 0; color: inherit; border: 0; background: transparent; text-align: left; cursor: pointer; }
-.shuihuo-project-card-cover { display: flex; align-items: flex-start; padding: 19px 16px; color: #d6e1f0; background: #35465e; font-size: 12px; }
+.shuihuo-project-card-cover { display: flex; align-items: flex-start; justify-content: space-between; padding: 19px 16px; color: #d6e1f0; background: #35465e; font-size: 12px; }
+.shuihuo-project-card-mode { padding: 3px 7px; color: #d9edff; border: 1px solid #5d7796; border-radius: 3px; background: rgba(12, 23, 39, .42); font-size: 11px; line-height: 1.2; }
+.shuihuo-project-card-mode.is-batch-factory { color: #d7ffef; border-color: #4f9d84; background: rgba(30, 113, 91, .35); }
 .shuihuo-project-card-meta { display: grid; align-content: center; gap: 6px; padding: 12px; background: #1d2b40; }
 .shuihuo-project-card-meta strong { overflow: hidden; color: #f3f6fb; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
 .shuihuo-project-card-meta span { color: #7189a7; font-size: 11px; }

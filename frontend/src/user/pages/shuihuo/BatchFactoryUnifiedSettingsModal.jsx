@@ -32,6 +32,9 @@ const styles = ['general', 'cheerful', 'sad', 'friendly', 'chat'].map(value => (
 const selectOption = preset => ({ value: preset.id, label: `${preset.name || preset.id} · v${preset.version || 1}` });
 const presetValue = preset => preset ? { presetId: preset.id, presetName: preset.name || preset.id, presetSlot: preset.slot || '', presetVersion: preset.version || 1, constraintCategory: preset.constraintCategory || '' } : { presetId: '', presetName: '', presetSlot: '', presetVersion: null, constraintCategory: '' };
 const TARGET_ADMIN_URL = 'http://two.121w.com/tttadmin/index.php';
+// 小说获取旧版浏览器登录器仍返回“目标站登录会话”。它与当前直连
+// 登录器的两个名称表达的是同一份账号级会话，不能因此把已验证会话
+// 误判为未登录。
 const SESSION_CHECK_NAMES = ['视频管理系统登录会话', '121 后台登录会话', '目标站登录会话'];
 
 export function BatchFactoryEngineSettingsForm({ value, onChange, sections = ['models', 'audio', 'publish'], active = true }) {

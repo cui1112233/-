@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"net/http"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -93,6 +94,48 @@ func registerHistoricalMergeReadRoutes(mux *http.ServeMux, store batchfactoryv11
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"batchId": r.PathValue("batchId"), "jobs": jobs})
 	})
+	mux.HandleFunc("GET /api/batch-factory/v11/batches/{batchId}/merge-cover/{artifactId}", func(w http.ResponseWriter, r *http.Request) {
+		owner, ok := bridgeOwner(r)
+		if !ok {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			return
+		}
+		if files == nil {
+			writeStoreError(w, batchfactoryv11.ErrUnavailable)
+			return
+		}
+		repository, ok := store.(batchfactoryv11.MergeRepository)
+		if !ok {
+			writeStoreError(w, batchfactoryv11.ErrUnavailable)
+			return
+		}
+		batchID, artifactID := r.PathValue("batchId"), r.PathValue("artifactId")
+		jobs, err := repository.ListMergeJobs(r.Context(), owner, batchID)
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		expectedOutput := "/api/batch-factory/v11/batches/" + batchID + "/merge-media/" + artifactID
+		if !hasSucceededMergeOutput(jobs, expectedOutput) {
+			writeStoreError(w, batchfactoryv11.ErrNotFound)
+			return
+		}
+		file, err := files.Open(artifactID + ".mp4")
+		if err != nil {
+			writeStoreError(w, batchfactoryv11.ErrNotFound)
+			return
+		}
+		path := file.Name()
+		_ = file.Close()
+		image, err := exec.CommandContext(r.Context(), "ffmpeg", "-v", "error", "-ss", "0.001", "-i", path, "-frames:v", "1", "-f", "image2pipe", "-vcodec", "mjpeg", "-").Output()
+		if err != nil || len(image) == 0 {
+			writeStoreError(w, batchfactoryv11.ErrUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "image/jpeg")
+		w.Header().Set("Cache-Control", "private, max-age=3600")
+		_, _ = w.Write(image)
+	})
 	mux.HandleFunc("GET /api/batch-factory/v11/batches/{batchId}/merge-media/{artifactId}", func(w http.ResponseWriter, r *http.Request) {
 		owner, ok := bridgeOwner(r)
 		if !ok {
@@ -115,14 +158,7 @@ func registerHistoricalMergeReadRoutes(mux *http.ServeMux, store batchfactoryv11
 			return
 		}
 		expectedOutput := "/api/batch-factory/v11/batches/" + batchID + "/merge-media/" + artifactID
-		found := false
-		for _, job := range jobs {
-			if job.Status == batchfactoryv11.MergeSucceeded && strings.TrimSpace(job.OutputURL) == expectedOutput {
-				found = true
-				break
-			}
-		}
-		if !found {
+		if !hasSucceededMergeOutput(jobs, expectedOutput) {
 			writeStoreError(w, batchfactoryv11.ErrNotFound)
 			return
 		}
@@ -140,6 +176,15 @@ func registerHistoricalMergeReadRoutes(mux *http.ServeMux, store batchfactoryv11
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		http.ServeContent(w, r, artifactID+".mp4", jobTime(jobs, expectedOutput), file)
 	})
+}
+
+func hasSucceededMergeOutput(jobs []batchfactoryv11.MergeJob, output string) bool {
+	for _, job := range jobs {
+		if job.Status == batchfactoryv11.MergeSucceeded && strings.TrimSpace(job.OutputURL) == output {
+			return true
+		}
+	}
+	return false
 }
 
 func jobTime(jobs []batchfactoryv11.MergeJob, output string) (at time.Time) {

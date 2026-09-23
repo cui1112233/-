@@ -71,7 +71,6 @@ test('shows the precise 121 session failure and never reports a failed verificat
   assert.match(source, /if \(!checked\?\.session \|\| !checked\.visible\?\.ok\)/);
 });
 
-
 test('treats the legacy novel-fetch browser session as the same shared 121 login', () => {
   assert.match(source, /SESSION_CHECK_NAMES\s*=\s*\[\s*'视频管理系统登录会话',\s*'121 后台登录会话',\s*'目标站登录会话'\s*\]/);
 });
