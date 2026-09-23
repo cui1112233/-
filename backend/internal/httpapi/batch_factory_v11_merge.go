@@ -60,13 +60,33 @@ func registerMergeRoutes(mux *http.ServeMux, service *batchfactoryv11.MergeServi
 		}
 		writeJSON(w, http.StatusCreated, map[string]any{"job": job})
 	})
+	registerHistoricalMergeReadRoutes(mux, service.Store, files)
+}
+
+// registerHistoricalMergeReadRoutes exposes only already persisted merged
+// outputs. It intentionally has no adapter or poller, so lower capability
+// slices can show an owner's old finished videos without enabling new merges.
+func registerHistoricalMergeReadRoutes(mux *http.ServeMux, store batchfactoryv11.Store, files *localartifact.Store) {
 	mux.HandleFunc("GET /api/batch-factory/v11/batches/{batchId}/merge-status", func(w http.ResponseWriter, r *http.Request) {
 		owner, ok := bridgeOwner(r)
 		if !ok {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 			return
 		}
-		jobs, err := service.GetBatchStatus(r.Context(), owner, r.PathValue("batchId"))
+		if store == nil {
+			writeStoreError(w, batchfactoryv11.ErrUnavailable)
+			return
+		}
+		if _, err := store.GetBatch(r.Context(), owner, r.PathValue("batchId")); err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		repository, ok := store.(batchfactoryv11.MergeRepository)
+		if !ok {
+			writeStoreError(w, batchfactoryv11.ErrUnavailable)
+			return
+		}
+		jobs, err := repository.ListMergeJobs(r.Context(), owner, r.PathValue("batchId"))
 		if err != nil {
 			writeStoreError(w, err)
 			return
@@ -83,7 +103,7 @@ func registerMergeRoutes(mux *http.ServeMux, service *batchfactoryv11.MergeServi
 			writeStoreError(w, batchfactoryv11.ErrUnavailable)
 			return
 		}
-		repository, ok := service.Store.(batchfactoryv11.MergeRepository)
+		repository, ok := store.(batchfactoryv11.MergeRepository)
 		if !ok {
 			writeStoreError(w, batchfactoryv11.ErrUnavailable)
 			return

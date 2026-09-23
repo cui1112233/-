@@ -38,6 +38,9 @@ func NewRouter(options RouterOptions) http.Handler {
 	if options.Store != nil && options.Slice >= 1 {
 		registerSliceOneRoutes(v11, options.Store)
 		registerBookAssetRoutes(v11, options.Store, options.LocalArtifacts)
+		if options.Merge == nil {
+			registerHistoricalMergeReadRoutes(v11, options.Store, options.LocalArtifacts)
+		}
 	}
 	if options.Store != nil && options.Director != nil && options.Slice >= 2 {
 		registerDirectorRoutes(v11, options.Director, options.Store)

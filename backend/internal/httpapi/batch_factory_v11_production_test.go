@@ -67,6 +67,38 @@ func TestSliceThreeDoesNotExposeProductionMutation(t *testing.T) {
 	}
 }
 
+func TestSliceThreeKeepsHistoricalMergedMediaReadableWithoutEnablingMerge(t *testing.T) {
+	now := time.Unix(1700000000, 0)
+	store := batchfactoryv11.NewMemoryStore()
+	batch, err := store.CreateBatch(context.Background(), "alice", batchfactoryv11.CreateBatchInput{Title: "b", Books: []batchfactoryv11.CreateBookInput{{Title: "k", SourceText: "正文"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := localartifact.NewStore(t.TempDir(), 1<<20)
+	artifactID := "merge_history_media_1"
+	if _, err := files.SaveMP4(artifactID, strings.NewReader("0000ftypisom-historical-merged-video")); err != nil {
+		t.Fatal(err)
+	}
+	output := "/api/batch-factory/v11/batches/" + batch.ID + "/merge-media/" + artifactID
+	if _, err := store.CreateMergeJob(context.Background(), batchfactoryv11.MergeJob{Owner: "alice", BatchID: batch.ID, RequestID: "historical-local-media", Status: batchfactoryv11.MergeSucceeded, OutputURL: output, CreatedAt: now, UpdatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	api := NewRouter(RouterOptions{BridgeSecret: "secret", Now: func() time.Time { return now }, Slice: 3, Store: store, LocalArtifacts: files})
+
+	status := signedJSONRequest(t, api, now, "alice", http.MethodGet, "/api/batch-factory/v11/batches/"+batch.ID+"/merge-status", nil)
+	if status.Code != http.StatusOK || !strings.Contains(status.Body.String(), artifactID) {
+		t.Fatalf("status=%d body=%s", status.Code, status.Body.String())
+	}
+	media := signedJSONRequest(t, api, now, "alice", http.MethodGet, output, nil)
+	if media.Code != http.StatusOK || !strings.Contains(media.Body.String(), "ftyp") {
+		t.Fatalf("media=%d body=%q", media.Code, media.Body.String())
+	}
+	mutation := signedJSONRequest(t, api, now, "alice", http.MethodPost, "/api/batch-factory/v11/batches/"+batch.ID+"/merge", map[string]any{"requestId": "must-stay-closed"})
+	if mutation.Code != http.StatusNotFound {
+		t.Fatalf("mutation=%d body=%s", mutation.Code, mutation.Body.String())
+	}
+}
+
 func TestSliceFiveMergeRouteIsIdempotentAndOwnerScoped(t *testing.T) {
 	now := time.Unix(1700000000, 0)
 	store := batchfactoryv11.NewMemoryStore()

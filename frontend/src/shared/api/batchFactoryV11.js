@@ -383,8 +383,8 @@ export function submitBookMerge(batchId, bookId, payload = {}) {
   });
 }
 
-export function getMergeStatus(batchId) {
-  return apiRequest(bf11Path(`batches/${id(batchId)}/merge-status`));
+export function getMergeStatus(batchId, options = {}) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/merge-status`), options);
 }
 
 export function getPublishCredential(provider) {

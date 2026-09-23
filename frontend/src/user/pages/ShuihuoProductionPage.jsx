@@ -3,10 +3,11 @@ import { Modal, Spin, message } from 'antd';
 import { CommentaryWorkbench } from './shuihuo/CommentaryWorkbench';
 import { BatchFactoryNovelList } from './shuihuo/BatchFactoryNovelList';
 import { batchFactoryBatchFromResponse, batchFactoryCoverFrom, batchFactoryProjectsFrom, isBatchFactoryV11Project } from './shuihuo/batchFactoryProjects';
+import { batchFactoryMergeCoverFrom } from './shuihuo/batchFactoryMergeCover';
 import { ProjectsView } from './shuihuo/ProjectsView';
 import { AssetsView } from './shuihuo/AssetsView';
 import { confirmSegmentation, createProject, deleteProject, getProductionHealth, getProject, listModels, listProjects, paragraphSegmentation, replaceProjectSource, smartSegmentation } from '../../shared/api/shuihuoProduction';
-import { appendNovelFetchIntake, createBatchFromIntake, createManualIntake, getBatch, getIntake, getProductionStatus, listBatches, listBookAssetImages, listBookAssets, startBatchAutomation } from '../../shared/api/batchFactoryV11';
+import { appendNovelFetchIntake, createBatchFromIntake, createManualIntake, getBatch, getIntake, getMergeStatus, getProductionStatus, listBatches, listBookAssetImages, listBookAssets, startBatchAutomation } from '../../shared/api/batchFactoryV11';
 import { BATCH_FACTORY_ACTIVE_BATCH_STORAGE_KEY, novelFetchIntakeBooks, pendingNovelFetchIntakeId } from './shuihuo/batchFactoryNovelFetchHandoff';
 import './shuihuo-production.css';
 
@@ -98,8 +99,9 @@ export function ShuihuoProductionPage({ openBatchOnLoad = false }) {
       setProjects([...waterProjects, ...batchProjects]);
       const coveredProjects = await Promise.all(batchProjects.map(async project => {
         const firstBook = project.batch?.books?.[0];
-        const [productionStatus, imageURL] = await Promise.all([
+        const [productionStatus, mergeStatus, imageURL] = await Promise.all([
           getProductionStatus(project.batchId, { silent: true }).catch(() => null),
+          getMergeStatus(project.batchId, { silent: true }).catch(() => null),
           (async () => {
             if (!firstBook?.id) return '';
             const assetResult = await listBookAssets(project.batchId, firstBook.id, { silent: true }).catch(() => null);
@@ -111,7 +113,10 @@ export function ShuihuoProductionPage({ openBatchOnLoad = false }) {
             return '';
           })()
         ]);
-        return { ...project, coverMedia: batchFactoryCoverFrom(project.batch, productionStatus, imageURL) };
+        const productionCover = batchFactoryCoverFrom(project.batch, productionStatus);
+        const mergeCover = batchFactoryMergeCoverFrom(project.batch, mergeStatus);
+        const imageCover = batchFactoryCoverFrom(project.batch, { jobs: [] }, imageURL);
+        return { ...project, coverMedia: productionCover || mergeCover || imageCover };
       }));
       if (mountedRef.current) setProjects([...waterProjects, ...coveredProjects]);
     } catch (error) { message.error(error.message || '读取项目库失败'); } finally { setLoading(false); }
