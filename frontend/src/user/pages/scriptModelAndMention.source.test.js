@@ -24,6 +24,15 @@ test('opens a per-shot editor that inserts character and scene @ mentions at the
   assert.match(page, /placeholder="输入 @ 选择人物或场景，也可直接输入 @名称"/);
 });
 
+test('offers entity mentions while editing the complete script output', () => {
+  assert.match(page, /const \[outputMention, setOutputMention\] = useState\(null\);/);
+  assert.match(page, /function syncOutputMention\(input, nextOutput\)/);
+  assert.match(page, /function insertOutputMention\(name\)/);
+  assert.match(page, /ref=\{editingOutputInputRef\}/);
+  assert.match(page, /onSelect=\{event => syncOutputMention\(event\.target, output\)\}/);
+  assert.match(page, /onClick=\{\(\) => insertOutputMention\(formatEntity\(item\)\)\}/);
+});
+
 test('keeps storyboard rendering safe by defining the video permission state it passes to shot cards', () => {
   assert.match(page, /const \[canGenerateVideo, setCanGenerateVideo\] = useState\(false\);/);
   assert.match(page, /getMemberCenter\(\)\.then\(result =>/);

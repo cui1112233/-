@@ -142,6 +142,8 @@ export function ScriptPage() {
   const [shotMatchIndex, setShotMatchIndex] = useState(0);
   const [editingShot, setEditingShot] = useState({ index: -1, text: '' });
   const editingShotInputRef = useRef(null);
+  const [outputMention, setOutputMention] = useState(null);
+  const editingOutputInputRef = useRef(null);
   const [activeEntity, setActiveEntity] = useState(null);
   const entityEditorSessionRef = useRef(0);
   const [fullscreenEditor, setFullscreenEditor] = useState(false);
@@ -292,6 +294,31 @@ export function ScriptPage() {
   function mentionCandidates(items) {
     const query = (editingShot.text.match(/@([\u4e00-\u9fffA-Za-z0-9_-]*)$/)?.[1] || '').toLowerCase();
     return query || /@$/.test(editingShot.text) ? (items || []).filter(item => formatEntity(item).toLowerCase().includes(query)) : [];
+  }
+
+  function syncOutputMention(input, nextOutput) {
+    const text = String(nextOutput || '');
+    const caret = Number.isInteger(input?.selectionStart) ? input.selectionStart : text.length;
+    const match = text.slice(0, caret).match(/@([\u4e00-\u9fffA-Za-z0-9_-]*)$/);
+    setOutputMention(match ? { start: caret - match[0].length, end: caret, query: match[1].toLowerCase() } : null);
+  }
+
+  function outputMentionCandidates(items) {
+    return outputMention ? (items || []).filter(item => formatEntity(item).toLowerCase().includes(outputMention.query)) : [];
+  }
+
+  function insertOutputMention(name) {
+    if (!outputMention) return;
+    const token = `@${name} `;
+    const nextOutput = `${output.slice(0, outputMention.start)}${token}${output.slice(outputMention.end)}`;
+    updateOutputDraft(nextOutput);
+    setOutputMention(null);
+    requestAnimationFrame(() => {
+      const input = editingOutputInputRef.current?.resizableTextArea?.textArea || editingOutputInputRef.current;
+      const caret = outputMention.start + token.length;
+      input?.focus?.();
+      input?.setSelectionRange?.(caret, caret);
+    });
   }
 
   function invalidateRequests() {
@@ -1376,7 +1403,26 @@ export function ScriptPage() {
               output={output}
               activeMatch={shotReplaceOpen ? activeShotMatch : null}
               cardStarts={shotCardStarts}
-            /> : <Input.TextArea className="legacy-output" value={output} rows={24} readOnly={!editingOutput} onChange={event => updateOutputDraft(event.target.value)} />
+            /> : <>
+              <Input.TextArea
+                ref={editingOutputInputRef}
+                className="legacy-output"
+                value={output}
+                rows={24}
+                readOnly={!editingOutput}
+                onChange={event => {
+                  const nextOutput = event.target.value;
+                  updateOutputDraft(nextOutput);
+                  syncOutputMention(event.target, nextOutput);
+                }}
+                onSelect={event => syncOutputMention(event.target, output)}
+                onFocus={event => syncOutputMention(event.target, output)}
+              />
+              {editingOutput && outputMention ? <Space wrap style={{ marginTop: 8 }}>
+                {outputMentionCandidates(extractInfo.characters).map(item => <Button key={`output-character-${item.id}`} size="small" onClick={() => insertOutputMention(formatEntity(item))}>@人物 {formatEntity(item)}</Button>)}
+                {outputMentionCandidates(extractInfo.scenes).map(item => <Button key={`output-scene-${item.id}`} size="small" onClick={() => insertOutputMention(formatEntity(item))}>@场景 {formatEntity(item)}</Button>)}
+              </Space> : null}
+            </>
           ) : generating ? (
             <CmLoader />
           ) : (
