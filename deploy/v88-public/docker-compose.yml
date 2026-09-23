@@ -12,6 +12,10 @@ services:
       QIANTIE_BATCH_FACTORY_V11_TEXT_API_KEY: ${QIANTIE_BATCH_FACTORY_V11_TEXT_API_KEY:-}
       QIANTIE_BATCH_FACTORY_V11_TEXT_MODEL: ${QIANTIE_BATCH_FACTORY_V11_TEXT_MODEL:-}
       QIANTIE_BATCH_FACTORY_V11_PRODUCTION_ENABLED: ${QIANTIE_BATCH_FACTORY_V11_PRODUCTION_ENABLED:-0}
+      # Slice 5 may use the in-process local merger.  Keep the switch in the
+      # service environment (rather than only in .env) so a recreated Go
+      # container preserves the same batch-factory capability.
+      QIANTIE_BATCH_FACTORY_V11_LOCAL_MERGE_ENABLED: ${QIANTIE_BATCH_FACTORY_V11_LOCAL_MERGE_ENABLED:-0}
     expose:
       - "4000"
     networks:
