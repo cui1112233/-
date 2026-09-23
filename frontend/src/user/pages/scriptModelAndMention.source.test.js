@@ -23,3 +23,9 @@ test('opens a per-shot editor that inserts character and scene @ mentions at the
   assert.match(page, /@场景 \{formatEntity\(item\)\}/);
   assert.match(page, /placeholder="输入 @ 选择人物或场景，也可直接输入 @名称"/);
 });
+
+test('keeps storyboard rendering safe by defining the video permission state it passes to shot cards', () => {
+  assert.match(page, /const \[canGenerateVideo, setCanGenerateVideo\] = useState\(false\);/);
+  assert.match(page, /getMemberCenter\(\)\.then\(result =>/);
+  assert.match(page, /onGenerateVideo=\{canGenerateVideo \? generateVideoForShot : null\}/);
+});
