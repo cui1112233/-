@@ -15,11 +15,11 @@ import './batch-factory-v11-scoped.css';
 import './batch-factory-v11-detail.css';
 import './batch-factory-v11-theme.css';
 
-function requestParamsFromLocation(initialBatchId = '') {
+function requestParamsFromLocation() {
   if (typeof window === 'undefined') return {};
   const search = new URLSearchParams(window.location.search || '');
   return {
-    batchId: search.get('batch') || initialBatchId || '',
+    batchId: search.get('batch') || '',
     intakeId: search.get('intake') || ''
   };
 }
@@ -37,13 +37,13 @@ function batchForView(batch, books) {
   };
 }
 
-export function BatchFactoryV11UiPage({ initialBatchId = '' } = {}) {
+export function BatchFactoryV11UiPage() {
   const adapter = useMemo(() => createBf11UiAdapter({
     ...batchFactoryV11,
     listPersonalConstraintPrompts: batchFactoryV11.listPersonalConstraintPrompts
   }), []);
   const runtime = useMemo(() => createBf11Runtime({ adapter }), [adapter]);
-  const requestParams = useMemo(() => requestParamsFromLocation(initialBatchId), [initialBatchId]);
+  const requestParams = useMemo(requestParamsFromLocation, []);
   const [runtimeState, setRuntimeState] = useState({ phase: 'loading' });
   const [creatingBatch, setCreatingBatch] = useState(false);
   const [productionSettingsOpen, setProductionSettingsOpen] = useState(false);

@@ -349,6 +349,26 @@ export function getBatchAutomationStatus(batchId) {
   return apiRequest(bf11Path(`batches/${id(batchId)}/automation`));
 }
 
+export function listAutomationPresets() {
+  return apiRequest(bf11Path('automation-presets'));
+}
+
+export function createAutomationPreset(payload) {
+  return apiRequest(bf11Path('automation-presets'), { method: 'POST', body: body(payload) });
+}
+
+export function updateAutomationPreset(presetId, payload) {
+  return apiRequest(bf11Path(`automation-presets/${id(presetId)}`), { method: 'PUT', body: body(payload) });
+}
+
+export function deleteAutomationPreset(presetId) {
+  return apiRequest(bf11Path(`automation-presets/${id(presetId)}`), { method: 'DELETE', body: body({}) });
+}
+
+export function saveBatchAutomationPreset(batchId, name) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/automation-presets`), { method: 'POST', body: body({ name }) });
+}
+
 export function startBatchAutomation(batchId, payload = {}) {
   return apiRequest(bf11Path(`batches/${id(batchId)}/automation/start`), { method: 'POST', body: body(payload) });
 }
@@ -478,6 +498,11 @@ export default {
   createLocalExecutorPairing,
   getProductionStatus,
   getBatchAutomationStatus,
+  listAutomationPresets,
+  createAutomationPreset,
+  updateAutomationPreset,
+  deleteAutomationPreset,
+  saveBatchAutomationPreset,
   startBatchAutomation,
   pauseBatchAutomation,
   resumeBatchAutomation,

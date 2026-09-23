@@ -45,3 +45,17 @@ test('uses the first book and storyboard with a successful video before falling 
   assert.deepEqual(batchFactoryCoverFrom(batch, { jobs: [] }, '/fallback.png'), { kind: 'image', url: '/fallback.png' });
   assert.equal(batchFactoryCoverFrom(batch, { jobs: [] }), null);
 });
+
+test('uses the selected first-shot upload video as the project cover', () => {
+  const batch = { books: [{
+    id: 'book-1',
+    videos: [{ id: 'video-1' }],
+    settingsState: { patch: { primaryUploadSource: { kind: 'video', videoId: 'video-1', taskId: 'selected-task' } } }
+  }] };
+  const status = { jobs: [{ tasks: [
+    { id: 'newer-task', videoId: 'video-1', status: 'succeeded', mediaUrl: '/newer.mp4' },
+    { id: 'selected-task', videoId: 'video-1', status: 'succeeded', mediaUrl: '/selected.mp4' }
+  ] }] };
+
+  assert.deepEqual(batchFactoryCoverFrom(batch, status), { kind: 'video', url: '/selected.mp4' });
+});

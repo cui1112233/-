@@ -21,10 +21,16 @@ const constraintCategories = [
 // 管理员才能快速定位该改哪一项，而版本仍由每个预设词自己的展开行管理。
 const scriptPresetSections = [
   {
+    key: 'batch-assets',
+    title: '人物场景道具提取',
+    description: '批量工厂 V11 的统一资产提取规则；每条已发布预设会出现在批量工厂资产设置下拉框。',
+    matches: preset => preset.protocolLock?.slot === 'script.asset-extraction'
+  },
+  {
     key: 'base-setup',
     title: '基础设定（人物 / 场景）',
     description: '对应剧本生成输入框的「切换指令 → 提取方案」，用于提取人物与场景。',
-    matches: preset => preset.protocolLock?.format === 'extract' || ['script-extract', 'script-extract-novel-panel'].includes(preset.id)
+    matches: preset => (preset.protocolLock?.format === 'extract' && preset.protocolLock?.slot !== 'script.asset-extraction') || ['script-extract', 'script-extract-novel-panel'].includes(preset.id)
   },
   {
     key: 'card-protocol',
@@ -48,6 +54,53 @@ const scriptPresetSections = [
     key: 'other',
     title: '其他剧本提示词',
     description: '未归入以上生成环节的剧本模块预设词。',
+    matches: () => true
+  }
+];
+
+// 批量工厂和剧本生成一样由多个阶段串起来。按实际生产阶段分区，
+// 让管理员修改时能看出这条规则作用于资产、导演、VIDEO 还是画面。
+const batchFactoryPresetSections = [
+  {
+    key: 'director',
+    title: '导演与改编',
+    description: '原文直转、爆款开头改编及导演拆分规则，生成分镜与 VIDEO 前使用。',
+    matches: preset => ['batch-hook-adaptation', 'batch-original-director', 'batch-viral-director'].includes(preset.id)
+  },
+  {
+    key: 'assets',
+    title: '人物场景道具提取',
+    description: '完整资产方案：普通方案一次提取；H3 方案在后台执行事实提取与全人物外形编译。',
+    matches: preset => preset.protocolLock?.slot === 'script.asset-extraction'
+  },
+  {
+    key: 'constraints',
+    title: '约束设置',
+    description: '画面前缀、画质、限制与负面提示词；批量工厂直接复用剧本生成的分层约束。',
+    matches: preset => preset.protocolLock?.format === 'constraint' || preset.id.startsWith('batch-prefix-')
+  },
+  {
+    key: 'video',
+    title: '视频提示词',
+    description: '约束 VIDEO 的镜头、动作、运镜、时长与最终视频提示词。',
+    matches: preset => preset.protocolLock?.slot === 'batch.video-meta'
+  },
+  {
+    key: 'visual',
+    title: '画面提示词',
+    description: '只用于当前 VIDEO 的画面图生成，不写入视频提示词。',
+    matches: preset => preset.id === 'batch-visual-meta'
+  },
+  {
+    key: 'legacy',
+    title: '兼容旧版资产规则',
+    description: '仅供历史批次读取；新批量一律从“人物场景道具提取”选择完整方案。',
+    matches: preset => ['batch-character-meta', 'batch-character-h3', 'batch-scene-meta', 'batch-scene-h3', 'batch-prop-meta'].includes(preset.id)
+  },
+  {
+    key: 'other',
+    title: '其他批量工厂提示词',
+    description: '未归入上述生产阶段的批量工厂预设词。',
     matches: () => true
   }
 ];
@@ -97,6 +150,12 @@ function emptyDraft(module) {
   };
 }
 
+function batchFactorySharedScriptPresets(values) {
+  return (Array.isArray(values) ? values : []).filter(preset => (
+    preset.protocolLock?.slot === 'script.asset-extraction' || preset.protocolLock?.format === 'constraint'
+  ));
+}
+
 export function PresetLibraryPage() {
   const [module, setModule] = useState('script');
   const [presets, setPresets] = useState([]);
@@ -105,6 +164,7 @@ export function PresetLibraryPage() {
   const [error, setError] = useState('');
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingExisting, setEditingExisting] = useState(false);
+	const [editorModule, setEditorModule] = useState('script');
   const [saving, setSaving] = useState(false);
   const [form] = Form.useForm();
 
@@ -112,12 +172,14 @@ export function PresetLibraryPage() {
     setLoading(true);
     setError('');
     try {
-      const [presetResult, slotResult] = await Promise.all([
-        listAdminPresets(module),
-        listAdminPresetSlots(module)
-      ]);
-      setPresets(sortPresets(presetResult.presets || []));
-      setSlots(slotResult.slots || []);
+      const requests = module === 'batch-factory'
+        ? await Promise.all([listAdminPresets(module), listAdminPresetSlots(module), listAdminPresets('script'), listAdminPresetSlots('script')])
+        : await Promise.all([listAdminPresets(module), listAdminPresetSlots(module)]);
+      const [presetResult, slotResult, scriptPresetResult, scriptSlotResult] = requests;
+      const ownPresets = presetResult.presets || [];
+      const sharedPresets = module === 'batch-factory' ? batchFactorySharedScriptPresets(scriptPresetResult?.presets) : [];
+      setPresets(sortPresets([...ownPresets, ...sharedPresets]));
+      setSlots([...(slotResult.slots || []), ...(module === 'batch-factory' ? (scriptSlotResult?.slots || []) : [])]);
     } catch (requestError) {
       setPresets([]);
       setSlots([]);
@@ -132,6 +194,7 @@ export function PresetLibraryPage() {
   function openCreate() {
     form.setFieldsValue(emptyDraft(module));
     setEditingExisting(false);
+		setEditorModule(module);
     setEditorOpen(true);
   }
 
@@ -143,10 +206,12 @@ export function PresetLibraryPage() {
       protocolLock: JSON.stringify(preset.protocolLock || {}, null, 2)
     });
     setEditingExisting(true);
+		setEditorModule(preset.module || module);
     setEditorOpen(true);
   }
 
   async function saveDraft(values) {
+		const targetModule = editingExisting ? editorModule : module;
     let protocolLock;
     try {
       protocolLock = JSON.parse(values.protocolLock || '{}');
@@ -156,7 +221,7 @@ export function PresetLibraryPage() {
     }
     if (values.constraintCategory) {
       const prefix = `script-constraint-${values.constraintCategory}-`;
-      if (module !== 'script' || values.kind !== 'addon' || !values.id.startsWith(prefix)) {
+		  if (targetModule !== 'script' || values.kind !== 'addon' || !values.id.startsWith(prefix)) {
         form.setFields([{ name: 'id', errors: [`${values.constraintCategory} 类约束预设 ID 必须以 ${prefix} 开头`] }]);
         return;
       }
@@ -166,7 +231,7 @@ export function PresetLibraryPage() {
     try {
       await createPresetDraft({
         ...values,
-        module,
+		  module: targetModule,
         compatibleBaseIds: [],
         protocolLock: { ...protocolLock, slot: values.slot }
       });
@@ -292,14 +357,16 @@ export function PresetLibraryPage() {
     );
   }
 
-  const scriptSections = useMemo(() => {
+  const sections = useMemo(() => {
+    const sectionDefinitions = module === 'script' ? scriptPresetSections : module === 'batch-factory' ? batchFactoryPresetSections : [];
+    if (!sectionDefinitions.length) return [];
     const remaining = new Set(grouped.map(item => item.id));
-    return scriptPresetSections.map(section => {
+    return sectionDefinitions.map(section => {
       const items = grouped.filter(item => remaining.has(item.id) && section.matches(item.current));
       items.forEach(item => remaining.delete(item.id));
       return { ...section, items };
     }).filter(section => section.items.length > 0);
-  }, [grouped]);
+  }, [grouped, module]);
 
   return (
     <section className="admin-preset-library">
@@ -313,10 +380,10 @@ export function PresetLibraryPage() {
         </div>
         <Segmented options={modules} value={module} onChange={setModule} />
         {error && <Alert type="error" showIcon message="无法读取此模块预设词" description={error} />}
-        {module === 'script' ? (
+        {module === 'script' || module === 'batch-factory' ? (
           <Collapse
-            defaultActiveKey={scriptSections.map(section => section.key)}
-            items={scriptSections.map(section => ({
+            defaultActiveKey={sections.map(section => section.key)}
+            items={sections.map(section => ({
               key: section.key,
               label: <Space direction="vertical" size={0}><Typography.Text strong>{section.title}</Typography.Text><Typography.Text type="secondary">{section.description}</Typography.Text></Space>,
               children: presetTable(section.items)

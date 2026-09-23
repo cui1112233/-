@@ -2,13 +2,13 @@ import { apiRequest } from './client';
 
 const base = '/api/shuihuo-production';
 
-export async function getProductionHealth() {
+export async function getProductionHealth(options = {}) {
   // The readiness endpoint deliberately returns its safe dependency snapshot
   // as 503 until the production-only runtime is complete.
-  return apiRequest(`${base}/health`, { allowStatuses: [503] });
+  return apiRequest(`${base}/health`, { allowStatuses: [503], ...options });
 }
 
-export function listProjects() { return apiRequest(`${base}/projects`); }
+export function listProjects(options = {}) { return apiRequest(`${base}/projects`, options); }
 export function createProject(payload) { return apiRequest(`${base}/projects`, { method: 'POST', body: JSON.stringify(payload) }); }
 export function importProject(payload) { return apiRequest(`${base}/projects/import`, { method: 'POST', body: JSON.stringify(payload) }); }
 export function getProject(id) { return apiRequest(`${base}/projects/${id}`); }
@@ -83,3 +83,4 @@ export function createAdminModel({ modelId, name, kind, adapterKind, enabled, pa
     body: JSON.stringify({ modelId, name, kind, adapterKind, enabled, parameterSchema, credentialRef, endpoint, requestTemplate, responseMapping })
   });
 }
+export function createBatchFactoryProject(payload) { return apiRequest('/api/batch-factory/projects', { method: 'POST', body: JSON.stringify(payload) }); }

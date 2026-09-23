@@ -1,12 +1,19 @@
-import { Alert, Button, Divider, Input, InputNumber, Modal, Popconfirm, Segmented, Select, Space, Switch, message } from 'antd';
+import { Alert, Button, Divider, Input, InputNumber, Modal, Popconfirm, Popover, Segmented, Select, Space, Switch, Tabs, message} from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 import { listAvailableModels } from '../../../shared/api/modelCatalog';
-import { listSystemPresetCatalog, saveBookOverride } from '../../../shared/api/batchFactoryV11';
+import { getBatch, listSystemPresetCatalog, saveBookOverride } from '../../../shared/api/batchFactoryV11';
+import { getConfig } from '../../../shared/api/config';
+import { textToSpeech } from '../../../shared/api/tts';
 import { deleteScriptConstraintPrompt, getConstraintPresetTexts, listScriptConstraintPrompts, saveScriptConstraintPrompt, updateScriptConstraintPrompt } from '../../../shared/api/generation';
+import { videoProviderForModel } from './videoProviderBinding';
+import { audioDurationFingerprint as runtimeAudioDurationFingerprint, resolveBookProductionText as runtimeResolveBookProductionText } from './batchFactoryRuntimeLogic';
+import { batchFactoryPreviewText } from './batchFactoryContentRange';
 
-const BOOK_OVERRIDE_FIELDS = ['textModelId', 'imageModelId', 'videoModelId', 'videoProvider', 'aspectRatio', 'productionMode', 'maxVideoDuration', 'fixedSingleVideo', 'fixedVideoDuration', 'aiPromptConfig'];
-const ENGINE_OVERRIDE_FIELDS = ['textModelId', 'imageModelId', 'videoModelId', 'videoProvider', 'aspectRatio', 'productionMode'];
-const VIDEO_SETTING_FIELDS = ['maxVideoDuration', 'fixedSingleVideo', 'fixedVideoDuration'];
+const ENGINE_MODEL_OVERRIDE_FIELDS = ['textModelId', 'imageModelId', 'videoModelId', 'videoProvider', 'aspectRatio', 'productionMode', 'storyboardDurationLimit', 'maxVideoDuration', 'fixedSingleVideo', 'audioPlanningEnabled', 'audioMergeEnabled', 'audioDurationSeconds', 'audioDurationFingerprint', 'tts'];
+const ENGINE_PUBLISH_OVERRIDE_FIELDS = ['publishRewriteEnabled', 'publishSettings'];
+const ENGINE_OVERRIDE_FIELDS = [...ENGINE_MODEL_OVERRIDE_FIELDS, ...ENGINE_PUBLISH_OVERRIDE_FIELDS];
+const BOOK_OVERRIDE_FIELDS = [...ENGINE_OVERRIDE_FIELDS, 'starredCharacterNames', 'aiPromptConfig'];
+const PUBLISH_CATALOG_FIELDS = new Set(['websiteProfiles', 'websiteStyleCatalog', 'organizations', 'organizationOptions']);
 export const AI_REGION_KEYS = new Map([
   ['assets', 'assets'],
   ['constraints', 'constraints'],
@@ -18,7 +25,8 @@ const REGION_LABELS = {
   assets: '资产设置',
   constraints: '约束设置',
   video: '视频设置',
-  visual: '画面设置'
+  visual: '画面设置',
+  media: '画面与视频'
 };
 const VIDEO_PROVIDER_OPTIONS = [
   { value: 'personal_api', label: '个人中心 API' },
@@ -33,29 +41,81 @@ const CONSTRAINT_LAYERS = [
   ['negative', '负面提示词']
 ];
 const EDITABLE_CONSTRAINT_LAYERS = CONSTRAINT_LAYERS.filter(([category]) => category !== 'baseSetup');
-const ASSET_SLOTS = [
-  ['extraction', '人物场景提取', 'script.extract'],
-  ['character', '人物提示词', 'batch.character-meta'],
-  ['scene', '场景提示词', 'batch.scene-meta'],
-  ['prop', '道具提示词', 'batch.prop-meta']
+const DEFAULT_ENABLED_CONSTRAINT_CATEGORIES = ['prefix', 'quality', 'restriction', 'negative'];
+const DEFAULT_VIDEO_PROMPT = { presetId: 'batch-video-meta', presetName: '分镜元提示词（自动组合）', presetSlot: 'batch.video-meta', presetVersion: null, constraintCategory: '' };
+const DEFAULT_TTS = { voice: 'zh-CN-XiaoxiaoNeural', style: 'general', speed: 1.8, pitch: 10 };
+const TTS_VOICE_OPTIONS = [
+  { label: '晓晓（女声·温柔）', value: 'zh-CN-XiaoxiaoNeural' },
+  { label: '晓辰（女声·知性）', value: 'zh-CN-XiaochenNeural' },
+  { label: '云希（男声·清朗）', value: 'zh-CN-YunxiNeural' },
+  { label: '云扬（男声·阳光）', value: 'zh-CN-YunyangNeural' },
+  { label: '晓伊（女声·甜美）', value: 'zh-CN-XiaoyiNeural' },
+  { label: '云健（男声·稳重）', value: 'zh-CN-YunjianNeural' }
+];
+const TTS_STYLE_OPTIONS = [
+  { label: '通用', value: 'general' }, { label: '开心', value: 'cheerful' }, { label: '悲伤', value: 'sad' }, { label: '友好', value: 'friendly' }, { label: '聊天', value: 'chat' }
 ];
 
+function readAudioDuration(blob) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio();
+    const clear = () => { audio.removeAttribute('src'); URL.revokeObjectURL(url); };
+    audio.preload = 'metadata';
+    audio.onloadedmetadata = () => { const duration = Number(audio.duration || 0); clear(); duration > 0 && Number.isFinite(duration) ? resolve(duration) : reject(new Error('无法读取配音真实时长')); };
+    audio.onerror = () => { clear(); reject(new Error('配音音频无法读取')); };
+    audio.src = url;
+  });
+}
+function downloadAudio(blob, filename) {
+  const url = URL.createObjectURL(blob); const link = document.createElement('a');
+  link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url);
+}
+function audioDurationFingerprint(input, tts = {}) {
+  const payload = JSON.stringify([String(input || ''), String(tts.voice || ''), String(tts.style || ''), Number(tts.speed || 0), Number(tts.pitch || 0)]);
+  let hash = 2166136261;
+  for (let index = 0; index < payload.length; index += 1) {
+    hash ^= payload.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `a1-${(hash >>> 0).toString(16)}-${payload.length}`;
+}
+function HelpTip({ title, children }) {
+  return <Popover trigger="click" placement="top" title={title} content={<div className="batch-factory-help-popover">{children}</div>}><button type="button" className="batch-factory-help-button" aria-label={`查看${title}说明`}>?</button></Popover>;
+}
 function equal(left, right) { return JSON.stringify(left ?? null) === JSON.stringify(right ?? null); }
 function mergePromptConfig(base, override) {
   const merged = { ...(base || {}), ...(override || {}) };
-  for (const key of ['assets', 'constraints', 'video', 'visual']) {
+  for (const key of ['assets', 'constraints', 'hook', 'originalDirector', 'viralDirector', 'video', 'visual']) {
     merged[key] = { ...(base?.[key] || {}), ...(override?.[key] || {}) };
   }
   return merged;
 }
+function requiredVideoPrompt(value) {
+  const selected = value && typeof value === 'object' ? value : {};
+  return { ...DEFAULT_VIDEO_PROMPT, ...selected, enabled: true };
+}
+function mergePublishSettings(base, override) { return { ...(base || {}), ...(override || {}) }; }
 function effectiveValues(batchPatch, bookPatch) {
-  return { ...(batchPatch || {}), ...(bookPatch || {}), aiPromptConfig: mergePromptConfig(batchPatch?.aiPromptConfig, bookPatch?.aiPromptConfig) };
+  const aiPromptConfig = mergePromptConfig(batchPatch?.aiPromptConfig, bookPatch?.aiPromptConfig);
+  const values = { ...(batchPatch || {}), ...(bookPatch || {}), aiPromptConfig: { ...aiPromptConfig, video: requiredVideoPrompt(aiPromptConfig.video) }, publishSettings: mergePublishSettings(batchPatch?.publishSettings, bookPatch?.publishSettings) };
+  return values.fixedSingleVideo === true ? { ...values, audioPlanningEnabled: false, audioMergeEnabled: false } : values;
 }
 function selectedMeta(catalog, id) {
   const preset = catalog.find(item => item.id === id);
   return preset ? { presetId: preset.id, presetName: preset.name, presetSlot: preset.slot, presetVersion: preset.version, constraintCategory: preset.constraintCategory || '' } : { presetId: '' };
 }
-function optionFor(preset) { return { value: preset.id, label: `${preset.name || preset.id} · v${preset.version || 1}` }; }
+function presetLabel(preset) { return String(preset?.name || preset?.presetName || preset?.label || preset?.id || '').trim(); }
+function optionFor(preset) { return { value: preset.id, label: <span className="batch-factory-preset-option"><span>{presetLabel(preset)}</span><small>v{preset.version || 1}</small></span> }; }
+// Preserve the frozen display name for an existing override if its published
+// catalog entry is unavailable during a refresh.
+function optionsWithCurrent(records, value, fallbackName = '系统预设词') {
+  const list = Array.isArray(records) ? records : [];
+  const id = String(value?.presetId || '').trim();
+  return id && !list.some(item => item.id === id)
+    ? [{ id, name: '预设已失效', version: value?.presetVersion || 1, disabled: true }, ...list]
+    : list;
+}
 
 function normalizeConstraintLayer(value, fallback = {}) {
   const source = ['system', 'personal', 'draft'].includes(value?.source) ? value.source : (fallback?.personalPromptId ? 'personal' : 'system');
@@ -73,8 +133,9 @@ function normalizeConstraintLayer(value, fallback = {}) {
 
 function normalizeConstraintRules(value) {
   const raw = value && typeof value === 'object' ? value : {};
-  const selections = Array.isArray(raw.selections) ? raw.selections : [];
-  const enabledCategories = Array.isArray(raw.enabledCategories) ? raw.enabledCategories : [];
+  const { wrapper: _retiredWrapper, ...current } = raw;
+  const selections = Array.isArray(current.selections) ? current.selections : [];
+  const enabledCategories = Array.isArray(current.enabledCategories) ? current.enabledCategories : DEFAULT_ENABLED_CONSTRAINT_CATEGORIES;
   const layers = Object.fromEntries(EDITABLE_CONSTRAINT_LAYERS.map(([category]) => {
     const fallback = selections.find(item => item?.constraintCategory === category) || {};
     const layer = normalizeConstraintLayer(raw[category], fallback);
@@ -82,9 +143,9 @@ function normalizeConstraintRules(value) {
     return [category, layer];
   }));
   return {
-    ...raw,
-    enabled: raw.enabled === true,
-    baseSetup: { enabled: raw.baseSetup?.enabled === true },
+    ...current,
+    enabled: current.enabled === true,
+    baseSetup: { enabled: current.baseSetup?.enabled !== false },
     ...layers
   };
 }
@@ -118,11 +179,25 @@ function buildRestoreKeys(inherited, edited, currentPatch) {
   return BOOK_OVERRIDE_FIELDS.filter(key => Object.hasOwn(currentPatch || {}, key) && equal(inherited?.[key], edited?.[key]));
 }
 
-export function buildBookRegionUpdate(inherited, bookPatch, region, edited) {
+export function buildBookRegionUpdate(inherited, bookPatch, region, edited, engineTab = 'models') {
   const patch = {};
   const restoreKeys = [];
   if (region === 'engine') {
-    for (const key of ENGINE_OVERRIDE_FIELDS) {
+    if (engineTab === 'publish') {
+      if (!equal(inherited?.publishRewriteEnabled, edited?.publishRewriteEnabled)) patch.publishRewriteEnabled = edited?.publishRewriteEnabled;
+      else if (Object.hasOwn(bookPatch || {}, 'publishRewriteEnabled')) restoreKeys.push('publishRewriteEnabled');
+
+      const inheritedPublish = inherited?.publishSettings || {};
+      const editedPublish = edited?.publishSettings || {};
+      const publishOverride = Object.fromEntries(Object.entries(editedPublish)
+        .filter(([key]) => !PUBLISH_CATALOG_FIELDS.has(key))
+        .filter(([key, value]) => !equal(inheritedPublish[key], value)));
+      if (Object.keys(publishOverride).length) patch.publishSettings = publishOverride;
+      else if (Object.hasOwn(bookPatch || {}, 'publishSettings')) restoreKeys.push('publishSettings');
+      return { patch, restoreKeys };
+    }
+
+    for (const key of ENGINE_MODEL_OVERRIDE_FIELDS) {
       if (!equal(inherited?.[key], edited?.[key])) patch[key] = edited?.[key];
       else if (Object.hasOwn(bookPatch || {}, key)) restoreKeys.push(key);
     }
@@ -130,46 +205,60 @@ export function buildBookRegionUpdate(inherited, bookPatch, region, edited) {
   }
   const moduleKey = AI_REGION_KEYS.get(region);
   if (!moduleKey) return { patch, restoreKeys };
-  if (region === 'video') {
-    for (const key of VIDEO_SETTING_FIELDS) {
-      if (!equal(inherited?.[key], edited?.[key])) patch[key] = edited?.[key];
-      else if (Object.hasOwn(bookPatch || {}, key)) restoreKeys.push(key);
-    }
+  if (region === 'assets') {
+    if (!equal(inherited?.starredCharacterNames, edited?.starredCharacterNames)) patch.starredCharacterNames = edited?.starredCharacterNames || [];
+    else if (Object.hasOwn(bookPatch || {}, 'starredCharacterNames')) restoreKeys.push('starredCharacterNames');
   }
   const rawBookAI = bookPatch?.aiPromptConfig && typeof bookPatch.aiPromptConfig === 'object' ? { ...bookPatch.aiPromptConfig } : {};
-  const inheritedModule = inherited?.aiPromptConfig?.[moduleKey] || {};
-  const editedModule = edited?.aiPromptConfig?.[moduleKey] || {};
-  if (equal(inheritedModule, editedModule)) delete rawBookAI[moduleKey];
-  else rawBookAI[moduleKey] = editedModule;
+  const moduleKeys = region === 'video' ? ['video'] : [moduleKey];
+  for (const key of moduleKeys) {
+    const inheritedModule = inherited?.aiPromptConfig?.[key] || {};
+    const editedModule = edited?.aiPromptConfig?.[key] || {};
+    if (equal(inheritedModule, editedModule)) delete rawBookAI[key];
+    else rawBookAI[key] = editedModule;
+  }
   if (Object.keys(rawBookAI).length) patch.aiPromptConfig = rawBookAI;
   else if (Object.hasOwn(bookPatch || {}, 'aiPromptConfig')) restoreKeys.push('aiPromptConfig');
   return { patch, restoreKeys };
 }
 
 function InheritedField({ label, field, value, inherited, options, onChange, loading }) {
-  const overridden = !equal(value, inherited);
-  return <label className="batch-factory-engine-field"><span><b>{label}</b><small>{overridden ? '覆盖当前书' : '继承当前批量作品配置'}</small></span><Select allowClear loading={loading} value={value || undefined} options={options} placeholder="未配置" onChange={next => onChange(next || '')} /></label>;
+  return <label className="batch-factory-engine-field"><span><b>{label}</b></span><Select allowClear loading={loading} value={value || inherited || undefined} options={options} placeholder="未配置" onChange={next => onChange(next || '')} /></label>;
 }
 
 function InheritedNumberField({ label, value, inherited, min, max, onChange }) {
-  const overridden = !equal(value, inherited);
-  return <label className="batch-factory-engine-field"><span><b>{label}</b><small>{overridden ? '覆盖当前书' : '继承当前批量作品配置'}</small></span><InputNumber min={min} max={max} value={value ?? inherited ?? undefined} placeholder="未配置" onChange={next => onChange(next ?? '')} /></label>;
+  return <label className="batch-factory-engine-field"><span><b>{label}</b></span><InputNumber min={min} max={max} value={value ?? inherited ?? undefined} placeholder="未配置" onChange={next => onChange(next ?? '')} /></label>;
+}
+
+function InheritedStoryboardDurationField({ value, inherited, onChange }) {
+  const duration = Number(value ?? inherited) === 15 ? 15 : 10;
+  return <label className="batch-factory-engine-field"><span><b>分镜时长</b><small>视频提示词按此上限切分</small></span><Segmented value={duration} options={[{ value: 10, label: '10s' }, { value: 15, label: '15s' }]} onChange={onChange} /></label>;
 }
 
 function InheritedSwitchField({ label, value, inherited, onChange }) {
-  const overridden = !equal(value, inherited);
-  return <label className="batch-factory-engine-field"><span><b>{label}</b><small>{overridden ? '覆盖当前书' : '继承当前批量作品配置'}</small></span><Switch checked={value ?? inherited ?? false} onChange={onChange} /></label>;
+  return <label className="batch-factory-engine-field"><span><b>{label}</b></span><Switch checked={value ?? inherited ?? false} onChange={onChange} /></label>;
+}
+function InheritedFixedVideoSwitch({ value, inherited, onChange }) {
+  return <label className="batch-factory-engine-field"><span><b>固定开头</b><small>开启后只生产 VIDEO01；关闭后按全部分镜执行</small></span><Switch checked={value ?? inherited ?? false} onChange={onChange} /></label>;
+}
+function AudioOptionCard({ title, description, help, value, inherited, onChange, disabled = false }) {
+  return <section className={`batch-factory-audio-option${disabled ? ' is-disabled' : ''}`}><div><div className="batch-factory-option-title"><b>{title}</b>{help ? <HelpTip title={title}>{help}</HelpTip> : null}</div><small>{description}</small></div><Switch disabled={disabled} checked={value ?? inherited ?? false} onChange={onChange} /></section>;
+}
+function ConfigCard({ title, description, children }) {
+  return <section className="batch-factory-engine-card"><header><b>{title}</b>{description ? <small>{description}</small> : null}</header><div className="batch-factory-engine-card-body">{children}</div></section>;
 }
 
-function PromptSelect({ label, value, options, onChange, disabled }) {
-  return <label className="batch-factory-engine-field"><span><b>{label}</b><small>从个人中心已发布预设词选择</small></span><Select allowClear disabled={disabled} value={value?.presetId || undefined} options={options} placeholder="未选择" onChange={id => onChange(selectedMeta(options.catalog || [], id))} /></label>;
+function PromptSelect({ label, value, options, onChange, disabled, required = false }) {
+  const catalog = optionsWithCurrent(options.catalog || [], value, label);
+  return <label className="batch-factory-engine-field"><span><b>{label}</b><small>从个人中心已发布预设词选择</small></span><Select allowClear={!required} disabled={disabled} value={value?.presetId || undefined} options={catalog.map(optionFor)} placeholder={required ? '请选择已发布视频提示词' : '未选择'} onChange={id => onChange(selectedMeta(catalog, id))} /></label>;
 }
 
-function RuleModule({ title, value, onChange, children }) {
+function RuleModule({ title, value, onChange, children, required = false }) {
   const module = value || {};
+  const enabled = required || module.enabled === true;
   return <section className="batch-factory-ai-module">
-    <div className="batch-factory-ai-module-head"><div><b>{title}</b><p>保存后只覆盖当前小说；所选预设及当前编辑内容会随本书配置保存。</p></div><Switch checked={module.enabled === true} onChange={enabled => onChange({ ...module, enabled })} /></div>
-    {module.enabled ? <div className="batch-factory-ai-module-body">{children}</div> : null}
+    <div className="batch-factory-ai-module-head"><div><b>{title}</b><p>保存后只覆盖当前小说；所选预设及当前编辑内容会随本书配置保存。</p></div>{required ? null : <Switch checked={enabled} onChange={enabled => onChange({ ...module, enabled })} />}</div>
+    {enabled ? <div className="batch-factory-ai-module-body">{children}</div> : null}
   </section>;
 }
 
@@ -203,17 +292,21 @@ export function BatchFactoryBookSettingsModal({ open, batch, book, activeRegion 
   const batchPatch = batch?.settingsState?.patch || {};
   const bookPatch = book?.settingsState?.patch || {};
   const region = REGION_LABELS[activeRegion] ? activeRegion : 'engine';
-  const inherited = useMemo(() => ({ ...batchPatch, aiPromptConfig: mergePromptConfig(batchPatch.aiPromptConfig, {}) }), [batch?.id, batch?.settingsState?.revision]);
+  const inherited = useMemo(() => ({ ...batchPatch, aiPromptConfig: mergePromptConfig(batchPatch.aiPromptConfig, {}), publishSettings: mergePublishSettings(batchPatch.publishSettings, {}) }), [batch?.id, batch?.settingsState?.revision]);
   const [form, setForm] = useState(() => effectiveValues(batchPatch, bookPatch));
   const [models, setModels] = useState([]);
   const [catalog, setCatalog] = useState({ script: [], batch: [] });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [audioBusy, setAudioBusy] = useState(false);
+  const [audioBlob, setAudioBlob] = useState(null);
+  const [accountTts, setAccountTts] = useState(DEFAULT_TTS);
   const [loadError, setLoadError] = useState('');
   const [personalPrompts, setPersonalPrompts] = useState({});
   const [savingPersonalCategory, setSavingPersonalCategory] = useState('');
   const [editingPersonalPrompt, setEditingPersonalPrompt] = useState({ category: '', id: '', name: '' });
   const [personalPromptNameModal, setPersonalPromptNameModal] = useState({ open: false, category: '', name: '' });
+  const [engineTab, setEngineTab] = useState('models');
 
   useEffect(() => {
     if (open) setForm(effectiveValues(batchPatch, bookPatch));
@@ -224,11 +317,12 @@ export function BatchFactoryBookSettingsModal({ open, batch, book, activeRegion 
     setLoading(true); setLoadError('');
     Promise.all([
       listAvailableModels('text'), listAvailableModels('image'), listAvailableModels('video'),
-      listSystemPresetCatalog('script'), listSystemPresetCatalog('batch-factory')
-    ]).then(([text, image, video, scriptResult, batchResult]) => {
+      listSystemPresetCatalog('script'), listSystemPresetCatalog('batch-factory'), getConfig().catch(() => ({ tts: DEFAULT_TTS }))
+    ]).then(([text, image, video, scriptResult, batchResult, config]) => {
       if (!active) return;
       setModels([...text, ...image, ...video]);
       setCatalog({ script: Array.isArray(scriptResult?.catalog) ? scriptResult.catalog : [], batch: Array.isArray(batchResult?.catalog) ? batchResult.catalog : [] });
+      setAccountTts({ ...DEFAULT_TTS, ...(config?.tts || {}) });
     }).catch(error => { if (active) setLoadError(error?.message || '读取模型或已发布预设词失败'); }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [open]);
@@ -242,22 +336,34 @@ export function BatchFactoryBookSettingsModal({ open, batch, book, activeRegion 
     image: models.filter(item => item.kind === 'image').map(item => ({ value: item.id, label: item.name || item.id })),
     video: models.filter(item => item.kind === 'video').map(item => ({ value: item.id, label: item.name || item.id }))
   }), [models]);
-  const scriptExtraction = useMemo(() => catalog.script.filter(item => item.kind === 'base' && item.extractionPreset === true), [catalog.script]);
+  const scriptExtraction = useMemo(() => catalog.script.filter(item => item.slot === 'script.asset-extraction'), [catalog.script]);
   const scriptConstraints = useMemo(() => catalog.script.filter(item => item.kind === 'addon' && item.constraintCategory), [catalog.script]);
-  const batchSlots = useMemo(() => Object.fromEntries(ASSET_SLOTS.slice(1).map(([key, , slot]) => [key, catalog.batch.filter(item => item.slot === slot)])), [catalog.batch]);
   const videoRules = useMemo(() => catalog.batch.filter(item => item.slot === 'batch.video-meta'), [catalog.batch]);
   const visualRules = useMemo(() => catalog.batch.filter(item => item.slot === 'batch.visual-meta'), [catalog.batch]);
   const ai = form.aiPromptConfig || {};
   const assetRules = ai.assets || {};
+  const starredCharacterNames = Array.isArray(form.starredCharacterNames) ? form.starredCharacterNames : [];
+  const characterOptions = [...new Map([
+    ...(book?.assetRecords || []).filter(asset => asset?.kind === 'character').map(asset => [String(asset.name || '').trim(), asset]),
+    ...(book?.assets?.characters || []).map(asset => [String(asset.name || '').trim(), asset])
+  ].filter(([name]) => name)).values()].map(asset => ({ value: String(asset.name || '').trim(), label: String(asset.name || '').trim() }));
+  const publish = form.publishSettings || {};
+  const inheritedPublish = inherited.publishSettings || {};
+  const tts = { ...DEFAULT_TTS, ...accountTts, ...(form.tts || {}) };
   const constraintRules = normalizeConstraintRules(ai.constraints);
   const moduleKey = AI_REGION_KEYS.get(region);
   const hasBookOverride = region === 'engine'
-    ? ENGINE_OVERRIDE_FIELDS.some(key => Object.hasOwn(bookPatch, key))
+    ? engineTab === 'publish'
+      ? Object.hasOwn(bookPatch, 'publishRewriteEnabled') || Object.hasOwn(bookPatch, 'publishSettings')
+      : ENGINE_MODEL_OVERRIDE_FIELDS.some(key => Object.hasOwn(bookPatch, key))
+    : region === 'assets'
+      ? Object.hasOwn(bookPatch, 'starredCharacterNames') || Object.hasOwn(bookPatch.aiPromptConfig || {}, 'assets')
     : region === 'video'
-      ? VIDEO_SETTING_FIELDS.some(key => Object.hasOwn(bookPatch, key)) || Boolean(moduleKey && Object.hasOwn(bookPatch.aiPromptConfig || {}, moduleKey))
+      ? Object.hasOwn(bookPatch.aiPromptConfig || {}, 'video')
       : Boolean(moduleKey && Object.hasOwn(bookPatch.aiPromptConfig || {}, moduleKey));
 
   function patch(next) { setForm(current => ({ ...current, ...next })); }
+  function patchTts(next) { patch({ tts: { ...tts, ...next }, audioDurationSeconds: 0, audioDurationFingerprint: '', audioDurationManual: false }); }
   function patchAI(key, next) { patch({ aiPromptConfig: { ...ai, [key]: next } }); }
   function scoped(module) { return { ...module, scope: 'custom', bookIds: book?.id ? [book.id] : [] }; }
   function updateAssetSelection(key, selection) { patchAI('assets', scoped({ ...assetRules, [key]: selection })); }
@@ -329,13 +435,50 @@ export function BatchFactoryBookSettingsModal({ open, batch, book, activeRegion 
       message.error(error?.message || '删除失败');
     }
   }
+  async function measureBookAudio() {
+    const input = runtimeResolveBookProductionText(book);
+    if (!input) { message.warning('当前选择的小说正文没有可用于配音的内容'); return; }
+    setAudioBusy(true);
+    try {
+      const config = await getConfig();
+      const nextTts = { ...DEFAULT_TTS, ...(config?.tts || {}), ...(form.tts || {}) };
+      const blob = await textToSpeech({ input, ...nextTts });
+      const duration = await readAudioDuration(blob);
+      const edited = {
+        ...form,
+        audioDurationSeconds: Number(duration.toFixed(2)),
+        audioDurationFingerprint: runtimeAudioDurationFingerprint(book, nextTts)
+      };
+      setForm(edited);
+      setAudioBlob(blob);
+      await persist(edited, false);
+      message.success(`已取得当前正文配音真实时长：${duration.toFixed(2)} 秒`);
+    } catch (error) {
+      message.error(error?.message || '当前正文配音生成失败');
+    } finally {
+      setAudioBusy(false);
+    }
+  }
+  async function saveOverrideWithLatestRevision(patchValue, restoreKeys) {
+    const input = { patch: patchValue, restoreKeys, expectedRevision: Number(book?.revision || 0) };
+    try {
+      return await saveBookOverride(batch.id, book.id, input);
+    } catch (error) {
+      if (Number(error?.status) !== 409) throw error;
+      const latest = await getBatch(batch.id);
+      const latestBatch = latest?.batch || latest;
+      const latestBook = (latestBatch?.books || []).find(item => item?.id === book.id);
+      if (!latestBook) throw error;
+      return saveBookOverride(batch.id, book.id, { ...input, expectedRevision: Number(latestBook.revision || 0) });
+    }
+  }
   async function persist(edited, closeWhenSaved = true) {
     if (!batch?.id || !book?.id) return;
-    const { patch: patchValue, restoreKeys } = buildBookRegionUpdate(inherited, bookPatch, region, edited);
+    const { patch: patchValue, restoreKeys } = buildBookRegionUpdate(inherited, bookPatch, region, edited, engineTab);
     if (!Object.keys(patchValue).length && !restoreKeys.length) { if (closeWhenSaved) onClose?.(); return; }
     setSaving(true);
     try {
-      await saveBookOverride(batch.id, book.id, { patch: patchValue, restoreKeys, expectedRevision: Number(book?.revision || 0) });
+      await saveOverrideWithLatestRevision(patchValue, restoreKeys);
       await onSaved?.();
       if (closeWhenSaved) onClose?.();
     } finally { setSaving(false); }
@@ -343,48 +486,117 @@ export function BatchFactoryBookSettingsModal({ open, batch, book, activeRegion 
   function save() { return persist(form); }
   function restoreCurrentRegion() { return persist(inherited); }
 
+  const currentAudioFingerprint = runtimeAudioDurationFingerprint(book, tts);
+  const audioDurationStale = Number(form.audioDurationSeconds || 0) > 0
+    && String(form.audioDurationFingerprint || '') !== currentAudioFingerprint;
+
   let body = null;
   if (region === 'engine') {
-    body = <div className="batch-factory-engine-drawer">
-      <InheritedField label="视频引擎" field="videoProvider" value={form.videoProvider || 'personal_api'} inherited={inherited.videoProvider || 'personal_api'} options={VIDEO_PROVIDER_OPTIONS} loading={false} onChange={videoProvider => patch({ videoProvider })} />
-      <InheritedField label="视频模型" field="videoModelId" value={form.videoModelId} inherited={inherited.videoModelId} options={modelOptions.video} loading={loading} onChange={videoModelId => patch({ videoModelId })} />
-      <InheritedNumberField label="VIDEO 时长上限" value={form.maxVideoDuration ?? 15} inherited={inherited.maxVideoDuration ?? 15} min={1} max={60} onChange={maxVideoDuration => patch({ maxVideoDuration })} />
-      <InheritedSwitchField label="固定开头" value={form.fixedSingleVideo} inherited={inherited.fixedSingleVideo} onChange={fixedSingleVideo => patch({ fixedSingleVideo })} />
-      {(form.fixedSingleVideo ?? inherited.fixedSingleVideo) === true ? <InheritedNumberField label="固定 VIDEO 时长" value={form.fixedVideoDuration ?? form.maxVideoDuration ?? 15} inherited={inherited.fixedVideoDuration ?? inherited.maxVideoDuration ?? 15} min={1} max={Number(form.maxVideoDuration ?? inherited.maxVideoDuration ?? 60)} onChange={fixedVideoDuration => patch({ fixedVideoDuration })} /> : null}
-      <InheritedField label="画幅" field="aspectRatio" value={form.aspectRatio || '9:16'} inherited={inherited.aspectRatio || '9:16'} options={[{ value: '9:16', label: '9:16' }, { value: '16:9', label: '16:9' }]} loading={false} onChange={aspectRatio => patch({ aspectRatio })} />
-      <InheritedField label="图片模型" field="imageModelId" value={form.imageModelId} inherited={inherited.imageModelId} options={modelOptions.image} loading={loading} onChange={imageModelId => patch({ imageModelId })} />
-      <InheritedField label="文本模型" field="textModelId" value={form.textModelId} inherited={inherited.textModelId} options={modelOptions.text} loading={loading} onChange={textModelId => patch({ textModelId })} />
-    </div>;
+    const audioEnabled = form.audioPlanningEnabled === true || form.audioMergeEnabled === true;
+    const fixedOpening = form.fixedSingleVideo === true;
+    const profiles = Array.isArray(publish.websiteProfiles)
+      ? publish.websiteProfiles
+      : (Array.isArray(inheritedPublish.websiteProfiles) ? inheritedPublish.websiteProfiles : []);
+
+    body = <Tabs activeKey={engineTab} onChange={setEngineTab} className="batch-factory-book-engine-tabs" items={[
+      {
+        key: 'models',
+        label: '模型配置',
+        children: <div className="batch-factory-engine-drawer batch-factory-book-engine-content">
+          <Alert type="info" showIcon message="当前书独立模型配置" description="这里只保存当前小说与批量默认值不同的参数。" />
+          <ConfigCard title="核心视频引擎" description="视频生成、分镜时长、画幅与固定开头。"><div className="batch-factory-engine-grid">
+            <InheritedField label="视频引擎" field="videoProvider" value={form.videoProvider || 'personal_api'} inherited={inherited.videoProvider || 'personal_api'} options={VIDEO_PROVIDER_OPTIONS} loading={false} onChange={videoProvider => patch({ videoProvider })} />
+            <InheritedField label="视频模型" field="videoModelId" value={form.videoModelId} inherited={inherited.videoModelId} options={modelOptions.video} loading={loading} onChange={videoModelId => patch({ videoModelId, ...(videoModelId ? { videoProvider: videoProviderForModel(videoModelId, form.videoProvider || inherited.videoProvider) } : {}) })} />
+            <InheritedStoryboardDurationField value={form.storyboardDurationLimit} inherited={inherited.storyboardDurationLimit} onChange={storyboardDurationLimit => patch({ storyboardDurationLimit, maxVideoDuration: storyboardDurationLimit })} />
+            <InheritedField label="画幅" field="aspectRatio" value={form.aspectRatio || '9:16'} inherited={inherited.aspectRatio || '9:16'} options={[{ value: '9:16', label: '9:16' }, { value: '16:9', label: '16:9' }, { value: '1:1', label: '1:1' }]} loading={false} onChange={aspectRatio => patch({ aspectRatio })} />
+          </div>
+          <InheritedFixedVideoSwitch value={form.fixedSingleVideo} inherited={inherited.fixedSingleVideo} onChange={fixedSingleVideo => patch({ fixedSingleVideo })} />
+          </ConfigCard>
+
+          <ConfigCard title="配音与时长" description="读取当前生产正文；读取时长不会自动打开任何跟随功能。"><section className="batch-factory-book-audio-content">
+            <div className="batch-factory-book-audio-head"><div><b>当前正文配音</b><p>只读取小说正文当前选择范围或已保存的生产正文，不读取整本全文。</p></div><Space wrap><Button size="small" loading={audioBusy} onClick={measureBookAudio}>生成配音并读取时长</Button>{audioBlob ? <Button size="small" onClick={() => downloadAudio(audioBlob, `${book?.bookId || book?.id || 'book'}-配音.mp3`)}>下载配音</Button> : null}</Space></div>
+            <div className="batch-factory-audio-options">
+              <AudioOptionCard disabled={fixedOpening} title="分镜规划跟随配音" description={fixedOpening ? '固定开头开启时暂不生效，原配置保留。' : '按真实配音时长规划 VIDEO。'} value={form.audioPlanningEnabled} inherited={inherited.audioPlanningEnabled} onChange={audioPlanningEnabled => patch({ audioPlanningEnabled })} />
+              <AudioOptionCard disabled={fixedOpening} title="合并跟随配音" description={fixedOpening ? '固定开头开启时暂不生效，原配置保留。' : '成片按真实配音总时长校正倍率。'} value={form.audioMergeEnabled} inherited={inherited.audioMergeEnabled} onChange={audioMergeEnabled => patch({ audioMergeEnabled })} />
+            </div>
+            <div className="batch-factory-engine-grid">
+              <label className="batch-factory-engine-field"><span><b>配音音色</b><small>当前书 TTS</small></span><Select value={tts.voice} options={TTS_VOICE_OPTIONS} onChange={voice => patchTts({ voice })} /></label>
+              <label className="batch-factory-engine-field"><span><b>配音风格</b><small>当前书 TTS</small></span><Select value={tts.style} options={TTS_STYLE_OPTIONS} onChange={style => patchTts({ style })} /></label>
+              <label className="batch-factory-engine-field"><span><b>语速</b><small>改变后需重新读取时长</small></span><InputNumber min={0.5} max={2} step={0.1} value={tts.speed} onChange={speed => patchTts({ speed: speed ?? DEFAULT_TTS.speed })} /></label>
+              <label className="batch-factory-engine-field"><span><b>音调</b><small>改变后需重新读取时长</small></span><InputNumber min={-50} max={50} step={1} value={tts.pitch} onChange={pitch => patchTts({ pitch: pitch ?? DEFAULT_TTS.pitch })} /></label>
+            </div>
+            {audioDurationStale ? <Alert type="warning" showIcon message="配音时长已过期" description="当前正文或 TTS 参数已变化，请重新生成配音并读取时长。" /> : null}
+            {audioEnabled ? <div className="batch-factory-book-audio-duration"><InheritedNumberField label="配音目标（秒）" value={form.audioDurationSeconds ?? 0} inherited={inherited.audioDurationSeconds ?? 0} min={0} max={86400} onChange={audioDurationSeconds => patch({ audioDurationSeconds })} /></div> : null}
+          </section></ConfigCard>
+
+          <ConfigCard title="辅助生成" description="图片与文本模型用于资产、AI 推理和画面生成。"><div className="batch-factory-engine-grid">
+            <InheritedField label="图片模型" field="imageModelId" value={form.imageModelId} inherited={inherited.imageModelId} options={modelOptions.image} loading={loading} onChange={imageModelId => patch({ imageModelId })} />
+            <InheritedField label="文本模型" field="textModelId" value={form.textModelId} inherited={inherited.textModelId} options={modelOptions.text} loading={loading} onChange={textModelId => patch({ textModelId })} />
+          </div></ConfigCard>
+        </div>
+      },
+      {
+        key: 'publish',
+        label: '发布统一',
+        children: <div className="batch-factory-engine-drawer batch-factory-book-engine-content">
+          <Alert type="info" showIcon message="当前书独立发布配置" description="发布目录仍来自账号和批量作品；这里只保存当前书的差异值。" />
+          <ConfigCard title="发布映射" description="网站风格继续读取本书 AI 判断结果。">
+            <InheritedField label="网站配置档" value={publish.websiteProfileId} inherited={inheritedPublish.websiteProfileId} options={profiles.map(profile => ({ value: profile.id, label: profile.name || profile.id }))} loading={false} onChange={websiteProfileId => { const profile = profiles.find(item => item.id === websiteProfileId) || {}; patch({ publishSettings: { ...publish, websiteProfileId, versionProfile: profile.name || '' } }); }} />
+            <Alert type="info" showIcon message="男女频、风格和标签属于当前书" description="这里不会覆盖书级 AI 判断结果。" />
+          </ConfigCard>
+          <ConfigCard title="上传规则" description="只影响当前小说。">
+            <label className="batch-factory-engine-field"><span><b>上传视频类型</b><small>当前书发布策略</small></span><Segmented value={publish.uploadVideoType || 'merged'} options={[{ value: 'merged', label: '合并成品' }, { value: 'individual', label: '独立 VIDEO' }]} onChange={uploadVideoType => patch({ publishSettings: { ...publish, uploadVideoType } })} /></label>
+            <div className="batch-factory-engine-grid">
+              <label className="batch-factory-engine-field"><span><b>素材使用</b><small>当前书发布策略</small></span><Select value={publish.materialReuse === true ? 'reuse' : 'no_reuse'} options={[{ value: 'no_reuse', label: '不复用' }, { value: 'reuse', label: '复用' }]} onChange={value => patch({ publishSettings: { ...publish, materialReuse: value === 'reuse' } })} /></label>
+              <label className="batch-factory-engine-field"><span><b>水平翻转</b><small>当前书发布策略</small></span><Select value={publish.horizontalFlip === true ? 'flip' : 'no_flip'} options={[{ value: 'no_flip', label: '不翻转' }, { value: 'flip', label: '翻转' }]} onChange={value => patch({ publishSettings: { ...publish, horizontalFlip: value === 'flip' } })} /></label>
+            </div>
+            <InheritedSwitchField label="改文后上传" value={form.publishRewriteEnabled} inherited={inherited.publishRewriteEnabled} onChange={publishRewriteEnabled => patch({ publishRewriteEnabled })} />
+          </ConfigCard>
+        </div>
+      }
+    ]} />;
   } else if (region === 'assets') {
     body = <><Alert type="info" showIcon message="当前书的人物场景预设" description="人物、场景、道具的实际 Prompt 与图片在本书这一行的“添加角色 / 添加场景 / 添加道具”中维护；这里选择这本书调用的提取与推理预设。" />
       <RuleModule title="资产设置" value={assetRules} onChange={next => patchAI('assets', scoped(next))}>
-        <PromptSelect label="人物场景提取" value={assetRules.extraction} options={Object.assign(scriptExtraction.map(optionFor), { catalog: scriptExtraction })} disabled={loading} onChange={selection => updateAssetSelection('extraction', selection)} />
-        {ASSET_SLOTS.slice(1).map(([key, label]) => <PromptSelect key={key} label={label} value={assetRules[key]} options={Object.assign((batchSlots[key] || []).map(optionFor), { catalog: batchSlots[key] || [] })} disabled={loading} onChange={selection => updateAssetSelection(key, selection)} />)}
+        <PromptSelect label="人物场景道具提示词" value={assetRules.extraction} options={Object.assign(scriptExtraction.map(optionFor), { catalog: scriptExtraction })} disabled={loading} onChange={selection => updateAssetSelection('extraction', selection)} />
+        <label className="batch-factory-engine-field"><span><b>星标人物聚焦</b><small>与公网剧本生成一致：只作为导演分镜的剧情与镜头聚焦变量，不等同于分镜资产灰显。</small></span><Select mode="multiple" allowClear value={starredCharacterNames} options={characterOptions} placeholder={characterOptions.length ? '选择已提取的人物' : '请先提取人物资产'} onChange={starredCharacterNames => patch({ starredCharacterNames })} /></label>
         <Button onClick={() => { onClose?.(); onOpenBookAssets?.(book); }}>维护当前书人物场景预设</Button>
       </RuleModule>
     </>;
   } else if (region === 'constraints') {
-    body = <RuleModule title="约束设置" value={constraintRules} onChange={updateConstraintRules}>
+    body = <RuleModule title="智能统一" value={constraintRules} onChange={updateConstraintRules}>
       <ConstraintLayers value={constraintRules} records={scriptConstraints} personalPrompts={personalPrompts} loading={loading} saving={savingPersonalCategory} editingPromptId={editingPersonalPrompt.category} onChange={updateConstraintRules} onSelectSystem={selectSystemConstraint} onSelectPersonal={selectPersonalConstraint} onSaveDraft={category => savePersonalConstraint(category, null)} onSaveNamed={category => setPersonalPromptNameModal({ open: true, category, name: editingPersonalPrompt.category === category ? editingPersonalPrompt.name : '' })} onEditPersonal={(category, prompt) => { setEditingPersonalPrompt({ category, id: prompt.id, name: prompt.name || '' }); updateConstraintLayer(category, { source: 'draft', presetId: '', personalPromptId: '', body: prompt.body || '' }); }} onDeletePersonal={deletePersonalConstraint} />
     </RuleModule>;
+  } else if (region === 'media') {
+    body = <div className="batch-factory-media-setting-stack">
+      <RuleModule required title="视频生成" value={ai.video} onChange={next => patchAI('video', scoped({ ...next, enabled: true }))}>
+        <PromptSelect required label="视频提示词" value={ai.video} options={Object.assign(videoRules.map(optionFor), { catalog: videoRules })} disabled={loading} onChange={selection => patchAI('video', scoped({ ...ai.video, ...selection, enabled: true }))} />
+      </RuleModule>
+      <RuleModule title="画面生成" value={ai.visual} onChange={next => patchAI('visual', scoped(next))}>
+        <PromptSelect label="画面提示词" value={ai.visual} options={Object.assign(visualRules.map(optionFor), { catalog: visualRules })} disabled={loading} onChange={selection => patchAI('visual', scoped({ ...ai.visual, ...selection }))} />
+      </RuleModule>
+    </div>;
   } else if (region === 'video') {
-    body = <><div className="batch-factory-engine-drawer">
-      <InheritedNumberField label="VIDEO 时长上限" value={form.maxVideoDuration ?? 15} inherited={inherited.maxVideoDuration ?? 15} min={1} max={60} onChange={maxVideoDuration => patch({ maxVideoDuration })} />
-      <InheritedSwitchField label="固定开头" value={form.fixedSingleVideo} inherited={inherited.fixedSingleVideo} onChange={fixedSingleVideo => patch({ fixedSingleVideo })} />
-      {(form.fixedSingleVideo ?? inherited.fixedSingleVideo) === true ? <InheritedNumberField label="固定 VIDEO 时长" value={form.fixedVideoDuration ?? form.maxVideoDuration ?? 15} inherited={inherited.fixedVideoDuration ?? inherited.maxVideoDuration ?? 15} min={1} max={Number(form.maxVideoDuration ?? inherited.maxVideoDuration ?? 60)} onChange={fixedVideoDuration => patch({ fixedVideoDuration })} /> : null}
-    </div><RuleModule title="视频提示词" value={ai.video} onChange={next => patchAI('video', scoped(next))}>
-      <PromptSelect label="视频提示词" value={ai.video} options={Object.assign(videoRules.map(optionFor), { catalog: videoRules })} disabled={loading} onChange={selection => patchAI('video', scoped({ ...ai.video, ...selection }))} />
-    </RuleModule></>;
+    body = <RuleModule required title="视频提示词" value={ai.video} onChange={next => patchAI('video', scoped({ ...next, enabled: true }))}>
+      <PromptSelect required label="视频提示词" value={ai.video} options={Object.assign(videoRules.map(optionFor), { catalog: videoRules })} disabled={loading} onChange={selection => patchAI('video', scoped({ ...ai.video, ...selection, enabled: true }))} />
+    </RuleModule>;
   } else {
     body = <RuleModule title="画面设置" value={ai.visual} onChange={next => patchAI('visual', scoped(next))}>
       <PromptSelect label="画面提示词" value={ai.visual} options={Object.assign(visualRules.map(optionFor), { catalog: visualRules })} disabled={loading} onChange={selection => patchAI('visual', scoped({ ...ai.visual, ...selection }))} />
     </RuleModule>;
   }
 
-  return <><Modal title={book?.title ? `单书配置 · ${book.title} · ${REGION_LABELS[region]}` : `单书配置 · ${REGION_LABELS[region]}`} open={open} onCancel={onClose} width={980} className="shuihuo-engine-modal batch-factory-engine-modal" footer={<Space>{hasBookOverride ? <Button danger disabled={saving} onClick={restoreCurrentRegion}>恢复作品配置</Button> : null}<Button onClick={onClose}>取消</Button><Button type="primary" loading={saving} onClick={save}>保存当前书覆盖</Button></Space>}>
-    <Alert type="info" showIcon message="继承状态" description="本分区未改动时继续使用当前批量作品配置；保存或恢复只影响当前小说，不会改动同批次其它书。" />
+  return <><Modal
+    title={book?.title ? `单书配置 · ${book.title} · ${REGION_LABELS[region]}` : `单书配置 · ${REGION_LABELS[region]}`}
+    open={open}
+    onCancel={onClose}
+    width={region === 'engine' ? 860 : 920}
+    className={`shuihuo-engine-modal batch-factory-engine-modal${region === 'engine' ? ' batch-factory-book-engine-modal' : ''}`}
+    footer={<Space>{hasBookOverride ? <Button danger disabled={saving} onClick={restoreCurrentRegion}>恢复{region === 'engine' ? (engineTab === 'publish' ? '批量发布配置' : '批量模型配置') : '作品配置'}</Button> : null}<Button onClick={onClose}>取消</Button><Button type="primary" loading={saving} onClick={save}>保存{region === 'engine' ? (engineTab === 'publish' ? '当前书发布配置' : '当前书模型配置') : '当前书覆盖'}</Button></Space>}
+  >
+    {region !== 'engine' ? <Alert type="info" showIcon message="继承状态" description="本分区未改动时继续使用当前批量作品配置；保存或恢复只影响当前小说，不会改动同批次其它书。" /> : null}
     {loadError ? <Alert type="warning" showIcon message="配置目录读取失败" description={loadError} /> : null}
-    <Divider orientation="left">{REGION_LABELS[region]}</Divider>
+    {region !== 'engine' ? <Divider orientation="left">{REGION_LABELS[region]}</Divider> : null}
     {body}
   </Modal><Modal title={editingPersonalPrompt.id ? '编辑我的提示词' : '保存为我的提示词'} open={personalPromptNameModal.open} onCancel={() => { setPersonalPromptNameModal({ open: false, category: '', name: '' }); setEditingPersonalPrompt({ category: '', id: '', name: '' }); }} onOk={() => savePersonalConstraint(personalPromptNameModal.category, personalPromptNameModal.name.trim())} okText="保存" confirmLoading={savingPersonalCategory === personalPromptNameModal.category}><Input autoFocus value={personalPromptNameModal.name} placeholder="提示词名称" onChange={event => setPersonalPromptNameModal(current => ({ ...current, name: event.target.value }))} /></Modal></>;
 }

@@ -39,6 +39,7 @@ test('batch factory direct fetch uses its native V12 endpoint', async t => {
     maxTxt: 4000
   });
 });
+
 test('a legacy empty book can fetch and persist its own original through V12', async t => {
   const originalLocalStorage = globalThis.localStorage;
   const originalFetch = globalThis.fetch;
@@ -164,4 +165,23 @@ test('H3 audio measurement sends bytes without accepting a client duration', asy
   const lines = { director_revision_id:'d1', tts_fingerprint:'voice', lines:[{source_key:'line_0001',source_text:'正文',audio_base64:'YXVkaW8='}] };
   await batchFactoryV11.measureH3Audio('b','k',lines);
   assert.deepEqual(JSON.parse(calls[1].options.body), lines);
+});
+
+test('automation preset API is account-scoped and automation start carries its frozen mode', async t => {
+  const originalLocalStorage = globalThis.localStorage;
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.localStorage = { getItem() { return 'contract-test-token'; }, setItem() {}, removeItem() {} };
+  globalThis.fetch = async (path, options = {}) => {
+    calls.push({ path, options });
+    return new Response(JSON.stringify({ presets: [], automation: {} }), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  t.after(() => { globalThis.localStorage = originalLocalStorage; globalThis.fetch = originalFetch; });
+
+  await batchFactoryV11.listAutomationPresets();
+  await batchFactoryV11.createAutomationPreset({ name: '夜间 H3', config: { textModelId: 'text-a' } });
+  await batchFactoryV11.startBatchAutomation('batch-1', { presetId: 'preset-1', runMode: 'storyboard_only', scheduledAt: '2026-09-22T12:00:00.000Z' });
+  assert.equal(calls[0].path, '/api/batch-factory/v12/automation-presets');
+  assert.equal(calls[1].path, '/api/batch-factory/v12/automation-presets');
+  assert.deepEqual(JSON.parse(calls[2].options.body), { presetId: 'preset-1', runMode: 'storyboard_only', scheduledAt: '2026-09-22T12:00:00.000Z' });
 });
