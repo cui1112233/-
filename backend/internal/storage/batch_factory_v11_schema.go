@@ -482,6 +482,32 @@ func adoptV11BookMergeLedger(ctx context.Context, tx *sql.Tx) (bool, error) {
 }
 
 func adoptV11MergeProgressLedger(ctx context.Context, tx *sql.Tx) (bool, error) {
+	// A historical public release committed timing_mode/speed before its later
+	// ALTER statements and migration ledger entry.  Do not adopt a fresh table;
+	// only finish that recognizable prefix with the missing idempotent columns.
+	timingModeExists, err := v11ColumnExists(ctx, tx, "batch_factory_v11_merge_jobs", "timing_mode")
+	if err != nil || !timingModeExists {
+		return false, err
+	}
+	for _, column := range []struct {
+		name string
+		sql  string
+	}{
+		{"speed", `ALTER TABLE batch_factory_v11_merge_jobs ADD COLUMN speed DECIMAL(8,3) NOT NULL DEFAULT 1 AFTER timing_mode`},
+		{"progress_phase", `ALTER TABLE batch_factory_v11_merge_jobs ADD COLUMN progress_phase VARCHAR(32) NULL AFTER status`},
+		{"progress_current", `ALTER TABLE batch_factory_v11_merge_jobs ADD COLUMN progress_current INT NOT NULL DEFAULT 0 AFTER progress_phase`},
+		{"progress_total", `ALTER TABLE batch_factory_v11_merge_jobs ADD COLUMN progress_total INT NOT NULL DEFAULT 0 AFTER progress_current`},
+	} {
+		exists, err := v11ColumnExists(ctx, tx, "batch_factory_v11_merge_jobs", column.name)
+		if err != nil {
+			return false, err
+		}
+		if !exists {
+			if _, err := tx.ExecContext(ctx, column.sql); err != nil {
+				return false, err
+			}
+		}
+	}
 	return v11ColumnsExist(ctx, tx, "batch_factory_v11_merge_jobs", "timing_mode", "speed", "progress_phase", "progress_current", "progress_total")
 }
 
