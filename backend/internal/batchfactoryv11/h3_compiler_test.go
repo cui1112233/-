@@ -106,6 +106,27 @@ func TestCompileH3VideoSegmentsUsesRealH3SubmissionGrammarInsteadOfTraceDump(t *
 	}
 }
 
+func TestCompileH3VideoSegmentsRendersV11DirectorPromptInChinese(t *testing.T) {
+	document := mustH3DirectorFixture(t)
+	input := completeH3CompileInput(document, mustH3Timeline(t, document, 7420))
+	input.Preset.Key = "v11-director-normal"
+	compilation, err := CompileH3VideoSegments(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prompt := compilation.Segments[0].CompiledPrompt
+	for _, text := range []string{"总时长：", "时间：", "@我", "音频：", "声音设计：模式=", "发声角色="} {
+		if !strings.Contains(prompt, text) {
+			t.Fatalf("V11 director prompt missing %q:\n%s", text, prompt)
+		}
+	}
+	for _, text := range []string{"Total duration:", "Soundscape:", "00:00.000"} {
+		if strings.Contains(prompt, text) {
+			t.Fatalf("legacy display leaked %q:\n%s", text, prompt)
+		}
+	}
+}
+
 func TestCompileH3VideoSegmentsUsesSelectedVideoPresetTemplate(t *testing.T) {
 	document := mustH3DirectorFixture(t)
 	timeline := mustH3Timeline(t, document, 7420)

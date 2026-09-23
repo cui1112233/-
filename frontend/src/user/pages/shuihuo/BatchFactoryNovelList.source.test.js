@@ -989,6 +989,12 @@ test('maps the selected smart-unified prefix to baseline injection', () => {
 	assert.match(bookSettingsSource, /智能统一/);
 });
 
+test('passes only the selected V11 final template and its H3 protocol key to compilation', () => {
+  assert.match(source, /function finalVideoPromptTemplate\(body\)/);
+  assert.match(source, /const videoPromptTemplate = finalVideoPromptTemplate\(videoPresetBody\);/);
+  assert.match(source, /key: String\(videoPreset\.presetKey \|\| videoPreset\.presetId \|\| videoPreset\.id \|\| 'h3-video-normal'\)/);
+});
+
 
 test('shows live provider task progress on the matching storyboard card and keeps polling while production runs', () => {
   assert.match(source, /batchFactoryVideoProgress/);

@@ -298,7 +298,7 @@ func compileH3CanonicalSegmentPrompt(input H3VideoCompileInput, segment H3VideoS
 	if input.Switches.BaseSetup {
 		assetDefinitions = "subject_definitions:\n" + h3CanonicalSubjectDefinitions(input.Document, input.Analysis, segment)
 	}
-	storyboard := h3CanonicalPresentation(input.Document, segment)
+	storyboard := h3CanonicalPresentation(input.Document, segment, isV11DirectorPreset(input.Preset.Key))
 	visualRestriction := ""
 	if input.Switches.VisualRestriction {
 		visualRestriction = strings.TrimSpace(input.VisualRestrictionText)
@@ -385,7 +385,10 @@ func h3CanonicalSubjectDefinitions(document H3DirectorDocument, analysis H3Analy
 	return strings.Join(lines, "\n")
 }
 
-func h3CanonicalPresentation(document H3DirectorDocument, segment H3VideoSegment) string {
+func h3CanonicalPresentation(document H3DirectorDocument, segment H3VideoSegment, chineseDisplay bool) string {
+	if chineseDisplay {
+		return h3ChineseCanonicalPresentation(document, segment)
+	}
 	visualLines := []string{}
 	audioLines := []string{}
 	sceneNumber := 0
@@ -433,6 +436,128 @@ func h3CanonicalPresentation(document H3DirectorDocument, segment H3VideoSegment
 		visualLines = append(visualLines, audioLines...)
 	}
 	return strings.Join(visualLines, "\n")
+}
+
+func isV11DirectorPreset(key string) bool {
+	return strings.TrimSpace(key) == "v11-director-normal" || strings.TrimSpace(key) == "batch-video-v11-director"
+}
+
+func h3ChineseCanonicalPresentation(document H3DirectorDocument, segment H3VideoSegment) string {
+	visualLines := []string{}
+	audioLines := []string{}
+	sceneNumber := 0
+	for _, slice := range segment.SourceSlices {
+		card, ok := h3DirectorCardBySourceKey(document, slice.SourceKey)
+		if !ok {
+			continue
+		}
+		references := []H3SegmentMicroShot{}
+		for _, reference := range segment.MicroShots {
+			if reference.SourceKey == card.SourceKey {
+				references = append(references, reference)
+			}
+		}
+		if len(references) == 0 {
+			continue
+		}
+		sceneNumber++
+		durationMS := references[len(references)-1].SegmentEndMS - references[0].SegmentStartMS
+		visualLines = append(visualLines,
+			fmt.Sprintf("[场景 %d] %s", sceneNumber, strings.TrimSpace(card.Continuity.Location)),
+			fmt.Sprintf("事件：%s", strings.TrimSpace(card.Action)),
+			fmt.Sprintf("导演调度：%s，%s，%s；摄影机%s，主体%s，以%s衔接。", card.Camera.ShotSize, card.Camera.ShotAngle, card.Camera.Framing, card.Movement.CameraMovement, card.Movement.SubjectMovement, card.Movement.Transition),
+			fmt.Sprintf("总时长：%d 秒", h3RoundedSeconds(durationMS)),
+		)
+		for shotIndex, reference := range references {
+			shot, found := h3MicroShotByKey(card, reference.MicroShotKey)
+			if !found {
+				continue
+			}
+			visualLines = append(visualLines,
+				fmt.Sprintf("[镜头 %d] 时间：%s–%s", shotIndex+1, h3FloorSecondClock(reference.SegmentStartMS), h3CeilSecondClock(reference.SegmentEndMS)),
+				fmt.Sprintf("%s。人物：%s。画面：%s。动作：%s。机位：%s，%s，%s。运镜：%s；主体运动：%s；转场：%s。节奏：%s。连续性：轴线%s，光线%s，镜头结束时%s。",
+					strings.TrimSpace(shot.ShotTask), h3SlotMentions(document, shot.CharacterSlotIDs), strings.TrimSpace(shot.Visual), strings.TrimSpace(shot.Action),
+					shot.Camera.ShotSize, shot.Camera.ShotAngle, shot.Camera.Framing, shot.Movement.CameraMovement, shot.Movement.SubjectMovement, shot.Movement.Transition,
+					shot.Rhythm, card.Continuity.Axis, card.Continuity.LightDirection, h3ActionEndsSummary(card.Continuity.ActionEnds)),
+			)
+			if soundscape := h3ChineseAudioText(document, shot.Audio); soundscape != "" {
+				audioLines = append(audioLines, fmt.Sprintf("[场景 %d][镜头 %d] 声音设计：%s", sceneNumber, shotIndex+1, soundscape))
+			}
+		}
+	}
+	if len(audioLines) > 0 {
+		visualLines = append(visualLines, "", "音频：")
+		visualLines = append(visualLines, audioLines...)
+	}
+	return strings.Join(visualLines, "\n")
+}
+
+func h3RoundedSeconds(milliseconds int64) int64 {
+	if milliseconds <= 0 {
+		return 0
+	}
+	return (milliseconds + 500) / 1000
+}
+
+func h3FloorSecondClock(milliseconds int64) string {
+	if milliseconds < 0 {
+		milliseconds = 0
+	}
+	seconds := milliseconds / 1000
+	return fmt.Sprintf("%02d:%02d", seconds/60, seconds%60)
+}
+
+func h3CeilSecondClock(milliseconds int64) string {
+	if milliseconds < 0 {
+		milliseconds = 0
+	}
+	seconds := (milliseconds + 999) / 1000
+	return fmt.Sprintf("%02d:%02d", seconds/60, seconds%60)
+}
+
+func h3ChineseAudioText(document H3DirectorDocument, audio H3Audio) string {
+	return fmt.Sprintf("模式=%s｜发声角色=%s｜对白=%s｜旁白=%s｜音效=%s｜环境声=%s",
+		h3ChineseAudioMode(audio.Mode), h3SlotMention(document, audio.SpeakerSlotID), audio.Dialogue, audio.VoiceOver,
+		strings.Join(audio.SoundEffects, "、"), strings.Join(audio.Ambience, "、"))
+}
+
+func h3ChineseAudioMode(mode string) string {
+	switch strings.TrimSpace(mode) {
+	case "voice_over":
+		return "旁白"
+	case "dialogue":
+		return "对白"
+	case "ambience", "ambient":
+		return "环境声"
+	case "music":
+		return "音乐"
+	default:
+		return strings.TrimSpace(mode)
+	}
+}
+
+func h3SlotMention(document H3DirectorDocument, slotID string) string {
+	slotID = strings.TrimSpace(slotID)
+	if slotID == "" {
+		return ""
+	}
+	for _, character := range document.CharacterRoster {
+		if character.SlotID == slotID && strings.TrimSpace(character.CanonicalName) != "" {
+			return "@" + strings.TrimSpace(character.CanonicalName)
+		}
+	}
+	return slotID
+}
+
+func h3SlotMentions(document H3DirectorDocument, slots []string) string {
+	if len(slots) == 0 {
+		return "[]"
+	}
+	values := make([]string, 0, len(slots))
+	for _, slotID := range slots {
+		values = append(values, h3SlotMention(document, slotID))
+	}
+	return strings.Join(values, "、")
 }
 
 func h3ActionEndsSummary(values map[string]string) string {

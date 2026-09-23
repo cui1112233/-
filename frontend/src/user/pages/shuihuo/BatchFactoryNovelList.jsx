@@ -202,6 +202,12 @@ function h3DirectorCards(book) {
   const document = output.h3_director || output.h3Director || {};
   return Array.isArray(document.director_cards) ? document.director_cards : Array.isArray(document.directorCards) ? document.directorCards : [];
 }
+function finalVideoPromptTemplate(body) {
+  const value = String(body || '');
+  const marker = '【批量工厂最终 Prompt 模板】';
+  const index = value.indexOf(marker);
+  return index >= 0 ? value.slice(index + marker.length).trim() : '';
+}
 function requestID(prefix) { return `${prefix}-${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`}`; }
 function stageActionKey(stage, bookId) { return `stage-${stage}:${String(bookId || '')}`; }
 function capability(caps, key) { return caps?.[key] || { available: false, reason: '正在读取 V12 服务能力' }; }
@@ -2174,7 +2180,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
 		const promptConfig = settings?.aiPromptConfig || {};
 		const videoPreset = promptConfig.video || {};
 		const videoPresetBody = String(videoPreset.body || '');
-		const videoPromptTemplate = videoPresetBody.includes('{{storyboard}}') ? videoPresetBody : '';
+		const videoPromptTemplate = finalVideoPromptTemplate(videoPresetBody);
 		const constraints = promptConfig.constraints || {};
 		const h3VisualRestriction = (constraints.selections || []).find(item => item?.constraintCategory === 'restriction');
 		const maxSegmentSeconds = Number(settings.storyboardDurationLimit) === 15 ? 15 : 10;
@@ -2183,7 +2189,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
 			audio_asset_id: audioResult?.audio_asset_id || audioResult?.audioMeasurement?.measurement?.asset_id || audioResult?.audio_measurement?.measurement?.asset_id,
 			allow_semantic_timeline: settings.audioPlanningEnabled !== true,
 			preset: {
-				key: String(videoPreset.presetId || videoPreset.id || 'h3-video-normal'),
+				key: String(videoPreset.presetKey || videoPreset.presetId || videoPreset.id || 'h3-video-normal'),
 				revision: Math.max(1, Number(videoPreset.presetVersion || videoPreset.version || 1)),
 				format: 'h3-structured-v1',
 				max_segment_ms: maxSegmentSeconds * 1000,
