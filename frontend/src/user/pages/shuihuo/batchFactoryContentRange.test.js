@@ -14,10 +14,12 @@ test('keeps the full original separate from the limited work text', () => {
   assert.equal(source, '一\n二\n三');
 });
 
-test('uses working-front content as the production text when it exists', () => {
-  const book = { sourceMetadata: { contentRangeLines: 2 } };
-  assert.equal(batchFactoryProductionText('一\n二\n三', '', book), '一\n二');
-  assert.equal(batchFactoryProductionText('一\n二\n三', '人工改写', book), '人工改写');
+test('uses only the configured non-empty lines as production text unless a working front exists', () => {
+  const book = { sourceMetadata: { contentRangeLines: 5 } };
+  const source = '一\n\n二\n三\n四\n五\n六';
+  assert.equal(batchFactoryProductionText(source, '', book), '一\n二\n三\n四\n五');
+  assert.equal(batchFactoryProductionText(source, '改写甲\n改写乙', book), '改写甲\n改写乙');
+  assert.equal(source, '一\n\n二\n三\n四\n五\n六');
 });
 
 test('defaults to a 4000-character fetch and upload body limit', () => {

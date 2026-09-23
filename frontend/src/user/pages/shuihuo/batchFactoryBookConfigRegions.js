@@ -6,8 +6,7 @@ export const BOOK_CONFIG_REGIONS = [
   { key: 'visual', label: '画面设置' }
 ];
 
-const ENGINE_KEYS = ['textModelId', 'imageModelId', 'videoModelId', 'videoProvider', 'aspectRatio', 'productionMode'];
-const VIDEO_SETTING_KEYS = ['maxVideoDuration', 'fixedSingleVideo', 'fixedVideoDuration'];
+const ENGINE_KEYS = ['textModelId', 'imageModelId', 'videoModelId', 'videoProvider', 'aspectRatio', 'productionMode', 'storyboardDurationLimit', 'maxVideoDuration', 'fixedSingleVideo', 'audioPlanningEnabled', 'audioMergeEnabled', 'audioDurationSeconds', 'publishSettings', 'publishRewriteEnabled'];
 const AI_MODULE_BY_REGION = {
   assets: 'assets',
   constraints: 'constraints',
@@ -23,7 +22,7 @@ export function bookConfigRegionStatus(book, region) {
       : { label: '继承作品配置', tone: 'inherited' };
   }
   const module = patch?.aiPromptConfig?.[AI_MODULE_BY_REGION[region]];
-  if (region === 'video' && VIDEO_SETTING_KEYS.some(key => Object.hasOwn(patch, key))) return { label: '已单书覆盖', tone: 'overridden' };
+  if (region === 'assets' && Object.hasOwn(patch, 'starredCharacterNames')) return { label: '已单书覆盖', tone: 'overridden' };
   if (!module) return { label: '继承作品配置', tone: 'inherited' };
   if (module.enabled === false) return { label: '本书未启用', tone: 'disabled' };
   return { label: '已单书覆盖', tone: 'overridden' };

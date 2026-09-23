@@ -74,6 +74,9 @@ export function getCapabilities() {
   return apiRequest(bf11Path('capabilities'));
 }
 
+// Kept for the legacy Batch Factory page. The Shuihuo workbench uses the
+// book-scoped image endpoints below, but Vite still statically imports this
+// page and must retain its public API contract.
 export function generateConfiguredImage(payload = {}) {
   return apiRequest(bf11Path('image-generation'), { method: 'POST', body: body(payload) });
 }
@@ -354,8 +357,6 @@ export function getProductionStatus(batchId, options = {}) {
 }
 
 export function getBatchAutomationStatus(batchId) {
-  // This endpoint is a live polling read. Never reuse an earlier transient
-  // gateway failure after the Node/Go services have recovered.
   return apiRequest(bf11Path(`batches/${id(batchId)}/automation`), { cache: 'no-store' });
 }
 
@@ -385,6 +386,10 @@ export function updateAutomationPreset(presetId, payload) {
 
 export function deleteAutomationPreset(presetId) {
   return apiRequest(bf11Path(`automation-presets/${id(presetId)}`), { method: 'DELETE', body: body({}) });
+}
+
+export function saveBatchAutomationPreset(batchId, name) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/automation-presets`), { method: 'POST', body: body({ name }) });
 }
 
 export function startBatchAutomation(batchId, payload = {}) {
@@ -529,6 +534,7 @@ export default {
   createAutomationPreset,
   updateAutomationPreset,
   deleteAutomationPreset,
+  saveBatchAutomationPreset,
   startBatchAutomation,
   pauseBatchAutomation,
   resumeBatchAutomation,
