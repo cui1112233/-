@@ -7,7 +7,7 @@ import { batchFactoryMergeCoverFrom } from './shuihuo/batchFactoryMergeCover';
 import { ProjectsView } from './shuihuo/ProjectsView';
 import { AssetsView } from './shuihuo/AssetsView';
 import { confirmSegmentation, createProject, deleteProject, getProductionHealth, getProject, listModels, listProjects, paragraphSegmentation, replaceProjectSource, smartSegmentation } from '../../shared/api/shuihuoProduction';
-import { appendNovelFetchIntake, createBatchFromIntake, createManualIntake, getBatch, getIntake, getMergeStatus, getProductionStatus, listBatches, listBookAssetImages, listBookAssets, startBatchAutomation } from '../../shared/api/batchFactoryV11';
+import { appendNovelFetchIntake, createBatchFromIntake, createManualIntake, getBatch, getIntake, getMergeStatus, getProductionStatus, listBatches, startBatchAutomation } from '../../shared/api/batchFactoryV11';
 import { BATCH_FACTORY_ACTIVE_BATCH_STORAGE_KEY, novelFetchIntakeBooks, pendingNovelFetchIntakeId } from './shuihuo/batchFactoryNovelFetchHandoff';
 import './shuihuo-production.css';
 
@@ -98,25 +98,13 @@ export function ShuihuoProductionPage({ openBatchOnLoad = false }) {
 
       setProjects([...waterProjects, ...batchProjects]);
       const coveredProjects = await Promise.all(batchProjects.map(async project => {
-        const firstBook = project.batch?.books?.[0];
-        const [productionStatus, mergeStatus, imageURL] = await Promise.all([
+        const [productionStatus, mergeStatus] = await Promise.all([
           getProductionStatus(project.batchId, { silent: true }).catch(() => null),
-          getMergeStatus(project.batchId, { silent: true }).catch(() => null),
-          (async () => {
-            if (!firstBook?.id) return '';
-            const assetResult = await listBookAssets(project.batchId, firstBook.id, { silent: true }).catch(() => null);
-            for (const asset of assetResult?.assets || []) {
-              const imageResult = await listBookAssetImages(project.batchId, firstBook.id, asset.id, { silent: true }).catch(() => null);
-              const image = (imageResult?.images || []).find(item => item?.isPrimary && item?.url) || (imageResult?.images || []).find(item => item?.url);
-              if (image?.url) return image.url;
-            }
-            return '';
-          })()
+          getMergeStatus(project.batchId, { silent: true }).catch(() => null)
         ]);
         const productionCover = batchFactoryCoverFrom(project.batch, productionStatus);
         const mergeCover = batchFactoryMergeCoverFrom(project.batch, mergeStatus);
-        const imageCover = batchFactoryCoverFrom(project.batch, { jobs: [] }, imageURL);
-        return { ...project, coverMedia: productionCover || mergeCover || imageCover };
+        return { ...project, coverMedia: productionCover || mergeCover };
       }));
       if (mountedRef.current) setProjects([...waterProjects, ...coveredProjects]);
     } catch (error) { message.error(error.message || '读取项目库失败'); } finally { setLoading(false); }
