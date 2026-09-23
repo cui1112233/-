@@ -29,6 +29,18 @@ test('release info exposes exact environment SHA for git-direct deployments', ()
   });
 });
 
+test('Node release info prefers its own immutable SHA over the paired Go release', () => {
+  assert.ok(readReleaseInfo, 'lib/release-info.js must exist');
+  const info = readReleaseInfo({
+    env: {
+      QIANTIE_NODE_RELEASE_SHA: 'node-a0ec44ca',
+      QIANTIE_RELEASE_SHA: 'paired-go-c87a5e44'
+    },
+    rootDir: process.cwd()
+  });
+  assert.equal(info.git_sha, 'node-a0ec44ca');
+});
+
 test('release info falls back to RELEASE-SHA file without inventing a commit', () => {
   assert.ok(readReleaseInfo, 'lib/release-info.js must exist');
   const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'v88-release-info-'));
