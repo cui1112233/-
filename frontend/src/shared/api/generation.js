@@ -45,13 +45,14 @@ function requestDirectorPipeline(payload) {
   });
 }
 
-export function extractCharactersAndScenes(novelText, extractionPreset = 'standard') {
+export function extractCharactersAndScenes(novelText, extractionPreset = 'standard', textModelId = '') {
   return apiRequest('/api/chat', {
     method: 'POST',
     body: JSON.stringify({
       promptType: 'extract',
       novelText,
       extractionPreset,
+      ...(textModelId ? { textModelId } : {}),
       max_tokens: 4096,
       temperature: 0.3,
       stream: false
@@ -59,7 +60,7 @@ export function extractCharactersAndScenes(novelText, extractionPreset = 'standa
   });
 }
 
-export function enrichScriptEntity({ entityType, novelText, entity, existingEntitySummary, extractionPreset }) {
+export function enrichScriptEntity({ entityType, novelText, entity, existingEntitySummary, extractionPreset, textModelId = '' }) {
   return apiRequest('/api/chat', {
     method: 'POST',
     body: JSON.stringify({
@@ -69,6 +70,7 @@ export function enrichScriptEntity({ entityType, novelText, entity, existingEnti
       entity,
       existingEntitySummary,
       extractionPreset,
+      ...(textModelId ? { textModelId } : {}),
       max_tokens: 1800,
       temperature: 0.2,
       stream: false
@@ -76,7 +78,7 @@ export function enrichScriptEntity({ entityType, novelText, entity, existingEnti
   });
 }
 
-export async function generateScript({ mode, format, duration, novelText, characters, scenes, visualStyle, protagonists, constraints, matchAudio, audioTotalSeconds }) {
+export async function generateScript({ mode, format, duration, novelText, characters, scenes, visualStyle, protagonists, constraints, matchAudio, audioTotalSeconds, textModelId = '' }) {
   const resolved = await resolveSmartUnifiedGenerationInput({
     mode, format, duration, novelText, characters, scenes, visualStyle, protagonists, constraints, matchAudio, audioTotalSeconds
   });
@@ -99,6 +101,7 @@ export async function generateScript({ mode, format, duration, novelText, charac
       constraints: resolved.constraints,
       matchAudio: resolved.matchAudio === true,
       audioTotalSeconds: resolved.matchAudio === true ? resolved.audioTotalSeconds : null,
+      ...(textModelId ? { textModelId } : {}),
       max_tokens: resolved.format === 'shotlist' ? 16000 : 8192,
       temperature: 0.7,
       stream: false

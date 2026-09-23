@@ -3,7 +3,7 @@ import { AudioLines, Clapperboard, Copy, Download, FileText, History, Pencil, Pl
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { deleteScriptConstraintPrompt, extractCharactersAndScenes, generateScript, getConstraintPresetTexts, listScriptConstraintPrompts, listScriptPresetCatalog, saveScriptConstraintPrompt, updateScriptConstraintPrompt } from '../../shared/api/generation';
 import { listHistory, saveHistory, updateHistoryVideoTasks } from '../../shared/api/history';
-import { getConfig } from '../../shared/api/config';
+import { getConfig, listAvailableModels } from '../../shared/api/config';
 import { playTaskSound } from '../../shared/notifications/taskSound';
 import { textToSpeech } from '../../shared/api/tts';
 import { getCurrentUsername } from '../../shared/api/auth';
@@ -28,6 +28,8 @@ import { ShotOutputCards } from '../components/ShotOutputCards';
 import EntityImagePanel from '../components/EntityImagePanel';
 import { createScriptVideo, getScriptVideoTask } from '../../shared/api/scriptVideo';
 import { listModels } from '../../shared/api/shuihuoProduction';
+import { loadScriptModelSelection, reconcileScriptModelSelection, saveScriptModelSelection } from './scriptModelSelection';
+import { replaceRawShotCard } from './scriptShotCardEdit';
 
 function videoModelKey(model) {
   return String(model?.key || model?.modelKey || '').trim();
@@ -125,6 +127,9 @@ export function ScriptPage() {
   const [scriptVideoModelKey, setScriptVideoModelKey] = useState('yd2-mini-video');
   const [scriptVideoModels, setScriptVideoModels] = useState([]);
   const [loadingScriptVideoModels, setLoadingScriptVideoModels] = useState(false);
+  const [scriptModels, setScriptModels] = useState({ text: [], image: [] });
+  const [scriptModelsLoaded, setScriptModelsLoaded] = useState(false);
+  const [scriptModelSelection, setScriptModelSelection] = useState({ textModelId: '', imageModelId: '' });
   const [previewVideoTask, setPreviewVideoTask] = useState(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyEntries, setHistoryEntries] = useState([]);
@@ -134,6 +139,8 @@ export function ScriptPage() {
   const [shotFindText, setShotFindText] = useState('');
   const [shotReplaceText, setShotReplaceText] = useState('');
   const [shotMatchIndex, setShotMatchIndex] = useState(0);
+  const [editingShot, setEditingShot] = useState({ index: -1, text: '' });
+  const editingShotInputRef = useRef(null);
   const [activeEntity, setActiveEntity] = useState(null);
   const entityEditorSessionRef = useRef(0);
   const [fullscreenEditor, setFullscreenEditor] = useState(false);
@@ -166,6 +173,13 @@ export function ScriptPage() {
   const selectedDuration = Form.useWatch('duration', form);
   const novelText = Form.useWatch('novelText', form) || '';
   useEffect(() => {
+    const saved = loadScriptModelSelection(window.localStorage, getCurrentUsername());
+    setScriptModelSelection(saved);
+  }, []);
+  useEffect(() => {
+    if (scriptModelsLoaded) saveScriptModelSelection(window.localStorage, getCurrentUsername(), scriptModelSelection);
+  }, [scriptModelsLoaded, scriptModelSelection]);
+  useEffect(() => {
     let active = true;
     setLoadingScriptVideoModels(true);
     listModels()
@@ -180,6 +194,23 @@ export function ScriptPage() {
       })
       .catch(error => { if (active) message.warning(error?.message || '读取视频模型失败'); })
       .finally(() => { if (active) setLoadingScriptVideoModels(false); });
+    return () => { active = false; };
+  }, []);
+  useEffect(() => {
+    let active = true;
+    Promise.all(['text', 'image'].map(kind => listAvailableModels(kind).then(result => [kind, Array.isArray(result?.models) ? result.models : []])))
+      .then(entries => {
+        if (!active) return;
+        const nextModels = Object.fromEntries(entries);
+        setScriptModels(nextModels);
+        setScriptModelSelection(current => {
+          const next = reconcileScriptModelSelection(current, nextModels);
+          if (next.unavailableKinds.length) message.warning(`已选${next.unavailableKinds.map(kind => kind === 'text' ? '文本模型' : '图片模型').join('、')}已下架，请重新选择`);
+          return { textModelId: next.textModelId, imageModelId: next.imageModelId };
+        });
+      })
+      .catch(error => { if (active) message.warning(error?.message || '读取剧本模型失败'); })
+      .finally(() => { if (active) setScriptModelsLoaded(true); });
     return () => { active = false; };
   }, []);
   useEffect(() => { setSelectedShotIndexes(new Set()); }, [selectedFormat]);
@@ -228,6 +259,23 @@ export function ScriptPage() {
     return mountedRef.current
       && requestGenerationRef.current[request.kind] === request.requestId
       && sourceGenerationRef.current === request.sourceGeneration;
+  }
+
+  function insertShotMention(name) {
+    const input = editingShotInputRef.current?.resizableTextArea?.textArea || editingShotInputRef.current;
+    const start = Number.isInteger(input?.selectionStart) ? input.selectionStart : editingShot.text.length;
+    const end = Number.isInteger(input?.selectionEnd) ? input.selectionEnd : start;
+    const token = `@${name} `;
+    setEditingShot(current => ({ ...current, text: `${current.text.slice(0, start)}${token}${current.text.slice(end)}` }));
+    requestAnimationFrame(() => {
+      input?.focus?.();
+      input?.setSelectionRange?.(start + token.length, start + token.length);
+    });
+  }
+
+  function mentionCandidates(items) {
+    const query = (editingShot.text.match(/@([\u4e00-\u9fffA-Za-z0-9_-]*)$/)?.[1] || '').toLowerCase();
+    return query || /@$/.test(editingShot.text) ? (items || []).filter(item => formatEntity(item).toLowerCase().includes(query)) : [];
   }
 
   function invalidateRequests() {
@@ -696,7 +744,7 @@ export function ScriptPage() {
   async function extractEntities(novelText) {
     const extractionPreset = selectAvailableExtractionPreset(form.getFieldValue('extractionPreset'), extractionPresets);
     if (!extractionPreset) throw new Error(extractionPresetError || '暂无已发布的提取指令');
-    const extractResponse = await extractCharactersAndScenes(novelText, extractionPreset);
+    const extractResponse = await extractCharactersAndScenes(novelText, extractionPreset, scriptModelSelection.textModelId);
     const extraction = normalizeExtraction(extractJSON(aiText(extractResponse)));
     if (!extraction.characters.length && !extraction.scenes.length) {
       throw new Error('模型未返回人物或场景，请检查提取模板或重试');
@@ -780,7 +828,8 @@ export function ScriptPage() {
         ...entities,
         constraints: requestConstraints,
         matchAudio: quickDirectorOptions.matchAudio,
-        audioTotalSeconds: quickDirectorOptions.matchAudio ? sourceAudioDurationSeconds : null
+        audioTotalSeconds: quickDirectorOptions.matchAudio ? sourceAudioDurationSeconds : null,
+        textModelId: scriptModelSelection.textModelId
       });
       const nextOutput = aiText(scriptResponse);
       if (typeof nextOutput !== 'string' || !nextOutput.trim()) throw new Error('模型未返回剧本内容');
@@ -805,7 +854,9 @@ export function ScriptPage() {
           output: nextOutput,
           novelText: values.novelText,
           extractInfo,
-          constraints: requestConstraints
+          constraints: requestConstraints,
+          textModelId: scriptModelSelection.textModelId,
+          imageModelId: scriptModelSelection.imageModelId
         });
         if (!isCurrentRequest(requestId)) return;
         setCurrentHistoryId(historyId);
@@ -1218,6 +1269,9 @@ export function ScriptPage() {
         />
         <div className="script-right">
         <div className="script-tabs">
+          <Typography.Text strong>剧本生成</Typography.Text>
+          <Select style={{ width: 150 }} value={scriptModelSelection.textModelId || undefined} onChange={textModelId => setScriptModelSelection(current => ({ ...current, textModelId }))} placeholder="文本模型" options={scriptModels.text.map(model => ({ value: model.id, label: model.displayName || model.id }))} />
+          <Select style={{ width: 150 }} value={scriptModelSelection.imageModelId || undefined} onChange={imageModelId => setScriptModelSelection(current => ({ ...current, imageModelId }))} placeholder="图片模型" options={scriptModels.image.map(model => ({ value: model.id, label: model.displayName || model.id }))} />
           <Form.Item name="mode" noStyle>
             <Segmented
               options={[
@@ -1302,6 +1356,7 @@ export function ScriptPage() {
               videoTasks={shotVideoTasks}
               extractInfo={extractInfo}
               onOpenVideo={setPreviewVideoTask}
+              onEditPrompt={index => setEditingShot({ index, text: rawShotCards[index] || '' })}
               output={output}
               activeMatch={shotReplaceOpen ? activeShotMatch : null}
               cardStarts={shotCardStarts}
@@ -1320,6 +1375,17 @@ export function ScriptPage() {
               <div className="script-empty-copy">先提取人物与场景，确认后再生成剧本</div>
             </div>
           )}
+          <Modal title="编辑分镜提示词" open={editingShot.index >= 0} onCancel={() => setEditingShot({ index: -1, text: '' })} onOk={() => {
+            const nextOutput = replaceRawShotCard(output, rawShotCards, editingShot.index, editingShot.text);
+            updateOutputDraft(nextOutput, true);
+            setEditingShot({ index: -1, text: '' });
+          }}>
+            <Space wrap style={{ marginBottom: 12 }}>
+              {mentionCandidates(extractInfo.characters).map(item => <Button key={`character-${item.id}`} size="small" onClick={() => insertShotMention(formatEntity(item))}>@人物 {formatEntity(item)}</Button>)}
+              {mentionCandidates(extractInfo.scenes).map(item => <Button key={`scene-${item.id}`} size="small" onClick={() => insertShotMention(formatEntity(item))}>@场景 {formatEntity(item)}</Button>)}
+            </Space>
+            <Input.TextArea ref={editingShotInputRef} value={editingShot.text} rows={12} placeholder="输入 @ 选择人物或场景，也可直接输入 @名称" onChange={event => setEditingShot(current => ({ ...current, text: event.target.value }))} />
+          </Modal>
         </div>
         </div>
       </div>
@@ -1527,6 +1593,8 @@ export function ScriptPage() {
         novelText={form.getFieldValue('novelText')}
         extractionPreset={extractionPreset}
         existingEntitySummary={compactEntitySummary(extractInfo, activeEntity?.isNew ? '' : activeEntity?.id)}
+        textModelId={scriptModelSelection.textModelId}
+        imageModelId={scriptModelSelection.imageModelId}
         onChange={updateActiveEntity}
         onDelete={deleteActiveEntity}
       />
@@ -1690,7 +1758,7 @@ function EntitySection({ title, type, count, items, protagonistIds = [], onAdd, 
   );
 }
 
-function EntityEditor({ entity, type, assetId, editorSessionId, isNew, open, fullscreen, novelText, extractionPreset, existingEntitySummary, onClose, onToggleFullscreen, onChange, onDelete }) {
+function EntityEditor({ entity, type, assetId, editorSessionId, isNew, open, fullscreen, novelText, extractionPreset, existingEntitySummary, textModelId, imageModelId, onClose, onToggleFullscreen, onChange, onDelete }) {
   const [fields, setFields] = useState({});
   const [imageUrls, setImageUrls] = useState([]);
   const [mainImageUrl, setMainImageUrl] = useState('');
@@ -1735,7 +1803,8 @@ function EntityEditor({ entity, type, assetId, editorSessionId, isNew, open, ful
         novelText,
         entity: fields,
         existingEntitySummary,
-        extractionPreset
+        extractionPreset,
+        textModelId
       });
       const result = normalizeEntityEnrichment(response?.enrichment);
       setFields(current => applyEntityEnrichment(current, result));
@@ -1836,6 +1905,7 @@ function EntityEditor({ entity, type, assetId, editorSessionId, isNew, open, ful
           assetType={type === 'characters' ? 'character' : 'scene'}
           assetId={assetId}
           generationPayload={{ ...buildReferenceAssetGenerationPayload({ type, entity, fields, novelText, extractionPreset }), asset_id: assetId }}
+          imageModelId={imageModelId}
           imageUrls={imageUrls}
           mainImageUrl={mainImageUrl}
           requestKey={imageRequestKey}

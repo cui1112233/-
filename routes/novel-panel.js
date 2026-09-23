@@ -1096,7 +1096,14 @@ router.post('/reference-assets/generate', async (req, res) => {
     // Web deployment generates reference images through the per-account image AI
     // settings from Personal Center API Config (OpenAI Images compatible /images/generations). Missing config
     // degrades gracefully and keeps the existing reference image state.
-    const settings = imageSettingsFromAccountConfig(requestConfig(req));
+    const body = isPlainObject(req.body) ? req.body : {};
+    const selectedModelId = text(body.imageModelId);
+    const runtimeModel = selectedModelId
+      ? req.app?.locals?.resolveRuntimeModel?.(req.username, 'image', selectedModelId)
+      : null;
+    const settings = runtimeModel
+      ? { ...imageSettingsFromAccountConfig(requestConfig(req)), base_url: runtimeModel.baseUrl, model: runtimeModel.modelId, api_key: runtimeModel.credential }
+      : imageSettingsFromAccountConfig(requestConfig(req));
     const missing = ['base_url', 'model', 'api_key'].filter(key => !text(settings[key] || '').trim());
     if (missing.length) {
       return res.status(400).json({
@@ -1104,7 +1111,6 @@ router.post('/reference-assets/generate', async (req, res) => {
         code: 'IMAGE_SETTINGS_INCOMPLETE'
       });
     }
-    const body = isPlainObject(req.body) ? req.body : {};
     const prompt = buildImageGenerationPrompt(body);
     if (!text(prompt)) return res.status(400).json({ error: '缺少生成内容：请填写人物外形描述或生成引导。', code: 'IMAGE_GENERATION_EMPTY_PROMPT' });
     const fullUrl = buildImageApiUrl(settings.base_url, settings.generate_path);

@@ -368,12 +368,19 @@ function describeUpstreamFailure(upstream) {
   return ['Upstream API error (status ' + upstream.statusCode + ')', details].filter(Boolean).join(': ');
 }
 
+function resolveSelectedTextModelId(body) {
+  const promptType = String(body?.promptType || '').trim();
+  if (!['script', 'extract', 'entity_enrich'].includes(promptType)) return '';
+  return String(body?.textModelId || '').trim();
+}
+
 function createChatRouter({
   configReader = readConfig,
   connectionConfigReader = readConfig,
   upstreamRequest = requestUpstream,
   modelsRequest = requestUpstreamModels,
-  responseCollector = collectResponse
+  responseCollector = collectResponse,
+  resolveTextModel
 } = {}) {
   const router = express.Router();
   router.use(apiAuth);
@@ -519,10 +526,15 @@ function createChatRouter({
   }
 
   try {
-    const config = configReader(req.username);
+    const body = req.body || {};
+    const configured = configReader(req.username);
+    const selectedModelId = resolveSelectedTextModelId(body);
+    const runtimeModel = selectedModelId && typeof resolveTextModel === 'function'
+      ? resolveTextModel(req.username, selectedModelId, configured)
+      : null;
+    const config = runtimeModel ? { ...configured, baseUrl: runtimeModel.baseUrl, model: runtimeModel.modelId, apiKey: runtimeModel.credential } : configured;
     ensureReadyConfig(config);
 
-    const body = req.body;
     const maxTokens = Math.min(Math.max(1, parseInt(body.max_tokens) || 4096), 32768);
     const rawTemp = Number(body.temperature);
     const temperature = Number.isFinite(rawTemp) ? Math.min(Math.max(0, rawTemp), 2.0) : 0.7;
