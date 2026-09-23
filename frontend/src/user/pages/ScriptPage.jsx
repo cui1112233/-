@@ -121,6 +121,9 @@ export function ScriptPage() {
   const [revisionPreview, setRevisionPreview] = useState({ open: false, summary: '', currentOutput: '', candidateOutput: '' });
   const [previousOutput, setPreviousOutput] = useState('');
   const [editingOutput, setEditingOutput] = useState(false);
+  const [editingOutputSelection, setEditingOutputSelection] = useState({ start: 0, end: 0 });
+  const [outputMentionMenuOpen, setOutputMentionMenuOpen] = useState(false);
+  const [outputMentionActiveIndex, setOutputMentionActiveIndex] = useState(0);
   const [selectedShotIndexes, setSelectedShotIndexes] = useState(new Set());
   const [generatingShotIndexes, setGeneratingShotIndexes] = useState(() => new Set());
   const [shotVideoTasks, setShotVideoTasks] = useState({});
@@ -148,6 +151,7 @@ export function ScriptPage() {
   const [mentionMenuOpen, setMentionMenuOpen] = useState(false);
   const [mentionActiveIndex, setMentionActiveIndex] = useState(0);
   const editingShotInputRef = useRef(null);
+  const editingOutputInputRef = useRef(null);
   const [activeEntity, setActiveEntity] = useState(null);
   const entityEditorSessionRef = useRef(0);
   const [fullscreenEditor, setFullscreenEditor] = useState(false);
@@ -167,6 +171,19 @@ export function ScriptPage() {
       })
       : []
   ), [activeShotMention, extractInfo.characters, extractInfo.scenes]);
+  const activeOutputMention = useMemo(() => (
+    outputMentionMenuOpen ? findActiveShotMention(output, editingOutputSelection.start) : null
+  ), [editingOutputSelection.start, output, outputMentionMenuOpen]);
+  const activeOutputMentionCandidates = useMemo(() => (
+    activeOutputMention
+      ? filterShotMentionCandidates({
+        characters: extractInfo.characters,
+        scenes: extractInfo.scenes,
+        query: activeOutputMention.query,
+        label: formatEntity
+      })
+      : []
+  ), [activeOutputMention, extractInfo.characters, extractInfo.scenes]);
 
   useEffect(() => {
     let active = true;
@@ -379,6 +396,41 @@ export function ScriptPage() {
     setEditingShotSelection(selection);
     setMentionMenuOpen(Boolean(findActiveShotMention(text, selection.start)));
     setMentionActiveIndex(0);
+  }
+
+  function syncOutputMentionSelection(text, start, end = start) {
+    const selection = { start: Number.isInteger(start) ? start : String(text || '').length, end: Number.isInteger(end) ? end : start };
+    setEditingOutputSelection(selection);
+    setOutputMentionMenuOpen(Boolean(findActiveShotMention(text, selection.start)));
+    setOutputMentionActiveIndex(0);
+  }
+
+  function insertOutputMention(candidate) {
+    const input = editingOutputInputRef.current?.resizableTextArea?.textArea || editingOutputInputRef.current;
+    const mention = findActiveShotMention(output, editingOutputSelection.start);
+    if (!mention) return;
+    const { text: nextText, cursor } = insertActiveShotMention(output, mention, formatEntity(candidate.item));
+    updateOutputDraft(nextText);
+    setEditingOutputSelection({ start: cursor, end: cursor });
+    setOutputMentionMenuOpen(false);
+    requestAnimationFrame(() => {
+      input?.focus?.();
+      input?.setSelectionRange?.(cursor, cursor);
+    });
+  }
+
+  function toggleOutputEditor() {
+    setSelectedShotIndexes(new Set());
+    if (editingOutput) {
+      setEditingOutput(false);
+      setOutputMentionMenuOpen(false);
+      return;
+    }
+    const cursor = output.length;
+    setEditingOutputSelection({ start: cursor, end: cursor });
+    setOutputMentionMenuOpen(false);
+    setOutputMentionActiveIndex(0);
+    setEditingOutput(true);
   }
 
   function openShotEditor(index) {
@@ -1430,7 +1482,7 @@ export function ScriptPage() {
             <Button type="primary" icon={<WandSparkles size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={generateOutput} loading={generating} disabled={extracting || !canGenerateScript || (!extractInfo.characters.length && !extractInfo.scenes.length)}>生成剧本</Button>
             <Button icon={<Copy size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={() => copyText(isShotCardView ? shotCards.join('\n\n') : output)} disabled={!output}>复制</Button>
             <Button disabled={!isShotCardView || !selectedShotIndexes.size} onClick={() => setShotReplaceOpen(true)}>查找替换</Button>
-            <Button icon={<Pencil size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={() => { setSelectedShotIndexes(new Set()); setEditingOutput(value => !value); }} disabled={!output}>{editingOutput ? '完成编辑' : '编辑'}</Button>
+            <Button icon={<Pencil size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={toggleOutputEditor} disabled={!output}>{editingOutput ? '完成编辑' : '编辑'}</Button>
             <Button onClick={undoLastRevision} disabled={!previousOutput}>撤销本次修改</Button>
             <Button
               aria-label="重新生成剧本"
@@ -1479,7 +1531,55 @@ export function ScriptPage() {
               output={output}
               activeMatch={shotReplaceOpen ? activeShotMatch : null}
               cardStarts={shotCardStarts}
-            /> : <Input.TextArea className="legacy-output" value={output} rows={24} readOnly={!editingOutput} onChange={event => updateOutputDraft(event.target.value)} />
+            /> : <div style={{ position: 'relative' }}>
+              <Input.TextArea
+                ref={editingOutputInputRef}
+                className="legacy-output"
+                value={output}
+                rows={24}
+                readOnly={!editingOutput}
+                placeholder={editingOutput ? '任意位置输入 @ 选择人物或场景，也可直接输入 @名称' : undefined}
+                onChange={event => {
+                  const { value, selectionStart, selectionEnd } = event.target;
+                  updateOutputDraft(value);
+                  if (editingOutput) syncOutputMentionSelection(value, selectionStart, selectionEnd);
+                }}
+                onSelect={event => {
+                  if (editingOutput) syncOutputMentionSelection(event.currentTarget.value, event.currentTarget.selectionStart, event.currentTarget.selectionEnd);
+                }}
+                onKeyUp={event => {
+                  if (editingOutput && !['ArrowDown', 'ArrowUp', 'Enter', 'Escape'].includes(event.key)) {
+                    syncOutputMentionSelection(event.currentTarget.value, event.currentTarget.selectionStart, event.currentTarget.selectionEnd);
+                  }
+                }}
+                onKeyDown={event => {
+                  if (!editingOutput || !activeOutputMention) return;
+                  if (event.key === 'Escape') {
+                    event.preventDefault();
+                    setOutputMentionMenuOpen(false);
+                    return;
+                  }
+                  if (!activeOutputMentionCandidates.length) return;
+                  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                    event.preventDefault();
+                    const delta = event.key === 'ArrowDown' ? 1 : -1;
+                    setOutputMentionActiveIndex(current => (current + delta + activeOutputMentionCandidates.length) % activeOutputMentionCandidates.length);
+                  } else if (event.key === 'Enter') {
+                    event.preventDefault();
+                    insertOutputMention(activeOutputMentionCandidates[outputMentionActiveIndex] || activeOutputMentionCandidates[0]);
+                  }
+                }}
+              />
+              {editingOutput && activeOutputMention ? (
+                <div role="listbox" aria-label="全文人物与场景提及候选" style={{ position: 'absolute', zIndex: 4, left: 12, right: 12, bottom: 12, maxHeight: 180, overflowY: 'auto', padding: 8, border: '1px solid #d9d9d9', borderRadius: 8, background: '#fff', boxShadow: '0 6px 18px rgb(0 0 0 / 12%)' }}>
+                  {activeOutputMentionCandidates.length ? activeOutputMentionCandidates.map((candidate, index) => (
+                    <Button key={`${candidate.kind}-${candidate.item.id}`} type={index === outputMentionActiveIndex ? 'primary' : 'text'} size="small" style={{ margin: 2 }} onMouseDown={event => event.preventDefault()} onClick={() => insertOutputMention(candidate)}>
+                      @{candidate.kind === 'character' ? '人物' : '场景'} {formatEntity(candidate.item)}
+                    </Button>
+                  )) : <Typography.Text type="secondary">没有匹配项，请先提取人物或场景</Typography.Text>}
+                </div>
+              ) : null}
+            </div>
           ) : generating ? (
             <CmLoader />
           ) : (
