@@ -26,6 +26,25 @@ test('does not infer a main image from the first candidate image', () => {
   assert.deepEqual(collectShotReferenceImages({ shotText: '林溪站在门口', extractInfo: info([candidate]) }), []);
 });
 
+test('treats @名称 as a real provider reference only when the current asset has a primary image', () => {
+  const wife = entity('wife', '妻子', ['https://img.example/wife.png'], 'https://img.example/wife.png');
+  const husband = entity('husband', '老公', ['https://img.example/husband-secondary.png']);
+
+  assert.deepEqual(collectShotReferenceImages({
+    shotText: '@妻子看向镜子，@老公站在她身后。',
+    extractInfo: info([wife, husband])
+  }), ['https://img.example/wife.png']);
+  assert.deepEqual(buildScriptVideoPayload({
+    prompt: '@妻子看向镜子，@老公站在她身后。',
+    modelKey: 'yd2-mini-video',
+    imageUrls: ['https://img.example/wife.png']
+  }), {
+    prompt: '@妻子看向镜子，@老公站在她身后。',
+    modelKey: 'yd2-mini-video',
+    imageUrls: ['https://img.example/wife.png']
+  });
+});
+
 test('changes only the explicitly selected entity main image', () => {
   const lin = entity('lin', '林溪', ['https://img.example/first.png', 'https://img.example/second.png']);
   const wei = entity('wei', '卫铭', ['https://img.example/wei.png'], 'https://img.example/wei.png');
