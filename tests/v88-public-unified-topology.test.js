@@ -24,6 +24,7 @@ test('public Compose renders V88 and isolated Shuihuo DNS-only request chains', 
   assert.equal(services['v88-node'].environment.QIANTIE_SHUIHUO_COMPAT_BASE_URL, 'http://shuihuo-compat:4100');
   assert.equal(services['v88-node'].environment.QIANTIE_121_BROWSER_WORKER_URL, 'http://browser-worker:8787');
   assert.equal(services['go-api'].environment.QIANTIE_BATCH_FACTORY_V11_DYNAMIC_TEXT_PROVIDER, '1');
+  assert.equal(services['go-api'].environment.QIANTIE_BATCH_FACTORY_V11_LOCAL_MERGE_ENABLED, '1');
   assert.match(services['go-api'].environment.QIANTIE_MYSQL_DSN, /@tcp\(mysql:3306\)\//);
   assert.match(services['shuihuo-compat'].environment.QIANTIE_MYSQL_DSN, /\/qiantie_shuihuo_compat\?/);
   assert.doesNotMatch(services['shuihuo-compat'].environment.QIANTIE_MYSQL_DSN, /\/qiantie_shuihuo\?/);
