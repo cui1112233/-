@@ -12,6 +12,7 @@ test('uses only Batch Factory data and keeps novel-fetch intake handoff', () => 
   assert.match(page, /listBatches\(\)/);
   assert.match(page, /BatchFactoryCreateModal/);
   assert.match(page, /BatchFactoryNovelList/);
+  assert.match(page, /创作漫剧/);
   assert.match(page, /pendingNovelFetchIntakeId\(window\.location\.search\)/);
   assert.doesNotMatch(page, /listProjects\(/);
   assert.doesNotMatch(page, /getProductionHealth\(/);

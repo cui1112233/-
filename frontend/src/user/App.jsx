@@ -6,6 +6,7 @@ const ScriptPage = lazy(() => import('./pages/ScriptPage'));
 const HistoryPage = lazy(() => import('./pages/HistoryPage'));
 const NovelPanelPage = lazy(() => import('./pages/NovelPanelPage'));
 const AgentPage = lazy(() => import('./pages/AgentPageV2').then(module => ({ default: module.AgentPageV2 })));
+const ShuihuoProductionPage = lazy(() => import('./pages/ShuihuoProductionPage'));
 const TtsPage = lazy(() => import('./pages/TtsPage'));
 const NovelFetchPage = lazy(() => import('./pages/NovelFetchPage'));
 const NovelFetchWorkshopPage = lazy(() => import('./pages/NovelFetchWorkshopPage'));
@@ -47,6 +48,7 @@ function getPage(pathname) {
     '/novel-panel': NovelPanelPage,
     '/agent': AgentPage,
     '/shuihuo-production': BatchFactoryWorkbenchPage,
+    '/shuihuo-production/creative': ShuihuoProductionPage,
     '/tts': TtsPage,
     '/settings': SettingsPage,
     '/api-config': ApiConfigPage,

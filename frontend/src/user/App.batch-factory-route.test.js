@@ -11,5 +11,6 @@ test('routes both Batch Factory entries to the canonical workbench', () => {
   assert.match(app, /const BatchFactoryWorkbenchPage = lazy\(\(\) => import\('\.\/pages\/BatchFactoryWorkbenchPage'\)\)/);
   assert.match(app, /'\/batch-factory': BatchFactoryWorkbenchPage/);
   assert.match(app, /'\/shuihuo-production': BatchFactoryWorkbenchPage/);
+  assert.match(app, /'\/shuihuo-production\/creative': ShuihuoProductionPage/);
   assert.doesNotMatch(app, /BatchFactoryFromShuihuoPage/);
 });
