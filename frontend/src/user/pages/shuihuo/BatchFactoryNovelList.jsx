@@ -1683,11 +1683,51 @@ function MediaVersionPanel({ book, batchId, versionsByVideo, productionStatus, m
   if (precompiledWorkspace.status === 'awaiting_compilation') {
     const card = selectedPrecompiledFrame?.card || {};
     const camera = card?.camera || {};
+    const currentIndex = selectedPrecompiledFrame?.index || 0;
     return <div className="batch-factory-media-pickstation batch-factory-media-precompiled-workspace">
-    <Alert type="info" showIcon message="H3 导演卡已提取，尚未产生 VIDEO 分镜" description="这里展示的是下一步会编译为 VIDEO 的导演卡。生成真正的视频前，系统需要先完成配音实测（若已开启）和最终 Prompt 编译。" />
-    <div className="batch-factory-media-precompiled-card-list"><article className="batch-factory-media-precompiled-card"><header><b>H3 导演卡 {(selectedPrecompiledFrame?.index || 0) + 1}</b><small>待编译 VIDEO</small></header><p>{String(card?.source_text || '')}</p>{card?.action ? <p><b>动作：</b>{card.action}</p> : null}{camera?.shot_size ? <p><b>机位：</b>{camera.shot_size}{camera.shot_angle ? ` · ${camera.shot_angle}` : ''}</p> : null}</article></div>
-    <Space wrap><Button aria-label="上一张 H3 导演卡" disabled={!selectedPrecompiledFrame || selectedPrecompiledFrame.index === 0} onClick={() => movePrecompiledFrame(-1)}>上一张</Button><span>{(selectedPrecompiledFrame?.index || 0) + 1} / {precompiledWorkspace.frames.length}</span><Button aria-label="下一张 H3 导演卡" disabled={!selectedPrecompiledFrame || selectedPrecompiledFrame.index >= precompiledWorkspace.frames.length - 1} onClick={() => movePrecompiledFrame(1)}>下一张</Button><Button type="primary" onClick={() => onOpenDirector?.(selectedPrecompiledFrame?.key || '')}>打开分镜提示词</Button><span className="shuihuo-modal-note">编译完成后，此处会自动切换为可生成、可预览和可选版本的 VIDEO 片段库。</span></Space>
-  </div>;
+      <div className="batch-factory-media-pickstation-topline">
+        <span>左侧当前分镜预览 · 右侧选择导演卡；编译完成后自动切换为 VIDEO 版本库</span>
+        <b>0/{precompiledWorkspace.frames.length} 分镜已就绪</b>
+      </div>
+      <div className="batch-factory-media-pickstation-workspace">
+        <section className="batch-factory-media-pickstation-viewer">
+          <header>
+            <div><b>VIDEO {String(currentIndex + 1).padStart(2, '0')}</b><small>H3 导演卡 · 待编译</small></div>
+            <Tag color="default">待生成</Tag>
+          </header>
+          <div className="batch-factory-media-pickstation-stage">
+            <div className="batch-factory-media-pickstation-frame is-landscape" style={{ '--bf-media-ratio': 16 / 9 }}>
+              <div className="batch-factory-media-primary-empty"><PictureOutlined /><span>当前分镜暂不可播放视频</span></div>
+            </div>
+          </div>
+          <footer><span>当前为 H3 导演卡 {(currentIndex || 0) + 1}；等待真实配音时长与最终 VIDEO Prompt 编译。</span><small>待编译</small></footer>
+        </section>
+        <aside className="batch-factory-media-pickstation-rail">
+          <section className="batch-factory-media-pickstation-rail-card">
+            <header><div><span className="batch-factory-media-pickstation-index">成</span><b>合成成片</b></div><small>尚无成片</small></header>
+            <div className="batch-factory-media-pickstation-main is-empty"><PassiveMediaPoster className="batch-factory-media-pickstation-thumb is-landscape" label="合成成片" detail="全部 VIDEO 编译并生成后可合成" /><span><b>等待 VIDEO 生成</b><small>不会在导演阶段伪造成片</small></span></div>
+          </section>
+          {precompiledWorkspace.frames.map((frame, index) => {
+            const frameCard = frame.card || {};
+            const active = frame.key === selectedPrecompiledFrame?.key;
+            return <section key={frame.key} className={`batch-factory-media-pickstation-rail-card${active ? ' is-active' : ''}`}>
+              <header><div><span className="batch-factory-media-pickstation-index">{String(index + 1).padStart(2, '0')}</span><b>VIDEO {String(index + 1).padStart(2, '0')}</b></div><small>待生成</small></header>
+              <button type="button" className="batch-factory-media-pickstation-main is-empty" onClick={() => setSelectedVideoId(frame.key)}>
+                <PassiveMediaPoster className="batch-factory-media-pickstation-thumb is-landscape" label={`分镜 ${index + 1}`} detail="暂无视频" />
+                <span><b>{String(frameCard.source_text || 'H3 导演卡')}</b><small>{frameCard.action ? `动作：${frameCard.action}` : '等待最终 VIDEO 编译'}</small></span>
+              </button>
+              <div className="batch-factory-media-pickstation-versions"><Button size="small" type={active ? 'primary' : 'default'} onClick={() => onOpenDirector?.(frame.key)}>打开分镜提示词</Button></div>
+            </section>;
+          })}
+        </aside>
+      </div>
+      <section className="batch-factory-media-bottom-sheet is-collapsed" style={{ transform: 'translateY(0)' }}>
+        <div className="batch-factory-media-bottom-sheet-bar">
+          <div className="batch-factory-media-bottom-sheet-ready"><span><PictureOutlined /></span><div><b>0 / {precompiledWorkspace.frames.length} 分镜已选好</b><small>先完成最终 VIDEO 编译，再生成、选择与合成视频。</small></div></div>
+          <div className="batch-factory-media-bottom-sheet-quick"><Button size="small" onClick={() => onOpenDirector?.(selectedPrecompiledFrame?.key || '')}>查看导演提示词</Button><Tooltip title="等待 H3 最终 VIDEO 编译"><Button type="primary" disabled>合成当前书</Button></Tooltip><Tooltip title="等待可上传视频"><Button size="small" className="batch-factory-upload-network-button" disabled>上传网络</Button></Tooltip></div>
+        </div>
+      </section>
+    </div>;
   }
 
   return <div className="batch-factory-media-pickstation">

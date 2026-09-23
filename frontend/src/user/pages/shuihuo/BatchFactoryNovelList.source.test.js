@@ -893,6 +893,17 @@ test('shows persisted H3 director cards before final VIDEO compilation instead o
   assert.match(source, /h3Card\.source_text/);
 });
 
+test('uses the same media-library structure for an H3 director card before VIDEO compilation', () => {
+  const start = source.indexOf('function MediaVersionPanel(');
+  const end = source.indexOf('export function BatchFactoryNovelList(', start);
+  const panel = start >= 0 && end > start ? source.slice(start, end) : '';
+  assert.match(panel, /batch-factory-media-pickstation-workspace/);
+  assert.match(panel, /当前分镜暂不可播放视频/);
+  assert.match(panel, /precompiledWorkspace\.frames\.map/);
+  assert.match(panel, /打开分镜提示词/);
+  assert.match(panel, /查看导演提示词/);
+});
+
 test('compiles a successful H3 director run from real TTS audio before exposing editable VIDEO cards', () => {
   assert.match(source, /measureH3Audio/);
   assert.match(source, /compileH3Video/);
