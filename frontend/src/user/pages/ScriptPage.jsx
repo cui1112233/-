@@ -1404,6 +1404,10 @@ export function ScriptPage() {
               activeMatch={shotReplaceOpen ? activeShotMatch : null}
               cardStarts={shotCardStarts}
             /> : <>
+              {editingOutput && outputMention ? <Space wrap style={{ marginBottom: 8 }}>
+                {outputMentionCandidates(extractInfo.characters).map(item => <Button key={`output-character-${item.id}`} size="small" onClick={() => insertOutputMention(formatEntity(item))}>@人物 {formatEntity(item)}</Button>)}
+                {outputMentionCandidates(extractInfo.scenes).map(item => <Button key={`output-scene-${item.id}`} size="small" onClick={() => insertOutputMention(formatEntity(item))}>@场景 {formatEntity(item)}</Button>)}
+              </Space> : null}
               <Input.TextArea
                 ref={editingOutputInputRef}
                 className="legacy-output"
@@ -1418,10 +1422,6 @@ export function ScriptPage() {
                 onSelect={event => syncOutputMention(event.target, output)}
                 onFocus={event => syncOutputMention(event.target, output)}
               />
-              {editingOutput && outputMention ? <Space wrap style={{ marginTop: 8 }}>
-                {outputMentionCandidates(extractInfo.characters).map(item => <Button key={`output-character-${item.id}`} size="small" onClick={() => insertOutputMention(formatEntity(item))}>@人物 {formatEntity(item)}</Button>)}
-                {outputMentionCandidates(extractInfo.scenes).map(item => <Button key={`output-scene-${item.id}`} size="small" onClick={() => insertOutputMention(formatEntity(item))}>@场景 {formatEntity(item)}</Button>)}
-              </Space> : null}
             </>
           ) : generating ? (
             <CmLoader />

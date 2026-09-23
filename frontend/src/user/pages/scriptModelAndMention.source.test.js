@@ -31,6 +31,9 @@ test('offers entity mentions while editing the complete script output', () => {
   assert.match(page, /ref=\{editingOutputInputRef\}/);
   assert.match(page, /onSelect=\{event => syncOutputMention\(event\.target, output\)\}/);
   assert.match(page, /onClick=\{\(\) => insertOutputMention\(formatEntity\(item\)\)\}/);
+  const candidateStrip = page.indexOf('key={`output-character-${item.id}`}');
+  const outputEditor = page.indexOf('ref={editingOutputInputRef}');
+  assert.ok(candidateStrip > -1 && candidateStrip < outputEditor, '候选栏应显示在整段输出编辑框上方');
 });
 
 test('keeps storyboard rendering safe by defining the video permission state it passes to shot cards', () => {
