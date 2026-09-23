@@ -16,6 +16,11 @@ services:
       # service environment (rather than only in .env) so a recreated Go
       # container preserves the same batch-factory capability.
       QIANTIE_BATCH_FACTORY_V11_LOCAL_MERGE_ENABLED: ${QIANTIE_BATCH_FACTORY_V11_LOCAL_MERGE_ENABLED:-0}
+      # Local merges write a durable MP4 which must survive a Go restart and
+      # be readable by the V88 Node API for playback and 121 submission.
+      QIANTIE_LOCAL_EXECUTOR_ARTIFACT_DIR: /app/outputs/local-executor-artifacts
+    volumes:
+      - v88_outputs:/app/outputs
     expose:
       - "4000"
     networks:
