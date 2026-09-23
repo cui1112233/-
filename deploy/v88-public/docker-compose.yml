@@ -43,6 +43,9 @@ services:
       NODE_ENV: production
       QIANTIE_NODE_PORT: 3000
       QIANTIE_GO_BASE_URL: http://go-api:4000
+      # The full Shuihuo workspace remains on the compatible production API;
+      # Batch Factory V12 continues to use QIANTIE_GO_BASE_URL above.
+      QIANTIE_SHUIHUO_COMPAT_BASE_URL: ${QIANTIE_SHUIHUO_COMPAT_BASE_URL:-http://shuihuo-compat:4100}
       QIANTIE_BRIDGE_SECRET: ${QIANTIE_BRIDGE_SECRET}
       QIANTIE_121_BROWSER_WORKER_URL: http://browser-worker:8787
       QIANTIE_121_WORKER_SECRET: ${QIANTIE_121_WORKER_SECRET}
