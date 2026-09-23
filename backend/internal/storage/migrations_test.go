@@ -25,6 +25,33 @@ func TestRunMigrationPlanRejectsRecordedChecksumMismatch(t *testing.T) {
 	}
 }
 
+func TestV11SeparatePromptMigrationAcceptsVerifiedPublicLedgerChecksum(t *testing.T) {
+	const publicLegacyChecksum = "0aa0615fbe3d1ffa5d13faee0acc76ec39c0b1232c687630ade52e9f041ab329"
+
+	var promptSplit Migration
+	for _, migration := range V11Migrations() {
+		if migration.Version == 1100011 {
+			promptSplit = migration
+			break
+		}
+	}
+	if promptSplit.Version == 0 {
+		t.Fatal("prompt split migration is missing")
+	}
+
+	appliedAgain := false
+	err := RunMigrationPlan(context.Background(), memoryLedger{1100011: publicLegacyChecksum}, []Migration{promptSplit}, func(context.Context, Migration) error {
+		appliedAgain = true
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("verified public ledger must remain readable: %v", err)
+	}
+	if appliedAgain {
+		t.Fatal("verified prompt split must not run again")
+	}
+}
+
 func TestV11FoundationSchemaHasNoTextDefault(t *testing.T) {
 	for _, statement := range V11FoundationStatements() {
 		upper := strings.ToUpper(statement)

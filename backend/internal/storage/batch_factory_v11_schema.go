@@ -522,7 +522,10 @@ func V11Migrations() []Migration {
 		{Version: 1100008, SQL: V11ExternalStatements(), CallbackChecksum: "batch-factory-v11-external-publish-v1"},
 		{Version: 1100009, SQL: V11VideoProviderStatements(), CallbackChecksum: "batch-factory-v11-video-provider-v1"},
 		{Version: 1100010, SQL: V11SourceLineageStatements(), CallbackChecksum: "batch-factory-v11-source-lineage-v1"},
-		{Version: 1100011, SQL: V11SeparateVideoPromptStatements(), CallbackChecksum: "batch-factory-v11-separate-video-prompt-v1"},
+		// The public release recorded this verified checksum before the canonical
+		// callback marker existed. Accept it only as proof the one-time split has
+		// already run, so the ALTER/UPDATE sequence is never repeated.
+		{Version: 1100011, SQL: V11SeparateVideoPromptStatements(), CallbackChecksum: "batch-factory-v11-separate-video-prompt-v1", LegacyChecksums: []string{"0aa0615fbe3d1ffa5d13faee0acc76ec39c0b1232c687630ade52e9f041ab329"}},
 		{Version: 1100012, SQL: V11BookAssetsStatements(), CallbackChecksum: "batch-factory-v11-book-assets-v1"},
 		{Version: 1100013, SQL: V11BookAssetImagesStatements(), CallbackChecksum: "batch-factory-v11-book-asset-images-v1"},
 		{Version: 1100014, SQL: V11ProductionAssetInputStatements(), CallbackChecksum: "batch-factory-v11-production-asset-input-v1"},
