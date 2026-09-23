@@ -26,6 +26,7 @@ import { resolveShotVideoDuration } from './scriptVideoDuration';
 import { buildScriptVideoPayload, collectShotReferenceImages, getEntityMedia, toggleShotReferenceState } from './scriptVideoReferences';
 import { appendShotVideoTaskHistory, normalizeShotVideoTaskHistory } from './scriptShotVideoTasks';
 import { replaceRawShotCard } from './scriptShotCardEdit';
+import { filterShotMentionCandidates, findActiveShotMention, insertActiveShotMention } from './scriptShotMentions';
 import { ShotOutputCards } from '../components/ShotOutputCards';
 import EntityImagePanel from '../components/EntityImagePanel';
 import { createScriptVideo, getScriptVideoTask } from '../../shared/api/scriptVideo';
@@ -143,12 +144,29 @@ export function ScriptPage() {
   const [shotReplaceText, setShotReplaceText] = useState('');
   const [shotMatchIndex, setShotMatchIndex] = useState(0);
   const [editingShot, setEditingShot] = useState({ index: -1, text: '' });
+  const [editingShotSelection, setEditingShotSelection] = useState({ start: 0, end: 0 });
+  const [mentionMenuOpen, setMentionMenuOpen] = useState(false);
+  const [mentionActiveIndex, setMentionActiveIndex] = useState(0);
   const editingShotInputRef = useRef(null);
   const [activeEntity, setActiveEntity] = useState(null);
   const entityEditorSessionRef = useRef(0);
   const [fullscreenEditor, setFullscreenEditor] = useState(false);
   const [leftPanelWidth, setLeftPanelWidth] = useState(null);
   const [narrating, setNarrating] = useState(false);
+
+  const activeShotMention = useMemo(() => (
+    mentionMenuOpen ? findActiveShotMention(editingShot.text, editingShotSelection.start) : null
+  ), [editingShot.text, editingShotSelection.start, mentionMenuOpen]);
+  const activeShotMentionCandidates = useMemo(() => (
+    activeShotMention
+      ? filterShotMentionCandidates({
+        characters: extractInfo.characters,
+        scenes: extractInfo.scenes,
+        query: activeShotMention.query,
+        label: formatEntity
+      })
+      : []
+  ), [activeShotMention, extractInfo.characters, extractInfo.scenes]);
 
   useEffect(() => {
     let active = true;
@@ -356,21 +374,40 @@ export function ScriptPage() {
     persistDraft(undefined, { output: nextOutput });
   }
 
-  function insertShotMention(name) {
-    const input = editingShotInputRef.current?.resizableTextArea?.textArea || editingShotInputRef.current;
-    const start = Number.isInteger(input?.selectionStart) ? input.selectionStart : editingShot.text.length;
-    const end = Number.isInteger(input?.selectionEnd) ? input.selectionEnd : start;
-    const token = `@${name} `;
-    setEditingShot(current => ({ ...current, text: `${current.text.slice(0, start)}${token}${current.text.slice(end)}` }));
-    requestAnimationFrame(() => {
-      input?.focus?.();
-      input?.setSelectionRange?.(start + token.length, start + token.length);
-    });
+  function syncShotMentionSelection(text, start, end = start) {
+    const selection = { start: Number.isInteger(start) ? start : String(text || '').length, end: Number.isInteger(end) ? end : start };
+    setEditingShotSelection(selection);
+    setMentionMenuOpen(Boolean(findActiveShotMention(text, selection.start)));
+    setMentionActiveIndex(0);
   }
 
-  function mentionCandidates(items) {
-    const query = (editingShot.text.match(/@([\u4e00-\u9fffA-Za-z0-9_-]*)$/)?.[1] || '').toLowerCase();
-    return query || /@$/.test(editingShot.text) ? (items || []).filter(item => formatEntity(item).toLowerCase().includes(query)) : [];
+  function openShotEditor(index) {
+    const text = rawShotCards[index] || '';
+    setEditingShot({ index, text });
+    setEditingShotSelection({ start: text.length, end: text.length });
+    setMentionMenuOpen(false);
+    setMentionActiveIndex(0);
+  }
+
+  function closeShotEditor() {
+    setEditingShot({ index: -1, text: '' });
+    setMentionMenuOpen(false);
+    setMentionActiveIndex(0);
+  }
+
+  function insertShotMention(candidate) {
+    const input = editingShotInputRef.current?.resizableTextArea?.textArea || editingShotInputRef.current;
+    const name = formatEntity(candidate.item);
+    const mention = findActiveShotMention(editingShot.text, editingShotSelection.start);
+    if (!mention) return;
+    const { text: nextText, cursor } = insertActiveShotMention(editingShot.text, mention, name);
+    setEditingShot(current => ({ ...current, text: nextText }));
+    setEditingShotSelection({ start: cursor, end: cursor });
+    setMentionMenuOpen(false);
+    requestAnimationFrame(() => {
+      input?.focus?.();
+      input?.setSelectionRange?.(cursor, cursor);
+    });
   }
 
   function replaceCurrentShotMatch() {
@@ -1438,7 +1475,7 @@ export function ScriptPage() {
               }}
               onOpenVideo={setPreviewVideoTask}
               onOpenVideoHistory={(shotIndex, tasks) => setPreviewVideoHistory({ open: true, shotIndex, tasks })}
-              onEditPrompt={index => setEditingShot({ index, text: rawShotCards[index] || '' })}
+              onEditPrompt={openShotEditor}
               output={output}
               activeMatch={shotReplaceOpen ? activeShotMatch : null}
               cardStarts={shotCardStarts}
@@ -1457,16 +1494,53 @@ export function ScriptPage() {
               <div className="script-empty-copy">先提取人物与场景，确认后再生成剧本</div>
             </div>
           )}
-          <Modal title="编辑分镜提示词" open={editingShot.index >= 0} onCancel={() => setEditingShot({ index: -1, text: '' })} onOk={() => {
+          <Modal title="编辑分镜提示词" open={editingShot.index >= 0} onCancel={closeShotEditor} onOk={() => {
             const nextOutput = replaceRawShotCard(output, rawShotCards, editingShot.index, editingShot.text);
             updateOutputDraft(nextOutput, true);
-            setEditingShot({ index: -1, text: '' });
+            closeShotEditor();
           }}>
-            <Space wrap style={{ marginBottom: 12 }}>
-              {mentionCandidates(extractInfo.characters).map(item => <Button key={`character-${item.id}`} size="small" onClick={() => insertShotMention(formatEntity(item))}>@人物 {formatEntity(item)}</Button>)}
-              {mentionCandidates(extractInfo.scenes).map(item => <Button key={`scene-${item.id}`} size="small" onClick={() => insertShotMention(formatEntity(item))}>@场景 {formatEntity(item)}</Button>)}
-            </Space>
-            <Input.TextArea ref={editingShotInputRef} value={editingShot.text} rows={12} placeholder="输入 @ 选择人物或场景，也可直接输入 @名称" onChange={event => setEditingShot(current => ({ ...current, text: event.target.value }))} />
+            <div style={{ position: 'relative' }}>
+              <Input.TextArea
+                ref={editingShotInputRef}
+                value={editingShot.text}
+                rows={12}
+                placeholder="任意位置输入 @ 选择人物或场景，也可直接输入 @名称"
+                onChange={event => {
+                  const { value, selectionStart, selectionEnd } = event.target;
+                  setEditingShot(current => ({ ...current, text: value }));
+                  syncShotMentionSelection(value, selectionStart, selectionEnd);
+                }}
+                onSelect={event => syncShotMentionSelection(event.currentTarget.value, event.currentTarget.selectionStart, event.currentTarget.selectionEnd)}
+                onKeyUp={event => {
+                  if (!['ArrowDown', 'ArrowUp', 'Enter', 'Escape'].includes(event.key)) {
+                    syncShotMentionSelection(event.currentTarget.value, event.currentTarget.selectionStart, event.currentTarget.selectionEnd);
+                  }
+                }}
+                onKeyDown={event => {
+                  if (!activeShotMention || !activeShotMentionCandidates.length) return;
+                  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                    event.preventDefault();
+                    const delta = event.key === 'ArrowDown' ? 1 : -1;
+                    setMentionActiveIndex(current => (current + delta + activeShotMentionCandidates.length) % activeShotMentionCandidates.length);
+                  } else if (event.key === 'Enter') {
+                    event.preventDefault();
+                    insertShotMention(activeShotMentionCandidates[mentionActiveIndex] || activeShotMentionCandidates[0]);
+                  } else if (event.key === 'Escape') {
+                    event.preventDefault();
+                    setMentionMenuOpen(false);
+                  }
+                }}
+              />
+              {activeShotMention ? (
+                <div role="listbox" aria-label="人物与场景提及候选" style={{ position: 'absolute', zIndex: 4, left: 0, right: 0, top: 'calc(100% + 6px)', maxHeight: 180, overflowY: 'auto', padding: 8, border: '1px solid #d9d9d9', borderRadius: 8, background: '#fff', boxShadow: '0 6px 18px rgb(0 0 0 / 12%)' }}>
+                  {activeShotMentionCandidates.length ? activeShotMentionCandidates.map((candidate, index) => (
+                    <Button key={`${candidate.kind}-${candidate.item.id}`} type={index === mentionActiveIndex ? 'primary' : 'text'} size="small" style={{ margin: 2 }} onMouseDown={event => event.preventDefault()} onClick={() => insertShotMention(candidate)}>
+                      @{candidate.kind === 'character' ? '人物' : '场景'} {formatEntity(candidate.item)}
+                    </Button>
+                  )) : <Typography.Text type="secondary">没有匹配项，请先提取人物或场景</Typography.Text>}
+                </div>
+              ) : null}
+            </div>
           </Modal>
         </div>
         </div>
