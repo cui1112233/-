@@ -29,6 +29,22 @@ test('buildMentionAssets separates usable image assets from missing-image assets
   ]);
 });
 
+test('does not treat a lone candidate image as a primary image mention', () => {
+  const assets = buildMentionAssets({ query: '' }, [{
+    id: 'wife',
+    data: { 名称: '妻子' },
+    imageUrls: ['https://img.example/candidate.png']
+  }]);
+
+  assert.deepEqual(assets, [{
+    id: 'wife',
+    type: 'characters',
+    name: '妻子',
+    mainImageUrl: '',
+    hasImage: false
+  }]);
+});
+
 test('buildMentionAssets filters only matching assets for a typed mention', () => {
   const result = buildMentionAssets(
     { query: '妻' },

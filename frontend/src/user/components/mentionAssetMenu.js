@@ -4,8 +4,7 @@ function entityName(item) {
 }
 
 function entityMainImage(item) {
-  const urls = Array.isArray(item?.imageUrls) ? item.imageUrls.filter(Boolean) : [];
-  return String(item?.mainImageUrl || (urls.length === 1 ? urls[0] : '') || '').trim();
+  return String(item?.mainImageUrl || '').trim();
 }
 
 export function findMentionToken(value, caret) {
