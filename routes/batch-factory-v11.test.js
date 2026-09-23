@@ -317,6 +317,7 @@ test('asset preparation requests a JSON object from compatible style.system prov
   await analyzeBatchFactorySmartUnifiedStyle({
     username: 'alice', batchId: 'batch-1', bookId: 'book-1', goBaseUrl: 'http://go.local', bridgeSecret: 'secret',
     textProvider: { endpoint: 'http://text.local/v1/chat/completions', apiKey: 'key', model: 'text-model' },
+    presetStore: { getPublished: id => ({ id, name: '智能统一', version: 1, body: '仅按风格分析。' }), listAll: () => [] },
     fetchImpl: async (_url, init = {}) => {
       if (init.method === 'GET') return new Response(JSON.stringify({
         batch: { id: 'batch-1', settingsState: { patch: {} }, books: [{ id: 'book-1', sourceText: '完整视频原文', settingsState: { patch: {} }, assetRecords: [] }] }
@@ -326,6 +327,7 @@ test('asset preparation requests a JSON object from compatible style.system prov
     }
   });
   assert.deepEqual(modelRequest.response_format, { type: 'json_object' });
+  assert.equal(modelRequest.messages.some(message => /json/i.test(String(message.content || ''))), true);
 });
 
 test('asset preparation freezes the style.system result on the book for later director use', async () => {

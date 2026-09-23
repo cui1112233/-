@@ -640,6 +640,9 @@ async function analyzeBatchFactorySmartUnifiedStyle({ username, isOwner = false,
     characters: assets.filter(item => item?.kind === 'character').map(item => ({ name: item.name, prompt: item.prompt })),
     scenes: assets.filter(item => item?.kind === 'scene').map(item => ({ name: item.name, prompt: item.prompt }))
   });
+  // Transport contract for OpenAI-compatible JSON mode. This deliberately
+  // does not alter the editable style.system rules above.
+  messages.push({ role: 'system', content: 'Output exactly one valid JSON object. Do not add prose or Markdown.' });
   const response = await fetchImpl(textProvider.endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${textProvider.apiKey}` },
