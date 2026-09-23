@@ -25,6 +25,7 @@ import { buildFinalSegmentCard } from './scriptFinalSegment';
 import { resolveShotVideoDuration } from './scriptVideoDuration';
 import { buildScriptVideoPayload, collectShotReferenceImages, getEntityMedia, toggleShotReferenceState } from './scriptVideoReferences';
 import { appendShotVideoTaskHistory, normalizeShotVideoTaskHistory } from './scriptShotVideoTasks';
+import { extractJSON } from './scriptExtractionJson';
 import { replaceRawShotCard } from './scriptShotCardEdit';
 import { filterShotMentionCandidates, findActiveShotMention, insertActiveShotMention } from './scriptShotMentions';
 import { ShotOutputCards } from '../components/ShotOutputCards';
@@ -43,18 +44,6 @@ function videoModelLabel(model) {
   return key === 'minimax-h3-video' && model?.configured === false
     ? `${name}（待配置 Token）`
     : name;
-}
-
-function extractJSON(value) {
-  if (value && typeof value === 'object') return value;
-  const text = String(value || '').trim();
-  try {
-    return JSON.parse(text);
-  } catch (error) {
-    const match = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
-    if (match) return JSON.parse(match[1].trim());
-    throw error;
-  }
 }
 
 function aiText(response) {
