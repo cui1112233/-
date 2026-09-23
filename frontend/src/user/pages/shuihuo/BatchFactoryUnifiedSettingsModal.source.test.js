@@ -60,3 +60,9 @@ test('automation preset manager changes the unified draft only after confirmatio
   assert.match(source, /setDraftPatch\(clonePresetConfig/);
   assert.doesNotMatch(source, /setDraftPatch\(.*saveBatchSettings/);
 });
+
+test('shows the precise 121 session failure and never reports a failed verification as a completed login', () => {
+  assert.match(source, /checkDetail\(environment\?\.environment, '121 后台登录会话'\)/);
+  assert.match(source, /const checked = await selfCheck\(\);/);
+  assert.match(source, /if \(!checked\?\.session \|\| !checked\.visible\?\.ok\)/);
+});
