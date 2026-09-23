@@ -1016,7 +1016,7 @@ router.post('/reference-assets/upload', async (req, res) => {
     const { payload, mime } = premiumStore(req).decodeDataUrl(body.data_url);
     const assetStore = premiumStore(req);
     const { revision, filePath } = assetStore.writeReferenceAssetRevision(req.username, assetType, assetId, 'source', payload, mime);
-    const tosAsset = await assetStore.syncReferenceAssetToTos(req.username, assetType, assetId, revision);
+    assetStore.queueReferenceAssetTosSync(req.username, assetType, assetId, revision);
     const metadata = premiumStore(req).referenceAssetImageMetadata(req.username, assetType, assetId);
     return res.json({
       ok: true,
@@ -1026,7 +1026,6 @@ router.post('/reference-assets/upload', async (req, res) => {
       revision,
       file_name: path.basename(filePath),
       url: assetStore.referenceAssetResponseUrl(assetType, assetId, revision),
-      ...(tosAsset ? { storage: 'tos' } : {}),
       ...metadata
     });
   } catch (error) {
@@ -1044,9 +1043,9 @@ router.post('/reference-assets/use-source-as-main', async (req, res) => {
     const mime = `${path.extname(sourcePath) === '.png' ? 'image/png' : path.extname(sourcePath) === '.webp' ? 'image/webp' : 'image/jpeg'}`;
     const assetStore = premiumStore(req);
     assetStore.writeReferenceAssetBytes(req.username, assetType, assetId, 'main', fs.readFileSync(sourcePath), mime);
-    const tosAsset = await assetStore.syncReferenceAssetToTos(req.username, assetType, assetId, 'main');
+    assetStore.queueReferenceAssetTosSync(req.username, assetType, assetId, 'main');
     const metadata = assetStore.referenceAssetImageMetadata(req.username, assetType, assetId);
-    return res.json({ ok: true, asset_id: assetId, asset_type: assetType, url: assetStore.referenceAssetResponseUrl(assetType, assetId, 'main'), ...(tosAsset ? { storage: 'tos' } : {}), file_name: path.basename(sourcePath), main_origin: 'uploaded', ...metadata });
+    return res.json({ ok: true, asset_id: assetId, asset_type: assetType, url: assetStore.referenceAssetResponseUrl(assetType, assetId, 'main'), file_name: path.basename(sourcePath), main_origin: 'uploaded', ...metadata });
   } catch (error) {
     return res.status(400).json({ error: String(error.message || error), code: 'REFERENCE_ASSET_SOURCE_MISSING' });
   }
@@ -1215,10 +1214,10 @@ router.post('/reference-assets/generate', async (req, res) => {
         const assetId = premiumStore(req).safeAssetId(text(body.asset_id) || `gen_${Date.now()}`);
         const assetStore = premiumStore(req);
         const { revision } = assetStore.writeReferenceAssetRevision(req.username, assetType, assetId, 'candidate', imageBuffer, mime);
-        const tosAsset = await assetStore.syncReferenceAssetToTos(req.username, assetType, assetId, revision);
+        assetStore.queueReferenceAssetTosSync(req.username, assetType, assetId, revision);
         const metadata = assetStore.referenceAssetImageMetadata(req.username, assetType, assetId);
         if (!res.writableEnded) {
-          res.json({ ok: true, asset_id: assetId, asset_type: assetType, revision, url: assetStore.referenceAssetResponseUrl(assetType, assetId, revision), ...(tosAsset ? { storage: 'tos' } : {}), main_origin: 'generated', ...metadata });
+          res.json({ ok: true, asset_id: assetId, asset_type: assetType, revision, url: assetStore.referenceAssetResponseUrl(assetType, assetId, revision), main_origin: 'generated', ...metadata });
         }
       } catch (error) {
         if (timedOut) {

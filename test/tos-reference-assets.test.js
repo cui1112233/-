@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { createTosReferenceAssetStore, normalizeTosSdkEndpoint, parseTosObjectUrl } = require('../lib/novel-panel/tos-reference-assets');
+const { createTosReferenceAssetStore, normalizeTosSdkEndpoint, parseTosObjectUrl, DEFAULT_REQUEST_TIMEOUT_MS } = require('../lib/novel-panel/tos-reference-assets');
 const { createNovelPanelPremiumStore } = require('../lib/novel-panel/premium-store');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -44,6 +44,10 @@ test('TOS SDK endpoint removes the URL scheme before bucket host composition', (
   assert.equal(normalizeTosSdkEndpoint('https://tos-cn-beijing.volces.com/'), 'tos-cn-beijing.volces.com');
 });
 
+test('TOS reference asset client has a bounded request timeout', () => {
+  assert.equal(DEFAULT_REQUEST_TIMEOUT_MS, 15000);
+});
+
 test('TOS object URL parser accepts only this bucket and reference asset keys', () => {
   const config = { endpoint: 'https://tos-cn-beijing.volces.com', bucket: 'qiantie' };
   assert.equal(
@@ -72,6 +76,32 @@ test('premium store mirrors a local reference asset to TOS and returns a signed 
   assert.equal(uploads.length, 1);
   assert.equal(uploads[0].username, 'user');
   assert.equal(result.url, 'https://tos.example/reference-assets/user/character/hero/main.png?signed=1');
+});
+
+test('premium store queues a slow TOS mirror without delaying the local upload result', async () => {
+  const usersDir = fs.mkdtempSync(path.join(os.tmpdir(), 'qiantie-tos-'));
+  let mirrorStarted = false;
+  let releaseMirror;
+  const premium = createNovelPanelPremiumStore({
+    usersDir,
+    tosStore: {
+      async putFile() {
+        mirrorStarted = true;
+        await new Promise(resolve => { releaseMirror = resolve; });
+        return { key: 'reference-assets/user/character/hero/source.png' };
+      },
+      getSignedUrl: key => `https://tos.example/${key}?signed=1`
+    }
+  });
+  premium.writeReferenceAssetBytes('user', 'character', 'hero', 'source', Buffer.from('image'), 'image/png');
+
+  const queued = premium.queueReferenceAssetTosSync('user', 'character', 'hero', 'source');
+
+  assert.equal(queued, true);
+  await Promise.resolve();
+  assert.equal(mirrorStarted, true);
+  assert.ok(premium.assetFilePath('user', 'character', 'hero', 'source'));
+  releaseMirror();
 });
 
 test('premium store gives the browser an internal URL after TOS synchronization', () => {
