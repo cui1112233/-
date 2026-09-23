@@ -7,6 +7,7 @@ const {
   refreshBatchFactoryPresetSnapshot,
   presetDrivenExecutionPath,
   smartUnifiedSelected,
+  h3VideoSelected,
   directorVisualBaselineRequired,
   styleSystemBookPath,
   analyzeBatchFactorySmartUnifiedStyle,
@@ -85,6 +86,11 @@ test('uses the frozen automation organization instead of a later batch default',
     automationPublishSettings(batch, book, { publishSettings: { organization: 'frozen-org' } }),
     { organization: 'frozen-org' }
   );
+});
+
+test('routes the selectable V11 director preset through the H3 pipeline', () => {
+  const batch = { settingsState: { patch: { aiPromptConfig: { video: { presetId: 'batch-video-v11-director', presetKey: 'v11-director-normal', enabled: true } } } } };
+  assert.equal(h3VideoSelected(batch, {}), true);
 });
 
 test('blocks an already uploaded book until the caller explicitly requests a reupload', () => {

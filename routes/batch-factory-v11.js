@@ -502,7 +502,12 @@ function smartUnifiedSelected(batch, book) {
 
 function h3VideoSelected(batch, book) {
   const video = effectivePromptConfig(batch, book)?.video || {};
-  return video?.enabled !== false && (String(video?.presetKey || '') === 'h3-video-normal' || String(video?.presetId || '') === 'batch-video-h3-director');
+  return video?.enabled !== false && (
+    String(video?.presetKey || '') === 'h3-video-normal'
+    || String(video?.presetKey || '') === 'v11-director-normal'
+    || String(video?.presetId || '') === 'batch-video-h3-director'
+    || String(video?.presetId || '') === 'batch-video-v11-director'
+  );
 }
 
 function directorVisualBaselineRequired(batch, book) {
@@ -1706,6 +1711,7 @@ module.exports = {
   persistBatchFactory121Publication,
   v11JSONRequest,
   smartUnifiedSelected,
+  h3VideoSelected,
   directorVisualBaselineRequired,
   analyzeBatchFactorySmartUnifiedStyle,
   upstreamErrorMessage,
