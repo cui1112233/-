@@ -101,7 +101,7 @@ export function ProjectsView({ projects, health, onCreate, onImported, onCreateB
     const media = project?.coverMedia;
     if (!media?.url) return null;
     return media.kind === 'video'
-      ? <video className="shuihuo-project-card-cover-media" src={media.url} muted playsInline preload="metadata" aria-label={`${project.name} 封面视频`} />
+      ? <video className="shuihuo-project-card-cover-media" src={media.url} muted playsInline preload="auto" onLoadedMetadata={event => { event.currentTarget.currentTime = 0.001; }} aria-label={`${project.name} 封面视频`} />
       : <img className="shuihuo-project-card-cover-media" src={media.url} alt={`${project.name} 封面`} loading="lazy" />;
   }
 

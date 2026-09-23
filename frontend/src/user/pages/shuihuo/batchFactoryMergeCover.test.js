@@ -8,6 +8,6 @@ test('uses an existing successful merged video as the cover when no shot video i
 
   assert.deepEqual(
     batchFactoryMergeCoverFrom(batch, mergeStatus),
-    { kind: 'video', url: '/api/batch-factory/v12/batches/batch-1/merge-media/final.mp4' }
+    { kind: 'image', url: '/api/batch-factory/v12/batches/batch-1/merge-cover/final.mp4' }
   );
 });
