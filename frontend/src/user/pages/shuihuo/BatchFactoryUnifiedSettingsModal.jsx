@@ -104,7 +104,7 @@ function BatchFactoryPublishSettingsForm({ value, onChange, active }) {
   const [loginBusy, setLoginBusy] = useState(false);
   const publish = value.publishSettings || {};
   const patch = next => onChange({ ...value, ...next });
-  const hasSession = result => Boolean(result?.ok && (result?.checks || []).some(check => SESSION_CHECK_NAMES.includes(check.name) && check.ok));
+  const hasSession = result => Boolean((result?.checks || []).some(check => SESSION_CHECK_NAMES.includes(check.name) && check.ok));
   const checkDetail = (result, name) => String((result?.checks || []).find(check => check.name === name)?.detail || '').trim();
   const sessionDetail = result => String((result?.checks || []).find(check => SESSION_CHECK_NAMES.includes(check.name))?.detail || (result?.checks || [])[0]?.detail || '').trim();
   const publishSessionReady = Boolean(environment?.session && environment?.visible?.ok);

@@ -62,6 +62,8 @@ test('automation preset manager changes the unified draft only after confirmatio
 });
 
 test('shows the precise 121 session failure and never reports a failed verification as a completed login', () => {
+  assert.doesNotMatch(source, /Boolean\(result\?\.ok && \(result\?\.checks \|\| \[\]\)\.some/);
+  assert.match(source, /const hasSession = result => Boolean\(\(result\?\.checks \|\| \[\]\)\.some/);
   assert.match(source, /const sessionDetail = result =>/);
   assert.match(source, /SESSION_CHECK_NAMES\.includes\(check\.name\)/);
   assert.match(source, /sessionDetail\(environment\?\.environment\)/);
