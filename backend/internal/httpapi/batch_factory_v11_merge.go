@@ -61,7 +61,24 @@ func registerMergeRoutes(mux *http.ServeMux, service *batchfactoryv11.MergeServi
 		}
 		writeJSON(w, http.StatusCreated, map[string]any{"job": job})
 	})
-	registerHistoricalMergeReadRoutes(mux, service.Store, files)
+	// A live merge adapter keeps its task state in the running process.  Route
+	// status reads through MergeService so queued jobs are polled and their
+	// durable state advances; the historical-only route below deliberately
+	// cannot do that and is reserved for lower-capability slices.
+	mux.HandleFunc("GET /api/batch-factory/v11/batches/{batchId}/merge-status", func(w http.ResponseWriter, r *http.Request) {
+		owner, ok := bridgeOwner(r)
+		if !ok {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			return
+		}
+		jobs, err := service.GetBatchStatus(r.Context(), owner, r.PathValue("batchId"))
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"batchId": r.PathValue("batchId"), "jobs": jobs})
+	})
+	registerHistoricalMergeMediaRoutes(mux, service.Store, files)
 }
 
 // registerHistoricalMergeReadRoutes exposes only already persisted merged
@@ -94,6 +111,13 @@ func registerHistoricalMergeReadRoutes(mux *http.ServeMux, store batchfactoryv11
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"batchId": r.PathValue("batchId"), "jobs": jobs})
 	})
+	registerHistoricalMergeMediaRoutes(mux, store, files)
+}
+
+// registerHistoricalMergeMediaRoutes keeps already-created local artifacts
+// readable in both historical-only and live-merge runtimes.  Live runtimes
+// provide their own merge-status endpoint above so queued jobs can be polled.
+func registerHistoricalMergeMediaRoutes(mux *http.ServeMux, store batchfactoryv11.Store, files *localartifact.Store) {
 	mux.HandleFunc("GET /api/batch-factory/v11/batches/{batchId}/merge-cover/{artifactId}", func(w http.ResponseWriter, r *http.Request) {
 		owner, ok := bridgeOwner(r)
 		if !ok {

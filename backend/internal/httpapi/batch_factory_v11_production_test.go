@@ -28,6 +28,24 @@ func (a *mergeHTTPAdapter) Submit(_ context.Context, _ string, sources []batchfa
 	return batchfactoryv11.MergeJob{Status: batchfactoryv11.MergeSucceeded, OutputURL: "https://media.example/merged.mp4"}, nil
 }
 
+type pollingMergeHTTPAdapter struct {
+	submitCalls int
+	pollCalls   int
+}
+
+func (a *pollingMergeHTTPAdapter) Submit(_ context.Context, _ string, sources []batchfactoryv11.MergeMedia, _ batchfactoryv11.MergeOptions) (batchfactoryv11.MergeJob, error) {
+	a.submitCalls++
+	if len(sources) != 1 || sources[0].URL == "" {
+		return batchfactoryv11.MergeJob{}, batchfactoryv11.ErrInvalid
+	}
+	return batchfactoryv11.MergeJob{ProviderTaskID: "merge-poll-http-1", Status: batchfactoryv11.MergeQueued}, nil
+}
+
+func (a *pollingMergeHTTPAdapter) Poll(_ context.Context, _ string, job batchfactoryv11.MergeJob) (batchfactoryv11.MergeJob, error) {
+	a.pollCalls++
+	return batchfactoryv11.MergeJob{ProviderTaskID: job.ProviderTaskID, Status: batchfactoryv11.MergeSucceeded, OutputURL: "https://media.example/merged-after-poll.mp4"}, nil
+}
+
 func TestSliceFourProductionRoutesSubmitAndReadDurableStatus(t *testing.T) {
 	now := time.Unix(1700000000, 0)
 	store := batchfactoryv11.NewMemoryStore()
@@ -135,6 +153,35 @@ func TestSliceFiveMergeRouteIsIdempotentAndOwnerScoped(t *testing.T) {
 	other := signedJSONRequest(t, api, now, "bob", http.MethodGet, "/api/batch-factory/v11/batches/"+batch.ID+"/merge-status", nil)
 	if other.Code != http.StatusNotFound {
 		t.Fatalf("cross-owner status=%d body=%s", other.Code, other.Body.String())
+	}
+}
+
+func TestSliceFiveMergeStatusPollsQueuedJobs(t *testing.T) {
+	now := time.Unix(1700000000, 0)
+	store := batchfactoryv11.NewMemoryStore()
+	batch, err := store.CreateBatch(context.Background(), "alice", batchfactoryv11.CreateBatchInput{Title: "b", Books: []batchfactoryv11.CreateBookInput{{Title: "k", SourceText: "林晚推门进入客厅。"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	director := &batchfactoryv11.DirectorService{Store: store, Provider: &directorHTTPProvider{output: directorHTTPJSON}}
+	if _, err := director.RunDirector(context.Background(), "alice", batch.ID, batch.Books[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	production := &batchfactoryv11.ProductionService{Store: store, Compiler: &batchfactoryv11.PromptCompilerService{Store: store}, Adapter: &productionHTTPAdapter{}, Enabled: true, Model: batchfactoryv11.FrozenVideoModel{ID: "video-model-a", MaxDuration: 15}}
+	if _, err := production.SubmitBookProduction(context.Background(), "alice", batch.ID, batch.Books[0].ID, "production-for-polled-merge"); err != nil {
+		t.Fatal(err)
+	}
+	adapter := &pollingMergeHTTPAdapter{}
+	merge := &batchfactoryv11.MergeService{Store: store, Adapter: adapter, Poller: adapter, Enabled: true}
+	api := NewRouter(RouterOptions{BridgeSecret: "secret", Now: func() time.Time { return now }, Slice: 5, Store: store, Director: director, Compiler: &batchfactoryv11.PromptCompilerService{Store: store}, Production: production, Merge: merge})
+	path := "/api/batch-factory/v11/batches/" + batch.ID + "/merge"
+	created := signedJSONRequest(t, api, now, "alice", http.MethodPost, path, map[string]any{"requestId": "merge-poll-http-1"})
+	if created.Code != http.StatusCreated || !strings.Contains(created.Body.String(), "queued") {
+		t.Fatalf("create status=%d body=%s", created.Code, created.Body.String())
+	}
+	status := signedJSONRequest(t, api, now, "alice", http.MethodGet, path+"-status", nil)
+	if status.Code != http.StatusOK || !strings.Contains(status.Body.String(), "merged-after-poll.mp4") || adapter.pollCalls != 1 {
+		t.Fatalf("status=%d body=%s pollCalls=%d", status.Code, status.Body.String(), adapter.pollCalls)
 	}
 }
 
