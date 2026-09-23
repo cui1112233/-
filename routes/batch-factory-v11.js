@@ -606,6 +606,18 @@ function unwrapH3StyleSystemFields(content) {
   return JSON.stringify(fields);
 }
 
+function responseMessageText(content) {
+  if (typeof content === 'string') return content.trim();
+  if (!Array.isArray(content)) return '';
+  return content.map(part => {
+    if (typeof part === 'string') return part;
+    if (!part || typeof part !== 'object') return '';
+    if (typeof part.text === 'string') return part.text;
+    if (typeof part.content === 'string') return part.content;
+    return '';
+  }).join('\n').trim();
+}
+
 async function analyzeBatchFactorySmartUnifiedStyle({ username, isOwner = false, batchId, bookId, textProvider, presetStore, goBaseUrl, bridgeSecret, fetchImpl = globalThis.fetch, now = Date.now, persist = false } = {}) {
   if (!fetchImpl || !textProvider?.endpoint || !textProvider?.apiKey || !textProvider?.model) throw requestError('智能统一需要当前书可用的文本模型', 422, 'TEXT_MODEL_REQUIRED');
   const basePath = `/api/batch-factory/v11/batches/${encodeURIComponent(batchId)}`;
@@ -639,7 +651,7 @@ async function analyzeBatchFactorySmartUnifiedStyle({ username, isOwner = false,
   try { payload = raw ? JSON.parse(raw) : {}; } catch (_) { /* handled below */ }
   const modelName = String(textProvider.displayName || textProvider.model || '当前文本模型').trim();
   if (!response.ok) throw requestError(`智能统一视觉分析模型“${modelName}”请求失败：${payload?.error?.message || payload?.message || `HTTP ${response.status}`}`, 502, 'SMART_UNIFIED_PROVIDER_FAILED');
-  const content = String(payload?.choices?.[0]?.message?.content || '').trim();
+  const content = responseMessageText(payload?.choices?.[0]?.message?.content);
   if (!content) throw requestError('智能统一视觉分析模型没有返回内容', 502, 'SMART_UNIFIED_PROVIDER_INVALID_RESPONSE');
   try {
     const analysis = serializeSmartUnifiedStyleAnalysis(parseSmartUnifiedVisualStyle(unwrapH3StyleSystemFields(content)), stylePreset);
