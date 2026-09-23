@@ -26,6 +26,8 @@ import { resolveShotVideoDuration } from './scriptVideoDuration';
 import { buildScriptVideoPayload, collectShotReferenceImages, getEntityMedia } from './scriptVideoReferences';
 import { ShotOutputCards } from '../components/ShotOutputCards';
 import EntityImagePanel from '../components/EntityImagePanel';
+import { MentionAssetMenu } from '../components/ScriptMentionAssetMenu';
+import { findMentionTarget } from '../components/mentionAssetMenu';
 import { createScriptVideo, getScriptVideoTask } from '../../shared/api/scriptVideo';
 import { listModels } from '../../shared/api/shuihuoProduction';
 import { loadScriptModelSelection, reconcileScriptModelSelection, saveScriptModelSelection } from './scriptModelSelection';
@@ -142,6 +144,7 @@ export function ScriptPage() {
   const [shotMatchIndex, setShotMatchIndex] = useState(0);
   const [editingShot, setEditingShot] = useState({ index: -1, text: '' });
   const editingShotInputRef = useRef(null);
+  const [shotMention, setShotMention] = useState(null);
   const [outputMention, setOutputMention] = useState(null);
   const editingOutputInputRef = useRef(null);
   const [activeEntity, setActiveEntity] = useState(null);
@@ -280,31 +283,24 @@ export function ScriptPage() {
   }
 
   function insertShotMention(name) {
+    if (!shotMention) return;
     const input = editingShotInputRef.current?.resizableTextArea?.textArea || editingShotInputRef.current;
-    const start = Number.isInteger(input?.selectionStart) ? input.selectionStart : editingShot.text.length;
-    const end = Number.isInteger(input?.selectionEnd) ? input.selectionEnd : start;
+    const { start, end } = shotMention;
     const token = `@${name} `;
     setEditingShot(current => ({ ...current, text: `${current.text.slice(0, start)}${token}${current.text.slice(end)}` }));
+    setShotMention(null);
     requestAnimationFrame(() => {
       input?.focus?.();
       input?.setSelectionRange?.(start + token.length, start + token.length);
     });
   }
 
-  function mentionCandidates(items) {
-    const query = (editingShot.text.match(/@([\u4e00-\u9fffA-Za-z0-9_-]*)$/)?.[1] || '').toLowerCase();
-    return query || /@$/.test(editingShot.text) ? (items || []).filter(item => formatEntity(item).toLowerCase().includes(query)) : [];
+  function syncShotMention(input, nextText) {
+    setShotMention(findMentionTarget(input, nextText));
   }
 
   function syncOutputMention(input, nextOutput) {
-    const text = String(nextOutput || '');
-    const caret = Number.isInteger(input?.selectionStart) ? input.selectionStart : text.length;
-    const match = text.slice(0, caret).match(/@([\u4e00-\u9fffA-Za-z0-9_-]*)$/);
-    setOutputMention(match ? { start: caret - match[0].length, end: caret, query: match[1].toLowerCase() } : null);
-  }
-
-  function outputMentionCandidates(items) {
-    return outputMention ? (items || []).filter(item => formatEntity(item).toLowerCase().includes(outputMention.query)) : [];
+    setOutputMention(findMentionTarget(input, nextOutput));
   }
 
   function insertOutputMention(name) {
@@ -983,10 +979,10 @@ export function ScriptPage() {
     setFullscreenEditor(false);
   }
 
-  function addEntity(type) {
+  function addEntity(type, initialName = '') {
     const data = type === 'characters'
-      ? { 名称: '', 身份: '', 外形: '', 性格: '' }
-      : { 名称: '', 时段: '', 氛围: '', 描述: '' };
+      ? { 名称: initialName, 身份: '', 外形: '', 性格: '' }
+      : { 名称: initialName, 时段: '', 氛围: '', 描述: '' };
     const draft = createEntity(data);
     entityEditorSessionRef.current += 1;
     setActiveEntity({ type, id: draft.id, isNew: true, data: draft.data, editorSessionId: entityEditorSessionRef.current });
@@ -1399,15 +1395,14 @@ export function ScriptPage() {
               videoTasks={shotVideoTasks}
               extractInfo={extractInfo}
               onOpenVideo={setPreviewVideoTask}
-              onEditPrompt={index => setEditingShot({ index, text: rawShotCards[index] || '' })}
+              onEditPrompt={index => {
+                setShotMention(null);
+                setEditingShot({ index, text: rawShotCards[index] || '' });
+              }}
               output={output}
               activeMatch={shotReplaceOpen ? activeShotMatch : null}
               cardStarts={shotCardStarts}
             /> : <>
-              {editingOutput && outputMention ? <Space wrap style={{ marginBottom: 8 }}>
-                {outputMentionCandidates(extractInfo.characters).map(item => <Button key={`output-character-${item.id}`} size="small" onClick={() => insertOutputMention(formatEntity(item))}>@人物 {formatEntity(item)}</Button>)}
-                {outputMentionCandidates(extractInfo.scenes).map(item => <Button key={`output-scene-${item.id}`} size="small" onClick={() => insertOutputMention(formatEntity(item))}>@场景 {formatEntity(item)}</Button>)}
-              </Space> : null}
               <Input.TextArea
                 ref={editingOutputInputRef}
                 className="legacy-output"
@@ -1422,6 +1417,14 @@ export function ScriptPage() {
                 onSelect={event => syncOutputMention(event.target, output)}
                 onFocus={event => syncOutputMention(event.target, output)}
               />
+              {editingOutput ? <MentionAssetMenu
+                target={outputMention}
+                characters={extractInfo.characters}
+                scenes={extractInfo.scenes}
+                onSelect={asset => insertOutputMention(asset.name)}
+                onAddImage={asset => openEntityEditor(asset.type, asset.id)}
+                onCreate={(type, name) => addEntity(type, name)}
+              /> : null}
             </>
           ) : generating ? (
             <CmLoader />
@@ -1437,16 +1440,25 @@ export function ScriptPage() {
               <div className="script-empty-copy">先提取人物与场景，确认后再生成剧本</div>
             </div>
           )}
-          <Modal title="编辑分镜提示词" open={editingShot.index >= 0} onCancel={() => setEditingShot({ index: -1, text: '' })} onOk={() => {
+          <Modal title="编辑分镜提示词" open={editingShot.index >= 0} onCancel={() => { setShotMention(null); setEditingShot({ index: -1, text: '' }); }} onOk={() => {
             const nextOutput = replaceRawShotCard(output, rawShotCards, editingShot.index, editingShot.text);
             updateOutputDraft(nextOutput, true);
+            setShotMention(null);
             setEditingShot({ index: -1, text: '' });
           }}>
-            <Space wrap style={{ marginBottom: 12 }}>
-              {mentionCandidates(extractInfo.characters).map(item => <Button key={`character-${item.id}`} size="small" onClick={() => insertShotMention(formatEntity(item))}>@人物 {formatEntity(item)}</Button>)}
-              {mentionCandidates(extractInfo.scenes).map(item => <Button key={`scene-${item.id}`} size="small" onClick={() => insertShotMention(formatEntity(item))}>@场景 {formatEntity(item)}</Button>)}
-            </Space>
-            <Input.TextArea ref={editingShotInputRef} value={editingShot.text} rows={12} placeholder="输入 @ 选择人物或场景，也可直接输入 @名称" onChange={event => setEditingShot(current => ({ ...current, text: event.target.value }))} />
+            <Input.TextArea ref={editingShotInputRef} value={editingShot.text} rows={12} placeholder="输入 @ 选择人物或场景，也可直接输入 @名称" onChange={event => {
+              const nextText = event.target.value;
+              setEditingShot(current => ({ ...current, text: nextText }));
+              syncShotMention(event.target, nextText);
+            }} onSelect={event => syncShotMention(event.target, editingShot.text)} onFocus={event => syncShotMention(event.target, editingShot.text)} />
+            <MentionAssetMenu
+              target={shotMention}
+              characters={extractInfo.characters}
+              scenes={extractInfo.scenes}
+              onSelect={asset => insertShotMention(asset.name)}
+              onAddImage={asset => openEntityEditor(asset.type, asset.id)}
+              onCreate={(type, name) => addEntity(type, name)}
+            />
           </Modal>
         </div>
         </div>

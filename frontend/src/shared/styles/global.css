@@ -1782,6 +1782,55 @@ select {
 .entity-add-button { color: var(--legacy-accent) !important; }
 .entity-editor-danger { color: var(--legacy-danger, #ff4d4f) !important; }
 
+.mention-asset-menu {
+  width: min(320px, calc(100vw - 24px));
+  overflow: hidden;
+  border: 1px solid var(--legacy-border-strong);
+  border-radius: 12px;
+  background: var(--legacy-panel);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.38);
+  color: var(--legacy-text);
+}
+.mention-asset-menu-label { padding: 10px 12px 6px; color: var(--legacy-muted); font-size: 12px; }
+.mention-asset-menu-item,
+.mention-asset-menu-create {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  border-top: 1px solid var(--legacy-border);
+  padding: 9px 12px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.mention-asset-menu-item:hover,
+.mention-asset-menu-create:hover { background: var(--legacy-card-hover); }
+.mention-asset-menu-item img,
+.mention-asset-menu-image-empty {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid var(--legacy-border);
+  border-radius: 8px;
+  background: var(--legacy-card-hover);
+  color: var(--legacy-muted);
+  object-fit: cover;
+}
+.mention-asset-menu-item-copy { display: grid; min-width: 0; gap: 2px; flex: 1; }
+.mention-asset-menu-item-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mention-asset-menu-item-copy small { color: var(--legacy-muted); }
+.mention-asset-menu-action { color: var(--legacy-accent); font-size: 12px; white-space: nowrap; }
+.mention-asset-menu-create { justify-content: center; color: var(--legacy-accent); font-weight: 600; }
+.mention-asset-menu-create-options { display: flex; align-items: center; gap: 7px; border-top: 1px solid var(--legacy-border); padding: 10px 12px; color: var(--legacy-muted); font-size: 12px; }
+.mention-asset-menu-create-options .ant-btn { margin-left: auto; }
+.mention-asset-menu-create-options .ant-btn + .ant-btn { margin-left: 0; }
+
 .tts-workbench {
   display: flex;
   flex-direction: column;

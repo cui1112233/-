@@ -16,11 +16,11 @@ test('shows selectable text and image models and sends the selected text model t
   assert.match(generationApi, /\.\.\.\(textModelId \? \{ textModelId \} : \{\}\)/);
 });
 
-test('opens a per-shot editor that inserts character and scene @ mentions at the cursor', () => {
+test('opens a per-shot editor with the shared image-aware @ asset menu', () => {
   assert.match(page, /function insertShotMention\(name\)/);
-  assert.match(page, /function mentionCandidates\(items\)/);
-  assert.match(page, /@人物 \{formatEntity\(item\)\}/);
-  assert.match(page, /@场景 \{formatEntity\(item\)\}/);
+  assert.match(page, /function syncShotMention\(input, nextText\)/);
+  assert.match(page, /target=\{shotMention\}/);
+  assert.match(page, /onSelect=\{asset => insertShotMention\(asset\.name\)\}/);
   assert.match(page, /placeholder="输入 @ 选择人物或场景，也可直接输入 @名称"/);
 });
 
@@ -30,10 +30,9 @@ test('offers entity mentions while editing the complete script output', () => {
   assert.match(page, /function insertOutputMention\(name\)/);
   assert.match(page, /ref=\{editingOutputInputRef\}/);
   assert.match(page, /onSelect=\{event => syncOutputMention\(event\.target, output\)\}/);
-  assert.match(page, /onClick=\{\(\) => insertOutputMention\(formatEntity\(item\)\)\}/);
-  const candidateStrip = page.indexOf('key={`output-character-${item.id}`}');
-  const outputEditor = page.indexOf('ref={editingOutputInputRef}');
-  assert.ok(candidateStrip > -1 && candidateStrip < outputEditor, '候选栏应显示在整段输出编辑框上方');
+  assert.match(page, /target=\{outputMention\}/);
+  assert.match(page, /onSelect=\{asset => insertOutputMention\(asset\.name\)\}/);
+  assert.doesNotMatch(page, /outputMentionCandidates\(/);
 });
 
 test('keeps storyboard rendering safe by defining the video permission state it passes to shot cards', () => {
