@@ -89,25 +89,6 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Authenticate deploy runner to fetch immutable release images
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Pull immutable release images for authenticated transfer
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          owner="${GITHUB_REPOSITORY_OWNER,,}"
-          node_image="ghcr.io/${owner}/qiantie-v88-node:${GITHUB_SHA}"
-          go_image="ghcr.io/${owner}/qiantie-go-api:${GITHUB_SHA}"
-          docker pull "$go_image"
-          docker pull "$node_image"
-          test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$go_image")" = 'linux/amd64'
-          test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$node_image")" = 'linux/amd64'
-
       - name: Prepare ECS SSH
         shell: bash
         env:
@@ -139,15 +120,29 @@ jobs:
           timeout 60 scp "${ssh_opts[@]}" deploy/v88-public/nginx.conf "$ECS_USER@$ECS_HOST:/tmp/v88-public-nginx-${GITHUB_SHA}.conf"
           timeout 60 scp "${ssh_opts[@]}" deploy/v88-public/docker-compose.yml "$ECS_USER@$ECS_HOST:/tmp/v88-public-compose-${GITHUB_SHA}.yml"
 
-      - name: Stream immutable release images to ECS
+      # Pull at the destination instead of streaming Docker archives through the
+      # GitHub-runner-to-ECS SSH link. The GHCR token is delivered only on stdin
+      # to docker login and is removed from ECS again before this step exits.
+      - name: Pull immutable release images directly on ECS
         shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -Eeuo pipefail
           owner="${GITHUB_REPOSITORY_OWNER,,}"
           node_image="ghcr.io/${owner}/qiantie-v88-node:${GITHUB_SHA}"
           go_image="ghcr.io/${owner}/qiantie-go-api:${GITHUB_SHA}"
+          registry_user="${GITHUB_ACTOR}"
           ssh_opts=(-i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
-          docker save "$node_image" "$go_image" | gzip -1 | timeout 900 ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" 'gzip -d | docker load'
+          printf '%s' "$GHCR_TOKEN" | timeout 900 ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" "
+            set -Eeuo pipefail
+            docker login ghcr.io --username \"$registry_user\" --password-stdin
+            trap 'docker logout ghcr.io >/dev/null 2>&1 || true' EXIT
+            docker pull \"$go_image\"
+            docker pull \"$node_image\"
+            test \"\$(docker image inspect --format '{{.Os}}/{{.Architecture}}' \"$go_image\")\" = 'linux/amd64'
+            test \"\$(docker image inspect --format '{{.Os}}/{{.Architecture}}' \"$node_image\")\" = 'linux/amd64'
+          "
 
       - name: Deploy paired immutable images with rollback
         id: deploy_public

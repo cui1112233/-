@@ -50,14 +50,17 @@ test('unified V88 deploy synchronizes the Git-managed Compose contract before re
   assert.match(workflow, /docker-compose\.yml\.pre-unified-\$\{backup_id\}/);
 });
 
-test('unified V88 deploy transfers authenticated runner images instead of requiring ECS GHCR credentials', () => {
-  assert.match(workflow, /name: Pull immutable release images for authenticated transfer/);
-  assert.match(workflow, /docker save "\$node_image" "\$go_image" \| gzip -1 \| timeout 900 ssh/);
-  assert.match(workflow, /gzip -d \| docker load/);
-  assert.doesNotMatch(workflow, /GHCR_TOKEN: \$\{\{ secrets\.GITHUB_TOKEN \}\}/);
-  assert.doesNotMatch(workflow, /docker login ghcr\.io --username/);
-  const remoteDeploy = workflow.slice(workflow.indexOf("timeout 1200 ssh"));
-  assert.doesNotMatch(remoteDeploy, /docker pull "\$go_image"/);
+test('unified V88 deploy lets ECS pull immutable images with a short-lived GHCR token', () => {
+  assert.match(workflow, /name: Pull immutable release images directly on ECS/);
+  assert.match(workflow, /GHCR_TOKEN: \$\{\{ secrets\.GITHUB_TOKEN \}\}/);
+  // The remote command is embedded in a shell string, so its quotes may be
+  // escaped in YAML source; the token must still be consumed by password-stdin.
+  assert.match(workflow, /docker login ghcr\.io --username \\?"\$registry_user\\?" --password-stdin/);
+  assert.match(workflow, /docker pull \\?"\$go_image\\?"/);
+  assert.match(workflow, /docker pull \\?"\$node_image\\?"/);
+  assert.match(workflow, /docker logout ghcr\.io/);
+  assert.doesNotMatch(workflow, /docker save "\$node_image" "\$go_image" \| gzip -1 \| timeout 900 ssh/);
+  assert.doesNotMatch(workflow, /gzip -d \| docker load/);
 });
 
 test('unified V88 deploy rolls back if the runner external verification rejects a release', () => {
