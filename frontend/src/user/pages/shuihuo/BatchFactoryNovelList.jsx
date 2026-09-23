@@ -1721,7 +1721,7 @@ function MediaVersionPanel({ book, batchId, versionsByVideo, productionStatus, m
           })}
         </aside>
       </div>
-      <section className="batch-factory-media-bottom-sheet is-collapsed" style={{ transform: 'translateY(0)' }}>
+      <section className="batch-factory-media-bottom-sheet is-precompiled-collapsed">
         <div className="batch-factory-media-bottom-sheet-bar">
           <div className="batch-factory-media-bottom-sheet-ready"><span><PictureOutlined /></span><div><b>0 / {precompiledWorkspace.frames.length} 分镜已选好</b><small>先完成最终 VIDEO 编译，再生成、选择与合成视频。</small></div></div>
           <div className="batch-factory-media-bottom-sheet-quick"><Button size="small" onClick={() => onOpenDirector?.(selectedPrecompiledFrame?.key || '')}>查看导演提示词</Button><Tooltip title="等待 H3 最终 VIDEO 编译"><Button type="primary" disabled>合成当前书</Button></Tooltip><Tooltip title="等待可上传视频"><Button size="small" className="batch-factory-upload-network-button" disabled>上传网络</Button></Tooltip></div>

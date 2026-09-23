@@ -913,6 +913,11 @@ test('closes the media library before opening its director prompt', () => {
   assert.match(source, /onOpenDirector=\{frameKey => \{ setPendingMediaPrompt\(\{ bookId: mediaBook\.id, frameKey: frameKey \|\| '' \}\); setMediaBook\(null\); \}\}/);
 });
 
+test('keeps the awaiting-H3 media rail above its collapsed control bar', () => {
+  assert.match(source, /batch-factory-media-bottom-sheet is-precompiled-collapsed/);
+  assert.match(stylesheet, /\.batch-factory-media-bottom-sheet\.is-precompiled-collapsed\s*\{\s*height:56px;/);
+});
+
 test('compiles a successful H3 director run from real TTS audio before exposing editable VIDEO cards', () => {
   assert.match(source, /measureH3Audio/);
   assert.match(source, /compileH3Video/);

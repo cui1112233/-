@@ -2065,6 +2065,9 @@ body.batch-factory-column-resizing, body.batch-factory-column-resizing * { curso
   transition:transform .38s cubic-bezier(.18,.82,.18,1.04);
   will-change:transform;
 }
+.batch-factory-media-bottom-sheet.is-precompiled-collapsed {
+  height:56px;
+}
 [data-theme='light'] .batch-factory-media-bottom-sheet {
   box-shadow:0 -18px 42px rgba(38,54,75,.16);
 }
