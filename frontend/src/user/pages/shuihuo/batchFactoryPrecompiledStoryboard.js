@@ -11,3 +11,9 @@ export function resolvePrecompiledStoryboardAssets(book = {}) {
   if ((book?.videos || []).length > 0 || h3DirectorCards(book).length === 0) return [];
   return Array.isArray(book?.assetRecords) ? book.assetRecords : [];
 }
+
+export function resolvePrecompiledVideoWorkspace(book = {}) {
+  const cards = h3DirectorCards(book);
+  if ((book?.videos || []).length > 0 || cards.length === 0) return { status: 'unavailable', cards: [] };
+  return { status: 'awaiting_compilation', cards };
+}

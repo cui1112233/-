@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { resolvePrecompiledStoryboardAssets } from './batchFactoryPrecompiledStoryboard.js';
+import { resolvePrecompiledStoryboardAssets, resolvePrecompiledVideoWorkspace } from './batchFactoryPrecompiledStoryboard.js';
 
 test('keeps saved book assets visible while H3 director cards are waiting for VIDEO compilation', () => {
   const assets = resolvePrecompiledStoryboardAssets({
@@ -29,4 +29,25 @@ test('does not treat ordinary unprocessed books as precompiled storyboards', () 
   });
 
   assert.deepEqual(assets, []);
+});
+
+test('opens an explicit H3 video workspace before final VIDEO segments exist', () => {
+  const workspace = resolvePrecompiledVideoWorkspace({
+    videos: [],
+    directorRevision: {
+      output: {
+        h3_director: {
+          director_cards: [{
+            source_text: '我能看见人的前程。',
+            action: '我抬眸看向前方。',
+            camera: { shot_size: '近景', shot_angle: '平视' }
+          }]
+        }
+      }
+    }
+  });
+
+  assert.equal(workspace.status, 'awaiting_compilation');
+  assert.equal(workspace.cards.length, 1);
+  assert.equal(workspace.cards[0].action, '我抬眸看向前方。');
 });

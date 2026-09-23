@@ -2,7 +2,7 @@ import { h3PromptEditRequest } from './h3PromptEditing.js';
 import { measureH3VideoLines } from './h3LineAudio.js';
 import { smartUnifiedAnalysisForBook, smartUnifiedDisplayEnabled } from './batchFactorySmartUnified.js';
 import { publicationMetadataValue } from './batchFactoryPublicationMetadata.js';
-import { resolvePrecompiledStoryboardAssets } from './batchFactoryPrecompiledStoryboard.js';
+import { resolvePrecompiledStoryboardAssets, resolvePrecompiledVideoWorkspace } from './batchFactoryPrecompiledStoryboard.js';
 import {
   ArrowLeftOutlined,
   BarsOutlined,
@@ -1041,7 +1041,7 @@ function batchFactoryStableMediaLabel(prefix, id) {
 }
 function InlineMediaLibrary({ book, versionsByVideo, productionStatus, mergeJob, aspectRatio = '16:9', selectedVideoId: controlledSelectedVideoId = '', onSelectedVideoChange, onManage, onOpenMerge }) {
   const videos = book?.videos || [];
-  const h3Cards = h3DirectorCards(book);
+  const precompiledWorkspace = resolvePrecompiledVideoWorkspace(book);
   const mediaVersions = versionsByVideo instanceof Map ? versionsByVideo : new Map();
   const videoProgress = batchFactoryVideoProgress(book, productionStatus);
   const [localSelectedVideoId, setLocalSelectedVideoId] = useState(videos[0]?.id || '');
@@ -1061,10 +1061,10 @@ function InlineMediaLibrary({ book, versionsByVideo, productionStatus, mergeJob,
   useEffect(() => { if (!controlledSelectedVideoId) setLocalSelectedVideoId(book?.videos?.[0]?.id || ''); }, [book?.id]);
   useEffect(() => { if (!videos.some(item => item.id === selectedVideoId) && videos[0]?.id) selectVideo(videos[0].id); }, [videos.map(item => item.id).join('|')]);
   function move(direction) { const next = videos[selectedIndex + direction]; if (next) selectVideo(next.id); }
-  if (!video && h3Cards.length) return <div className="batch-factory-cell-shell batch-factory-inline-media is-empty">
+  if (!video && precompiledWorkspace.status === 'awaiting_compilation') return <div className="batch-factory-cell-shell batch-factory-inline-media is-empty" role="button" tabIndex={0} title="打开待编译的 H3 分镜视频" onClick={() => onManage?.()} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onManage?.(); } }}>
     <header className="batch-factory-cell-head"><div><b>H3 分镜视频</b><small>导演卡已提取，尚未编译 VIDEO</small></div><span className="batch-factory-cell-state">待编译</span></header>
-    <div className="batch-factory-cell-content batch-factory-video-content"><div className="batch-factory-cell-empty"><CloudUploadOutlined /><span>等待真实配音时长与最终 VIDEO 编译；此处不会伪造视频结果。</span></div></div>
-    <div className="batch-factory-cell-pager"><span>{h3Cards.length} 张 H3 导演卡待编译</span></div>
+    <div className="batch-factory-cell-content batch-factory-video-content"><div className="batch-factory-cell-empty"><CloudUploadOutlined /><span>点击查看待编译的 H3 分镜视频；等待真实配音时长与最终 VIDEO 编译。</span></div></div>
+    <div className="batch-factory-cell-pager"><span>{precompiledWorkspace.cards.length} 张 H3 导演卡待编译 · 点击进入</span></div>
   </div>;
   if (!video) return <div className="batch-factory-cell-shell batch-factory-inline-media is-empty"><div className="batch-factory-cell-empty">AI 推理后显示该书的分镜视频。</div></div>;
   const running = currentProgress?.status === 'running' || currentProgress?.status === 'queued';
@@ -1089,7 +1089,7 @@ function InlineMediaLibrary({ book, versionsByVideo, productionStatus, mergeJob,
   </div>;
 }
 
-function MediaVersionPanel({ book, batchId, versionsByVideo, productionStatus, mergeJob, mergeJobs = [], mergeSettings = {}, mergeSpeed, onMergeSpeedChange, onMerge, onUpload, mergeAvailable = false, mergeReason = '', merging = false, onSaved, onDeleted, onRegenerate, onRetry, regenerating, productionAvailable = false, productionReason = '', initialVideoId = '', initialTab = 'clips' }) {
+function MediaVersionPanel({ book, batchId, versionsByVideo, productionStatus, mergeJob, mergeJobs = [], mergeSettings = {}, mergeSpeed, onMergeSpeedChange, onMerge, onUpload, mergeAvailable = false, mergeReason = '', merging = false, onSaved, onDeleted, onRegenerate, onRetry, regenerating, productionAvailable = false, productionReason = '', initialVideoId = '', initialTab = 'clips', onOpenDirector }) {
   const videos = book?.videos || [];
   const videoProgress = batchFactoryVideoProgress(book, productionStatus);
   const mediaVersions = versionsByVideo instanceof Map ? versionsByVideo : new Map();
@@ -1641,6 +1641,16 @@ function MediaVersionPanel({ book, batchId, versionsByVideo, productionStatus, m
           : '按各分镜当前主版本合成；不会覆盖历史成片。';
 
   const currentSheetOffset = sheetOffset == null ? sheetAnchorOffset() : sheetOffset;
+
+  const precompiledWorkspace = resolvePrecompiledVideoWorkspace(book);
+  if (precompiledWorkspace.status === 'awaiting_compilation') return <div className="batch-factory-media-pickstation batch-factory-media-precompiled-workspace">
+    <Alert type="info" showIcon message="H3 导演卡已提取，尚未产生 VIDEO 分镜" description="这里展示的是下一步会编译为 VIDEO 的导演卡。生成真正的视频前，系统需要先完成配音实测（若已开启）和最终 Prompt 编译。" />
+    <div className="batch-factory-media-precompiled-card-list">{precompiledWorkspace.cards.map((card, index) => {
+      const camera = card?.camera || {};
+      return <article key={card?.id || `h3-card-${index}`} className="batch-factory-media-precompiled-card"><header><b>H3 导演卡 {index + 1}</b><small>待编译 VIDEO</small></header><p>{String(card?.source_text || '')}</p>{card?.action ? <p><b>动作：</b>{card.action}</p> : null}{camera?.shot_size ? <p><b>机位：</b>{camera.shot_size}{camera.shot_angle ? ` · ${camera.shot_angle}` : ''}</p> : null}</article>;
+    })}</div>
+    <Space><Button type="primary" onClick={() => onOpenDirector?.()}>打开分镜提示词</Button><span className="shuihuo-modal-note">编译完成后，此处会自动切换为可生成、可预览和可选版本的 VIDEO 片段库。</span></Space>
+  </div>;
 
   return <div className="batch-factory-media-pickstation">
     <div className="batch-factory-media-pickstation-topline">
@@ -2608,6 +2618,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
         productionReason={productionCapability.reason}
         initialVideoId={mediaVideoId}
         initialTab={mediaStartTab}
+        onOpenDirector={() => { setPromptVideoId(''); setPromptBook(mediaBook); setMediaBook(null); }}
       /> : null}
     </Modal>
 
