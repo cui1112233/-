@@ -2,6 +2,7 @@ import { h3PromptEditRequest } from './h3PromptEditing.js';
 import { measureH3VideoLines } from './h3LineAudio.js';
 import { smartUnifiedAnalysisForBook, smartUnifiedDisplayEnabled } from './batchFactorySmartUnified.js';
 import { publicationMetadataValue } from './batchFactoryPublicationMetadata.js';
+import { resolvePrecompiledStoryboardAssets } from './batchFactoryPrecompiledStoryboard.js';
 import {
   ArrowLeftOutlined,
   BarsOutlined,
@@ -579,7 +580,11 @@ function InlineStoryboardAssets({ book, batchId, selectedVideoId: controlledSele
   }, [book?.id, videos.map(video => video.id).join('|')]);
   const selectedVideo = videos.find(video => video.id === selectedVideoId) || videos[0];
   const selection = readStoryboardAssetSelection(book, selectedVideo);
-  const assets = (book?.assetRecords || []).filter(asset => selection.candidateIds.includes(String(asset.id || '')));
+  const precompiledAssets = resolvePrecompiledStoryboardAssets(book);
+  const showingPrecompiledAssets = !selectedVideo && precompiledAssets.length > 0;
+  const assets = selectedVideo
+    ? (book?.assetRecords || []).filter(asset => selection.candidateIds.includes(String(asset.id || '')))
+    : precompiledAssets;
   const currentIndex = Math.max(0, videos.findIndex(video => video.id === selectedVideo?.id));
   const switchVideo = offset => selectVideo(videos[(currentIndex + offset + videos.length) % videos.length]?.id || '');
   const assetGroups = [
@@ -639,35 +644,38 @@ function InlineStoryboardAssets({ book, batchId, selectedVideoId: controlledSele
     } finally { setSavingAssetId(''); }
   }
 
-  if (!selectedVideo) return <div className="batch-factory-cell-shell batch-factory-inline-assets is-empty"><div className="batch-factory-cell-empty">AI 推理后会在这里显示当前书的分镜资产。</div></div>;
+  if (!selectedVideo && !showingPrecompiledAssets) return <div className="batch-factory-cell-shell batch-factory-inline-assets is-empty"><div className="batch-factory-cell-empty">AI 推理后会在这里显示当前书的分镜资产。</div></div>;
 
-  const selectedCount = assets.filter(asset => selection.selectedIds.has(String(asset.id))).length;
+  const selectedCount = showingPrecompiledAssets ? assets.length : assets.filter(asset => selection.selectedIds.has(String(asset.id))).length;
   return <div className="batch-factory-cell-shell batch-factory-inline-assets">
     <header className="batch-factory-cell-head">
-      <div><b>{storyboardVideoLabel(selectedVideo, currentIndex)}</b><small>{selectedCount}/{assets.length || 0} 已启用</small></div>
+      <div><b>{showingPrecompiledAssets ? '当前书资产' : storyboardVideoLabel(selectedVideo, currentIndex)}</b><small>{showingPrecompiledAssets ? 'H3 导演卡已提取，等待 VIDEO 编译' : `${selectedCount}/${assets.length || 0} 已启用`}</small></div>
       <span className="batch-factory-cell-state">{assets.length ? '资产就绪' : '待提取'}</span>
     </header>
     <div className="batch-factory-cell-content batch-factory-asset-content">
       {assets.length ? assetGroups.map(group => group.items.length ? <section className="batch-factory-asset-group-inline" key={group.kind}>
         <div className="batch-factory-asset-group-label"><b>{group.label}</b><span>{group.items.length}</span></div>
         <div className="batch-factory-storyboard-asset-cards">{group.items.map(asset => {
-          const selected = selection.selectedIds.has(String(asset.id));
-          const starred = selected && asset.kind === 'character' && starredCharacterNames.includes(assetName(asset));
-          return <button type="button" key={asset.id} disabled={savingAssetId === asset.id} onClick={() => onAssetClick(asset)} onDoubleClick={() => onAssetDoubleClick(asset)} className={`batch-factory-storyboard-asset-card ${starred ? 'is-starred' : selected ? 'is-selected' : 'is-muted'}`} title={starred ? '星标人物聚焦；点击后取消星标并停用，双击可取消星标。' : selected ? '点击停用；双击人物卡设为星标聚焦。' : '点击启用：用于当前分镜的图片和视频生成'}>
+          const selected = showingPrecompiledAssets || selection.selectedIds.has(String(asset.id));
+          const starred = !showingPrecompiledAssets && selected && asset.kind === 'character' && starredCharacterNames.includes(assetName(asset));
+          const onClick = showingPrecompiledAssets ? () => onManage?.() : () => onAssetClick(asset);
+          const onDoubleClick = showingPrecompiledAssets ? undefined : () => onAssetDoubleClick(asset);
+          const title = showingPrecompiledAssets ? 'H3 导演卡已提取；最终 VIDEO 编译后可按分镜调整资产。点击管理全部资产。' : starred ? '星标人物聚焦；点击后取消星标并停用，双击可取消星标。' : selected ? '点击停用；双击人物卡设为星标聚焦。' : '点击启用：用于当前分镜的图片和视频生成';
+          return <button type="button" key={asset.id} disabled={savingAssetId === asset.id} onClick={onClick} onDoubleClick={onDoubleClick} className={`batch-factory-storyboard-asset-card ${starred ? 'is-starred' : selected ? 'is-selected' : 'is-muted'}`} title={title}>
             <span>{group.label}</span><b>{assetName(asset)}</b>{starred ? <i aria-label="星标人物">★</i> : null}
           </button>;
         })}</div>
       </section> : null) : <div className="batch-factory-cell-empty">当前分镜尚未识别到需要调用的资产。</div>}
       <div className="batch-factory-asset-summary">
         <span>{assetGroups[0].items.length} 人物</span><span>{assetGroups[1].items.length} 场景</span><span>{assetGroups[2].items.length} 道具</span>
-        <button type="button" onClick={() => onManage?.(selectedVideo.id)}>管理全部资产</button>
+        <button type="button" onClick={() => onManage?.(selectedVideo?.id)}>管理全部资产</button>
       </div>
     </div>
-    <div className="batch-factory-cell-pager">
+    {showingPrecompiledAssets ? <div className="batch-factory-cell-pager"><span>资产已提取 · 尚未生成 VIDEO 分镜</span></div> : <div className="batch-factory-cell-pager">
       <button type="button" aria-label="上一分镜资产" disabled={currentIndex === 0} onClick={() => switchVideo(-1)}><LeftOutlined /></button>
       <span>{currentIndex + 1} / {videos.length}</span>
       <button type="button" aria-label="下一分镜资产" disabled={currentIndex >= videos.length - 1} onClick={() => switchVideo(1)}><RightOutlined /></button>
-    </div>
+    </div>}
   </div>;
 }
 
@@ -1033,6 +1041,7 @@ function batchFactoryStableMediaLabel(prefix, id) {
 }
 function InlineMediaLibrary({ book, versionsByVideo, productionStatus, mergeJob, aspectRatio = '16:9', selectedVideoId: controlledSelectedVideoId = '', onSelectedVideoChange, onManage, onOpenMerge }) {
   const videos = book?.videos || [];
+  const h3Cards = h3DirectorCards(book);
   const mediaVersions = versionsByVideo instanceof Map ? versionsByVideo : new Map();
   const videoProgress = batchFactoryVideoProgress(book, productionStatus);
   const [localSelectedVideoId, setLocalSelectedVideoId] = useState(videos[0]?.id || '');
@@ -1052,6 +1061,11 @@ function InlineMediaLibrary({ book, versionsByVideo, productionStatus, mergeJob,
   useEffect(() => { if (!controlledSelectedVideoId) setLocalSelectedVideoId(book?.videos?.[0]?.id || ''); }, [book?.id]);
   useEffect(() => { if (!videos.some(item => item.id === selectedVideoId) && videos[0]?.id) selectVideo(videos[0].id); }, [videos.map(item => item.id).join('|')]);
   function move(direction) { const next = videos[selectedIndex + direction]; if (next) selectVideo(next.id); }
+  if (!video && h3Cards.length) return <div className="batch-factory-cell-shell batch-factory-inline-media is-empty">
+    <header className="batch-factory-cell-head"><div><b>H3 分镜视频</b><small>导演卡已提取，尚未编译 VIDEO</small></div><span className="batch-factory-cell-state">待编译</span></header>
+    <div className="batch-factory-cell-content batch-factory-video-content"><div className="batch-factory-cell-empty"><CloudUploadOutlined /><span>等待真实配音时长与最终 VIDEO 编译；此处不会伪造视频结果。</span></div></div>
+    <div className="batch-factory-cell-pager"><span>{h3Cards.length} 张 H3 导演卡待编译</span></div>
+  </div>;
   if (!video) return <div className="batch-factory-cell-shell batch-factory-inline-media is-empty"><div className="batch-factory-cell-empty">AI 推理后显示该书的分镜视频。</div></div>;
   const running = currentProgress?.status === 'running' || currentProgress?.status === 'queued';
   const mergeStatus = String(mergeJob?.status || '').toLowerCase();
