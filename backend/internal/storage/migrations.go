@@ -19,6 +19,10 @@ type Migration struct {
 	// migration that was already applied by an earlier released binary. They
 	// prevent a historical ledger spelling from rerunning destructive DDL.
 	LegacyChecksums []string
+	// Reconcile verifies a narrowly known historical partial migration before
+	// later migrations depend on its schema. It must be idempotent and must not
+	// alter a healthy schema.
+	Reconcile func(context.Context, *sql.Tx) error
 }
 
 func checksumMatches(m Migration, recorded, expected string) bool {
@@ -98,6 +102,19 @@ func RunMigrations(ctx context.Context, db *sql.DB, migrations []Migration) erro
 		if err == nil {
 			if !checksumMatches(migration, recorded, expected) {
 				return fmt.Errorf("migration %d checksum mismatch: recorded=%s expected=%s", migration.Version, recorded, expected)
+			}
+			if migration.Reconcile != nil {
+				tx, beginErr := db.BeginTx(ctx, nil)
+				if beginErr != nil {
+					return fmt.Errorf("begin reconcile migration %d: %w", migration.Version, beginErr)
+				}
+				if reconcileErr := migration.Reconcile(ctx, tx); reconcileErr != nil {
+					_ = tx.Rollback()
+					return fmt.Errorf("reconcile migration %d: %w", migration.Version, reconcileErr)
+				}
+				if commitErr := tx.Commit(); commitErr != nil {
+					return fmt.Errorf("commit reconcile migration %d: %w", migration.Version, commitErr)
+				}
 			}
 			continue
 		}

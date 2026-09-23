@@ -17,6 +17,9 @@ func TestV11BookAssetsMigrationIsAdditiveAndDurable(t *testing.T) {
 	if got := assetMigration.LegacyChecksums; len(got) != 1 || got[0] != "b5e1e45e1ae47240a5d303efe70ad8b29afa21d906b482774d696c8424600624" {
 		t.Fatalf("legacy book-assets checksum=%#v", got)
 	}
+	if assetMigration.Reconcile == nil {
+		t.Fatal("book-assets migration must repair the verified historical ledger/table split before later foreign keys run")
+	}
 	sql := strings.ToLower(strings.Join(V11BookAssetsStatements(), "\n"))
 	for _, required := range []string{"batch_factory_v11_book_assets", "owner_username", "book_id", "kind", "prompt", "source", "revision"} {
 		if !strings.Contains(sql, required) {

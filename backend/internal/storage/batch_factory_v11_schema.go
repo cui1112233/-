@@ -1,5 +1,10 @@
 package storage
 
+import (
+	"context"
+	"database/sql"
+)
+
 func V11FoundationStatements() []string {
 	return []string{
 		`CREATE TABLE IF NOT EXISTS batch_factory_v11_bridge_users (
@@ -431,6 +436,28 @@ func V11BookAssetsStatements() []string {
 	}
 }
 
+// reconcileV11BookAssetsLedger repairs only the documented public-release
+// failure where the migration ledger was written even though the book-assets
+// table was absent. A healthy installation merely performs the existence check.
+func reconcileV11BookAssetsLedger(ctx context.Context, tx *sql.Tx) error {
+	var exists bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(
+  SELECT 1 FROM information_schema.tables
+  WHERE table_schema = DATABASE() AND table_name = 'batch_factory_v11_book_assets'
+)`).Scan(&exists); err != nil {
+		return err
+	}
+	if exists {
+		return nil
+	}
+	for _, statement := range V11BookAssetsStatements() {
+		if _, err := tx.ExecContext(ctx, statement); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func V11BookAssetImagesStatements() []string {
 	return []string{
 		`CREATE TABLE IF NOT EXISTS batch_factory_v11_book_asset_images (
@@ -531,7 +558,7 @@ func V11Migrations() []Migration {
 		// migration received its canonical callback marker.  Accept only that
 		// verified ledger value so an existing book-assets table is never applied
 		// a second time.
-		{Version: 1100012, SQL: V11BookAssetsStatements(), CallbackChecksum: "batch-factory-v11-book-assets-v1", LegacyChecksums: []string{"b5e1e45e1ae47240a5d303efe70ad8b29afa21d906b482774d696c8424600624"}},
+		{Version: 1100012, SQL: V11BookAssetsStatements(), CallbackChecksum: "batch-factory-v11-book-assets-v1", LegacyChecksums: []string{"b5e1e45e1ae47240a5d303efe70ad8b29afa21d906b482774d696c8424600624"}, Reconcile: reconcileV11BookAssetsLedger},
 		{Version: 1100013, SQL: V11BookAssetImagesStatements(), CallbackChecksum: "batch-factory-v11-book-asset-images-v1"},
 		{Version: 1100014, SQL: V11ProductionAssetInputStatements(), CallbackChecksum: "batch-factory-v11-production-asset-input-v1"},
 		{Version: 1100015, SQL: V11BookStageRunsStatements(), CallbackChecksum: "batch-factory-v11-book-stage-runs-v1"},
