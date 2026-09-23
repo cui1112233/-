@@ -112,12 +112,13 @@ jobs:
           done
           chmod 600 "$HOME/.ssh/known_hosts"
 
-      - name: Copy the Git-managed public Nginx route
+      - name: Copy the Git-managed public runtime contracts
         shell: bash
         run: |
           set -Eeuo pipefail
           ssh_opts=(-i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
           timeout 60 scp "${ssh_opts[@]}" deploy/v88-public/nginx.conf "$ECS_USER@$ECS_HOST:/tmp/v88-public-nginx-${GITHUB_SHA}.conf"
+          timeout 60 scp "${ssh_opts[@]}" deploy/v88-public/docker-compose.yml "$ECS_USER@$ECS_HOST:/tmp/v88-public-compose-${GITHUB_SHA}.yml"
 
       - name: Deploy paired immutable images with rollback
         id: deploy_public
@@ -155,7 +156,9 @@ jobs:
           previous_public_sha="$(printf '%s' "$PREVIOUS_PUBLIC_BUILD" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("git_sha", ""))' 2>/dev/null || true)"
           backup_env=".env.pre-unified-${backup_id}"
           backup_nginx="nginx.conf.pre-unified-${backup_id}"
+          backup_compose="docker-compose.yml.pre-unified-${backup_id}"
           cp -a .env "$backup_env"
+          cp -a docker-compose.yml "$backup_compose"
           if [ "$previous_public_sha" = '4d22f685c99b7e56e8c3f3511b319f82db4a05b2' ]; then
             if [ ! -s nginx.conf.pre-unified-20260912T103106Z ]; then
               echo 'STATUS=BLOCKED missing captured Git-direct Nginx rollback configuration'
@@ -174,12 +177,13 @@ jobs:
               echo "STATUS=ROLLBACK restoring $backup_env"
               cp -a "$backup_env" .env || echo 'STATUS=ROLLBACK_WARNING unable to restore .env'
               cp -a "$backup_nginx" nginx.conf || echo 'STATUS=ROLLBACK_WARNING unable to restore nginx.conf'
+              cp -a "$backup_compose" docker-compose.yml || echo 'STATUS=ROLLBACK_WARNING unable to restore docker-compose.yml'
               docker compose -f docker-compose.yml config -q || true
               docker compose -f docker-compose.yml up -d --no-deps --force-recreate --pull never go-api browser-worker v88-node || true
               docker compose -f docker-compose.yml up -d --no-deps --force-recreate --pull never nginx || true
               docker compose -f docker-compose.yml exec -T nginx nginx -t >/dev/null 2>&1 || true
             fi
-            rm -f "/tmp/v88-public-nginx-${expected_sha}.conf"
+            rm -f "/tmp/v88-public-nginx-${expected_sha}.conf" "/tmp/v88-public-compose-${expected_sha}.yml"
             docker logout ghcr.io >/dev/null 2>&1 || true
             exit "$status"
           }
@@ -210,6 +214,7 @@ jobs:
           set_env QIANTIE_BATCH_FACTORY_V11_LOCAL_MERGE_ENABLED 1
           set_env QIANTIE_BATCH_FACTORY_V11_DYNAMIC_TEXT_PROVIDER 1
           cp "/tmp/v88-public-nginx-${expected_sha}.conf" nginx.conf
+          cp "/tmp/v88-public-compose-${expected_sha}.yml" docker-compose.yml
 
           docker compose -f docker-compose.yml config -q
           docker compose -f docker-compose.yml up -d --no-deps --force-recreate --pull never go-api browser-worker v88-node
@@ -288,7 +293,7 @@ jobs:
           NODE
 
           echo "STATUS=DEPLOYED release_sha=$expected_sha public_ip_verified=true public_v11_status=$public_cap_status"
-          rm -f "/tmp/v88-public-nginx-${expected_sha}.conf"
+          rm -f "/tmp/v88-public-nginx-${expected_sha}.conf" "/tmp/v88-public-compose-${expected_sha}.yml"
           trap - EXIT ERR
           docker logout ghcr.io >/dev/null 2>&1 || true
           REMOTE
@@ -335,6 +340,7 @@ jobs:
           cd /opt/qiantie/v88/deploy/v88-public
           cp -a ".env.pre-unified-${backup_id}" .env
           cp -a "nginx.conf.pre-unified-${backup_id}" nginx.conf
+          cp -a "docker-compose.yml.pre-unified-${backup_id}" docker-compose.yml
           docker compose -f docker-compose.yml config -q
           docker compose -f docker-compose.yml up -d --no-deps --force-recreate --pull never go-api v88-node
           docker compose -f docker-compose.yml up -d --no-deps --force-recreate --pull never nginx

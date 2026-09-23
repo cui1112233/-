@@ -42,6 +42,14 @@ test('unified V88 deploy installs the Git-managed Nginx route and restores it on
   assert.match(workflow, /nginx\.conf\.pre-unified-20260912T103106Z/);
 });
 
+test('unified V88 deploy synchronizes the Git-managed Compose contract before recreating services', () => {
+  assert.match(workflow, /scp[\s\S]*deploy\/v88-public\/docker-compose\.yml/);
+  assert.match(workflow, /backup_compose/);
+  assert.match(workflow, /cp -a "\$backup_compose" docker-compose\.yml/);
+  assert.match(workflow, /cp "\/tmp\/v88-public-compose-\$\{expected_sha\}\.yml" docker-compose\.yml/);
+  assert.match(workflow, /docker-compose\.yml\.pre-unified-\$\{backup_id\}/);
+});
+
 test('unified V88 deploy rolls back if the runner external verification rejects a release', () => {
   assert.match(workflow, /id: deploy_public/);
   assert.match(workflow, /name: Roll back ECS after external rejection/);
