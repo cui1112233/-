@@ -11,7 +11,6 @@ const TtsPage = lazy(() => import('./pages/TtsPage'));
 const NovelFetchPage = lazy(() => import('./pages/NovelFetchPage'));
 const NovelFetchWorkshopPage = lazy(() => import('./pages/NovelFetchWorkshopPage'));
 const BatchFactoryPage = lazy(() => import('./pages/BatchFactoryPage'));
-const ShuihuoProductionPage = lazy(() => import('./pages/ShuihuoProductionPage'));
 const BatchFactoryWorkbenchPage = lazy(() => import('./pages/BatchFactoryWorkbenchPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const MemberCenterPage = lazy(() => import('./pages/MemberCenterPage'));
