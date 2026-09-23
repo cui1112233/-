@@ -869,9 +869,14 @@ test('initializes the selected primary video before an autoplay effect reads it'
   assert.ok(autoplayEffectIndex > primaryIndex, 'autoplay must not read primary before it is initialized');
 });
 
-test('keeps visual extraction separate from director video extraction', () => {
+test('compiles existing H3 director cards instead of regenerating them from video extraction', () => {
   assert.match(source, /画面获取[\s\S]{0,500}runBookStageAction\(book, 'visual', 'force'\)/);
-  assert.match(source, /视频获取[\s\S]{0,500}runBookStageAction\(book, 'director', 'force'\)/);
+  const start = source.indexOf('async function runBookStageAction(book, stage');
+  const end = source.indexOf('async function retryLastFailedStage', start);
+  const action = start >= 0 && end > start ? source.slice(start, end) : '';
+  assert.match(source, /视频获取[\s\S]{0,500}runBookStageAction\(book, 'director', 'compile'\)/);
+  assert.match(action, /if \(stage === 'director' && mode === 'compile' && h3DirectorCards\(book\)\.length\) \{[\s\S]*?await compileBookH3Videos\(book\);[\s\S]*?return;/);
+  assert.match(action, /await runBookStage\(batch\.id, book\.id, stage/);
   assert.match(source, /onRegenerateVisual=\{\(\) => runBookStageAction\(promptBook, 'visual', 'force'\)\}/);
 });
 
