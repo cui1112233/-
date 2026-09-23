@@ -2055,20 +2055,11 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
   }
   async function loadRuntimeStatus({ quiet = false, runtimeCapabilities = capabilities } = {}) {
     if (!batch?.id) return;
-    const productionEnabled = capability(runtimeCapabilities, 'production.submit').available;
-    const mergeEnabled = capability(runtimeCapabilities, 'merge.run').available;
-    if (!productionEnabled && !mergeEnabled) {
-      setProductionStatus({ batchId: batch.id, jobs: [] });
-      setMergeStatus({ batchId: batch.id, jobs: [] });
-      await loadStageSummaries();
-      setLogsError('');
-      return;
-    }
     setLogsLoading(true);
     try {
       const [production, merge] = await Promise.all([
-        productionEnabled ? getProductionStatus(batch.id) : Promise.resolve({ batchId: batch.id, jobs: [] }),
-        mergeEnabled ? getMergeStatus(batch.id) : Promise.resolve({ batchId: batch.id, jobs: [] })
+        getProductionStatus(batch.id),
+        getMergeStatus(batch.id)
       ]);
       setProductionStatus(production);
       setMergeStatus(merge);
@@ -2117,7 +2108,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
   }, [batch?.id]);
   useEffect(() => {
     let active = true;
-    getWorkshopPlatforms().then(result => {
+    getWorkshopPlatforms({ suppressGlobalError: true }).then(result => {
       if (!active) return;
       setPlatformNames(Object.fromEntries(batchFactoryPlatformOptions(result?.platforms).map(option => [String(option.value), option.label])));
     }).catch(() => { if (active) setPlatformNames({}); });

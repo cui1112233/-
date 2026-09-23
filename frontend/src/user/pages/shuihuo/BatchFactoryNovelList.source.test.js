@@ -331,6 +331,16 @@ test('renders saved book-city and novel-fetch metadata without exposing internal
   assert.match(source, /label="书城">\{bookPlatformName\(viewingBook, platformNames\)\}/);
 });
 
+test('keeps an optional platform-label lookup from surfacing a global API failure', () => {
+  assert.match(source, /getWorkshopPlatforms\(\{ suppressGlobalError: true \}\)/);
+});
+
+test('keeps persisted production and merge status readable when new work is disabled', () => {
+  assert.match(source, /const \[production, merge\] = await Promise\.all\(\[\s*getProductionStatus\(batch\.id\),\s*getMergeStatus\(batch\.id\)\s*\]\)/);
+  assert.doesNotMatch(source, /productionEnabled \? getProductionStatus/);
+  assert.doesNotMatch(source, /mergeEnabled \? getMergeStatus/);
+});
+
 test('persists named AI reasoning presets through the V11 backend and lets users rename and load them', () => {
   assert.match(reasoningSource, /AI 推理预设/);
   assert.match(reasoningSource, /createConfigVersion/);

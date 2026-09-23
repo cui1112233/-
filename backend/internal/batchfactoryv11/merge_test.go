@@ -53,6 +53,25 @@ func TestMergePollingFailureEndsTheJobWithTheProviderError(t *testing.T) {
 	}
 }
 
+func TestMergeStatusKeepsPersistedResultsReadableWhenNewMergesAreDisabled(t *testing.T) {
+	store, batch, book, _ := seedCompiledVideo(t)
+	job, err := store.CreateMergeJob(context.Background(), MergeJob{
+		Owner: "alice", BatchID: batch.ID, BookID: book.ID, RequestID: "existing-merge",
+		Status: MergeSucceeded, OutputURL: "https://media.example/existing.mp4",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	jobs, err := (&MergeService{Store: store, Enabled: false}).GetBatchStatus(context.Background(), "alice", batch.ID)
+	if err != nil {
+		t.Fatalf("persisted merge status must remain readable: %v", err)
+	}
+	if len(jobs) != 1 || jobs[0].ID != job.ID || jobs[0].OutputURL != job.OutputURL {
+		t.Fatalf("jobs=%+v want persisted job=%+v", jobs, job)
+	}
+}
+
 func (a *recordingMergeAdapter) Submit(_ context.Context, _ string, sources []MergeMedia, options MergeOptions) (MergeJob, error) {
 	a.calls++
 	a.sources = append([]MergeMedia(nil), sources...)
