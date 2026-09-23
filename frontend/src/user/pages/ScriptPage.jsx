@@ -1791,9 +1791,6 @@ function EntityEditor({ entity, type, assetId, editorSessionId, isNew, open, ful
     setMainImageUrl(media.mainImageUrl || (media.imageUrls.length === 1 ? media.imageUrls[0] : ''));
     setEnrichment(null);
     setEnrichmentError('');
-    setGeneratingImage(false);
-    setUploadingImage(false);
-    setImageGenerationError('');
   }, [entity, open]);
 
   const fieldsToRender = visualFields(entity);
@@ -1829,60 +1826,6 @@ function EntityEditor({ entity, type, assetId, editorSessionId, isNew, open, ful
       setEnrichmentError(error.message || '智能补全失败，请稍后重试');
     } finally {
       setEnriching(false);
-    }
-  }
-
-  async function uploadImage(event) {
-    const file = event.target.files?.[0];
-    event.target.value = '';
-    if (!file) return;
-    if (!String(file.type || '').startsWith('image/')) {
-      message.warning('请选择图片文件');
-      return;
-    }
-    if (file.size > 10 * 1024 * 1024) {
-      message.warning('图片大小不能超过 10MB');
-      return;
-    }
-    setUploadingImage(true);
-    setImageGenerationError('');
-    try {
-      const response = await uploadReferenceAssetImage({
-        asset_type: type === 'characters' ? 'character' : 'scene',
-        asset_id: String(entity?.id || `${type}-${Date.now()}`),
-        variant: 'source',
-        data_url: await readImageFileAsDataUrl(file)
-      });
-      const url = String(response?.url || '').trim();
-      if (!url) throw new Error('图片上传接口未返回图片地址');
-      appendAndSelectImage(url);
-      message.success('图片已上传');
-    } catch (error) {
-      setImageGenerationError(error.message || '图片上传失败，请稍后重试');
-    } finally {
-      setUploadingImage(false);
-    }
-  }
-
-  async function generateImage() {
-    if (!canGenerateImage) return;
-    setGeneratingImage(true);
-    setImageGenerationError('');
-    try {
-      const response = await generateReferenceAssetImage(buildReferenceAssetGenerationPayload({
-        type,
-        entity,
-        fields,
-        novelText,
-        extractionPreset
-      }));
-      const url = String(response?.url || '').trim();
-      if (!url) throw new Error('图片生成接口未返回图片地址');
-      appendAndSelectImage(url);
-    } catch (error) {
-      setImageGenerationError(error.message || '人物/场景图片生成失败，请稍后重试');
-    } finally {
-      setGeneratingImage(false);
     }
   }
 

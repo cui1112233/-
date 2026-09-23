@@ -29,3 +29,9 @@ test('keeps storyboard rendering safe by defining the video permission state it 
   assert.match(page, /getMemberCenter\(\)\.then\(result =>/);
   assert.match(page, /onGenerateVideo=\{canGenerateVideo \? generateVideoForShot : null\}/);
 });
+
+test('opens entity editors without invoking the retired image-panel state setters', () => {
+  assert.doesNotMatch(page, /setGeneratingImage\(/);
+  assert.doesNotMatch(page, /setUploadingImage\(/);
+  assert.doesNotMatch(page, /setImageGenerationError\(/);
+});
