@@ -458,6 +458,23 @@ func reconcileV11BookAssetsLedger(ctx context.Context, tx *sql.Tx) error {
 	return nil
 }
 
+// reconcileV11SeparateVideoPromptLedger repairs the matching historical
+// ledger/schema split for the prompt separation migration. When the column is
+// absent, run the original one-time copy before clearing visual_prompt; once
+// present, existing data is left untouched.
+func reconcileV11SeparateVideoPromptLedger(ctx context.Context, tx *sql.Tx) error {
+	exists, err := v11ColumnExists(ctx, tx, "batch_factory_v11_video_records", "video_prompt")
+	if err != nil || exists {
+		return err
+	}
+	for _, statement := range V11SeparateVideoPromptStatements() {
+		if _, err := tx.ExecContext(ctx, statement); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func v11ColumnExists(ctx context.Context, tx *sql.Tx, table, column string) (bool, error) {
 	var exists bool
 	err := tx.QueryRowContext(ctx, `SELECT EXISTS(
@@ -606,7 +623,7 @@ func V11Migrations() []Migration {
 		// canonical callback marker existed. Its recorded checksum is accepted
 		// only as evidence that the one-time prompt split already ran; it never
 		// causes the ALTER/UPDATE sequence to run twice.
-		{Version: 1100011, SQL: V11SeparateVideoPromptStatements(), CallbackChecksum: "batch-factory-v11-separate-video-prompt-v1", LegacyChecksums: []string{"0aa0615fbe3d1ffa5d13faee0acc76ec39c0b1232c687630ade52e9f041ab329"}},
+		{Version: 1100011, SQL: V11SeparateVideoPromptStatements(), CallbackChecksum: "batch-factory-v11-separate-video-prompt-v1", LegacyChecksums: []string{"0aa0615fbe3d1ffa5d13faee0acc76ec39c0b1232c687630ade52e9f041ab329"}, Reconcile: reconcileV11SeparateVideoPromptLedger},
 		// The prior public release recorded the SQL-derived checksum before this
 		// migration received its canonical callback marker.  Accept only that
 		// verified ledger value so an existing book-assets table is never applied
