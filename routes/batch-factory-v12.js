@@ -99,6 +99,32 @@ async function refillMissingBatchFactoryBookSource({ book, fetchDirectOriginal, 
 function createBatchFactoryV12Router(options = {}) {
   const legacy = createBatchFactoryV11Router(options);
   const router = express.Router();
+  // Older V11 Go deployments did not expose the production-status reader.
+  // It is auxiliary UI data, so derive an empty, readable status from the
+  // persisted batch instead of making every manual H3 workspace unusable.
+  router.get('/batches/:batchId/status', async (req, res, next) => {
+    const batchID = encodeURIComponent(String(req.params.batchId || '').trim());
+    const account = { username: req.username, isOwner: req.auth?.account?.isOwner === true };
+    const goOptions = { goBaseUrl: options.goBaseUrl, bridgeSecret: options.bridgeSecret, fetchImpl: options.fetchImpl, now: options.now };
+    try {
+      const status = await v11JSONRequest({ ...account, method: 'GET', pathname: `${V11_BASE}/batches/${batchID}/status`, ...goOptions });
+      return res.json(status);
+    } catch (error) {
+      if (Number(error?.status) !== 404) return next(error);
+      try {
+        const loaded = await v11JSONRequest({ ...account, method: 'GET', pathname: `${V11_BASE}/batches/${batchID}`, ...goOptions });
+        const batch = loaded?.batch || loaded || {};
+        return res.json({
+          batchId: String(batch?.id || req.params.batchId || ''),
+          jobs: [],
+          statusUnavailable: true,
+          diagnostic: 'V11_PRODUCTION_STATUS_NOT_AVAILABLE'
+        });
+      } catch (fallbackError) {
+        return next(fallbackError);
+      }
+    }
+  });
   router.post('/fetch-originals', async (req, res) => {
     try {
       const account = { username: req.username, isOwner: req.auth?.account?.isOwner === true };

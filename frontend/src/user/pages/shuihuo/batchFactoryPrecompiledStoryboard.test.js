@@ -1,7 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { resolvePrecompiledStoryboardAssets, resolvePrecompiledVideoWorkspace } from './batchFactoryPrecompiledStoryboard.js';
+import {
+  resolvePrecompiledStoryboardAssets,
+  resolvePrecompiledStoryboardFrame,
+  resolvePrecompiledVideoWorkspace
+} from './batchFactoryPrecompiledStoryboard.js';
 
 test('keeps saved book assets visible while H3 director cards are waiting for VIDEO compilation', () => {
   const assets = resolvePrecompiledStoryboardAssets({
@@ -50,4 +54,29 @@ test('opens an explicit H3 video workspace before final VIDEO segments exist', (
   assert.equal(workspace.status, 'awaiting_compilation');
   assert.equal(workspace.cards.length, 1);
   assert.equal(workspace.cards[0].action, '我抬眸看向前方。');
+});
+
+test('gives precompiled H3 cards a stable cross-column cursor and honors the selected card', () => {
+  const book = {
+    videos: [],
+    directorRevision: {
+      output: {
+        h3_director: {
+          director_cards: [
+            { source_key: 'line_0001', source_text: '第一行', action: '动作一' },
+            { source_key: 'line_0002', source_text: '第二行', action: '动作二' }
+          ]
+        }
+      }
+    }
+  };
+
+  const first = resolvePrecompiledStoryboardFrame(book);
+  const second = resolvePrecompiledStoryboardFrame(book, 'h3:line_0002');
+
+  assert.equal(first.key, 'h3:line_0001');
+  assert.equal(first.index, 0);
+  assert.equal(second.key, 'h3:line_0002');
+  assert.equal(second.index, 1);
+  assert.equal(second.card.action, '动作二');
 });

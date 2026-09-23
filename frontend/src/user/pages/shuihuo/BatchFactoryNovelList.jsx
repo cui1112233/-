@@ -2,7 +2,7 @@ import { h3PromptEditRequest } from './h3PromptEditing.js';
 import { measureH3VideoLines } from './h3LineAudio.js';
 import { smartUnifiedAnalysisForBook, smartUnifiedDisplayEnabled } from './batchFactorySmartUnified.js';
 import { publicationMetadataValue } from './batchFactoryPublicationMetadata.js';
-import { resolvePrecompiledStoryboardAssets, resolvePrecompiledVideoWorkspace } from './batchFactoryPrecompiledStoryboard.js';
+import { resolvePrecompiledStoryboardAssets, resolvePrecompiledStoryboardFrame, resolvePrecompiledVideoWorkspace } from './batchFactoryPrecompiledStoryboard.js';
 import {
   ArrowLeftOutlined,
   BarsOutlined,
@@ -562,6 +562,7 @@ function readStoryboardAssetSelection(book, video) {
 
 function InlineStoryboardAssets({ book, batchId, selectedVideoId: controlledSelectedVideoId = '', onSelectedVideoChange, onManage, onSaved }) {
   const videos = book?.videos || [];
+  const precompiledWorkspace = resolvePrecompiledVideoWorkspace(book);
   const [localSelectedVideoId, setLocalSelectedVideoId] = useState(videos[0]?.id || '');
   const [savingAssetId, setSavingAssetId] = useState('');
   const [starredCharacterNames, setStarredCharacterNames] = useState([]);
@@ -575,10 +576,12 @@ function InlineStoryboardAssets({ book, batchId, selectedVideoId: controlledSele
   useEffect(() => { setStarredCharacterNames(Array.isArray(book?.settingsState?.patch?.starredCharacterNames) ? book.settingsState.patch.starredCharacterNames : []); }, [book?.id, book?.revision, book?.settingsState?.revision]);
   useEffect(() => () => { for (const timer of clickTimers.current.values()) clearTimeout(timer); clickTimers.current.clear(); }, []);
   useEffect(() => {
-    const next = videos.some(video => video.id === selectedVideoId) ? selectedVideoId : (videos[0]?.id || '');
+    const h3Frame = resolvePrecompiledStoryboardFrame(book, selectedVideoId);
+    const next = h3Frame?.key || (videos.some(video => video.id === selectedVideoId) ? selectedVideoId : (videos[0]?.id || ''));
     if (next !== selectedVideoId) selectVideo(next);
   }, [book?.id, videos.map(video => video.id).join('|')]);
   const selectedVideo = videos.find(video => video.id === selectedVideoId) || videos[0];
+  const selectedPrecompiledFrame = resolvePrecompiledStoryboardFrame(book, selectedVideoId);
   const selection = readStoryboardAssetSelection(book, selectedVideo);
   const precompiledAssets = resolvePrecompiledStoryboardAssets(book);
   const showingPrecompiledAssets = !selectedVideo && precompiledAssets.length > 0;
@@ -587,6 +590,10 @@ function InlineStoryboardAssets({ book, batchId, selectedVideoId: controlledSele
     : precompiledAssets;
   const currentIndex = Math.max(0, videos.findIndex(video => video.id === selectedVideo?.id));
   const switchVideo = offset => selectVideo(videos[(currentIndex + offset + videos.length) % videos.length]?.id || '');
+  const switchPrecompiledFrame = offset => {
+    const next = precompiledWorkspace.frames?.[(selectedPrecompiledFrame?.index || 0) + offset];
+    if (next) selectVideo(next.key);
+  };
   const assetGroups = [
     ['character', '人物'],
     ['scene', '场景'],
@@ -649,7 +656,7 @@ function InlineStoryboardAssets({ book, batchId, selectedVideoId: controlledSele
   const selectedCount = showingPrecompiledAssets ? assets.length : assets.filter(asset => selection.selectedIds.has(String(asset.id))).length;
   return <div className="batch-factory-cell-shell batch-factory-inline-assets">
     <header className="batch-factory-cell-head">
-      <div><b>{showingPrecompiledAssets ? '当前书资产' : storyboardVideoLabel(selectedVideo, currentIndex)}</b><small>{showingPrecompiledAssets ? 'H3 导演卡已提取，等待 VIDEO 编译' : `${selectedCount}/${assets.length || 0} 已启用`}</small></div>
+      <div><b>{showingPrecompiledAssets ? `H3 导演卡 ${(selectedPrecompiledFrame?.index || 0) + 1} · 资产` : storyboardVideoLabel(selectedVideo, currentIndex)}</b><small>{showingPrecompiledAssets ? 'H3 导演卡已提取，等待 VIDEO 编译' : `${selectedCount}/${assets.length || 0} 已启用`}</small></div>
       <span className="batch-factory-cell-state">{assets.length ? '资产就绪' : '待提取'}</span>
     </header>
     <div className="batch-factory-cell-content batch-factory-asset-content">
@@ -668,10 +675,10 @@ function InlineStoryboardAssets({ book, batchId, selectedVideoId: controlledSele
       </section> : null) : <div className="batch-factory-cell-empty">当前分镜尚未识别到需要调用的资产。</div>}
       <div className="batch-factory-asset-summary">
         <span>{assetGroups[0].items.length} 人物</span><span>{assetGroups[1].items.length} 场景</span><span>{assetGroups[2].items.length} 道具</span>
-        <button type="button" onClick={() => onManage?.(selectedVideo?.id)}>管理全部资产</button>
+        <button type="button" onClick={() => onManage?.(selectedVideo?.id || selectedPrecompiledFrame?.key)}>管理全部资产</button>
       </div>
     </div>
-    {showingPrecompiledAssets ? <div className="batch-factory-cell-pager"><span>资产已提取 · 尚未生成 VIDEO 分镜</span></div> : <div className="batch-factory-cell-pager">
+    {showingPrecompiledAssets ? <div className="batch-factory-cell-pager"><button type="button" aria-label="上一张 H3 导演卡资产" disabled={!selectedPrecompiledFrame || selectedPrecompiledFrame.index === 0} onClick={() => switchPrecompiledFrame(-1)}><LeftOutlined /></button><span>{(selectedPrecompiledFrame?.index || 0) + 1} / {precompiledWorkspace.frames.length}</span><button type="button" aria-label="下一张 H3 导演卡资产" disabled={!selectedPrecompiledFrame || selectedPrecompiledFrame.index >= precompiledWorkspace.frames.length - 1} onClick={() => switchPrecompiledFrame(1)}><RightOutlined /></button></div> : <div className="batch-factory-cell-pager">
       <button type="button" aria-label="上一分镜资产" disabled={currentIndex === 0} onClick={() => switchVideo(-1)}><LeftOutlined /></button>
       <span>{currentIndex + 1} / {videos.length}</span>
       <button type="button" aria-label="下一分镜资产" disabled={currentIndex >= videos.length - 1} onClick={() => switchVideo(1)}><RightOutlined /></button>
@@ -724,10 +731,10 @@ function useCompiledVideoPrompt(batchId, book, video, settingsRevision = 0) {
 function InlineBookPrompts({ batch, book, batchId, settingsRevision, selectedVideoId: controlledSelectedVideoId = '', onSelectedVideoChange, onManage }) {
   const videos = book?.videos || [];
 	const h3Cards = h3DirectorCards(book);
+	const precompiledWorkspace = resolvePrecompiledVideoWorkspace(book);
 	const smartUnifiedAnalysis = smartUnifiedAnalysisForBook(book);
 	const showSmartUnified = smartUnifiedDisplayEnabled(batch, book) && smartUnifiedAnalysis;
   const [localSelectedVideoId, setLocalSelectedVideoId] = useState(videos[0]?.id || '');
-	const [h3CardIndex, setH3CardIndex] = useState(0);
   const [promptKind, setPromptKind] = useState('video');
   const selectedVideoId = controlledSelectedVideoId || localSelectedVideoId;
   const selectVideo = nextId => {
@@ -747,7 +754,6 @@ function InlineBookPrompts({ batch, book, batchId, settingsRevision, selectedVid
   useEffect(() => {
     const first = book?.videos?.[0]?.id || '';
     if (!controlledSelectedVideoId) setLocalSelectedVideoId(first);
-		setH3CardIndex(0);
     setPromptKind('video');
   }, [book?.id]);
 
@@ -761,20 +767,26 @@ function InlineBookPrompts({ batch, book, batchId, settingsRevision, selectedVid
   }
 
   if (!video && h3Cards.length) {
-		const h3Card = h3Cards[Math.min(h3CardIndex, h3Cards.length - 1)] || {};
+		const h3Frame = resolvePrecompiledStoryboardFrame(book, selectedVideoId);
+		const h3Card = h3Frame?.card || {};
+		const h3CardIndex = h3Frame?.index || 0;
+		const selectH3Frame = index => {
+			const next = precompiledWorkspace.frames?.[index];
+			if (next) selectVideo(next.key);
+		};
 		const camera = h3Card.camera || {};
 		return <div className="shuihuo-workbench-cell shuihuo-prompt-cell batch-factory-book-prompt-cell">
 			<div className="batch-factory-cell-shell batch-factory-prompt-entry-card is-h3-director-card">
 				<header className="batch-factory-cell-head"><div><b>H3 导演卡 {h3CardIndex + 1}</b><small>已提取，尚未编译 VIDEO</small></div></header>
-				<div className="batch-factory-cell-content batch-factory-prompt-entry-content">
+				<button type="button" className="batch-factory-cell-content batch-factory-prompt-entry-content" aria-label="打开分镜提示词编辑" onClick={() => onManage?.(h3Frame?.key || '')}>
 					<span className="batch-factory-prompt-status">H3 导演卡已提取</span>
 					<p>{String(h3Card.source_text || '')}{h3Card.action ? `\n\n动作：${h3Card.action}` : ''}{camera.shot_size ? `\n机位：${camera.shot_size}${camera.shot_angle ? ` · ${camera.shot_angle}` : ''}` : ''}</p>
 					{showSmartUnified ? <small>智能统一：{smartUnifiedAnalysis.prompt}</small> : <small>等待真实配音时长编译最终 VIDEO</small>}
-				</div>
+				</button>
 				<div className="batch-factory-cell-pager">
-					<button type="button" aria-label="上一张 H3 导演卡" disabled={h3CardIndex === 0} onClick={() => setH3CardIndex(index => Math.max(0, index - 1))}><LeftOutlined /></button>
+					<button type="button" aria-label="上一张 H3 导演卡" disabled={h3CardIndex === 0} onClick={() => selectH3Frame(h3CardIndex - 1)}><LeftOutlined /></button>
 					<span>{h3CardIndex + 1} / {h3Cards.length}</span>
-					<button type="button" aria-label="下一张 H3 导演卡" disabled={h3CardIndex >= h3Cards.length - 1} onClick={() => setH3CardIndex(index => Math.min(h3Cards.length - 1, index + 1))}><RightOutlined /></button>
+					<button type="button" aria-label="下一张 H3 导演卡" disabled={h3CardIndex >= h3Cards.length - 1} onClick={() => selectH3Frame(h3CardIndex + 1)}><RightOutlined /></button>
 				</div>
 			</div>
 		</div>;
@@ -815,6 +827,7 @@ function StoryboardVideoNavigator({ videos, selectedVideoId, onSelect }) {
 
 function PromptPanel({ book, batchId, settingsRevision, initialVideoId = '', onSaved, onRegenerate, onRegenerateVisual, onRetry, onGenerateVideo, onViewVideoCandidates, onGenerateVisual, onViewVisualCandidates, regenerating, productionAvailable = false, productionReason = '' }) {
   const videos = book?.videos || [];
+  const precompiledWorkspace = resolvePrecompiledVideoWorkspace(book);
   const [selectedVideoId, setSelectedVideoId] = useState(initialVideoId || videos[0]?.id || '');
   const [promptKind, setPromptKind] = useState('video');
   const [editing, setEditing] = useState(false);
@@ -828,12 +841,14 @@ function PromptPanel({ book, batchId, settingsRevision, initialVideoId = '', onS
   const [promptEditTrace, setPromptEditTrace] = useState(null);
   const selectedIndex = Math.max(0, videos.findIndex(video => video.id === selectedVideoId));
   const selectedVideo = videos[selectedIndex] || null;
+  const selectedPrecompiledFrame = resolvePrecompiledStoryboardFrame(book, selectedVideoId || initialVideoId);
   const { displayPrompt, compiledPrompt, smartUnifiedPending, loading: compilingPrompt } = useCompiledVideoPrompt(batchId, book, selectedVideo, settingsRevision);
   const hasVisualPrompt = Boolean(String(visualPrompt || '').trim());
   const hasVideoPrompt = Boolean(String(videoPrompt || '').trim());
   useEffect(() => {
     const first = book?.videos?.find(video => video.id === initialVideoId) || book?.videos?.[0] || null;
-    setSelectedVideoId(first?.id || '');
+    const firstH3Frame = resolvePrecompiledStoryboardFrame(book, initialVideoId);
+    setSelectedVideoId(first?.id || firstH3Frame?.key || '');
     setVideoPrompt(first?.videoPrompt || '');
     setVisualPrompt(first?.visualPrompt || '');
     setPromptKind('video');
@@ -877,6 +892,11 @@ function PromptPanel({ book, batchId, settingsRevision, initialVideoId = '', onS
     const next = videos[selectedIndex + direction];
     if (next) setSelectedVideoId(next.id);
   }
+
+  function movePrecompiledFrame(direction) {
+    const frame = precompiledWorkspace.frames?.[(selectedPrecompiledFrame?.index || 0) + direction];
+    if (frame) setSelectedVideoId(frame.key);
+  }
 	  const activeLabel = promptKind === 'visual' ? '画面提示词' : '分镜视频提示词';
   const submittedVideoPrompt = smartUnifiedPending ? '' : (compiledPrompt || displayPrompt || videoPrompt);
   const activeValue = promptKind === 'visual' ? visualPrompt : editing ? videoPrompt : submittedVideoPrompt;
@@ -884,6 +904,17 @@ function PromptPanel({ book, batchId, settingsRevision, initialVideoId = '', onS
   const regenerateCurrentPrompt = promptKind === 'visual' ? onRegenerateVisual : onRegenerate;
   const h3Segments = h3Trace?.compilation?.compilation?.segments || [];
   const h3Segment = h3Segments[selectedIndex] || null;
+  if (!selectedVideo && selectedPrecompiledFrame) {
+    const card = selectedPrecompiledFrame.card || {};
+    return <div className="batch-factory-prompt-modal-stack">
+      <div className="batch-factory-prompt-modal-head"><Space><Tooltip title="上一张 H3 导演卡"><Button aria-label="上一张 H3 导演卡" icon={<LeftOutlined />} disabled={selectedPrecompiledFrame.index === 0} onClick={() => movePrecompiledFrame(-1)} /></Tooltip><span className="batch-factory-prompt-modal-index">{selectedPrecompiledFrame.index + 1}/{precompiledWorkspace.frames.length}</span><Tooltip title="下一张 H3 导演卡"><Button aria-label="下一张 H3 导演卡" icon={<RightOutlined />} disabled={selectedPrecompiledFrame.index >= precompiledWorkspace.frames.length - 1} onClick={() => movePrecompiledFrame(1)} /></Tooltip></Space><span className="batch-factory-prompt-status">H3 导演卡 · 待编译 VIDEO</span></div>
+      <Alert type="info" showIcon message="当前是 H3 导演结构，不是最终 VIDEO 提示词" description="开启跟随配音后会先读取每行真实时长，再按 10/15 秒确定性切段并填充最终 VIDEO Prompt。" />
+      <label className="shuihuo-form-label batch-factory-prompt-editor-label">H3 导演分镜<Input.TextArea rows={18} readOnly value={JSON.stringify(card, null, 2)} /></label>
+      <div className="batch-factory-prompt-modal-actions"><Button loading={regenerating} disabled={regenerating || !onRegenerate} onClick={onRegenerate}>重新生成导演分镜</Button><Button onClick={openH3Trace}>查看 H3 Trace</Button></div>
+      <p className="shuihuo-modal-note">此处与当前行的资产、分镜视频共用同一张 H3 导演卡；最终 VIDEO 生成前，不会伪造可播放视频。</p>
+      <Modal title="H3 分镜编译与提交 Trace" open={h3TraceOpen} onCancel={() => setH3TraceOpen(false)} footer={null} width={980}>{h3TraceBusy ? <Alert type="info" showIcon message="正在读取编译 Trace…" /> : h3TraceError ? <Alert type="error" showIcon message="编译 Trace 读取失败" description={h3TraceError} /> : <Alert type="info" showIcon message="当前导演卡尚未产生最终 VIDEO 编译记录" />}</Modal>
+    </div>;
+  }
   return <div className="batch-factory-prompt-modal-stack">
     <div className="batch-factory-prompt-modal-head">
       <Space>
@@ -1061,11 +1092,11 @@ function InlineMediaLibrary({ book, versionsByVideo, productionStatus, mergeJob,
   useEffect(() => { if (!controlledSelectedVideoId) setLocalSelectedVideoId(book?.videos?.[0]?.id || ''); }, [book?.id]);
   useEffect(() => { if (!videos.some(item => item.id === selectedVideoId) && videos[0]?.id) selectVideo(videos[0].id); }, [videos.map(item => item.id).join('|')]);
   function move(direction) { const next = videos[selectedIndex + direction]; if (next) selectVideo(next.id); }
-  if (!video && precompiledWorkspace.status === 'awaiting_compilation') return <div className="batch-factory-cell-shell batch-factory-inline-media is-empty" role="button" tabIndex={0} title="打开待编译的 H3 分镜视频" onClick={() => onManage?.()} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onManage?.(); } }}>
+  if (!video && precompiledWorkspace.status === 'awaiting_compilation') return <button type="button" className="batch-factory-cell-shell batch-factory-inline-media is-empty" title="打开待编译的 H3 分镜视频" onClick={() => onManage?.(selectedVideoId)}>
     <header className="batch-factory-cell-head"><div><b>H3 分镜视频</b><small>导演卡已提取，尚未编译 VIDEO</small></div><span className="batch-factory-cell-state">待编译</span></header>
     <div className="batch-factory-cell-content batch-factory-video-content"><div className="batch-factory-cell-empty"><CloudUploadOutlined /><span>点击查看待编译的 H3 分镜视频；等待真实配音时长与最终 VIDEO 编译。</span></div></div>
     <div className="batch-factory-cell-pager"><span>{precompiledWorkspace.cards.length} 张 H3 导演卡待编译 · 点击进入</span></div>
-  </div>;
+  </button>;
   if (!video) return <div className="batch-factory-cell-shell batch-factory-inline-media is-empty"><div className="batch-factory-cell-empty">AI 推理后显示该书的分镜视频。</div></div>;
   const running = currentProgress?.status === 'running' || currentProgress?.status === 'queued';
   const mergeStatus = String(mergeJob?.status || '').toLowerCase();
@@ -1224,8 +1255,9 @@ function MediaVersionPanel({ book, batchId, versionsByVideo, productionStatus, m
 
   useEffect(() => {
     const next = videos.find(video => video.id === initialVideoId) || videos[0] || null;
+    const precompiledFrame = resolvePrecompiledStoryboardFrame(book, initialVideoId);
     setViewerKind(initialTab === 'merges' ? 'merge' : 'video');
-    setSelectedVideoId(next?.id || '');
+    setSelectedVideoId(next?.id || precompiledFrame?.key || '');
     setSelectedVersionId('');
     setSelectedMergePreviewId('');
     setPlayRequested(false);
@@ -1643,14 +1675,20 @@ function MediaVersionPanel({ book, batchId, versionsByVideo, productionStatus, m
   const currentSheetOffset = sheetOffset == null ? sheetAnchorOffset() : sheetOffset;
 
   const precompiledWorkspace = resolvePrecompiledVideoWorkspace(book);
-  if (precompiledWorkspace.status === 'awaiting_compilation') return <div className="batch-factory-media-pickstation batch-factory-media-precompiled-workspace">
+  const selectedPrecompiledFrame = resolvePrecompiledStoryboardFrame(book, selectedVideoId);
+  const movePrecompiledFrame = direction => {
+    const frame = precompiledWorkspace.frames?.[(selectedPrecompiledFrame?.index || 0) + direction];
+    if (frame) setSelectedVideoId(frame.key);
+  };
+  if (precompiledWorkspace.status === 'awaiting_compilation') {
+    const card = selectedPrecompiledFrame?.card || {};
+    const camera = card?.camera || {};
+    return <div className="batch-factory-media-pickstation batch-factory-media-precompiled-workspace">
     <Alert type="info" showIcon message="H3 导演卡已提取，尚未产生 VIDEO 分镜" description="这里展示的是下一步会编译为 VIDEO 的导演卡。生成真正的视频前，系统需要先完成配音实测（若已开启）和最终 Prompt 编译。" />
-    <div className="batch-factory-media-precompiled-card-list">{precompiledWorkspace.cards.map((card, index) => {
-      const camera = card?.camera || {};
-      return <article key={card?.id || `h3-card-${index}`} className="batch-factory-media-precompiled-card"><header><b>H3 导演卡 {index + 1}</b><small>待编译 VIDEO</small></header><p>{String(card?.source_text || '')}</p>{card?.action ? <p><b>动作：</b>{card.action}</p> : null}{camera?.shot_size ? <p><b>机位：</b>{camera.shot_size}{camera.shot_angle ? ` · ${camera.shot_angle}` : ''}</p> : null}</article>;
-    })}</div>
-    <Space><Button type="primary" onClick={() => onOpenDirector?.()}>打开分镜提示词</Button><span className="shuihuo-modal-note">编译完成后，此处会自动切换为可生成、可预览和可选版本的 VIDEO 片段库。</span></Space>
+    <div className="batch-factory-media-precompiled-card-list"><article className="batch-factory-media-precompiled-card"><header><b>H3 导演卡 {(selectedPrecompiledFrame?.index || 0) + 1}</b><small>待编译 VIDEO</small></header><p>{String(card?.source_text || '')}</p>{card?.action ? <p><b>动作：</b>{card.action}</p> : null}{camera?.shot_size ? <p><b>机位：</b>{camera.shot_size}{camera.shot_angle ? ` · ${camera.shot_angle}` : ''}</p> : null}</article></div>
+    <Space wrap><Button aria-label="上一张 H3 导演卡" disabled={!selectedPrecompiledFrame || selectedPrecompiledFrame.index === 0} onClick={() => movePrecompiledFrame(-1)}>上一张</Button><span>{(selectedPrecompiledFrame?.index || 0) + 1} / {precompiledWorkspace.frames.length}</span><Button aria-label="下一张 H3 导演卡" disabled={!selectedPrecompiledFrame || selectedPrecompiledFrame.index >= precompiledWorkspace.frames.length - 1} onClick={() => movePrecompiledFrame(1)}>下一张</Button><Button type="primary" onClick={() => onOpenDirector?.(selectedPrecompiledFrame?.key || '')}>打开分镜提示词</Button><span className="shuihuo-modal-note">编译完成后，此处会自动切换为可生成、可预览和可选版本的 VIDEO 片段库。</span></Space>
   </div>;
+  }
 
   return <div className="batch-factory-media-pickstation">
     <div className="batch-factory-media-pickstation-topline">
@@ -2618,7 +2656,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
         productionReason={productionCapability.reason}
         initialVideoId={mediaVideoId}
         initialTab={mediaStartTab}
-        onOpenDirector={() => { setPromptVideoId(''); setPromptBook(mediaBook); setMediaBook(null); }}
+        onOpenDirector={frameKey => { setPromptVideoId(frameKey || ''); setPromptBook(mediaBook); setMediaBook(null); }}
       /> : null}
     </Modal>
 

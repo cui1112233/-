@@ -1,12 +1,14 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const express = require('express');
 
 const {
   fetchBatchFactoryOriginals,
   refillMissingBatchFactoryBookSource,
   routeV12UpstreamPath,
   rewriteV12PathForLegacyRead,
-  rejectLegacyV11Mutations
+  rejectLegacyV11Mutations,
+  createBatchFactoryV12Router
 } = require('./batch-factory-v12');
 
 test('batch factory direct fetch returns per-book results without creating Novel Fetch tasks', async () => {
@@ -112,4 +114,62 @@ test('keeps the public V11 namespace read-only after V12 becomes the production 
 
   rejectLegacyV11Mutations({ method: 'GET' }, result, () => { continued = true; });
   assert.equal(continued, true);
+});
+
+test('serves V12 production status through the legacy read adapter instead of returning a route 404', async () => {
+  const calls = [];
+  const app = express();
+  app.use((req, _res, next) => { req.username = 'alice'; req.auth = { account: { isOwner: false } }; next(); });
+  app.use('/api/batch-factory/v12', createBatchFactoryV12Router({
+    goBaseUrl: 'http://go.test',
+    bridgeSecret: 'bridge-secret',
+    fetchImpl: async (url, init) => {
+      calls.push({ url, method: init.method });
+      return new Response(JSON.stringify({ tasks: [] }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+  }));
+  const server = await new Promise(resolve => {
+    const value = app.listen(0, '127.0.0.1', () => resolve(value));
+  });
+  try {
+    const { port } = server.address();
+    const response = await fetch(`http://127.0.0.1:${port}/api/batch-factory/v12/batches/batch-1/status`);
+    assert.equal(response.status, 200);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url, 'http://go.test/api/batch-factory/v11/batches/batch-1/status');
+  } finally {
+    await new Promise(resolve => server.close(resolve));
+  }
+});
+
+test('keeps the V12 workbench readable when an older V11 service has no production-status route', async () => {
+  const calls = [];
+  const app = express();
+  app.use((req, _res, next) => { req.username = 'alice'; req.auth = { account: { isOwner: false } }; next(); });
+  app.use('/api/batch-factory/v12', createBatchFactoryV12Router({
+    goBaseUrl: 'http://go.test',
+    bridgeSecret: 'bridge-secret',
+    fetchImpl: async (url, init) => {
+      calls.push({ url, method: init.method });
+      if (url.endsWith('/status')) return new Response('404 page not found', { status: 404 });
+      return new Response(JSON.stringify({ batch: { id: 'batch-1', books: [] } }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+  }));
+  const server = await new Promise(resolve => {
+    const value = app.listen(0, '127.0.0.1', () => resolve(value));
+  });
+  try {
+    const { port } = server.address();
+    const response = await fetch(`http://127.0.0.1:${port}/api/batch-factory/v12/batches/batch-1/status`);
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+      batchId: 'batch-1', jobs: [], statusUnavailable: true, diagnostic: 'V11_PRODUCTION_STATUS_NOT_AVAILABLE'
+    });
+    assert.deepEqual(calls.map(call => call.url), [
+      'http://go.test/api/batch-factory/v11/batches/batch-1/status',
+      'http://go.test/api/batch-factory/v11/batches/batch-1'
+    ]);
+  } finally {
+    await new Promise(resolve => server.close(resolve));
+  }
 });
