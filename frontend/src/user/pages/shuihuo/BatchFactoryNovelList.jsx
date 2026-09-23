@@ -213,6 +213,11 @@ function effectiveBookSettings(batch, book) {
   const bookPatch = book?.settingsState?.patch || {};
   return { ...batchPatch, ...bookPatch, publishSettings: { ...(batchPatch.publishSettings || {}), ...(bookPatch.publishSettings || {}) } };
 }
+function h3CompilationStatus(settings = {}) {
+  if (settings.audioPlanningEnabled === true) return '等待真实配音时长编译最终 VIDEO';
+  const seconds = Number(settings.storyboardDurationLimit) === 15 ? 15 : 10;
+  return `将按 ${seconds} 秒确定性切段并编译最终 VIDEO`;
+}
 function effectiveBookAssetRules(batch, book) {
   return {
     ...(batch?.settingsState?.patch?.aiPromptConfig?.assets || {}),
@@ -731,9 +736,10 @@ function useCompiledVideoPrompt(batchId, book, video, settingsRevision = 0) {
 function InlineBookPrompts({ batch, book, batchId, settingsRevision, selectedVideoId: controlledSelectedVideoId = '', onSelectedVideoChange, onManage }) {
   const videos = book?.videos || [];
 	const h3Cards = h3DirectorCards(book);
-	const precompiledWorkspace = resolvePrecompiledVideoWorkspace(book);
-	const smartUnifiedAnalysis = smartUnifiedAnalysisForBook(book);
-	const showSmartUnified = smartUnifiedDisplayEnabled(batch, book) && smartUnifiedAnalysis;
+  const precompiledWorkspace = resolvePrecompiledVideoWorkspace(book);
+  const smartUnifiedAnalysis = smartUnifiedAnalysisForBook(book);
+  const showSmartUnified = smartUnifiedDisplayEnabled(batch, book) && smartUnifiedAnalysis;
+  const h3CompilationMessage = h3CompilationStatus(effectiveBookSettings(batch, book));
   const [localSelectedVideoId, setLocalSelectedVideoId] = useState(videos[0]?.id || '');
   const [promptKind, setPromptKind] = useState('video');
   const selectedVideoId = controlledSelectedVideoId || localSelectedVideoId;
@@ -781,7 +787,7 @@ function InlineBookPrompts({ batch, book, batchId, settingsRevision, selectedVid
 				<button type="button" className="batch-factory-cell-content batch-factory-prompt-entry-content" aria-label="打开分镜提示词编辑" onClick={() => onManage?.(h3Frame?.key || '')}>
 					<span className="batch-factory-prompt-status">H3 导演卡已提取</span>
 					<p>{String(h3Card.source_text || '')}{h3Card.action ? `\n\n动作：${h3Card.action}` : ''}{camera.shot_size ? `\n机位：${camera.shot_size}${camera.shot_angle ? ` · ${camera.shot_angle}` : ''}` : ''}</p>
-					{showSmartUnified ? <small>智能统一：{smartUnifiedAnalysis.prompt}</small> : <small>等待真实配音时长编译最终 VIDEO</small>}
+					{showSmartUnified ? <small>智能统一：{smartUnifiedAnalysis.prompt}</small> : <small>{h3CompilationMessage}</small>}
 				</button>
 				<div className="batch-factory-cell-pager">
 					<button type="button" aria-label="上一张 H3 导演卡" disabled={h3CardIndex === 0} onClick={() => selectH3Frame(h3CardIndex - 1)}><LeftOutlined /></button>
@@ -1070,7 +1076,7 @@ function batchFactoryStableMediaLabel(prefix, id) {
   const compact = String(id || '').replace(/[^a-z0-9]/gi, '').slice(-6).toUpperCase();
   return compact ? `${prefix}-${compact}` : prefix;
 }
-function InlineMediaLibrary({ book, versionsByVideo, productionStatus, mergeJob, aspectRatio = '16:9', selectedVideoId: controlledSelectedVideoId = '', onSelectedVideoChange, onManage, onOpenMerge }) {
+function InlineMediaLibrary({ book, versionsByVideo, productionStatus, mergeJob, aspectRatio = '16:9', h3CompilationMessage = '将按 10 秒确定性切段并编译最终 VIDEO', selectedVideoId: controlledSelectedVideoId = '', onSelectedVideoChange, onManage, onOpenMerge }) {
   const videos = book?.videos || [];
   const precompiledWorkspace = resolvePrecompiledVideoWorkspace(book);
   const mediaVersions = versionsByVideo instanceof Map ? versionsByVideo : new Map();
@@ -1094,7 +1100,7 @@ function InlineMediaLibrary({ book, versionsByVideo, productionStatus, mergeJob,
   function move(direction) { const next = videos[selectedIndex + direction]; if (next) selectVideo(next.id); }
   if (!video && precompiledWorkspace.status === 'awaiting_compilation') return <button type="button" className="batch-factory-cell-shell batch-factory-inline-media is-empty" title="打开待编译的 H3 分镜视频" onClick={() => onManage?.(selectedVideoId)}>
     <header className="batch-factory-cell-head"><div><b>H3 分镜视频</b><small>导演卡已提取，尚未编译 VIDEO</small></div><span className="batch-factory-cell-state">待编译</span></header>
-    <div className="batch-factory-cell-content batch-factory-video-content"><div className="batch-factory-cell-empty"><CloudUploadOutlined /><span>点击查看待编译的 H3 分镜视频；等待真实配音时长与最终 VIDEO 编译。</span></div></div>
+    <div className="batch-factory-cell-content batch-factory-video-content"><div className="batch-factory-cell-empty"><CloudUploadOutlined /><span>点击查看待编译的 H3 分镜视频；{h3CompilationMessage}。</span></div></div>
     <div className="batch-factory-cell-pager"><span>{precompiledWorkspace.cards.length} 张 H3 导演卡待编译 · 点击进入</span></div>
   </button>;
   if (!video) return <div className="batch-factory-cell-shell batch-factory-inline-media is-empty"><div className="batch-factory-cell-empty">AI 推理后显示该书的分镜视频。</div></div>;
@@ -1700,7 +1706,7 @@ function MediaVersionPanel({ book, batchId, versionsByVideo, productionStatus, m
               <div className="batch-factory-media-primary-empty"><PictureOutlined /><span>当前分镜暂不可播放视频</span></div>
             </div>
           </div>
-          <footer><span>当前为 H3 导演卡 {(currentIndex || 0) + 1}；等待真实配音时长与最终 VIDEO Prompt 编译。</span><small>待编译</small></footer>
+          <footer><span>当前为 H3 导演卡 {(currentIndex || 0) + 1}；{h3CompilationStatus(mergeSettings)} Prompt。</span><small>待编译</small></footer>
         </section>
         <aside className="batch-factory-media-pickstation-rail">
           <section className="batch-factory-media-pickstation-rail-card">
@@ -2109,11 +2115,14 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
 			const confirmed = await new Promise(resolve => Modal.confirm({ title: '重新编译会替换手动编辑的分镜提示词', content: '历史提交记录保留。是否按当前配置重新生成完整提示词？', okText: '确认重新编译', cancelText: '保留手动提示词', onOk: () => resolve(true), onCancel: () => resolve(false) }));
 			if (!confirmed) throw new Error('已保留手动提示词，当前配置尚未应用到最终分镜');
 		}
-		const tts = await batchFactoryBookTts(settings);
-		const audioResult = await measureH3VideoLines({ directorId: director.id, document: h3Document, tts,
-			previous: priorTrace?.timeline?.timeline?.audio_measurement,
-			synthesize: textToSpeech, encode: blobToBase64,
-			measure: payload => measureH3Audio(latestBatch.id, latestBook.id, payload) });
+		let audioResult = null;
+		if (settings.audioPlanningEnabled === true) {
+			const tts = await batchFactoryBookTts(settings);
+			audioResult = await measureH3VideoLines({ directorId: director.id, document: h3Document, tts,
+				previous: priorTrace?.timeline?.timeline?.audio_measurement,
+				synthesize: textToSpeech, encode: blobToBase64,
+				measure: payload => measureH3Audio(latestBatch.id, latestBook.id, payload) });
+		}
 		const promptConfig = settings?.aiPromptConfig || {};
 		const videoPreset = promptConfig.video || {};
 		const videoPresetBody = String(videoPreset.body || '');
@@ -2124,6 +2133,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
 		await compileH3Video(latestBatch.id, latestBook.id, {
 			director_revision_id: director.id,
 			audio_asset_id: audioResult?.audio_asset_id || audioResult?.audioMeasurement?.measurement?.asset_id || audioResult?.audio_measurement?.measurement?.asset_id,
+			allow_semantic_timeline: settings.audioPlanningEnabled !== true,
 			preset: {
 				key: String(videoPreset.presetId || videoPreset.id || 'h3-video-normal'),
 				revision: Math.max(1, Number(videoPreset.presetVersion || videoPreset.version || 1)),
@@ -2653,7 +2663,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
           <div className="shuihuo-workbench-cell batch-factory-book-config-cell"><div className="batch-factory-book-config-regions">{batchFactoryWorkbenchConfigRegions(book).map(region => { const status = region.combinedStatus || bookConfigRegionStatus(book, region.key); const detail = region.key === 'assets' ? bookAssetSummary(book) : status.label; return <button type="button" key={region.key} className={`batch-factory-book-config-region is-${status.tone}`} onClick={() => region.key === 'assets' ? setAssetBook(book) : setConfigTarget({ book, region: region.key })}><b>{region.label}</b><small>{detail}</small></button>; })}</div></div>
 		  <div className="shuihuo-workbench-cell shuihuo-preset-cell batch-factory-book-preset-cell"><InlineStoryboardAssets book={book} batchId={batch?.id} selectedVideoId={rowStoryboardSelection[book.id] || videos[0]?.id || ''} onSelectedVideoChange={videoId => setRowStoryboardSelection(current => ({ ...current, [book.id]: videoId }))} onManage={() => setAssetBook(book)} onSaved={refreshBatch} /></div>
 		  <InlineBookPrompts batch={batch} book={book} batchId={batch?.id} settingsRevision={batch?.settingsState?.revision} selectedVideoId={rowStoryboardSelection[book.id] || videos[0]?.id || ''} onSelectedVideoChange={videoId => setRowStoryboardSelection(current => ({ ...current, [book.id]: videoId }))} onManage={videoId => { setPromptVideoId(videoId || ''); setPromptBook(book); }} />
-		  <div className="shuihuo-workbench-cell shuihuo-library-cell batch-factory-book-library-cell"><InlineMediaLibrary book={book} versionsByVideo={mediaVersionsByVideo} productionStatus={productionStatus} mergeJob={latestBookMerge(mergeStatus, book.id)} aspectRatio={effectiveBookSettings(batch, book).aspectRatio} selectedVideoId={rowStoryboardSelection[book.id] || videos[0]?.id || ''} onSelectedVideoChange={videoId => setRowStoryboardSelection(current => ({ ...current, [book.id]: videoId }))} onManage={videoId => { setMediaVideoId(videoId || ''); setMediaStartTab('clips'); setMediaBook(book); }} onOpenMerge={() => { setMediaVideoId(''); setMediaStartTab('merges'); setMediaBook(book); }} /></div>
+		  <div className="shuihuo-workbench-cell shuihuo-library-cell batch-factory-book-library-cell"><InlineMediaLibrary book={book} versionsByVideo={mediaVersionsByVideo} productionStatus={productionStatus} mergeJob={latestBookMerge(mergeStatus, book.id)} aspectRatio={effectiveBookSettings(batch, book).aspectRatio} h3CompilationMessage={h3CompilationStatus(effectiveBookSettings(batch, book))} selectedVideoId={rowStoryboardSelection[book.id] || videos[0]?.id || ''} onSelectedVideoChange={videoId => setRowStoryboardSelection(current => ({ ...current, [book.id]: videoId }))} onManage={videoId => { setMediaVideoId(videoId || ''); setMediaStartTab('clips'); setMediaBook(book); }} onOpenMerge={() => { setMediaVideoId(''); setMediaStartTab('merges'); setMediaBook(book); }} /></div>
           <div className="shuihuo-workbench-cell batch-factory-actions">
             <div className="batch-factory-action-group is-utility"><span>资料与流程</span><div className="batch-factory-action-button-grid"><Button size="small" onClick={() => setViewingBook(book)}>查看资料</Button>{previewText ? <Button size="small" onClick={() => refreshBatch()} disabled={Boolean(actionBusy)}>刷新状态</Button> : <Button size="small" type="primary" onClick={() => fetchMissingBookSource(book)} loading={actionBusy === `source-${book.id}`} disabled={Boolean(actionBusy)}>获取正文</Button>}</div></div>
             <div className="batch-factory-action-group is-production"><span>资产获取</span><div className="batch-factory-action-button-grid"><Tooltip title={runCapability.available ? '提取当前书的人物、场景、道具提示词；手动资产保留。' : runCapability.reason}><Button size="small" onClick={() => runBookStageAction(book, 'assets', 'force')} loading={actionBusy === stageActionKey('assets', book.id)} disabled={!runCapability.available || Boolean(actionBusy)}>提取</Button></Tooltip><Tooltip title="打开资产图选择与生成面板；选择资产和图片模型后生成。"><Button size="small" onClick={() => setAssetBook(book)} disabled={Boolean(actionBusy)}>生成图片</Button></Tooltip></div></div>
