@@ -1886,7 +1886,7 @@ function UploadNetwork({ batch, books, selectedBookIds, productionStatus, mergeS
     const [config, environment] = await Promise.all([getWebSubmitConfig(), checkWebSubmitEnvironment()]);
     const settings = config?.settings || config?.config || {};
     setAccount(settings);
-    const session = Boolean(environment?.ok && (environment?.checks || []).find(check => check.name === '121 后台登录会话')?.ok);
+    const session = Boolean((environment?.checks || []).some(check => ['视频管理系统登录会话', '121 后台登录会话', '目标站登录会话'].includes(check.name) && check.ok));
     if (!session) {
       setPublishSession({ environment, visible: null });
       return false;

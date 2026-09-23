@@ -677,6 +677,7 @@ test('validates the exact 121 tttadmin session before the publish mapping is usa
 test('accepts the shared 121 session-check name returned by the verification API', () => {
   assert.match(engineSource, /SESSION_CHECK_NAMES\s*=\s*\[\s*'视频管理系统登录会话',\s*'121 后台登录会话'\s*\]/);
   assert.match(engineSource, /SESSION_CHECK_NAMES\.includes\(check\.name\)/);
+  assert.match(source, /'目标站登录会话'/);
 });
 
 test('shares the 121 account session while retaining upload mappings inside the current batch', () => {
