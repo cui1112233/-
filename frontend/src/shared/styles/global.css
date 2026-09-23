@@ -1831,6 +1831,39 @@ select {
 .mention-asset-menu-create-options .ant-btn { margin-left: auto; }
 .mention-asset-menu-create-options .ant-btn + .ant-btn { margin-left: 0; }
 
+.inline-mention-editor {
+  min-height: 260px;
+  padding: 12px;
+  overflow: auto;
+  border: 1px solid var(--legacy-border);
+  border-radius: 8px;
+  background: var(--legacy-card);
+  color: var(--legacy-text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.58;
+  outline: none;
+}
+.inline-mention-editor:focus { border-color: var(--legacy-accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--legacy-accent) 18%, transparent); }
+.inline-image-mention {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 180px;
+  height: 24px;
+  margin: 0 2px;
+  padding: 1px 7px 1px 2px;
+  vertical-align: middle;
+  border: 1px solid color-mix(in srgb, var(--legacy-accent) 48%, var(--legacy-border));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--legacy-accent) 12%, var(--legacy-card));
+  color: var(--legacy-text);
+  font-size: 13px;
+  font-weight: 600;
+  user-select: all;
+}
+.inline-image-mention img { width: 20px; height: 20px; border-radius: 4px; object-fit: cover; flex: 0 0 20px; }
+
 .tts-workbench {
   display: flex;
   flex-direction: column;
