@@ -643,7 +643,14 @@ async function analyzeBatchFactorySmartUnifiedStyle({ username, isOwner = false,
   const response = await fetchImpl(textProvider.endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${textProvider.apiKey}` },
-    body: JSON.stringify({ model: textProvider.model, messages, max_tokens: 2600, temperature: 0.25, stream: false }),
+    body: JSON.stringify({
+      model: textProvider.model,
+      messages,
+      max_tokens: 2600,
+      temperature: 0.25,
+      stream: false,
+      response_format: { type: 'json_object' }
+    }),
     redirect: 'manual'
   });
   const raw = await response.text();
