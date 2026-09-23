@@ -29,6 +29,7 @@ import { replaceRawShotCard } from './scriptShotCardEdit';
 import { filterShotMentionCandidates, findActiveShotMention, insertActiveShotMention } from './scriptShotMentions';
 import { ShotOutputCards } from '../components/ShotOutputCards';
 import EntityImagePanel from '../components/EntityImagePanel';
+import ScriptMentionEditor from '../components/ScriptMentionEditor';
 import { createScriptVideo, getScriptVideoTask } from '../../shared/api/scriptVideo';
 import { loadScriptModelSelection, reconcileScriptModelSelection, saveScriptModelSelection } from './scriptModelSelection';
 
@@ -107,6 +108,24 @@ function visualFields(item) {
     .map(([key, fieldValue]) => ({ key, label: labels[key] || key, value: typeof fieldValue === 'string' ? fieldValue : JSON.stringify(fieldValue) }));
 }
 
+function ScriptMentionMenu({ anchorRect, candidates, activeIndex, onChoose, onCreate }) {
+  if (!anchorRect) return null;
+  const menuHeight = Math.min(300, 86 + candidates.length * 50);
+  const opensAbove = anchorRect.bottom + menuHeight > window.innerHeight;
+  const top = opensAbove ? Math.max(8, anchorRect.top - menuHeight - 6) : anchorRect.bottom + 6;
+  return <div role="listbox" aria-label="人物与场景提及候选" style={{ position: 'fixed', zIndex: 1100, left: Math.max(8, anchorRect.left), top, width: 280, maxHeight: 300, overflowY: 'auto', padding: 8, border: '1px solid #303846', borderRadius: 10, background: '#171b21', color: '#fff', boxShadow: '0 12px 28px rgb(0 0 0 / 30%)' }}>
+    <Typography.Text style={{ display: 'block', padding: '2px 6px 8px', color: '#8f98a8', fontSize: 12 }}>可能@的内容</Typography.Text>
+    <Button type="text" block style={{ color: '#fff', textAlign: 'left', marginBottom: 4 }} onMouseDown={event => event.preventDefault()} onClick={onCreate}>＋　创建主体</Button>
+    {candidates.length ? candidates.map((candidate, index) => {
+      const candidateImageUrl = candidate.imageUrl;
+      return <Button key={`${candidate.kind}-${candidate.item.id}`} type="text" block onMouseDown={event => event.preventDefault()} onClick={() => onChoose(candidate)} style={{ height: 42, display: 'flex', alignItems: 'center', gap: 8, color: '#fff', textAlign: 'left', background: index === activeIndex ? '#2c3440' : 'transparent' }}>
+        {candidateImageUrl ? <img src={candidateImageUrl} alt="" style={{ width: 30, height: 30, borderRadius: 6, objectFit: 'cover' }} /> : <span style={{ width: 30, height: 30, borderRadius: 6, display: 'inline-grid', placeItems: 'center', background: '#3a4350' }}>{candidate.kind === 'scene' ? '景' : '人'}</span>}
+        <span style={{ display: 'inline-flex', flexDirection: 'column', minWidth: 0 }}><b style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>@{candidate.label}</b><small style={{ color: '#aab3c2' }}>{candidate.kind === 'scene' ? '场景' : '人物'}</small></span>
+      </Button>;
+    }) : <Typography.Text type="secondary" style={{ display: 'block', padding: 6 }}>没有匹配项，请先创建或提取人物/场景</Typography.Text>}
+  </div>;
+}
+
 export function ScriptPage() {
   const [form] = Form.useForm();
   const [extracting, setExtracting] = useState(false);
@@ -122,6 +141,7 @@ export function ScriptPage() {
   const [previousOutput, setPreviousOutput] = useState('');
   const [editingOutput, setEditingOutput] = useState(false);
   const [editingOutputSelection, setEditingOutputSelection] = useState({ start: 0, end: 0 });
+  const [outputMentionAnchorRect, setOutputMentionAnchorRect] = useState(null);
   const [outputMentionMenuOpen, setOutputMentionMenuOpen] = useState(false);
   const [outputMentionActiveIndex, setOutputMentionActiveIndex] = useState(0);
   const [selectedShotIndexes, setSelectedShotIndexes] = useState(new Set());
@@ -148,10 +168,9 @@ export function ScriptPage() {
   const [shotMatchIndex, setShotMatchIndex] = useState(0);
   const [editingShot, setEditingShot] = useState({ index: -1, text: '' });
   const [editingShotSelection, setEditingShotSelection] = useState({ start: 0, end: 0 });
+  const [shotMentionAnchorRect, setShotMentionAnchorRect] = useState(null);
   const [mentionMenuOpen, setMentionMenuOpen] = useState(false);
   const [mentionActiveIndex, setMentionActiveIndex] = useState(0);
-  const editingShotInputRef = useRef(null);
-  const editingOutputInputRef = useRef(null);
   const [activeEntity, setActiveEntity] = useState(null);
   const entityEditorSessionRef = useRef(0);
   const [fullscreenEditor, setFullscreenEditor] = useState(false);
@@ -168,7 +187,7 @@ export function ScriptPage() {
         scenes: extractInfo.scenes,
         query: activeShotMention.query,
         label: formatEntity
-      })
+      }).map(candidate => ({ ...candidate, label: formatEntity(candidate.item), imageUrl: getEntityMedia(candidate.item).mainImageUrl }))
       : []
   ), [activeShotMention, extractInfo.characters, extractInfo.scenes]);
   const activeOutputMention = useMemo(() => (
@@ -181,12 +200,17 @@ export function ScriptPage() {
         scenes: extractInfo.scenes,
         query: activeOutputMention.query,
         label: formatEntity
-      })
+      }).map(candidate => ({ ...candidate, label: formatEntity(candidate.item), imageUrl: getEntityMedia(candidate.item).mainImageUrl }))
       : []
   ), [activeOutputMention, extractInfo.characters, extractInfo.scenes]);
-  const outputMentionLabels = useMemo(() => (
-    [...new Set([...String(output || '').matchAll(/@([\u4e00-\u9fffA-Za-z0-9_-]+)/g)].map(match => match[1]))]
-  ), [output]);
+  const mentionCandidates = useMemo(() => (
+    filterShotMentionCandidates({
+      characters: extractInfo.characters,
+      scenes: extractInfo.scenes,
+      query: '',
+      label: formatEntity
+    }).map(candidate => ({ ...candidate, label: formatEntity(candidate.item), imageUrl: getEntityMedia(candidate.item).mainImageUrl }))
+  ), [extractInfo.characters, extractInfo.scenes]);
 
   useEffect(() => {
     let active = true;
@@ -394,47 +418,29 @@ export function ScriptPage() {
     persistDraft(undefined, { output: nextOutput });
   }
 
-  function syncShotMentionSelection(text, start, end = start) {
+  function syncShotMentionSelection(text, start, end = start, anchorRect = null) {
     const selection = { start: Number.isInteger(start) ? start : String(text || '').length, end: Number.isInteger(end) ? end : start };
     setEditingShotSelection(selection);
     setMentionMenuOpen(Boolean(findActiveShotMention(text, selection.start)));
+    setShotMentionAnchorRect(anchorRect);
     setMentionActiveIndex(0);
   }
 
-  function syncOutputMentionSelection(text, start, end = start) {
+  function syncOutputMentionSelection(text, start, end = start, anchorRect = null) {
     const selection = { start: Number.isInteger(start) ? start : String(text || '').length, end: Number.isInteger(end) ? end : start };
     setEditingOutputSelection(selection);
     setOutputMentionMenuOpen(Boolean(findActiveShotMention(text, selection.start)));
+    setOutputMentionAnchorRect(anchorRect);
     setOutputMentionActiveIndex(0);
   }
 
   function insertOutputMention(candidate) {
-    const input = editingOutputInputRef.current?.resizableTextArea?.textArea || editingOutputInputRef.current;
     const mention = findActiveShotMention(output, editingOutputSelection.start);
     if (!mention) return;
     const { text: nextText, cursor } = insertActiveShotMention(output, mention, formatEntity(candidate.item));
     updateOutputDraft(nextText);
     setEditingOutputSelection({ start: cursor, end: cursor });
     setOutputMentionMenuOpen(false);
-    requestAnimationFrame(() => {
-      input?.focus?.();
-      input?.setSelectionRange?.(cursor, cursor);
-    });
-  }
-
-  function openOutputMentionPicker() {
-    const input = editingOutputInputRef.current?.resizableTextArea?.textArea || editingOutputInputRef.current;
-    const cursor = Number.isInteger(editingOutputSelection.start) ? editingOutputSelection.start : output.length;
-    const nextText = `${output.slice(0, cursor)}@${output.slice(cursor)}`;
-    const nextCursor = cursor + 1;
-    updateOutputDraft(nextText);
-    setEditingOutputSelection({ start: nextCursor, end: nextCursor });
-    setOutputMentionMenuOpen(true);
-    setOutputMentionActiveIndex(0);
-    requestAnimationFrame(() => {
-      input?.focus?.();
-      input?.setSelectionRange?.(nextCursor, nextCursor);
-    });
   }
 
   function toggleOutputEditor() {
@@ -466,7 +472,6 @@ export function ScriptPage() {
   }
 
   function insertShotMention(candidate) {
-    const input = editingShotInputRef.current?.resizableTextArea?.textArea || editingShotInputRef.current;
     const name = formatEntity(candidate.item);
     const mention = findActiveShotMention(editingShot.text, editingShotSelection.start);
     if (!mention) return;
@@ -474,10 +479,6 @@ export function ScriptPage() {
     setEditingShot(current => ({ ...current, text: nextText }));
     setEditingShotSelection({ start: cursor, end: cursor });
     setMentionMenuOpen(false);
-    requestAnimationFrame(() => {
-      input?.focus?.();
-      input?.setSelectionRange?.(cursor, cursor);
-    });
   }
 
   function replaceCurrentShotMatch() {
@@ -1550,64 +1551,23 @@ export function ScriptPage() {
               activeMatch={shotReplaceOpen ? activeShotMatch : null}
               cardStarts={shotCardStarts}
             /> : <div style={{ position: 'relative' }}>
-              <Input.TextArea
-                ref={editingOutputInputRef}
-                className="legacy-output"
+              <ScriptMentionEditor
                 value={output}
-                rows={24}
-                readOnly={!editingOutput}
-                style={editingOutput ? { paddingBottom: 52 } : undefined}
-                placeholder={editingOutput ? '任意位置输入 @ 选择人物或场景，也可直接输入 @名称' : undefined}
-                onChange={event => {
-                  const { value, selectionStart, selectionEnd } = event.target;
-                  updateOutputDraft(value);
-                  if (editingOutput) syncOutputMentionSelection(value, selectionStart, selectionEnd);
-                }}
-                onSelect={event => {
-                  if (editingOutput) syncOutputMentionSelection(event.currentTarget.value, event.currentTarget.selectionStart, event.currentTarget.selectionEnd);
-                }}
-                onKeyUp={event => {
-                  if (editingOutput && !['ArrowDown', 'ArrowUp', 'Enter', 'Escape'].includes(event.key)) {
-                    syncOutputMentionSelection(event.currentTarget.value, event.currentTarget.selectionStart, event.currentTarget.selectionEnd);
-                  }
-                }}
-                onKeyDown={event => {
+                candidates={mentionCandidates}
+                editable={editingOutput}
+                placeholder="任意位置输入 @ 选择人物或场景"
+                selectionOffset={editingOutputSelection.start}
+                onChange={next => updateOutputDraft(next)}
+                onQueryChange={({ text, cursor, rect }) => editingOutput && syncOutputMentionSelection(text, cursor, cursor, rect)}
+                onEditorKeyDown={event => {
                   if (!editingOutput || !activeOutputMention) return;
-                  if (event.key === 'Escape') {
-                    event.preventDefault();
-                    setOutputMentionMenuOpen(false);
-                    return;
-                  }
+                  if (event.key === 'Escape') { event.preventDefault(); setOutputMentionMenuOpen(false); return; }
                   if (!activeOutputMentionCandidates.length) return;
-                  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-                    event.preventDefault();
-                    const delta = event.key === 'ArrowDown' ? 1 : -1;
-                    setOutputMentionActiveIndex(current => (current + delta + activeOutputMentionCandidates.length) % activeOutputMentionCandidates.length);
-                  } else if (event.key === 'Enter') {
-                    event.preventDefault();
-                    insertOutputMention(activeOutputMentionCandidates[outputMentionActiveIndex] || activeOutputMentionCandidates[0]);
-                  }
+                  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); const delta = event.key === 'ArrowDown' ? 1 : -1; setOutputMentionActiveIndex(current => (current + delta + activeOutputMentionCandidates.length) % activeOutputMentionCandidates.length); }
+                  if (event.key === 'Enter') { event.preventDefault(); insertOutputMention(activeOutputMentionCandidates[outputMentionActiveIndex] || activeOutputMentionCandidates[0]); }
                 }}
               />
-              {editingOutput && activeOutputMention ? (
-                <div role="listbox" aria-label="全文人物与场景提及候选" style={{ position: 'absolute', zIndex: 4, left: 12, right: 12, bottom: 48, maxHeight: 180, overflowY: 'auto', padding: 8, border: '1px solid #d9d9d9', borderRadius: 8, background: '#fff', boxShadow: '0 6px 18px rgb(0 0 0 / 12%)' }}>
-                  {activeOutputMentionCandidates.length ? activeOutputMentionCandidates.map((candidate, index) => (
-                    <Button key={`${candidate.kind}-${candidate.item.id}`} type={index === outputMentionActiveIndex ? 'primary' : 'text'} size="small" style={{ margin: 2 }} onMouseDown={event => event.preventDefault()} onClick={() => insertOutputMention(candidate)}>
-                      @{candidate.kind === 'character' ? '人物' : '场景'} {formatEntity(candidate.item)}
-                    </Button>
-                  )) : <Typography.Text type="secondary">没有匹配项，请先提取人物或场景</Typography.Text>}
-                </div>
-              ) : null}
-              {editingOutput ? <div style={{ position: 'absolute', zIndex: 3, left: 12, right: 12, bottom: 12, display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                <Button size="small" type="text" aria-label="打开人物与场景素材候选" onClick={openOutputMentionPicker}>@ 素材</Button>
-                {outputMentionLabels.length ? <Space size={4} wrap aria-label="当前全文已引用素材" style={{ minWidth: 0, overflow: 'hidden' }}>
-                  {outputMentionLabels.map(name => <Button key={name} size="small" type="text" onClick={() => {
-                    const cursor = output.indexOf(`@${name}`) + name.length + 1;
-                    setEditingOutputSelection({ start: cursor, end: cursor });
-                    editingOutputInputRef.current?.resizableTextArea?.textArea?.focus?.();
-                  }}>@{name}</Button>)}
-                </Space> : <Typography.Text type="secondary" style={{ fontSize: 12 }}>点击 @ 素材插入人物或场景参考图</Typography.Text>}
-              </div> : null}
+              {editingOutput && activeOutputMention ? <ScriptMentionMenu anchorRect={outputMentionAnchorRect} candidates={activeOutputMentionCandidates} activeIndex={outputMentionActiveIndex} onChoose={insertOutputMention} onCreate={() => addEntity(activeOutputMentionCandidates[0]?.kind === 'scene' ? 'scenes' : 'characters')} /> : null}
             </div>
           ) : generating ? (
             <CmLoader />
@@ -1629,46 +1589,23 @@ export function ScriptPage() {
             closeShotEditor();
           }}>
             <div style={{ position: 'relative' }}>
-              <Input.TextArea
-                ref={editingShotInputRef}
+              <ScriptMentionEditor
                 value={editingShot.text}
-                rows={12}
-                placeholder="任意位置输入 @ 选择人物或场景，也可直接输入 @名称"
-                onChange={event => {
-                  const { value, selectionStart, selectionEnd } = event.target;
-                  setEditingShot(current => ({ ...current, text: value }));
-                  syncShotMentionSelection(value, selectionStart, selectionEnd);
-                }}
-                onSelect={event => syncShotMentionSelection(event.currentTarget.value, event.currentTarget.selectionStart, event.currentTarget.selectionEnd)}
-                onKeyUp={event => {
-                  if (!['ArrowDown', 'ArrowUp', 'Enter', 'Escape'].includes(event.key)) {
-                    syncShotMentionSelection(event.currentTarget.value, event.currentTarget.selectionStart, event.currentTarget.selectionEnd);
-                  }
-                }}
-                onKeyDown={event => {
-                  if (!activeShotMention || !activeShotMentionCandidates.length) return;
-                  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-                    event.preventDefault();
-                    const delta = event.key === 'ArrowDown' ? 1 : -1;
-                    setMentionActiveIndex(current => (current + delta + activeShotMentionCandidates.length) % activeShotMentionCandidates.length);
-                  } else if (event.key === 'Enter') {
-                    event.preventDefault();
-                    insertShotMention(activeShotMentionCandidates[mentionActiveIndex] || activeShotMentionCandidates[0]);
-                  } else if (event.key === 'Escape') {
-                    event.preventDefault();
-                    setMentionMenuOpen(false);
-                  }
+                candidates={mentionCandidates}
+                editable
+                placeholder="任意位置输入 @ 选择人物或场景"
+                selectionOffset={editingShotSelection.start}
+                onChange={next => setEditingShot(current => ({ ...current, text: next }))}
+                onQueryChange={({ text, cursor, rect }) => syncShotMentionSelection(text, cursor, cursor, rect)}
+                onEditorKeyDown={event => {
+                  if (!activeShotMention) return;
+                  if (event.key === 'Escape') { event.preventDefault(); setMentionMenuOpen(false); return; }
+                  if (!activeShotMentionCandidates.length) return;
+                  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); const delta = event.key === 'ArrowDown' ? 1 : -1; setMentionActiveIndex(current => (current + delta + activeShotMentionCandidates.length) % activeShotMentionCandidates.length); }
+                  if (event.key === 'Enter') { event.preventDefault(); insertShotMention(activeShotMentionCandidates[mentionActiveIndex] || activeShotMentionCandidates[0]); }
                 }}
               />
-              {activeShotMention ? (
-                <div role="listbox" aria-label="人物与场景提及候选" style={{ position: 'absolute', zIndex: 4, left: 0, right: 0, top: 'calc(100% + 6px)', maxHeight: 180, overflowY: 'auto', padding: 8, border: '1px solid #d9d9d9', borderRadius: 8, background: '#fff', boxShadow: '0 6px 18px rgb(0 0 0 / 12%)' }}>
-                  {activeShotMentionCandidates.length ? activeShotMentionCandidates.map((candidate, index) => (
-                    <Button key={`${candidate.kind}-${candidate.item.id}`} type={index === mentionActiveIndex ? 'primary' : 'text'} size="small" style={{ margin: 2 }} onMouseDown={event => event.preventDefault()} onClick={() => insertShotMention(candidate)}>
-                      @{candidate.kind === 'character' ? '人物' : '场景'} {formatEntity(candidate.item)}
-                    </Button>
-                  )) : <Typography.Text type="secondary">没有匹配项，请先提取人物或场景</Typography.Text>}
-                </div>
-              ) : null}
+              {activeShotMention ? <ScriptMentionMenu anchorRect={shotMentionAnchorRect} candidates={activeShotMentionCandidates} activeIndex={mentionActiveIndex} onChoose={insertShotMention} onCreate={() => addEntity(activeShotMentionCandidates[0]?.kind === 'scene' ? 'scenes' : 'characters')} /> : null}
             </div>
           </Modal>
         </div>

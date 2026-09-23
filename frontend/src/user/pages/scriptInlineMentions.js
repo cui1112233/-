@@ -1,7 +1,7 @@
 const MENTION_TOKEN = /@([\u4e00-\u9fffA-Za-z0-9_-]+)/g;
 
 function candidateName(candidate) {
-  return String(candidate?.item?.name || '').trim();
+  return String(candidate?.label || candidate?.item?.name || '').trim();
 }
 
 function candidatesByName(candidates) {

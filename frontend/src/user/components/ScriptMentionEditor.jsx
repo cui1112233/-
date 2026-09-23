@@ -58,8 +58,10 @@ export default function ScriptMentionEditor({
   candidates,
   editable,
   placeholder,
+  selectionOffset,
   onChange,
-  onQueryChange
+  onQueryChange,
+  onEditorKeyDown
 }) {
   const editorRef = useRef(null);
   const composingRef = useRef(false);
@@ -67,10 +69,11 @@ export default function ScriptMentionEditor({
   const segments = useMemo(() => buildInlineMentionSegments(value, candidates), [value, candidates]);
 
   useLayoutEffect(() => {
+    if (Number.isInteger(selectionOffset)) restoreOffsetRef.current = selectionOffset;
     if (restoreOffsetRef.current === null) return;
     setSelectionOffset(editorRef.current, restoreOffsetRef.current);
     restoreOffsetRef.current = null;
-  }, [value, segments]);
+  }, [selectionOffset, value, segments]);
 
   const emitQuery = useCallback((text = canonicalTextFromSegments(segments)) => {
     const root = editorRef.current;
@@ -103,7 +106,8 @@ export default function ScriptMentionEditor({
   }, [emitTextChange]);
 
   const handleKeyDown = useCallback(event => {
-    if (!editable || !['Backspace', 'Delete'].includes(event.key)) return;
+    onEditorKeyDown?.(event);
+    if (event.defaultPrevented || !editable || !['Backspace', 'Delete'].includes(event.key)) return;
     const cursor = selectionOffset(editorRef.current);
     const boundary = mentionBoundary(segments, cursor, event.key === 'Backspace' ? 'backspace' : 'delete');
     if (!boundary) return;
@@ -111,7 +115,7 @@ export default function ScriptMentionEditor({
     const text = canonicalTextFromSegments(segments);
     restoreOffsetRef.current = boundary.start;
     onChange?.(`${text.slice(0, boundary.start)}${text.slice(boundary.end)}`);
-  }, [editable, onChange, segments]);
+  }, [editable, onChange, onEditorKeyDown, segments]);
 
   return <div
     ref={editorRef}
