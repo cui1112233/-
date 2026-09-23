@@ -1413,7 +1413,36 @@ function MediaVersionPanel({ book, batchId, versionsByVideo, productionStatus, m
       ? `合成成片 · ${batchFactoryStableMediaLabel('M', selectedMerge?.id)} · ${mergeJobSpeed(selectedMerge).toFixed(1)}x`
       : '尚未选择可上传视频';
 
+  function visibleHeightForSheetAnchor(anchor, height) {
+    if (anchor === 'full') return height;
+    if (anchor === 'half') return Math.min(320, height - 74);
+    return 74;
+  }
+
+  // The media library is rendered in an Ant Modal portal.  On some viewport
+  // sizes its visual origin differs from the CSS offset parent, so a simple
+  // `height - visible` transform leaves the sheet floating midway down the
+  // modal.  Derive each snap point from the visible workspace instead.
+  function sheetGeometry() {
+    const sheet = sheetRef.current;
+    const parent = sheet?.parentElement;
+    if (!sheet || !parent) return null;
+    const styleOffset = Number(String(sheet.style.transform || '').match(/translateY\(([-\d.]+)px\)/)?.[1] || 0);
+    const rect = sheet.getBoundingClientRect();
+    return {
+      height: rect.height || 520,
+      rawTop: rect.top - styleOffset,
+      parentBottom: parent.getBoundingClientRect().bottom,
+      appliedOffset: styleOffset
+    };
+  }
+
   function sheetAnchors(height) {
+    const geometry = sheetGeometry();
+    if (geometry) {
+      const anchorOffset = anchor => geometry.parentBottom - visibleHeightForSheetAnchor(anchor, geometry.height) - geometry.rawTop;
+      return { full: anchorOffset('full'), half: anchorOffset('half'), collapsed: anchorOffset('collapsed') };
+    }
     const full = 0;
     const collapsed = Math.max(0, height - 74);
     const half = Math.max(0, height - Math.min(320, height - 74));
@@ -1439,11 +1468,14 @@ function MediaVersionPanel({ book, batchId, versionsByVideo, productionStatus, m
 
   function startSheetDrag(event) {
     if (event.button !== undefined && event.button !== 0) return;
-    const startOffset = sheetOffset == null ? sheetAnchorOffset() : sheetOffset;
+    const startOffset = sheetOffset == null
+      ? (sheetGeometry()?.appliedOffset ?? sheetAnchorOffset())
+      : sheetOffset;
     sheetDragRef.current = {
       pointerId: event.pointerId,
       startY: event.clientY,
       startOffset,
+      lastOffset: startOffset,
       lastY: event.clientY,
       lastTime: performance.now(),
       velocity: 0
@@ -1463,7 +1495,9 @@ function MediaVersionPanel({ book, batchId, versionsByVideo, productionStatus, m
     drag.lastTime = now;
     const height = sheetRef.current?.getBoundingClientRect().height || 520;
     const anchors = sheetAnchors(height);
-    setSheetOffset(rubberBand(drag.startOffset + event.clientY - drag.startY, anchors.full, anchors.collapsed));
+    const nextOffset = rubberBand(drag.startOffset + event.clientY - drag.startY, anchors.full, anchors.collapsed);
+    drag.lastOffset = nextOffset;
+    setSheetOffset(nextOffset);
   }
 
   function endSheetDrag(event) {
@@ -1471,7 +1505,9 @@ function MediaVersionPanel({ book, batchId, versionsByVideo, productionStatus, m
     if (!drag || (event?.pointerId != null && drag.pointerId !== event.pointerId)) return;
     const height = sheetRef.current?.getBoundingClientRect().height || 520;
     const anchors = sheetAnchors(height);
-    const current = sheetOffset == null ? sheetAnchorOffset() : sheetOffset;
+    const current = Number.isFinite(drag.lastOffset)
+      ? drag.lastOffset
+      : (sheetOffset == null ? sheetAnchorOffset() : sheetOffset);
     const velocity = drag.velocity;
     const order = ['full', 'half', 'collapsed'];
     let target;

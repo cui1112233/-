@@ -100,6 +100,15 @@ test('uses a centered card modal with a 10s default storyboard duration switch',
 	assert.match(stylesheet, /batch-factory-audio-option/);
 });
 
+test('anchors the media bottom sheet against its visible workspace when dragging', () => {
+  assert.match(source, /function sheetGeometry\(\)/);
+  assert.match(source, /parent\.getBoundingClientRect\(\)\.bottom/);
+  assert.match(source, /rawTop: rect\.top - styleOffset/);
+  assert.match(source, /visibleHeightForSheetAnchor/);
+  assert.match(source, /sheetGeometry\(\)\?\.appliedOffset/);
+  assert.match(source, /drag\.lastOffset/);
+});
+
 test('keeps the engine modal render-safe when another workbench control opens', () => {
 	assert.match(engineSource, /import \{ Alert, Button, Input, Modal,/);
 });
