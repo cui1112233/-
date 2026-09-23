@@ -354,7 +354,9 @@ export function getProductionStatus(batchId, options = {}) {
 }
 
 export function getBatchAutomationStatus(batchId) {
-  return apiRequest(bf11Path(`batches/${id(batchId)}/automation`));
+  // This endpoint is a live polling read. Never reuse an earlier transient
+  // gateway failure after the Node/Go services have recovered.
+  return apiRequest(bf11Path(`batches/${id(batchId)}/automation`), { cache: 'no-store' });
 }
 
 export function listSchedules() {
