@@ -108,14 +108,14 @@ function visualFields(item) {
     .map(([key, fieldValue]) => ({ key, label: labels[key] || key, value: typeof fieldValue === 'string' ? fieldValue : JSON.stringify(fieldValue) }));
 }
 
-function ScriptMentionMenu({ anchorRect, candidates, activeIndex, onChoose, onCreate }) {
+function ScriptMentionMenu({ anchorRect, candidates, activeIndex, onChoose, onCreateCharacter, onCreateScene }) {
   if (!anchorRect) return null;
   const menuHeight = Math.min(300, 86 + candidates.length * 50);
   const opensAbove = anchorRect.bottom + menuHeight > window.innerHeight;
   const top = opensAbove ? Math.max(8, anchorRect.top - menuHeight - 6) : anchorRect.bottom + 6;
   return <div role="listbox" aria-label="人物与场景提及候选" style={{ position: 'fixed', zIndex: 1100, left: Math.max(8, anchorRect.left), top, width: 280, maxHeight: 300, overflowY: 'auto', padding: 8, border: '1px solid #303846', borderRadius: 10, background: '#171b21', color: '#fff', boxShadow: '0 12px 28px rgb(0 0 0 / 30%)' }}>
     <Typography.Text style={{ display: 'block', padding: '2px 6px 8px', color: '#8f98a8', fontSize: 12 }}>可能@的内容</Typography.Text>
-    <Button type="text" block style={{ color: '#fff', textAlign: 'left', marginBottom: 4 }} onMouseDown={event => event.preventDefault()} onClick={onCreate}>＋　创建主体</Button>
+    <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}><Button type="text" style={{ color: '#fff', textAlign: 'left' }} onMouseDown={event => event.preventDefault()} onClick={onCreateCharacter}>＋ 创建人物</Button><Button type="text" style={{ color: '#fff', textAlign: 'left' }} onMouseDown={event => event.preventDefault()} onClick={onCreateScene}>＋ 创建场景</Button></div>
     {candidates.length ? candidates.map((candidate, index) => {
       const candidateImageUrl = candidate.imageUrl;
       return <Button key={`${candidate.kind}-${candidate.item.id}`} type="text" block onMouseDown={event => event.preventDefault()} onClick={() => onChoose(candidate)} style={{ height: 42, display: 'flex', alignItems: 'center', gap: 8, color: '#fff', textAlign: 'left', background: index === activeIndex ? '#2c3440' : 'transparent' }}>
@@ -1567,7 +1567,7 @@ export function ScriptPage() {
                   if (event.key === 'Enter') { event.preventDefault(); insertOutputMention(activeOutputMentionCandidates[outputMentionActiveIndex] || activeOutputMentionCandidates[0]); }
                 }}
               />
-              {editingOutput && activeOutputMention ? <ScriptMentionMenu anchorRect={outputMentionAnchorRect} candidates={activeOutputMentionCandidates} activeIndex={outputMentionActiveIndex} onChoose={insertOutputMention} onCreate={() => addEntity(activeOutputMentionCandidates[0]?.kind === 'scene' ? 'scenes' : 'characters')} /> : null}
+              {editingOutput && activeOutputMention ? <ScriptMentionMenu anchorRect={outputMentionAnchorRect} candidates={activeOutputMentionCandidates} activeIndex={outputMentionActiveIndex} onChoose={insertOutputMention} onCreateCharacter={() => addEntity('characters')} onCreateScene={() => addEntity('scenes')} /> : null}
             </div>
           ) : generating ? (
             <CmLoader />
@@ -1605,7 +1605,7 @@ export function ScriptPage() {
                   if (event.key === 'Enter') { event.preventDefault(); insertShotMention(activeShotMentionCandidates[mentionActiveIndex] || activeShotMentionCandidates[0]); }
                 }}
               />
-              {activeShotMention ? <ScriptMentionMenu anchorRect={shotMentionAnchorRect} candidates={activeShotMentionCandidates} activeIndex={mentionActiveIndex} onChoose={insertShotMention} onCreate={() => addEntity(activeShotMentionCandidates[0]?.kind === 'scene' ? 'scenes' : 'characters')} /> : null}
+              {activeShotMention ? <ScriptMentionMenu anchorRect={shotMentionAnchorRect} candidates={activeShotMentionCandidates} activeIndex={mentionActiveIndex} onChoose={insertShotMention} onCreateCharacter={() => addEntity('characters')} onCreateScene={() => addEntity('scenes')} /> : null}
             </div>
           </Modal>
         </div>

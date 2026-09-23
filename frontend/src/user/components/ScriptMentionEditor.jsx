@@ -11,23 +11,29 @@ function selectionOffset(root) {
   return before.toString().length;
 }
 
-function selectionRect() {
+function selectionRect(root) {
   const selection = window.getSelection();
   if (!selection?.rangeCount) return null;
-  const rect = selection.getRangeAt(0).getBoundingClientRect();
-  return rect.width || rect.height ? rect : null;
+  const range = selection.getRangeAt(0);
+  const rect = [...range.getClientRects()].find(item => item.height) || range.getBoundingClientRect();
+  if (rect.width || rect.height) return rect;
+  return root?.getBoundingClientRect?.() || null;
 }
 
 function setSelectionOffset(root, wantedOffset) {
   if (!root || typeof document === 'undefined') return;
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-  let node = walker.nextNode();
   let remaining = Math.max(0, wantedOffset);
-  while (node) {
-    const size = node.textContent.length;
+  const children = [...root.childNodes];
+  for (let index = 0; index < children.length; index += 1) {
+    const node = children[index];
+    const isMention = node.nodeType === Node.ELEMENT_NODE && node.dataset?.mentionValue;
+    const size = isMention ? node.dataset.mentionValue.length : node.textContent.length;
     if (remaining <= size) {
       const range = document.createRange();
-      range.setStart(node, remaining);
+      if (isMention) {
+        if (remaining === 0) range.setStartBefore(node);
+        else range.setStartAfter(node);
+      } else range.setStart(node.firstChild || node, Math.min(remaining, node.textContent.length));
       range.collapse(true);
       const selection = window.getSelection();
       selection.removeAllRanges();
@@ -35,7 +41,6 @@ function setSelectionOffset(root, wantedOffset) {
       return;
     }
     remaining -= size;
-    node = walker.nextNode();
   }
 }
 
@@ -77,7 +82,7 @@ export default function ScriptMentionEditor({
 
   const emitQuery = useCallback((text = canonicalTextFromSegments(segments)) => {
     const root = editorRef.current;
-    onQueryChange?.({ text, cursor: selectionOffset(root), rect: selectionRect() });
+    onQueryChange?.({ text, cursor: selectionOffset(root), rect: selectionRect(root) });
   }, [onQueryChange, segments]);
 
   const emitTextChange = useCallback(() => {

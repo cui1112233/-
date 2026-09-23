@@ -11,6 +11,9 @@ test('declares an editable surface and non-editable visual mention chips', () =>
   assert.match(source, /contentEditable=\{false\}/);
   assert.match(source, /buildInlineMentionSegments\(value, candidates\)/);
   assert.match(source, /loading="lazy"/);
+  assert.match(source, /script-mention-editor/);
+  assert.match(source, /getClientRects\(\)/);
+  assert.match(source, /data-mention-value/);
 });
 
 test('wires composition and plain-text paste guards into the editor surface', () => {

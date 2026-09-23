@@ -16,7 +16,8 @@ test('the total script and shot editors use the same inline mention editor', () 
 
 test('the ScriptPage menu is cursor-anchored and shows visual asset choices without a bottom toolbar', () => {
   assert.match(source, /可能@的内容/);
-  assert.match(source, /创建主体/);
+  assert.match(source, /创建人物/);
+  assert.match(source, /创建场景/);
   assert.match(source, /candidateImageUrl/);
   assert.match(source, /anchorRect/);
   assert.doesNotMatch(source, /aria-label="打开人物与场景素材候选"/);
