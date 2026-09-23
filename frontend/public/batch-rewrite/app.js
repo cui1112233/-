@@ -2510,7 +2510,19 @@ function escapeHtml(value) {
 }
 
 async function loadConfig() {
-  state.config = await api("/api/config");
+  const [config, webSubmit] = await Promise.all([
+    api("/api/config"),
+    api("/api/web-submit/config"),
+  ]);
+  // 配置主体仍由小说获取工作台保存；121 登录身份则由账号级共享
+  // 服务保存。两者合并后再渲染，避免已有可用会话被错误显示为“未登录”。
+  state.config = {
+    ...config,
+    web_submit: {
+      ...(config?.web_submit || {}),
+      ...(webSubmit?.settings || {}),
+    },
+  };
   renderConfig();
 }
 
