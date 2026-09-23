@@ -52,6 +52,33 @@ func TestV11SeparatePromptMigrationAcceptsVerifiedPublicLedgerChecksum(t *testin
 	}
 }
 
+func TestV11BookAssetsMigrationAcceptsVerifiedPublicLedgerChecksum(t *testing.T) {
+	const publicLegacyChecksum = "b5e1e45e1ae47240a5d303efe70ad8b29afa21d906b482774d696c8424600624"
+
+	var bookAssets Migration
+	for _, migration := range V11Migrations() {
+		if migration.Version == 1100012 {
+			bookAssets = migration
+			break
+		}
+	}
+	if bookAssets.Version == 0 {
+		t.Fatal("book-assets migration is missing")
+	}
+
+	appliedAgain := false
+	err := RunMigrationPlan(context.Background(), memoryLedger{1100012: publicLegacyChecksum}, []Migration{bookAssets}, func(context.Context, Migration) error {
+		appliedAgain = true
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("verified public ledger must remain readable: %v", err)
+	}
+	if appliedAgain {
+		t.Fatal("verified book-assets migration must not run again")
+	}
+}
+
 func TestV11FoundationSchemaHasNoTextDefault(t *testing.T) {
 	for _, statement := range V11FoundationStatements() {
 		upper := strings.ToUpper(statement)

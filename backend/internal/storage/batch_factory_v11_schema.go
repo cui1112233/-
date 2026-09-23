@@ -526,7 +526,10 @@ func V11Migrations() []Migration {
 		// callback marker existed. Accept it only as proof the one-time split has
 		// already run, so the ALTER/UPDATE sequence is never repeated.
 		{Version: 1100011, SQL: V11SeparateVideoPromptStatements(), CallbackChecksum: "batch-factory-v11-separate-video-prompt-v1", LegacyChecksums: []string{"0aa0615fbe3d1ffa5d13faee0acc76ec39c0b1232c687630ade52e9f041ab329"}},
-		{Version: 1100012, SQL: V11BookAssetsStatements(), CallbackChecksum: "batch-factory-v11-book-assets-v1"},
+		// This verified public ledger checksum was emitted before the canonical
+		// callback marker. The public book-assets table is already present, so
+		// accepting it prevents the one-time schema creation from running twice.
+		{Version: 1100012, SQL: V11BookAssetsStatements(), CallbackChecksum: "batch-factory-v11-book-assets-v1", LegacyChecksums: []string{"b5e1e45e1ae47240a5d303efe70ad8b29afa21d906b482774d696c8424600624"}},
 		{Version: 1100013, SQL: V11BookAssetImagesStatements(), CallbackChecksum: "batch-factory-v11-book-asset-images-v1"},
 		{Version: 1100014, SQL: V11ProductionAssetInputStatements(), CallbackChecksum: "batch-factory-v11-production-asset-input-v1"},
 		{Version: 1100015, SQL: V11BookStageRunsStatements(), CallbackChecksum: "batch-factory-v11-book-stage-runs-v1"},
