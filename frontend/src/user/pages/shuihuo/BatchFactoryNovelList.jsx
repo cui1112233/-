@@ -1914,6 +1914,11 @@ function UploadNetwork({ batch, books, selectedBookIds, productionStatus, mergeS
   };
   const uploadMediaReady = targetBooks.length > 0 && targetBooks.every(hasBookUploadSource);
   const publishSettings = batch?.settingsState?.patch?.publishSettings || {};
+  const defaultOrganizationIDs = [...new Set(targetBooks
+    .map(book => String(effectiveBookSettings(batch, book).publishSettings?.organization || '').trim())
+    .filter(Boolean))];
+  const defaultOrganizationID = defaultOrganizationIDs.length === 1 ? defaultOrganizationIDs[0] : '';
+  const organizationSelectionMixed = defaultOrganizationIDs.length > 1;
   const hasSingleBookPublishOverride = targetBooks.some(book => Object.hasOwn(book?.settingsState?.patch || {}, 'publishSettings') || Object.hasOwn(book?.settingsState?.patch || {}, 'publishRewriteEnabled'));
   const materialReuseLabel = publishSettings.materialReuse === true ? '复用' : '不复用';
   const horizontalFlipLabel = publishSettings.horizontalFlip === true ? '翻转' : '不翻转';
@@ -1941,13 +1946,14 @@ function UploadNetwork({ batch, books, selectedBookIds, productionStatus, mergeS
     if (!mode) return undefined;
     setManifest(null);
     setResults([]);
+    setOrganizationID(defaultOrganizationID);
     let active = true;
     Promise.all([verify121Session(), get121OrganizationOptions()]).then(([, response]) => {
       if (!active) return;
       setOrganizations(Array.isArray(response?.organizations) ? response.organizations : []);
     }).catch(error => { if (active) { setOrganizationsError(error?.message || '121 组织目录读取失败'); setPublishSession({ error: error?.message || '121 后台会话验证失败' }); } });
     return () => { active = false; };
-  }, [mode]);
+  }, [mode, defaultOrganizationID]);
   useEffect(() => {
     if (!uploadingBookId || !onRefresh) return undefined;
     const timer = setInterval(() => { onRefresh().catch(() => {}); }, 1200);
@@ -2018,6 +2024,7 @@ function UploadNetwork({ batch, books, selectedBookIds, productionStatus, mergeS
       {publishSession?.error ? <Alert type="warning" showIcon message="121 后台会话验证失败" description={publishSession.error} /> : null}
       {!publishSessionReady ? <Button onClick={onOpenPublish}>前往发布统一登录并验证</Button> : null}
       {organizationsError ? <Alert type="warning" showIcon message="121 组织目录读取失败" description={organizationsError} /> : null}
+      {organizationSelectionMixed ? <Alert type="warning" showIcon message="所选小说存在不同的单书组织覆盖" description="请为本次上传统一选择一个组织归属；此处改选只作用于本次确认单，不会回写任何统一或单书配置。" /> : null}
       <Select value={organizationID || undefined} placeholder="请选择 121 组织归属" style={{ width: '100%' }} onChange={setOrganizationID} options={organizations.map(item => ({ value: item.id, label: item.level ? `${item.name}（${item.level}）` : item.name }))} disabled={!publishSessionReady || busy} />
       {!manifest ? <Button type="primary" onClick={prepareUpload} loading={busy} disabled={!targetBooks.length || !publishSessionReady || !uploadMediaReady || missingPublishMapping.length > 0 || missingDecompression.length > 0 || requiresReupload || !organizationID}>生成上传清单</Button> : null}
       {manifest ? <><Descriptions size="small" column={1} bordered items={manifest.map(item => ({ key: item.id, label: item.title, children: <span>{item.txt} + {item.mp4}（{item.videoType}，解压 {item.jieyaNum}）</span> }))} /><Alert type="warning" showIcon message={reupload ? '确认后将重新提交到 121' : '确认后将直接提交到 121'} description="提交到接口只表示对方已接收；本页会显示等待 121 后台列表回读，不能替代后台完成状态。" /><Button danger type="primary" onClick={submitTo121} loading={busy}>{reupload ? '确认重新上传到 121' : '确认并上传到 121'}</Button></> : null}

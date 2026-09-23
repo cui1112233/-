@@ -78,6 +78,15 @@ test('automation publish settings keep an explicit frozen blank instead of falli
   assert.deepEqual(automationPublishSettings(batch, book, { publishSettings: { organization: '', category: 'FROZEN' } }), { organization: '', category: 'FROZEN' });
 });
 
+test('uses the frozen automation organization instead of a later batch default', () => {
+  const batch = { settingsState: { patch: { publishSettings: { organization: 'later-org' } } } };
+  const book = { settingsState: { patch: {} } };
+  assert.deepEqual(
+    automationPublishSettings(batch, book, { publishSettings: { organization: 'frozen-org' } }),
+    { organization: 'frozen-org' }
+  );
+});
+
 test('blocks an already uploaded book until the caller explicitly requests a reupload', () => {
   const book = { sourceMetadata: { websiteSubmitStatus: 'uploaded' } };
   assert.throws(() => ensureBatchFactory121ResubmissionAllowed(book, {}), /已上传，请使用重新上传/);

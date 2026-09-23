@@ -102,6 +102,13 @@ test('single-book settings keep publish mappings inside engine configuration wit
   assert.doesNotMatch(source, /region === 'publish'/);
 });
 
+test('lets a book override only the inherited publish organization', () => {
+  assert.match(source, /get121OrganizationOptions/);
+  assert.match(source, /组织归属（当前书覆盖）/);
+  assert.match(source, /继承批量组织归属/);
+  assert.match(source, /publishSettings: \{ \.\.\.publish, organization/);
+});
+
 test('uses one fixed-opening switch for the current book engine configuration', () => {
   assert.match(source, /function InheritedFixedVideoSwitch/);
   assert.match(source, /开启后只生产 VIDEO01；关闭后按全部分镜执行/);

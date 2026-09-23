@@ -1,7 +1,7 @@
 import { Alert, Button, Divider, Input, InputNumber, Modal, Popconfirm, Popover, Segmented, Select, Space, Switch, Tabs, message} from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 import { listAvailableModels } from '../../../shared/api/modelCatalog';
-import { getBatch, listSystemPresetCatalog, saveBookOverride } from '../../../shared/api/batchFactoryV11';
+import { get121OrganizationOptions, getBatch, listSystemPresetCatalog, saveBookOverride } from '../../../shared/api/batchFactoryV11';
 import { getConfig } from '../../../shared/api/config';
 import { textToSpeech } from '../../../shared/api/tts';
 import { deleteScriptConstraintPrompt, getConstraintPresetTexts, listScriptConstraintPrompts, saveScriptConstraintPrompt, updateScriptConstraintPrompt } from '../../../shared/api/generation';
@@ -295,6 +295,7 @@ export function BatchFactoryBookSettingsModal({ open, batch, book, activeRegion 
   const inherited = useMemo(() => ({ ...batchPatch, aiPromptConfig: mergePromptConfig(batchPatch.aiPromptConfig, {}), publishSettings: mergePublishSettings(batchPatch.publishSettings, {}) }), [batch?.id, batch?.settingsState?.revision]);
   const [form, setForm] = useState(() => effectiveValues(batchPatch, bookPatch));
   const [models, setModels] = useState([]);
+  const [organizations, setOrganizations] = useState([]);
   const [catalog, setCatalog] = useState({ script: [], batch: [] });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -317,12 +318,13 @@ export function BatchFactoryBookSettingsModal({ open, batch, book, activeRegion 
     setLoading(true); setLoadError('');
     Promise.all([
       listAvailableModels('text'), listAvailableModels('image'), listAvailableModels('video'),
-      listSystemPresetCatalog('script'), listSystemPresetCatalog('batch-factory'), getConfig().catch(() => ({ tts: DEFAULT_TTS }))
-    ]).then(([text, image, video, scriptResult, batchResult, config]) => {
+      listSystemPresetCatalog('script'), listSystemPresetCatalog('batch-factory'), getConfig().catch(() => ({ tts: DEFAULT_TTS })), get121OrganizationOptions().catch(() => ({ organizations: [] }))
+    ]).then(([text, image, video, scriptResult, batchResult, config, organizationResult]) => {
       if (!active) return;
       setModels([...text, ...image, ...video]);
       setCatalog({ script: Array.isArray(scriptResult?.catalog) ? scriptResult.catalog : [], batch: Array.isArray(batchResult?.catalog) ? batchResult.catalog : [] });
       setAccountTts({ ...DEFAULT_TTS, ...(config?.tts || {}) });
+      setOrganizations(Array.isArray(organizationResult?.organizations) ? organizationResult.organizations : []);
     }).catch(error => { if (active) setLoadError(error?.message || '读取模型或已发布预设词失败'); }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [open]);
@@ -497,6 +499,8 @@ export function BatchFactoryBookSettingsModal({ open, batch, book, activeRegion 
     const profiles = Array.isArray(publish.websiteProfiles)
       ? publish.websiteProfiles
       : (Array.isArray(inheritedPublish.websiteProfiles) ? inheritedPublish.websiteProfiles : []);
+    const organizationOptions = organizations.map(item => ({ value: item.id, label: item.level ? `${item.name}（${item.level}）` : item.name }));
+    const hasOrganizationOverride = Object.hasOwn(bookPatch.publishSettings || {}, 'organization');
 
     body = <Tabs activeKey={engineTab} onChange={setEngineTab} className="batch-factory-book-engine-tabs" items={[
       {
@@ -542,6 +546,7 @@ export function BatchFactoryBookSettingsModal({ open, batch, book, activeRegion 
           <Alert type="info" showIcon message="当前书独立发布配置" description="发布目录仍来自账号和批量作品；这里只保存当前书的差异值。" />
           <ConfigCard title="发布映射" description="网站风格继续读取本书 AI 判断结果。">
             <InheritedField label="网站配置档" value={publish.websiteProfileId} inherited={inheritedPublish.websiteProfileId} options={profiles.map(profile => ({ value: profile.id, label: profile.name || profile.id }))} loading={false} onChange={websiteProfileId => { const profile = profiles.find(item => item.id === websiteProfileId) || {}; patch({ publishSettings: { ...publish, websiteProfileId, versionProfile: profile.name || '' } }); }} />
+            <InheritedField label={hasOrganizationOverride ? '组织归属（当前书覆盖）' : '组织归属（继承批量组织归属）'} value={publish.organization} inherited={inheritedPublish.organization} options={organizationOptions} loading={loading} onChange={organization => patch({ publishSettings: { ...publish, organization } })} />
             <Alert type="info" showIcon message="男女频、风格和标签属于当前书" description="这里不会覆盖书级 AI 判断结果。" />
           </ConfigCard>
           <ConfigCard title="上传规则" description="只影响当前小说。">

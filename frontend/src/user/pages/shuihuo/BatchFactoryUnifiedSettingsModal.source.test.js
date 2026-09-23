@@ -27,6 +27,13 @@ test('keeps the full video management publication controls inside unified config
   assert.match(source, /连接与环境状态/);
 });
 
+test('stores a unified organization selection independently from AI classification fields', () => {
+  assert.match(source, /get121OrganizationOptions/);
+  assert.match(source, /<b>组织归属<\/b>/);
+  assert.match(source, /publishSettings: \{ \.\.\.publish, organization/);
+  assert.doesNotMatch(source, /<b>男女频 \/ 风格 \/ 标签<\/b>/);
+});
+
 test('saves the unified configuration as one settings patch instead of nesting patch.patch', () => {
   assert.doesNotMatch(source, /onSaved\(\{ patch: draftPatch, expectedRevision:/);
   assert.match(source, /onSaved\(draftPatch\)/);

@@ -129,6 +129,13 @@ test('keeps an unverified video management system session readable in the upload
   assert.match(stylesheet, /background:\s*#4a1718\s*!important/);
 });
 
+test('prefills upload organization from effective settings without saving a dialog override', () => {
+  assert.match(source, /const defaultOrganizationID =/);
+  assert.match(source, /setOrganizationID\(defaultOrganizationID\)/);
+  assert.match(source, /organization: organizationID/);
+  assert.doesNotMatch(source, /saveBatchSettings\(.*organizationID/);
+});
+
 test('selects Batch Factory image, text and video models from enabled Personal Center models', () => {
   assert.match(engineSource, /import \{ listAvailableModels \} from '\.\.\/\.\.\/\.\.\/shared\/api\/modelCatalog'/);
   assert.match(engineSource, /listAvailableModels\('image'\)/);
