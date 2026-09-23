@@ -93,6 +93,30 @@ test('blocks an already uploaded book until the caller explicitly requests a reu
   assert.doesNotThrow(() => ensureBatchFactory121ResubmissionAllowed(book, { reupload: true }));
 });
 
+test('blocks a 121 submission before downstream work when organization ownership is missing', async () => {
+  const batch = { books: [{ id: 'book-1', sourceMetadata: {} }] };
+  const req = {
+    username: 'alice',
+    auth: { account: { isOwner: false } },
+    body: { organization: '' },
+    app: { locals: { novelFetchStore: { getSession: () => ({ cookie: 'PHPSESSID=ready' }) } } }
+  };
+
+  await assert.rejects(
+    () => submitBatchFactoryBookTo121(req, { batchId: 'batch-1', bookId: 'book-1' }, {
+      goBaseUrl: 'http://v11.test',
+      bridgeSecret: 'bridge',
+      fetchImpl: async url => {
+        if (url.endsWith('/batches/batch-1')) {
+          return { ok: true, status: 200, text: async () => JSON.stringify({ batch }) };
+        }
+        throw new Error(`unexpected URL ${url}`);
+      }
+    }),
+    error => error?.code === 'PUBLISH_121_ORGANIZATION_REQUIRED' && /组织归属/.test(error.message)
+  );
+});
+
 test('keeps append-only 121 submission history and the latest readback progress', () => {
   const metadata = persisted121PublicationMetadata({
     websiteSubmitHistory: [{ submittedAt: '2026-09-16T00:00:00.000Z', status: 'confirmed' }]

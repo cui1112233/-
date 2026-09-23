@@ -447,6 +447,8 @@ async function submitBatchFactoryBookTo121(req, route, options = {}) {
   const initialBook = (initial?.batch?.books || []).find(item => String(item?.id) === String(route.bookId));
   if (!initialBook) throw requestError('批量作品或单本书不存在', 404, 'BATCH_BOOK_NOT_FOUND');
   ensureBatchFactory121ResubmissionAllowed(initialBook, req.body);
+  const organization = String(req.body?.organization || '').trim();
+  if (!organization) throw requestError('请选择视频管理系统组织归属后再提交', 422, 'PUBLISH_121_ORGANIZATION_REQUIRED');
   const reportProgress = progress => persistBatchFactory121Progress(req, route, progress, goOptions);
   const publisher = createBatchFactory121Publisher({
     loadBatch: async (owner, batchId) => v11JSONRequest({ username: owner, isOwner: req.auth?.account?.isOwner === true, method: 'GET', pathname: `/api/batch-factory/v11/batches/${encodeURIComponent(batchId)}`, ...goOptions }),
@@ -462,7 +464,7 @@ async function submitBatchFactoryBookTo121(req, route, options = {}) {
     await reportProgress({ phase: 'classification', status: 'running', message: '正在核对本书男女频与 121 风格' });
     await prepareBatchFactoryBookClassification(req, route, { ...options, blockUploaded: true });
     const result = await publisher.submit(req.username, route, {
-      organization: req.body?.organization,
+      organization,
       category: req.body?.category,
       startTime: req.body?.startTime,
       reupload: req.body?.reupload === true
