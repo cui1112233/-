@@ -50,6 +50,16 @@ test('unified V88 deploy synchronizes the Git-managed Compose contract before re
   assert.match(workflow, /docker-compose\.yml\.pre-unified-\$\{backup_id\}/);
 });
 
+test('unified V88 deploy transfers authenticated runner images instead of requiring ECS GHCR credentials', () => {
+  assert.match(workflow, /name: Pull immutable release images for authenticated transfer/);
+  assert.match(workflow, /docker save "\$node_image" "\$go_image" \| gzip -1 \| timeout 900 ssh/);
+  assert.match(workflow, /gzip -d \| docker load/);
+  assert.doesNotMatch(workflow, /GHCR_TOKEN: \$\{\{ secrets\.GITHUB_TOKEN \}\}/);
+  assert.doesNotMatch(workflow, /docker login ghcr\.io --username/);
+  const remoteDeploy = workflow.slice(workflow.indexOf("timeout 1200 ssh"));
+  assert.doesNotMatch(remoteDeploy, /docker pull "\$go_image"/);
+});
+
 test('unified V88 deploy rolls back if the runner external verification rejects a release', () => {
   assert.match(workflow, /id: deploy_public/);
   assert.match(workflow, /name: Roll back ECS after external rejection/);

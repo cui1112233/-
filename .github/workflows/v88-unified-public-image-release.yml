@@ -89,6 +89,25 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
+      - name: Authenticate deploy runner to fetch immutable release images
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull immutable release images for authenticated transfer
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          node_image="ghcr.io/${owner}/qiantie-v88-node:${GITHUB_SHA}"
+          go_image="ghcr.io/${owner}/qiantie-go-api:${GITHUB_SHA}"
+          docker pull "$go_image"
+          docker pull "$node_image"
+          test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$go_image")" = 'linux/amd64'
+          test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$node_image")" = 'linux/amd64'
+
       - name: Prepare ECS SSH
         shell: bash
         env:
@@ -120,11 +139,19 @@ jobs:
           timeout 60 scp "${ssh_opts[@]}" deploy/v88-public/nginx.conf "$ECS_USER@$ECS_HOST:/tmp/v88-public-nginx-${GITHUB_SHA}.conf"
           timeout 60 scp "${ssh_opts[@]}" deploy/v88-public/docker-compose.yml "$ECS_USER@$ECS_HOST:/tmp/v88-public-compose-${GITHUB_SHA}.yml"
 
+      - name: Stream immutable release images to ECS
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          node_image="ghcr.io/${owner}/qiantie-v88-node:${GITHUB_SHA}"
+          go_image="ghcr.io/${owner}/qiantie-go-api:${GITHUB_SHA}"
+          ssh_opts=(-i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
+          docker save "$node_image" "$go_image" | gzip -1 | timeout 900 ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" 'gzip -d | docker load'
+
       - name: Deploy paired immutable images with rollback
         id: deploy_public
         shell: bash
-        env:
-          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -Eeuo pipefail
           owner="${GITHUB_REPOSITORY_OWNER,,}"
@@ -132,7 +159,6 @@ jobs:
           go_image="ghcr.io/${owner}/qiantie-go-api:${GITHUB_SHA}"
           ssh_opts=(-i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
 
-          printf '%s' "$GHCR_TOKEN" | timeout 60 ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" "docker login ghcr.io --username '$owner' --password-stdin"
           timeout 1200 ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" bash -s -- "$node_image" "$go_image" "$GITHUB_SHA" "$ECS_HOST" "${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" <<'REMOTE'
           set -Eeuo pipefail
           node_image="$1"
@@ -184,13 +210,10 @@ jobs:
               docker compose -f docker-compose.yml exec -T nginx nginx -t >/dev/null 2>&1 || true
             fi
             rm -f "/tmp/v88-public-nginx-${expected_sha}.conf" "/tmp/v88-public-compose-${expected_sha}.yml"
-            docker logout ghcr.io >/dev/null 2>&1 || true
             exit "$status"
           }
           trap rollback EXIT
 
-          docker pull "$go_image"
-          docker pull "$node_image"
           test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$go_image")" = 'linux/amd64'
           test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$node_image")" = 'linux/amd64'
 
@@ -295,7 +318,6 @@ jobs:
           echo "STATUS=DEPLOYED release_sha=$expected_sha public_ip_verified=true public_v11_status=$public_cap_status"
           rm -f "/tmp/v88-public-nginx-${expected_sha}.conf" "/tmp/v88-public-compose-${expected_sha}.yml"
           trap - EXIT ERR
-          docker logout ghcr.io >/dev/null 2>&1 || true
           REMOTE
 
       - name: Verify public V88 externally
