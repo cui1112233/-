@@ -184,6 +184,9 @@ export function ScriptPage() {
       })
       : []
   ), [activeOutputMention, extractInfo.characters, extractInfo.scenes]);
+  const outputMentionLabels = useMemo(() => (
+    [...new Set([...String(output || '').matchAll(/@([\u4e00-\u9fffA-Za-z0-9_-]+)/g)].map(match => match[1]))]
+  ), [output]);
 
   useEffect(() => {
     let active = true;
@@ -416,6 +419,21 @@ export function ScriptPage() {
     requestAnimationFrame(() => {
       input?.focus?.();
       input?.setSelectionRange?.(cursor, cursor);
+    });
+  }
+
+  function openOutputMentionPicker() {
+    const input = editingOutputInputRef.current?.resizableTextArea?.textArea || editingOutputInputRef.current;
+    const cursor = Number.isInteger(editingOutputSelection.start) ? editingOutputSelection.start : output.length;
+    const nextText = `${output.slice(0, cursor)}@${output.slice(cursor)}`;
+    const nextCursor = cursor + 1;
+    updateOutputDraft(nextText);
+    setEditingOutputSelection({ start: nextCursor, end: nextCursor });
+    setOutputMentionMenuOpen(true);
+    setOutputMentionActiveIndex(0);
+    requestAnimationFrame(() => {
+      input?.focus?.();
+      input?.setSelectionRange?.(nextCursor, nextCursor);
     });
   }
 
@@ -1538,6 +1556,7 @@ export function ScriptPage() {
                 value={output}
                 rows={24}
                 readOnly={!editingOutput}
+                style={editingOutput ? { paddingBottom: 52 } : undefined}
                 placeholder={editingOutput ? '任意位置输入 @ 选择人物或场景，也可直接输入 @名称' : undefined}
                 onChange={event => {
                   const { value, selectionStart, selectionEnd } = event.target;
@@ -1571,7 +1590,7 @@ export function ScriptPage() {
                 }}
               />
               {editingOutput && activeOutputMention ? (
-                <div role="listbox" aria-label="全文人物与场景提及候选" style={{ position: 'absolute', zIndex: 4, left: 12, right: 12, bottom: 12, maxHeight: 180, overflowY: 'auto', padding: 8, border: '1px solid #d9d9d9', borderRadius: 8, background: '#fff', boxShadow: '0 6px 18px rgb(0 0 0 / 12%)' }}>
+                <div role="listbox" aria-label="全文人物与场景提及候选" style={{ position: 'absolute', zIndex: 4, left: 12, right: 12, bottom: 48, maxHeight: 180, overflowY: 'auto', padding: 8, border: '1px solid #d9d9d9', borderRadius: 8, background: '#fff', boxShadow: '0 6px 18px rgb(0 0 0 / 12%)' }}>
                   {activeOutputMentionCandidates.length ? activeOutputMentionCandidates.map((candidate, index) => (
                     <Button key={`${candidate.kind}-${candidate.item.id}`} type={index === outputMentionActiveIndex ? 'primary' : 'text'} size="small" style={{ margin: 2 }} onMouseDown={event => event.preventDefault()} onClick={() => insertOutputMention(candidate)}>
                       @{candidate.kind === 'character' ? '人物' : '场景'} {formatEntity(candidate.item)}
@@ -1579,6 +1598,16 @@ export function ScriptPage() {
                   )) : <Typography.Text type="secondary">没有匹配项，请先提取人物或场景</Typography.Text>}
                 </div>
               ) : null}
+              {editingOutput ? <div style={{ position: 'absolute', zIndex: 3, left: 12, right: 12, bottom: 12, display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                <Button size="small" type="text" aria-label="打开人物与场景素材候选" onClick={openOutputMentionPicker}>@ 素材</Button>
+                {outputMentionLabels.length ? <Space size={4} wrap aria-label="当前全文已引用素材" style={{ minWidth: 0, overflow: 'hidden' }}>
+                  {outputMentionLabels.map(name => <Button key={name} size="small" type="text" onClick={() => {
+                    const cursor = output.indexOf(`@${name}`) + name.length + 1;
+                    setEditingOutputSelection({ start: cursor, end: cursor });
+                    editingOutputInputRef.current?.resizableTextArea?.textArea?.focus?.();
+                  }}>@{name}</Button>)}
+                </Space> : <Typography.Text type="secondary" style={{ fontSize: 12 }}>点击 @ 素材插入人物或场景参考图</Typography.Text>}
+              </div> : null}
             </div>
           ) : generating ? (
             <CmLoader />
