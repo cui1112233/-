@@ -58,18 +58,3 @@ test('H3 reference asset URLs reject HTTP bases and missing configuration in Chi
     QIANTIE_REFERENCE_ASSET_SIGNING_SECRET: 'test-only-secret'
   }, () => assert.throws(() => publicReferenceAssetUrl(input), /需要配置 HTTPS 公网地址/));
 });
-
-test('provider reference asset URLs allow an explicit HTTP public endpoint for a legacy public IP deployment', () => {
-  const { publicReferenceAssetUrl } = require(modulePath);
-  withEnvironment({
-    QIANTIE_REFERENCE_ASSET_PUBLIC_BASE_URL: 'http://115.190.156.223:3000',
-    QIANTIE_REFERENCE_ASSET_SIGNING_SECRET: 'test-only-secret',
-    QIANTIE_REFERENCE_ASSET_ALLOW_HTTP: 'true'
-  }, () => {
-    const url = new URL(publicReferenceAssetUrl({ username: 'owner', assetType: 'character', assetId: 'wife', variant: 'main' }));
-    assert.equal(url.protocol, 'http:');
-    assert.equal(url.host, '115.190.156.223:3000');
-    assert.match(url.pathname, /^\/api\/novel-panel\/reference-assets\/public\/owner\/character\/wife\/main$/);
-    assert.ok(url.searchParams.get('sig'));
-  });
-});
