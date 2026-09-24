@@ -35,6 +35,11 @@ const MAX_OPTIONAL_IMAGES = 3;
 const MAX_H3_PROMPT_LENGTH = 10000;
 const H3_TASK_PREFIX = 'h3:';
 const YFAI_TASK_PREFIX = 'yfai:';
+const YD_MODEL_KEY = 'yd2-mini-video';
+
+function acceptsScriptImages(modelKey) {
+  return [YD_MODEL_KEY, H3_MODEL_KEY, YFAI_SEEDANCE_MODEL].includes(String(modelKey || '').trim());
+}
 
 function readTaskID(payload) {
   const candidates = [payload?.task_id, payload?.taskId, payload?.id, payload?.data?.task_id, payload?.data?.taskId, payload?.data?.id, payload?.result?.task_id, payload?.result?.taskId];
@@ -228,7 +233,7 @@ function createScriptVideoRouter({
     const requestedReferenceImages = Array.isArray(req.body?.imageUrls)
       ? req.body.imageUrls.filter(item => String(item || '').trim())
       : [];
-    if (requestedReferenceImages.length && req.body?.modelKey !== H3_MODEL_KEY) {
+    if (requestedReferenceImages.length && !acceptsScriptImages(req.body?.modelKey)) {
       return res.status(409).json({
         ok: false,
         status: 'unsupported_reference_images',
