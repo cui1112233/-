@@ -168,6 +168,38 @@ func directorInteger(value any, field string) (int, error) {
 	return int(number), nil
 }
 
+func directorRoundedSecond(value any, field string) (int, error) {
+	var number float64
+	switch typed := value.(type) {
+	case json.Number:
+		parsed, err := strconv.ParseFloat(string(typed), 64)
+		if err != nil {
+			return 0, fmt.Errorf("%s 必须是数字", field)
+		}
+		number = parsed
+	case float64:
+		number = typed
+	case float32:
+		number = float64(typed)
+	case int:
+		return typed, nil
+	case int64:
+		return int(typed), nil
+	case string:
+		parsed, err := strconv.ParseFloat(strings.TrimSpace(typed), 64)
+		if err != nil {
+			return 0, fmt.Errorf("%s 必须是数字", field)
+		}
+		number = parsed
+	default:
+		return 0, fmt.Errorf("%s 必须是数字", field)
+	}
+	if math.IsNaN(number) || math.IsInf(number, 0) || number < 0 {
+		return 0, fmt.Errorf("%s 必须是非负数字", field)
+	}
+	return int(math.Round(number)), nil
+}
+
 func directorArray(value any) []any {
 	if array, ok := value.([]any); ok {
 		return array
@@ -277,11 +309,11 @@ func normalizeDirectorShots(value any, durationSec, videoIndex int, requireH3Met
 		if endValue == nil {
 			endValue = entry["endSec"]
 		}
-		startSec, err := directorInteger(startValue, fmt.Sprintf("storyboard[%d].shots[%d].start_sec", videoIndex, shotIndex))
+		startSec, err := directorRoundedSecond(startValue, fmt.Sprintf("storyboard[%d].shots[%d].start_sec", videoIndex, shotIndex))
 		if err != nil {
 			return nil, err
 		}
-		endSec, err := directorInteger(endValue, fmt.Sprintf("storyboard[%d].shots[%d].end_sec", videoIndex, shotIndex))
+		endSec, err := directorRoundedSecond(endValue, fmt.Sprintf("storyboard[%d].shots[%d].end_sec", videoIndex, shotIndex))
 		if err != nil {
 			return nil, err
 		}

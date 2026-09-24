@@ -202,6 +202,21 @@ func TestDirectorRejectsFractionalDuration(t *testing.T) {
 	}
 }
 
+func TestDirectorRoundsProviderShotTimesToIntegerSeconds(t *testing.T) {
+	raw := strings.Replace(validDirectorJSON(), `"start_sec":0,"end_sec":3`, `"start_sec":0.0,"end_sec":2.7`, 1)
+	raw = strings.Replace(raw, `"start_sec":3,"end_sec":9`, `"start_sec":3.2,"end_sec":9.0`, 1)
+	result, err := NormalizeDirectorOutput(json.RawMessage(raw), DirectorSettings{
+		MaxVideoDuration: 15, AspectRatio: "9:16", AllowedPrefixKeys: []string{"modern_conflict"},
+	})
+	if err != nil {
+		t.Fatalf("expected decimal provider times to normalize, got %v", err)
+	}
+	shots := result.Storyboard[0].Shots
+	if shots[0].StartSec != 0 || shots[0].EndSec != 3 || shots[1].StartSec != 3 || shots[1].EndSec != 9 {
+		t.Fatalf("unexpected normalized shots: %#v", shots)
+	}
+}
+
 func TestDirectorRejectsDiscontinuousShots(t *testing.T) {
 	broken := strings.Replace(validDirectorJSON(), `"start_sec":3,"end_sec":9`, `"start_sec":4,"end_sec":9`, 1)
 	_, err := NormalizeDirectorOutput(json.RawMessage(broken), DirectorSettings{
