@@ -2231,9 +2231,17 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
     const currentSeconds = Number(settings.audioDurationSeconds || 0);
     if (!force && currentSeconds > 0 && (settings.audioDurationManual === true || String(settings.audioDurationFingerprint || '') === fingerprint)) return currentSeconds;
     if (!quiet) message.info(`正在为《${book.title || book.bookId || '当前小说'}》读取真实配音时长…`);
-    const measured = await generateBatchFactoryBookAudioMeasurement(book, settings);
-    await saveBookOverrideWithRetry(currentBatch.id, book.id, Number(book.revision || 0), { patch: { audioDurationSeconds: measured.durationSeconds, audioDurationFingerprint: measured.fingerprint, audioDurationManual: false } });
-    return measured.durationSeconds;
+    try {
+      const measured = await generateBatchFactoryBookAudioMeasurement(book, settings);
+      await saveBookOverrideWithRetry(currentBatch.id, book.id, Number(book.revision || 0), { patch: { audioDurationSeconds: measured.durationSeconds, audioDurationFingerprint: measured.fingerprint, audioDurationManual: false } });
+      return measured.durationSeconds;
+    } catch (error) {
+      if (currentSeconds > 0) {
+        if (!quiet) message.warning(`配音时长重新读取失败，继续使用已保存的配音时长 ${currentSeconds.toFixed(2)} 秒。`);
+        return currentSeconds;
+      }
+      throw error;
+    }
   }
 
   async function prepareAudioPlanningForBatch(currentBatch) {

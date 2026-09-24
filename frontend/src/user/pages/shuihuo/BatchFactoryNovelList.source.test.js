@@ -797,13 +797,21 @@ test('lets each book measure temporary TTS audio for storyboard planning without
 
 test('prepares only temporary audio duration when unified audio planning is enabled', () => {
   const start = source.indexOf('async function prepareAudioPlanningForBatch(currentBatch)');
-  const end = source.indexOf('async function compileBookH3Videos(book)', start);
+  const end = source.indexOf('async function compileBookH3Videos(book,', start);
   const preparation = start >= 0 && end > start ? source.slice(start, end) : '';
   assert.match(source, /const audioPlanningWasEnabled = batch\?\.settingsState\?\.patch\?\.audioPlanningEnabled === true;/);
   assert.match(source, /audioPlanningWasEnabled === false && normalized\.audioPlanningEnabled === true/);
   assert.match(source, /await prepareAudioPlanningForBatch\(refreshedBatch\)/);
   assert.match(preparation, /await ensureBookAudioDuration\(book, \{ force: true, quiet: true, batchSnapshot: currentBatch \}\)/);
   assert.doesNotMatch(preparation, /runBookStage|runBatchDirector|submitBatchProduction|runProduction/);
+});
+
+test('keeps a saved audio duration usable when its fingerprint is stale and refresh fails', () => {
+  const start = source.indexOf('async function ensureBookAudioDuration(book');
+  const end = source.indexOf('async function prepareAudioPlanningForBatch', start);
+  const ensureDuration = start >= 0 && end > start ? source.slice(start, end) : '';
+  assert.match(ensureDuration, /catch \(error\) \{[\s\S]*?currentSeconds > 0[\s\S]*?return currentSeconds;/);
+  assert.match(ensureDuration, /继续使用已保存的配音时长/);
 });
 
 test('offers image generation inside the asset edit dialog after saving the current prompt', () => {
@@ -1010,7 +1018,7 @@ test('compiles a successful H3 director run from real TTS audio before exposing 
 });
 
 test('uses semantic 10 or 15 second compilation without TTS when follow-audio is disabled', () => {
-  const start = source.indexOf('async function compileBookH3Videos(book)');
+  const start = source.indexOf('async function compileBookH3Videos(book,');
   const end = source.indexOf('async function refreshAfterBookSettingsSaved()', start);
   const compile = start >= 0 && end > start ? source.slice(start, end) : '';
   assert.match(compile, /if \(settings\.audioPlanningEnabled === true\)\s*\{[\s\S]*?measureH3VideoLines/);
