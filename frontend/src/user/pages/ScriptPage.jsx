@@ -41,9 +41,10 @@ function videoModelKey(model) {
 function videoModelLabel(model) {
   const key = videoModelKey(model);
   const name = String(model?.name || model?.displayName || key || '未命名视频模型').trim();
-  return key === 'minimax-h3-video' && model?.configured === false
-    ? `${name}（待配置 Token）`
-    : name;
+  const timing = key === 'minimax-h3-video' ? '1-15秒' : key === 'seedance-2-0-official' ? '4-15秒' : key === 'yd2-mini-video' ? '固定10秒' : '';
+  const unavailable = key === 'minimax-h3-video' && model?.configured === false ? '待配置 Token' : '';
+  const details = [timing, unavailable].filter(Boolean);
+  return details.length ? `${name}（${details.join('，')}）` : name;
 }
 
 function aiText(response) {
@@ -526,12 +527,28 @@ export function ScriptPage() {
       }
     }
     const fallbackDuration = selectedDuration === '15s' ? 15 : 10;
-    const resolvedDuration = scriptVideoModelKey === 'minimax-h3-video'
-      ? resolveShotVideoDuration({ shotText: prompt, fallbackDuration })
+    const modelUsesShotDuration = scriptVideoModelKey === 'minimax-h3-video' || scriptVideoModelKey === 'seedance-2-0-official';
+    const resolvedDuration = modelUsesShotDuration
+      ? resolveShotVideoDuration({
+        shotText: prompt,
+        fallbackDuration,
+        ...(scriptVideoModelKey === 'seedance-2-0-official' ? { minDuration: 4, modelLabel: 'Seedance' } : {})
+      })
       : { ok: true, duration: fallbackDuration };
     if (!resolvedDuration.ok) {
       message.error(resolvedDuration.error);
       return;
+    }
+    if (scriptVideoModelKey === 'yd2-mini-video') {
+      const cardDuration = resolveShotVideoDuration({ shotText: prompt, fallbackDuration });
+      if (!cardDuration.ok) {
+        message.error(cardDuration.error);
+        return;
+      }
+      if (cardDuration.duration !== 10) {
+        message.warning('YD2.0 Mini 固定生成 10 秒；请切换 H3 或 Seedance 后再按当前分镜时长生成');
+        return;
+      }
     }
     setGeneratingShotIndexes(current => new Set([...current, index]));
     try {
