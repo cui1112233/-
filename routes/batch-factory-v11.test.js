@@ -604,6 +604,12 @@ test('retrying a non-video stage never requires a video provider sync', () => {
   assert.equal(needsH3ConfigSync(request, retryPath), false);
 });
 
+test('automatic video retry uses the VIDEO synchronization path', () => {
+  const request = { method: 'POST' };
+  const videoPath = '/api/batch-factory/v11/batches/batch-1/books/book-1/stages/video';
+  assert.equal(needsPersonalConfigSync(request, videoPath), true);
+});
+
 test('enrichment snapshots the only combined script extraction preset and strips browser supplied bodies', () => {
   const enriched = enrichBatchFactorySystemPresetConfig({
     patch: {

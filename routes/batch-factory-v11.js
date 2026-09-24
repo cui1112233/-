@@ -1537,6 +1537,7 @@ function createBatchFactoryV11Router(options = {}) {
         }
         if (stage === 'video') {
           const provider = automationVideoProvider(settings);
+          payload.provider = provider;
           const syntheticRequest = {
             username,
             auth: { account: { isOwner } },
@@ -1545,7 +1546,9 @@ function createBatchFactoryV11Router(options = {}) {
             originalUrl: pathname,
             url: pathname
           };
-          await prepareProviderRequest(syntheticRequest, upstreamOptions, pathname);
+          // The public retry endpoint is intentionally generic, but provider
+          // credentials must be synchronized exactly as for a VIDEO stage.
+          await prepareProviderRequest(syntheticRequest, upstreamOptions, `/api/batch-factory/v11/batches/${encodeURIComponent(batchId)}/books/${encodeURIComponent(bookId)}/stages/video`);
         }
         return v11JSONRequest({
           username, isOwner, method: 'POST', pathname, payload,
