@@ -7,6 +7,7 @@
   let retryProgressBridgeInstalled = false;
   let currentBatchTimer = null;
   const processLogState = { lines: [] };
+  const seenProgressKeys = new Set();
 
   function byId(id) { return document.getElementById(id); }
   function value(id, fallback = '') { return byId(id)?.value ?? fallback; }
@@ -39,6 +40,7 @@
   }
   function resetProcessLog() {
     processLogState.lines = [];
+    seenProgressKeys.clear();
     setText('processResult', '');
   }
   function appendProcessLog(message) {
@@ -381,6 +383,12 @@
       for (;;) {
         await new Promise(resolve => setTimeout(resolve, 800));
         const current = await v2Api(`/process/jobs/${encodeURIComponent(job.id)}`);
+        for (const entry of asArray(current.progress)) {
+          const key = [entry.at, entry.book_id, entry.stage, entry.status].join(':');
+          if (seenProgressKeys.has(key)) continue;
+          seenProgressKeys.add(key);
+          appendProcessLog(`${entry.book_id || '批次'} · ${entry.stage || 'processing'} · ${taskStatusLabel(entry.status, entry.status)}${entry.message ? `：${entry.message}` : ''}`);
+        }
         if (current.queue_state && current.queue_state !== lastQueueState) {
           lastQueueState = current.queue_state;
           appendProcessLog(queueStateLabel(current.queue_state));
@@ -545,6 +553,7 @@
   async function refreshAllData() {
     const results = await Promise.allSettled([
       loadCurrentBatch(),
+      refreshQueueSummary(),
       typeof loadTasks === 'function' ? loadTasks() : Promise.resolve()
     ]);
     const tasks = typeof state === 'object' && Array.isArray(state.tasks) ? state.tasks : [];
@@ -587,6 +596,11 @@
     tabs.className = 'v78-history-tabs';
     tabs.innerHTML = `<button id="v78CurrentTasksTab" class="active">当前任务</button><button id="v78HistoryTab">历史批次</button>`;
     host.insertBefore(tabs, listDetails);
+    const queueSummary = document.createElement('div');
+    queueSummary.id = 'v78QueueSummary';
+    queueSummary.className = 'v78-inline-box v78-muted';
+    queueSummary.textContent = '任务队列正在读取...';
+    host.insertBefore(queueSummary, listDetails);
     const history = document.createElement('div');
     history.id = 'v78HistoryBatchesPanel';
     history.className = 'v78-inline-box';
@@ -606,6 +620,18 @@
       const retryFailed = byId('retryFailedBtn');
       if (retryFailed?.parentElement === actions) retryFailed.insertAdjacentElement('afterend', button); else actions.appendChild(button);
       button.onclick = () => void stopSelectedTasks();
+    }
+  }
+
+  async function refreshQueueSummary() {
+    const box = byId('v78QueueSummary');
+    if (!box) return;
+    try {
+      const data = await v2Api('/realtime/status');
+      const counts = data.counts || {};
+      box.textContent = `任务中心 · 执行中 ${counts.running || 0} · 排队 ${counts.queued || 0} · 重试等待 ${counts.waiting_retry || 0} · 失败 ${counts.failed || 0} · 已停止 ${counts.stopped || 0}`;
+    } catch (error) {
+      box.textContent = `任务队列读取失败：${error.message || '请稍后重试'}`;
     }
   }
 
