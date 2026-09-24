@@ -33,6 +33,7 @@ const DEFAULT_FIRST_FRAME_URL = 'https://tvmao-public.tos-cn-beijing.volces.com/
 const MAX_PROMPT_LENGTH = 12000;
 const MAX_OPTIONAL_IMAGES = 3;
 const MAX_H3_PROMPT_LENGTH = 10000;
+const REFERENCE_TOS_SYNC_TIMEOUT_MS = 3000;
 const H3_TASK_PREFIX = 'h3:';
 const YFAI_TASK_PREFIX = 'yfai:';
 const YD_MODEL_KEY = 'yd2-mini-video';
@@ -47,7 +48,11 @@ async function providerAccessibleImageUrls(req, value) {
   return Promise.all(requestedImages.map(async imageURL => {
     let tosUrl = null;
     try {
-      tosUrl = await assetStore?.syncReferenceAssetUrlToTos?.(req.username, imageURL);
+      const sync = assetStore?.syncReferenceAssetUrlToTos?.(req.username, imageURL);
+      tosUrl = sync ? await Promise.race([
+        Promise.resolve(sync).catch(() => null),
+        new Promise(resolve => setTimeout(() => resolve(null), REFERENCE_TOS_SYNC_TIMEOUT_MS))
+      ]) : null;
     } catch (_) {
       // A configured-but-unreachable TOS endpoint must not prevent the signed public-link fallback.
     }
