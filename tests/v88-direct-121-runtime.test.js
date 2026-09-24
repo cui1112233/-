@@ -10,8 +10,9 @@ const reviewEnv = fs.readFileSync(path.join(root, '.env.v88-review.example'), 'u
 const webSubmit = fs.readFileSync(path.join(root, 'lib/novel-fetch-workshop/121-web-submit-service.js'), 'utf8');
 const browserClient = fs.readFileSync(path.join(root, 'lib/novel-fetch-workshop/121-browser-client.js'), 'utf8');
 const composition = fs.readFileSync(path.join(root, 'lib/novel-fetch-workshop/v2-compose.js'), 'utf8');
+const { resolveBrowserClientFactory } = require('../lib/novel-fetch-workshop/v2-compose');
 
-test('V88 keeps the private Worker available without making it the default login path', () => {
+test('V88 keeps the private Worker available for durable account sessions', () => {
   assert.match(compose, /^  browser-worker:/m);
   assert.match(compose, /QIANTIE_121_BROWSER_WORKER_URL: http:\/\/browser-worker:8787/);
   assert.match(compose, /^      - browser-worker$/m);
@@ -25,7 +26,7 @@ test('121 status checks preserve the direct API compatibility label', () => {
   assert.match(webSubmit, /视频管理系统接口/);
 });
 
-test('121 direct API client is the default and Worker requires explicit opt-in', () => {
+test('121 uses the Worker by default when configured and permits an explicit direct fallback', () => {
   assert.match(browserClient, /TARGET_LOGIN_PATH/);
   assert.match(browserClient, /buildLoginRequest/);
   assert.match(browserClient, /TARGET_UPLOAD_PATH/);
@@ -34,4 +35,8 @@ test('121 direct API client is the default and Worker requires explicit opt-in',
   assert.match(composition, /QIANTIE_121_USE_BROWSER_WORKER/);
   assert.match(composition, /121-browser-client/);
   assert.match(composition, /121-browser-worker-client/);
+  const worker = () => ({ kind: 'worker' });
+  const direct = () => ({ kind: 'direct' });
+  assert.equal(resolveBrowserClientFactory({ QIANTIE_121_BROWSER_WORKER_URL: 'http://browser-worker:8787', QIANTIE_121_WORKER_SECRET: 'secret' }, { workerFactory: worker, directFactory: direct }), worker);
+  assert.equal(resolveBrowserClientFactory({ QIANTIE_121_BROWSER_WORKER_URL: 'http://browser-worker:8787', QIANTIE_121_WORKER_SECRET: 'secret', QIANTIE_121_USE_BROWSER_WORKER: '0' }, { workerFactory: worker, directFactory: direct }), direct);
 });
