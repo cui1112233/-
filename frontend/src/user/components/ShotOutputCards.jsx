@@ -1,12 +1,12 @@
 import { Button, Checkbox, Space } from 'antd';
 import { Copy, Download, History as HistoryIcon, Video } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { splitShotTextHighlight } from './shotTextHighlight';
+import ScriptMentionDisplay from './ScriptMentionDisplay';
 import { getShotMatchDisplayRange } from '../pages/scriptShotReplace';
 import { collectShotReferenceDescriptors, collectShotReferenceDiagnostics } from '../pages/scriptVideoReferences';
 import { isShotVideoTaskCurrent } from '../pages/scriptShotVideoTasks';
 
-export function ShotOutputCards({ cards, duration, selectedIndexes, onToggle, onToggleAll, onCopy, onCopySelected, onGenerateVideo, generatingIndexes = new Set(), videoTasks = {}, videoTaskHistory = {}, extractInfo, shotReferenceStates, onToggleReference, onOpenVideo, onOpenVideoHistory, onEditPrompt, output, activeMatch, cardStarts }) {
+export function ShotOutputCards({ cards, duration, selectedIndexes, onToggle, onToggleAll, onCopy, onCopySelected, onGenerateVideo, generatingIndexes = new Set(), videoTasks = {}, videoTaskHistory = {}, extractInfo, mentionCandidates = [], shotReferenceStates, onToggleReference, onOpenVideo, onOpenVideoHistory, onEditPrompt, output, activeMatch, cardStarts }) {
   const selectedCount = selectedIndexes.size;
   const allSelected = cards.length > 0 && selectedCount === cards.length;
   const activeMatchRef = useRef(null);
@@ -30,7 +30,6 @@ export function ShotOutputCards({ cards, duration, selectedIndexes, onToggle, on
         const videoTaskCurrent = isShotVideoTaskCurrent(videoTask, card);
         const cardDuration = card.match(/总时长[：:]\s*(\d+s)/)?.[1] || duration;
         const displayRange = getShotMatchDisplayRange(output, card, index, cardStarts[index], activeMatch);
-        const highlight = splitShotTextHighlight(card, displayRange);
         const references = collectShotReferenceDescriptors({ shotText: card, extractInfo, shotIndex: index, shotReferenceStates, includeDisabled: true });
         const diagnostics = collectShotReferenceDiagnostics({ shotText: card, extractInfo });
         const disabledImageUrls = new Set(shotReferenceStates?.[index]?.disabledImageUrls || []);
@@ -51,7 +50,7 @@ export function ShotOutputCards({ cards, duration, selectedIndexes, onToggle, on
               {historyTasks.length ? <Button size="small" icon={<HistoryIcon size={15} aria-hidden="true" />} onClick={() => onOpenVideoHistory?.(index, historyTasks)}>历史视频（{historyTasks.length}）</Button> : null}
             </Space>
           </div>
-          <pre className="shot-output-card-content">{highlight ? <>{highlight.before}<mark className="shot-output-card-match" ref={activeMatchRef}>{highlight.highlight}</mark>{highlight.after}</> : card}</pre>
+          <pre className="shot-output-card-content" ref={displayRange ? activeMatchRef : null}><ScriptMentionDisplay text={card} candidates={mentionCandidates} highlightRange={displayRange} /></pre>
         </div>;
       })}
     </div>

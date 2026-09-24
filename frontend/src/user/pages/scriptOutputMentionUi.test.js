@@ -12,6 +12,7 @@ test('the total script and shot editors use the same inline mention editor', () 
   assert.match(source, /selectionOffset=\{editingShotSelection\.start\}/);
   assert.match(source, /const mentionCandidates = useMemo/);
   assert.match(source, /candidates=\{mentionCandidates\}/);
+  assert.match(source, /<ShotOutputCards[\s\S]*mentionCandidates=\{mentionCandidates\}/);
 });
 
 test('the ScriptPage menu is cursor-anchored and shows visual asset choices without a bottom toolbar', () => {

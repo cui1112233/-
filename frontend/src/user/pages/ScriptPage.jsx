@@ -1523,6 +1523,7 @@ export function ScriptPage() {
               videoTasks={shotVideoTasks}
               videoTaskHistory={shotVideoTaskHistory}
               extractInfo={extractInfo}
+              mentionCandidates={mentionCandidates}
               shotReferenceStates={shotReferenceStates}
               onToggleReference={(index, imageUrl) => {
                 const current = shotReferenceStates?.[index] || {};
