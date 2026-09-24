@@ -159,6 +159,13 @@ test('manual start is captured by the V2 workflow so the legacy handler cannot a
   assert.match(client, /void startSelectedProcessing\(\)/);
 });
 
+test('processing controls expose a saved text-model selector beside version choices', () => {
+  const client = read('public/batch-rewrite/v78-novel-fetch-v2.js');
+  assert.match(client, /v78ProcessingTextModel/);
+  assert.match(client, /persistSelectedTextModel\(select\.value\)/);
+  assert.match(client, /text_model_id:\s*byId\('v78ProcessingTextModel'\)/);
+});
+
 test('network submit rejects an empty selected-task request instead of reporting zero groups complete', () => {
   const routes = read('routes/batch-rewrite.js');
   const v2Service = read('lib/novel-fetch-workshop/121-web-submit-service.js');
