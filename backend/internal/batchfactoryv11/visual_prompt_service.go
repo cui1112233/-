@@ -39,7 +39,7 @@ func BuildVisualPromptContract(book Book, video Video, snapshot DirectorSnapshot
 		"duration_sec": video.DurationSeconds,
 		"video_prompt": videoPrompt,
 		"book_assets":  assets,
-		"aspect_ratio": snapshot.AspectRatio,
+		"aspect_ratio": EffectiveImageAspectRatio(snapshot.Effective),
 	})
 	if err != nil {
 		return PromptContract{}, err

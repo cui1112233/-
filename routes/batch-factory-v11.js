@@ -1620,7 +1620,7 @@ function createBatchFactoryV11Router(options = {}) {
           bookId: imageGeneration.bookId,
           assetIds: req.body?.assetIds,
           modelId: req.body?.modelId,
-          aspectRatio: req.body?.aspectRatio,
+          aspectRatio: req.body?.imageAspectRatio || req.body?.aspectRatio,
           goBaseUrl: upstreamOptions.goBaseUrl,
           bridgeSecret: upstreamOptions.bridgeSecret,
           resolveImageModel: modelId => resolveRuntimeModel({

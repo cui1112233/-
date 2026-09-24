@@ -213,11 +213,9 @@ func (s *PromptCompilerService) ResolveEffective(ctx context.Context, owner, bat
 	if duration > 0 && maxDuration > 0 && duration > maxDuration {
 		notices = append(notices, CompatibilityNotice{Field: "duration", State: "incompatible", Reason: fmt.Sprintf("VIDEO 时长 %ds 超过当前模型上限 %ds", duration, maxDuration), Source: sources["duration"]})
 	}
-	aspect := rawString(values, "aspectRatio", "9:16")
-	if aspect != "9:16" && aspect != "16:9" {
-		notices = append(notices, CompatibilityNotice{Field: "aspectRatio", State: "incompatible", Reason: "当前画幅不受支持", Source: sources["aspectRatio"]})
+	if videoAspect := rawString(values, "videoAspectRatio", ""); videoAspect != "" && videoAspect != "9:16" && videoAspect != "16:9" {
+		notices = append(notices, CompatibilityNotice{Field: "videoAspectRatio", State: "incompatible", Reason: "当前视频画幅不受支持", Source: sources["videoAspectRatio"]})
 	}
-
 	effective := EffectiveSettings{Values: values, SourceByField: sources, Compatibility: notices, DirectorRevisionID: directorID}
 	effective.SnapshotHash = snapshotHash(values, directorID)
 	return effective, book, video, ordinal, nil

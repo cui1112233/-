@@ -40,8 +40,8 @@ func TestAutoDLH3VideoAdapterUsesTextWorkflowWhenNoReferenceImages(t *testing.T)
 		CompiledPrompt:  "夜晚的街道，电影感运镜",
 		DurationSeconds: 15,
 		EffectiveSettings: EffectiveSettings{Values: SettingsPatch{
-			"resolution":  json.RawMessage(`"480p竖"`),
-			"aspectRatio": json.RawMessage(`"9:16"`),
+			"imageAspectRatio": json.RawMessage(`"1:1"`),
+			"videoResolution":  json.RawMessage(`"480p"`),
 		}},
 	}
 
@@ -52,7 +52,7 @@ func TestAutoDLH3VideoAdapterUsesTextWorkflowWhenNoReferenceImages(t *testing.T)
 	if ref.ProviderTaskID != "h3-task-1" || ref.State != ProductionQueued {
 		t.Fatalf("ref=%+v", ref)
 	}
-	if received["prompt"] != prompt.CompiledPrompt || received["duration"] != float64(15) || received["resolution"] != "480p竖" {
+	if received["prompt"] != prompt.CompiledPrompt || received["duration"] != float64(15) || received["resolution"] != "480p" {
 		t.Fatalf("payload=%+v", received)
 	}
 	for key := range received {

@@ -225,7 +225,9 @@ export function BatchFactoryEngineSettingsDrawer({ open, batch, onClose, onSave 
               <Field label="视频引擎" note="生成通道"><Select value={form.videoProvider || 'personal_api'} options={providerOptions} onChange={videoProvider => patch({ videoProvider })} /></Field>
               <Field label="视频模型" note="选择后自动匹配生成通道"><Select allowClear loading={modelsLoading} value={form.videoModelId || undefined} options={modelOptions.video} placeholder={modelPlaceholder('video', '视频')} onChange={videoModelId => patch({ videoModelId: videoModelId || '', ...(videoModelId ? { videoProvider: videoProviderForModel(videoModelId, form.videoProvider) } : {}) })} /></Field>
               <Field label="分镜时长" note="单个 VIDEO 的目标上限"><Segmented value={storyboardDuration(form.storyboardDurationLimit)} options={[{ value: 10, label: '10s' }, { value: 15, label: '15s' }]} onChange={storyboardDurationLimit => patch({ storyboardDurationLimit, maxVideoDuration: storyboardDurationLimit })} /></Field>
-              <Field label="默认画幅" note="新生成分镜默认使用"><Segmented value={form.aspectRatio || '9:16'} options={['9:16', '16:9', '1:1']} onChange={aspectRatio => patch({ aspectRatio })} /></Field>
+              <Field label="图片画幅" note="仅用于参考图与资产生图"><Segmented value={form.imageAspectRatio || form.aspectRatio || '9:16'} options={['16:9', '9:16', '1:1']} onChange={imageAspectRatio => patch({ imageAspectRatio })} /></Field>
+              <Field label="视频画幅" note="只影响视频输出"><Segmented value={form.videoAspectRatio || (form.aspectRatio === '16:9' ? '16:9' : '9:16')} options={['16:9', '9:16']} onChange={videoAspectRatio => patch({ videoAspectRatio })} /></Field>
+              <Field label="视频分辨率" note="随视频任务提交"><Segmented value={form.videoResolution || '720p'} options={['480p', '720p', '1080p']} onChange={videoResolution => patch({ videoResolution })} /></Field>
             </div>
             <section className="batch-factory-audio-option batch-factory-fixed-option"><div><b>固定开头</b><small>开启后只生产 VIDEO01，同时禁用两个跟随配音功能。</small></div><Switch checked={form.fixedSingleVideo === true} onChange={patchFixedSingleVideo} /></section>
           </EngineCard>

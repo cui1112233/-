@@ -210,10 +210,7 @@ func h3SnapshotForBook(batch Batch, book Book) (DirectorSnapshot, error) {
 	if maxDuration != 10 && maxDuration != 15 {
 		return DirectorSnapshot{}, fmt.Errorf("%w: storyboardDurationLimit must be 10 or 15", ErrInvalid)
 	}
-	aspect := rawString(effective, "aspectRatio", "9:16")
-	if aspect != "9:16" && aspect != "16:9" {
-		return DirectorSnapshot{}, fmt.Errorf("%w: unsupported aspect ratio", ErrInvalid)
-	}
+	aspect := EffectiveVideoAspectRatio(effective)
 	return DirectorSnapshot{Effective: effective, Mode: "h3", MaxVideoDuration: maxDuration, AspectRatio: aspect}, nil
 }
 

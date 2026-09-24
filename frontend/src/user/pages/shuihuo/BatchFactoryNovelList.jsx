@@ -98,7 +98,7 @@ import { videoProviderForModel } from './videoProviderBinding';
 
 const DEFAULT_TTS = { voice: 'zh-CN-XiaoxiaoNeural', style: 'general', speed: 1.8, pitch: 10 };
 const UNIFIED_BOOK_SETTING_KEYS = [
-  'textModelId', 'imageModelId', 'videoModelId', 'videoProvider', 'aspectRatio', 'productionMode',
+  'textModelId', 'imageModelId', 'videoModelId', 'videoProvider', 'aspectRatio', 'imageAspectRatio', 'videoAspectRatio', 'videoResolution', 'productionMode',
   'storyboardDurationLimit', 'maxVideoDuration', 'fixedSingleVideo', 'audioPlanningEnabled',
   'audioMergeEnabled', 'audioDurationSeconds', 'audioDurationFingerprint', 'audioDurationManual',
   'tts', 'publishRewriteEnabled', 'publishSettings'
@@ -420,7 +420,7 @@ function AssetEditor({ book, batchId, onSaved, onGenerate, onRegenerate, onRetry
   }, [book?.id]);
   const textModelId = String(engineSettings?.textModelId || '').trim();
   const imageModelId = String(engineSettings?.imageModelId || '').trim();
-  const aspectRatio = String(engineSettings?.aspectRatio || '9:16');
+  const imageAspectRatio = String(engineSettings?.imageAspectRatio || engineSettings?.aspectRatio || '9:16');
   const currentAssetPromptId = String(assetRules?.extraction?.presetId || '').trim();
   const assetPromptOptions = (currentAssetPromptId && !assetPromptCatalog.some(item => item.id === currentAssetPromptId)
     ? [{ id: currentAssetPromptId, name: assetRules?.extraction?.presetName || '预设已失效', version: assetRules?.extraction?.presetVersion || 1, disabled: true }, ...assetPromptCatalog]
@@ -487,7 +487,7 @@ function AssetEditor({ book, batchId, onSaved, onGenerate, onRegenerate, onRetry
       const result = await generateBookAssetImages(batchId, book.id, {
         assetIds,
         modelId: imageModelId,
-        aspectRatio: aspectRatio || '9:16'
+        imageAspectRatio: imageAspectRatio || '9:16'
       });
       await loadAssets({ quiet: true });
       await onSaved?.();

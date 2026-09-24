@@ -129,10 +129,7 @@ func snapshotForBookWithAudioRequirement(batch Batch, book Book, requireMeasured
 	if requireMeasuredAudio && audioPlanning && audioTargetSeconds(effective) == 0 {
 		return DirectorSnapshot{}, fmt.Errorf("%w: 音频规划已开启，请先生成配音并读取真实时长", ErrConflict)
 	}
-	aspect := rawString(effective, "aspectRatio", "9:16")
-	if aspect != "9:16" && aspect != "16:9" {
-		return DirectorSnapshot{}, fmt.Errorf("%w: unsupported aspect ratio", ErrInvalid)
-	}
+	aspect := EffectiveVideoAspectRatio(effective)
 	if mode != "original" && mode != "viral" {
 		return DirectorSnapshot{}, fmt.Errorf("%w: unsupported director mode", ErrInvalid)
 	}

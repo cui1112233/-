@@ -17,6 +17,16 @@ test('unified configuration owns models, AI reasoning and publication in one edi
   assert.match(source, /onSaved\(draftPatch\)/);
 });
 
+test('keeps image and video media settings independent in unified configuration', () => {
+  assert.match(source, /图片画幅/);
+  assert.match(source, /视频画幅/);
+  assert.match(source, /视频分辨率/);
+  assert.match(source, /imageAspectRatio/);
+  assert.match(source, /videoAspectRatio/);
+  assert.match(source, /videoResolution/);
+  assert.match(source, /视频不会跟随参考图画幅/);
+});
+
 test('keeps the full video management publication controls inside unified configuration', () => {
   assert.match(source, /function BatchFactoryPublishSettingsForm/);
   assert.match(source, /视频管理系统/);

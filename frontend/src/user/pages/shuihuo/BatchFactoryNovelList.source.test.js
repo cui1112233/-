@@ -208,9 +208,9 @@ test('refreshes the open book asset modal after an override save so consecutive 
   assert.match(source, /\[batch\?\.id, assetBook\?\.id, books\]/);
 });
 
-test('uses the engine aspect ratio for asset images instead of saving a second value', () => {
-  assert.match(source, /engineSettings\?\.aspectRatio/);
-  assert.match(source, /aspectRatio: aspectRatio \|\| '9:16'/);
+test('uses the engine image aspect ratio for asset images independently from video settings', () => {
+  assert.match(source, /engineSettings\?\.imageAspectRatio \|\| engineSettings\?\.aspectRatio/);
+  assert.match(source, /imageAspectRatio: imageAspectRatio \|\| '9:16'/);
   assert.doesNotMatch(source, /aria-label="当前书画幅"/);
 });
 

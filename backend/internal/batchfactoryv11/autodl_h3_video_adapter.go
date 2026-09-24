@@ -99,7 +99,7 @@ func (a *AutoDLH3VideoAdapter) Submit(ctx context.Context, model FrozenVideoMode
 	if model.MaxDuration > 0 && duration > model.MaxDuration {
 		return ProviderTaskRef{}, fmt.Errorf("AutoDL H3 duration exceeds model maximum")
 	}
-	resolution := rawString(values, "resolution", "480p竖")
+	resolution := rawString(values, "videoResolution", rawString(values, "resolution", "480p竖"))
 	images := append([]string(nil), prompt.ReferenceImageURLs...)
 	if len(images) == 0 {
 		images = rawStrings(values, "imageUrls")

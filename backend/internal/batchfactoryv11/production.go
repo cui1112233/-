@@ -397,8 +397,8 @@ func (s *ProductionService) SubmitBookProductionWithOptions(ctx context.Context,
 				BatchID:      batchID, BookID: bookID, VideoID: task.VideoID,
 				Model: model.ID, Prompt: prompt.CompiledPrompt,
 				Duration:           prompt.DurationSeconds,
-				AspectRatio:        rawString(prompt.EffectiveSettings.Values, "aspectRatio", "9:16"),
-				Resolution:         rawString(prompt.EffectiveSettings.Values, "resolution", "720p"),
+				AspectRatio:        EffectiveVideoAspectRatio(prompt.EffectiveSettings.Values),
+				Resolution:         EffectiveVideoResolution(prompt.EffectiveSettings.Values),
 				ReferenceImageURLs: append([]string(nil), prompt.ReferenceImageURLs...),
 			})
 		} else {

@@ -9,7 +9,7 @@ import { videoProviderForModel } from './videoProviderBinding';
 import { audioDurationFingerprint as runtimeAudioDurationFingerprint, resolveBookProductionText as runtimeResolveBookProductionText } from './batchFactoryRuntimeLogic';
 import { batchFactoryPreviewText } from './batchFactoryContentRange';
 
-const ENGINE_MODEL_OVERRIDE_FIELDS = ['textModelId', 'imageModelId', 'videoModelId', 'videoProvider', 'aspectRatio', 'productionMode', 'storyboardDurationLimit', 'maxVideoDuration', 'fixedSingleVideo', 'audioPlanningEnabled', 'audioMergeEnabled', 'audioDurationSeconds', 'audioDurationFingerprint', 'tts'];
+const ENGINE_MODEL_OVERRIDE_FIELDS = ['textModelId', 'imageModelId', 'videoModelId', 'videoProvider', 'aspectRatio', 'imageAspectRatio', 'videoAspectRatio', 'videoResolution', 'productionMode', 'storyboardDurationLimit', 'maxVideoDuration', 'fixedSingleVideo', 'audioPlanningEnabled', 'audioMergeEnabled', 'audioDurationSeconds', 'audioDurationFingerprint', 'tts'];
 const ENGINE_PUBLISH_OVERRIDE_FIELDS = ['publishRewriteEnabled', 'publishSettings'];
 const ENGINE_OVERRIDE_FIELDS = [...ENGINE_MODEL_OVERRIDE_FIELDS, ...ENGINE_PUBLISH_OVERRIDE_FIELDS];
 const BOOK_OVERRIDE_FIELDS = [...ENGINE_OVERRIDE_FIELDS, 'starredCharacterNames', 'aiPromptConfig'];
@@ -512,7 +512,9 @@ export function BatchFactoryBookSettingsModal({ open, batch, book, activeRegion 
             <InheritedField label="视频引擎" field="videoProvider" value={form.videoProvider || 'personal_api'} inherited={inherited.videoProvider || 'personal_api'} options={VIDEO_PROVIDER_OPTIONS} loading={false} onChange={videoProvider => patch({ videoProvider })} />
             <InheritedField label="视频模型" field="videoModelId" value={form.videoModelId} inherited={inherited.videoModelId} options={modelOptions.video} loading={loading} onChange={videoModelId => patch({ videoModelId, ...(videoModelId ? { videoProvider: videoProviderForModel(videoModelId, form.videoProvider || inherited.videoProvider) } : {}) })} />
             <InheritedStoryboardDurationField value={form.storyboardDurationLimit} inherited={inherited.storyboardDurationLimit} onChange={storyboardDurationLimit => patch({ storyboardDurationLimit, maxVideoDuration: storyboardDurationLimit })} />
-            <InheritedField label="画幅" field="aspectRatio" value={form.aspectRatio || '9:16'} inherited={inherited.aspectRatio || '9:16'} options={[{ value: '9:16', label: '9:16' }, { value: '16:9', label: '16:9' }, { value: '1:1', label: '1:1' }]} loading={false} onChange={aspectRatio => patch({ aspectRatio })} />
+            <InheritedField label="图片画幅" field="imageAspectRatio" value={form.imageAspectRatio || form.aspectRatio || '9:16'} inherited={inherited.imageAspectRatio || inherited.aspectRatio || '9:16'} options={[{ value: '16:9', label: '16:9' }, { value: '9:16', label: '9:16' }, { value: '1:1', label: '1:1' }]} loading={false} onChange={imageAspectRatio => patch({ imageAspectRatio })} />
+            <InheritedField label="视频画幅" field="videoAspectRatio" value={form.videoAspectRatio || (form.aspectRatio === '16:9' ? '16:9' : '9:16')} inherited={inherited.videoAspectRatio || (inherited.aspectRatio === '16:9' ? '16:9' : '9:16')} options={[{ value: '16:9', label: '16:9' }, { value: '9:16', label: '9:16' }]} loading={false} onChange={videoAspectRatio => patch({ videoAspectRatio })} />
+            <InheritedField label="视频分辨率" field="videoResolution" value={form.videoResolution || '720p'} inherited={inherited.videoResolution || '720p'} options={[{ value: '480p', label: '480p' }, { value: '720p', label: '720p' }, { value: '1080p', label: '1080p' }]} loading={false} onChange={videoResolution => patch({ videoResolution })} />
           </div>
           <InheritedFixedVideoSwitch value={form.fixedSingleVideo} inherited={inherited.fixedSingleVideo} onChange={fixedSingleVideo => patch({ fixedSingleVideo })} />
           </ConfigCard>
