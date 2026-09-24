@@ -116,10 +116,12 @@ export default function ScriptMentionEditor({
     restoreOffsetRef.current = null;
   }, [selectionOffset, value, segments]);
 
-  const emitQuery = useCallback((text = canonicalTextFromSegments(segments)) => {
+  const emitQuery = useCallback(() => {
     const root = editorRef.current;
+    if (!root) return;
+    const text = root.innerText.replace(/\r/g, '');
     onQueryChange?.({ text, cursor: selectionOffset(root), rect: selectionRect(root) });
-  }, [onQueryChange, segments]);
+  }, [onQueryChange]);
 
   const emitTextChange = useCallback(() => {
     const root = editorRef.current;

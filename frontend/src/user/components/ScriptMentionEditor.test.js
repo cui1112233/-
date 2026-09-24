@@ -37,3 +37,9 @@ test('captures the @ query cursor before a parent output update can redraw the e
 
   assert.match(source, /const cursor = selectionOffset\(root\);\s*const rect = selectionRect\(root\);\s*restoreOffsetRef\.current = cursor;\s*onChange\?\.\(text\);\s*onQueryChange\?\.\(\{ text, cursor, rect \}\)/s);
 });
+
+test('reads the live editor text on keyup so it cannot close a newly opened @ menu with stale props', () => {
+  const source = fs.readFileSync(sourcePath, 'utf8');
+
+  assert.match(source, /const emitQuery = useCallback\(\(\) => \{\s*const root = editorRef\.current;\s*if \(!root\) return;\s*const text = root\.innerText\.replace\(\/\\r\/g, ''\);\s*onQueryChange\?\.\(\{ text, cursor: selectionOffset\(root\), rect: selectionRect\(root\) \}\);\s*\}, \[onQueryChange\]\);/s);
+});
