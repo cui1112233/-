@@ -2514,12 +2514,13 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
         message.success('已复用 H3 导演卡编译最终 VIDEO Prompt。');
         return;
       }
+      const requestedMode = stage === 'director' && mode === 'compile' ? 'missing' : mode;
       if (stage === 'director' && settings.audioPlanningEnabled === true) {
         if (settings.fixedSingleVideo === true) throw new Error('固定开头只生产 VIDEO01，请先关闭固定开头后再使用分镜规划跟随配音。');
         await ensureBookAudioDuration(book);
       }
       await runBookStage(batch.id, book.id, stage, {
-        mode,
+        mode: requestedMode,
 		h3: true,
         videoId,
         textModelId: textModelId || settings.textModelId,

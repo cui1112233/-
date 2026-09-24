@@ -40,6 +40,12 @@ test('keeps H3 director cards in the workbench until final VIDEO compilation', (
   assert.match(source, /待编译的 H3 分镜视频/);
 });
 
+test('turns a director compile click without an H3 card into first-time generation', () => {
+  const action = source.match(/async function runBookStageAction\([\s\S]*?\n  async function retryLastFailedStage/)?.[0] || '';
+  assert.match(action, /const requestedMode = stage === 'director' && mode === 'compile' \? 'missing' : mode;/);
+  assert.match(action, /mode: requestedMode,/);
+});
+
 test('renders an uncompiled H3 card as readable storyboard text with a complete action bar', () => {
   const start = source.indexOf('if (!selectedVideo && selectedPrecompiledFrame) {');
   const end = source.indexOf('\n  }\n  return <div className="batch-factory-prompt-modal-stack">', start);
