@@ -24,7 +24,7 @@ import { getSelectedShotMatches, getShotCardStarts, replaceAllSelectedShotMatche
 import { buildFinalSegmentCard } from './scriptFinalSegment';
 import { resolveShotVideoDuration } from './scriptVideoDuration';
 import { buildScriptVideoPayload, collectShotReferenceImages, getEntityMedia, toggleShotReferenceState } from './scriptVideoReferences';
-import { appendShotVideoTaskHistory, normalizeShotVideoTaskHistory } from './scriptShotVideoTasks';
+import { appendShotVideoTaskHistory, mergeShotVideoTaskHistoryTask, normalizeShotVideoTaskHistory } from './scriptShotVideoTasks';
 import { extractJSON } from './scriptExtractionJson';
 import { replaceRawShotCard } from './scriptShotCardEdit';
 import { filterShotMentionCandidates, findActiveShotMention, insertActiveShotMention } from './scriptShotMentions';
@@ -622,6 +622,25 @@ export function ScriptPage() {
       if (mountedRef.current) window.setTimeout(poll, 4000);
     };
     window.setTimeout(poll, 2000);
+  }
+
+  async function openVideoHistory(shotIndex, tasks) {
+    setPreviewVideoHistory({ open: true, shotIndex, tasks });
+    const refreshedTasks = await Promise.all(tasks.map(async task => {
+      try {
+        return mergeShotVideoTaskHistoryTask(task, await getScriptVideoTask(task.taskId));
+      } catch {
+        return { ...task, historyStatusReadError: true };
+      }
+    }));
+    if (!mountedRef.current) return;
+    setPreviewVideoHistory(current => current.open && current.shotIndex === shotIndex
+      ? { ...current, tasks: refreshedTasks }
+      : current);
+    const nextHistory = { ...shotVideoTaskHistory, [shotIndex]: refreshedTasks };
+    setShotVideoTaskHistory(nextHistory);
+    persistDraft(undefined, { videoTaskHistory: nextHistory });
+    if (currentHistoryId) updateHistoryVideoTasks(currentHistoryId, shotVideoTasks, nextHistory).catch(() => {});
   }
 
   async function openScriptHistory() {
@@ -1535,7 +1554,7 @@ export function ScriptPage() {
                 persistDraft(undefined, { shotReferenceStates: next });
               }}
               onOpenVideo={setPreviewVideoTask}
-              onOpenVideoHistory={(shotIndex, tasks) => setPreviewVideoHistory({ open: true, shotIndex, tasks })}
+              onOpenVideoHistory={openVideoHistory}
               onEditPrompt={openShotEditor}
               output={output}
               activeMatch={shotReplaceOpen ? activeShotMatch : null}
@@ -1615,7 +1634,12 @@ export function ScriptPage() {
           {previewVideoHistory.tasks.map((task, index) => (
             <div key={task.taskId || index}>
               <Typography.Text type="secondary">历史版本 {index + 1}{task.prompt ? ` · ${task.prompt.slice(0, 80)}` : ''}</Typography.Text>
-              {task.videoUrl ? <video controls preload="metadata" style={{ display: 'block', width: '100%', marginTop: 8 }} src={task.videoUrl} /> : <Typography.Paragraph type="secondary">该历史任务没有可播放地址</Typography.Paragraph>}
+              {task.status === 'succeeded' && task.videoUrl ? <video controls preload="metadata" style={{ display: 'block', width: '100%', marginTop: 8 }} src={task.videoUrl} /> : null}
+              {task.historyStatusReadError ? <Typography.Paragraph type="secondary">暂时无法读取任务状态，请稍后再试</Typography.Paragraph> : null}
+              {!task.historyStatusReadError && task.status === 'processing' ? <Typography.Paragraph type="secondary">视频生成中，暂不可播放</Typography.Paragraph> : null}
+              {!task.historyStatusReadError && task.status === 'failed' ? <Typography.Paragraph type="danger">生成失败{task.error ? `：${task.error}` : ''}</Typography.Paragraph> : null}
+              {!task.historyStatusReadError && task.status === 'succeeded' && !task.videoUrl ? <Typography.Paragraph type="danger">任务已完成，但未返回可播放地址</Typography.Paragraph> : null}
+              {!task.historyStatusReadError && !['succeeded', 'processing', 'failed'].includes(task.status) ? <Typography.Paragraph type="secondary">暂时无法读取任务状态，请稍后再试</Typography.Paragraph> : null}
             </div>
           ))}
         </Space>

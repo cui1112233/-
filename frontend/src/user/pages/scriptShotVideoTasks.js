@@ -35,6 +35,14 @@ export function appendShotVideoTaskHistory(history, index, task) {
   };
 }
 
+export function mergeShotVideoTaskHistoryTask(savedTask, freshTask) {
+  const saved = normalizeVideoTask(savedTask);
+  const fresh = normalizeVideoTask(freshTask);
+  if (!fresh) return saved || null;
+  if (!saved || saved.taskId !== fresh.taskId) return fresh;
+  return normalizeVideoTask({ ...fresh, prompt: saved.prompt || fresh.prompt });
+}
+
 export function normalizeShotVideoTaskHistory(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
   const result = {};
