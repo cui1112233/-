@@ -18,6 +18,7 @@ const {
   batchFactory121OrganizationsPath,
   organizationOptions,
   resolveBatchFactory121Session,
+  mpegAudioDurationSeconds,
   automationPublishSettings,
   submitBatchFactoryBookTo121,
   classifyBatchFactoryBookFor121,
@@ -28,6 +29,14 @@ const {
   safeAutomationStatus,
   splitVideoPresetBody
 } = require('./batch-factory-v11');
+
+test('reads the real duration from MPEG audio frames used by automatic planning', () => {
+  const frameLength = Math.floor((144000 * 128) / 44100);
+  const frame = Buffer.alloc(frameLength);
+  frame.writeUInt32BE(0xfffb9000, 0);
+  const seconds = mpegAudioDurationSeconds(Buffer.concat(Array.from({ length: 10 }, () => frame)));
+  assert.ok(Math.abs(seconds - ((10 * 1152) / 44100)) < 0.002);
+});
 
 test('Batch Factory 121 session auto-recovers through the shared durable login service', async () => {
   const calls = [];

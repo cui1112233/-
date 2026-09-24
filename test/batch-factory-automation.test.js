@@ -85,6 +85,23 @@ test('storyboard-only automation stops after director compilation and never subm
   assert.equal(status.books[0].stage, 'ready_for_video');
 });
 
+test('audio-planned automation measures and saves duration before running director', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-audio-'));
+  const { batch, adapter } = fixture();
+  batch.settingsState.patch.audioPlanningEnabled = true;
+  const order = [];
+  adapter.prepareAudioPlanning = async ({ book }) => {
+    order.push('audio');
+    book.settingsState.patch.audioDurationSeconds = 12.34;
+  };
+  const originalRunStage = adapter.runStage;
+  adapter.runStage = async input => { order.push(input.stage); return originalRunStage(input); };
+  const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} } });
+  await controller.start({ owner: 'user', batchId: batch.id, runMode: 'storyboard_only' });
+  for (let i = 0; i < 7; i += 1) { await controller.tick(); await wait(); }
+  assert.deepEqual(order.slice(0, 3), ['assets', 'audio', 'director']);
+});
+
 test('automation with autoPublish uploads a confirmed merged book exactly once', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-test-'));
   const { adapter } = fixture();

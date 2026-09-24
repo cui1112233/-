@@ -1280,7 +1280,7 @@ function automationTTSFingerprint(tts = {}) {
   return crypto.createHash('sha256').update(JSON.stringify(normalized)).digest('hex');
 }
 
-async function synthesizeAutomationTTS(input, tts = {}, fetchImpl = globalThis.fetch) {
+async function synthesizeAutomationTTSBytes(input, tts = {}, fetchImpl = globalThis.fetch) {
   const response = await fetchImpl('http://tts3.121w.com/v1/audio/speech', {
     method: 'POST', headers: { 'content-type': 'application/json', accept: '*/*' },
     body: JSON.stringify({ input, voice: tts.voice || 'zh-CN-XiaoxiaoNeural', speed: Number(tts.speed || 1.8), pitch: String(tts.pitch ?? 10), style: tts.style || 'general' })
@@ -1288,7 +1288,43 @@ async function synthesizeAutomationTTS(input, tts = {}, fetchImpl = globalThis.f
   if (!response?.ok) throw requestError(`配音实测失败（${Number(response?.status || 502)}）`, 502, 'AUTOMATION_TTS_FAILED');
   const bytes = Buffer.from(await response.arrayBuffer());
   if (!bytes.length) throw requestError('配音实测返回空音频', 502, 'AUTOMATION_TTS_FAILED');
-  return bytes.toString('base64');
+  return bytes;
+}
+
+async function synthesizeAutomationTTS(input, tts = {}, fetchImpl = globalThis.fetch) {
+  return (await synthesizeAutomationTTSBytes(input, tts, fetchImpl)).toString('base64');
+}
+
+function mpegAudioDurationSeconds(bytes) {
+  const data = Buffer.from(bytes || []);
+  const bitrateV1L3 = [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320];
+  const bitrateV2L3 = [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160];
+  const sampleRates = { 3: [44100, 48000, 32000], 2: [22050, 24000, 16000], 0: [11025, 12000, 8000] };
+  let offset = data.subarray(0, 3).toString('ascii') === 'ID3' && data.length >= 10
+    ? 10 + (((data[6] & 0x7f) << 21) | ((data[7] & 0x7f) << 14) | ((data[8] & 0x7f) << 7) | (data[9] & 0x7f))
+    : 0;
+  let seconds = 0;
+  let frames = 0;
+  while (offset + 4 <= data.length) {
+    const header = data.readUInt32BE(offset);
+    if (((header & 0xffe00000) >>> 0) !== 0xffe00000) { offset += 1; continue; }
+    const version = (header >>> 19) & 3;
+    const layer = (header >>> 17) & 3;
+    const bitrateIndex = (header >>> 12) & 15;
+    const sampleRateIndex = (header >>> 10) & 3;
+    const padding = (header >>> 9) & 1;
+    const sampleRate = sampleRates[version]?.[sampleRateIndex];
+    const bitrate = (version === 3 ? bitrateV1L3 : bitrateV2L3)[bitrateIndex];
+    if (layer !== 1 || !sampleRate || !bitrate) { offset += 1; continue; }
+    const samples = version === 3 ? 1152 : 576;
+    const frameLength = Math.floor(((version === 3 ? 144000 : 72000) * bitrate) / sampleRate) + padding;
+    if (frameLength < 4 || offset + frameLength > data.length) break;
+    seconds += samples / sampleRate;
+    frames += 1;
+    offset += frameLength;
+  }
+  if (!frames || !Number.isFinite(seconds) || seconds <= 0) throw requestError('无法读取配音真实时长', 502, 'AUTOMATION_TTS_DURATION_INVALID');
+  return Number(seconds.toFixed(3));
 }
 
 function splitVideoPresetBody(body) {
@@ -1437,6 +1473,24 @@ function createBatchFactoryV11Router(options = {}) {
         }
         return v11JSONRequest({
           username, isOwner, method: 'POST', pathname, payload,
+          goBaseUrl: upstreamOptions.goBaseUrl, bridgeSecret: upstreamOptions.bridgeSecret,
+          fetchImpl: upstreamOptions.fetchImpl, now: upstreamOptions.now
+        });
+      },
+      prepareAudioPlanning: async ({ owner: username, isOwner, batch, book, settings }) => {
+        const input = batchFactoryProductionText(book);
+        if (!input) throw requestError('当前书没有可用于配音的生产内容', 422, 'AUTOMATION_TTS_SOURCE_REQUIRED');
+        const tts = { voice: 'zh-CN-XiaoxiaoNeural', style: 'general', speed: 1.8, pitch: 10, ...object(settings.tts) };
+        const bytes = await synthesizeAutomationTTSBytes(input, tts, upstreamOptions.fetchImpl || globalThis.fetch);
+        const patch = {
+          audioDurationSeconds: mpegAudioDurationSeconds(bytes),
+          audioDurationFingerprint: `server-a1-${crypto.createHash('sha256').update(input).update(JSON.stringify(tts)).digest('hex')}`,
+          audioDurationManual: false
+        };
+        const pathname = `/api/batch-factory/v11/batches/${encodeURIComponent(batch.id)}/books/${encodeURIComponent(book.id)}/override`;
+        return v11JSONRequest({
+          username, isOwner, method: 'PUT', pathname,
+          payload: { patch, expectedRevision: Number(book.revision || 0) },
           goBaseUrl: upstreamOptions.goBaseUrl, bridgeSecret: upstreamOptions.bridgeSecret,
           fetchImpl: upstreamOptions.fetchImpl, now: upstreamOptions.now
         });
@@ -1774,6 +1828,7 @@ module.exports = {
   batchFactory121OrganizationsPath,
   organizationOptions,
   resolveBatchFactory121Session,
+  mpegAudioDurationSeconds,
   automationPublishSettings,
   automationCompilePayload,
   safeAutomationStatus,
