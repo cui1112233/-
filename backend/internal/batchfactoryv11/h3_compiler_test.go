@@ -44,7 +44,7 @@ func TestCompileH3VideoSegmentsSeparatesEditableCopyFromSubmittedPrompt(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if compilation.SchemaVersion != "h3-video-compilation/v1" || compilation.CompilerVersion != "h3-video-compiler/v4" {
+	if compilation.SchemaVersion != "h3-video-compilation/v1" || compilation.CompilerVersion != "h3-video-compiler/v5" {
 		t.Fatalf("unexpected compilation contract: %#v", compilation)
 	}
 	if len(compilation.Segments) != 1 {
@@ -221,6 +221,56 @@ func TestCompileH3VideoSegmentsSwitchesOnlyControlTheirInjectionLayers(t *testin
 	}
 }
 
+func TestCompileH3VideoSegmentsAppliesAllScriptConstraintLayersInOrder(t *testing.T) {
+	document := mustH3DirectorFixture(t)
+	timeline := mustH3Timeline(t, document, 7420)
+	input := completeH3CompileInput(document, timeline)
+	input.Switches = H3PromptSwitches{
+		BaseSetup:         true,
+		Prefix:            true,
+		Quality:           true,
+		VisualRestriction: true,
+		Negative:          true,
+	}
+	input.PrefixText = "PREFIX-LAYER"
+	input.QualityText = "QUALITY-LAYER"
+	input.VisualRestrictionText = "RESTRICTION-LAYER"
+	input.NegativeText = "NEGATIVE-LAYER"
+
+	compilation, err := CompileH3VideoSegments(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prompt := compilation.Segments[0].CompiledPrompt
+	for _, layer := range []string{"subject_definitions:", "PREFIX-LAYER", "QUALITY-LAYER", "RESTRICTION-LAYER", "[Scene 1]", "NEGATIVE-LAYER"} {
+		if !strings.Contains(prompt, layer) {
+			t.Fatalf("compiled prompt missing %q:\n%s", layer, prompt)
+		}
+	}
+	positions := []int{
+		strings.Index(prompt, "subject_definitions:"),
+		strings.Index(prompt, "PREFIX-LAYER"),
+		strings.Index(prompt, "QUALITY-LAYER"),
+		strings.Index(prompt, "RESTRICTION-LAYER"),
+		strings.Index(prompt, "[Scene 1]"),
+		strings.Index(prompt, "NEGATIVE-LAYER"),
+	}
+	for index := 1; index < len(positions); index++ {
+		if positions[index-1] >= positions[index] {
+			t.Fatalf("constraint layer order=%v:\n%s", positions, prompt)
+		}
+	}
+	trace := compilation.Segments[0].CompileTrace
+	for _, layer := range []string{"asset_settings", "prefix", "quality", "visual_restriction", "negative"} {
+		if !traceHasLayer(trace, layer, true) {
+			t.Fatalf("trace does not record %s as injected: %#v", layer, trace)
+		}
+	}
+	if state, ok := traceLayerState(trace, "negative"); !ok || !state.Injected || state.Reason == "" {
+		t.Fatalf("trace must explain the negative-prompt decision: %#v", trace)
+	}
+}
+
 func TestCompileH3VideoSegmentsPresetChangeRecompilesWithoutMutatingDirector(t *testing.T) {
 	document := mustH3DirectorFixture(t)
 	timeline := mustH3Timeline(t, document, 7420)
@@ -318,7 +368,7 @@ func TestCompileH3VideoSegmentsMatchesFrozenPromptGoldenHash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const want = "d771a70c5f58d36c174fe5ba8f522e4b120c2ff025bb20b3f72d000b56362470"
+	const want = "db5fd7797c12e7705b67a8890a6137d938ea2b9446eb767bb917c4914f622d54"
 	if got := compilation.Segments[0].CompiledPromptHash; got != want {
 		t.Fatalf("compiled prompt golden hash=%s, want %s", got, want)
 	}
@@ -376,4 +426,13 @@ func traceHasLayer(trace H3CompileTrace, name string, injected bool) bool {
 		}
 	}
 	return false
+}
+
+func traceLayerState(trace H3CompileTrace, name string) (H3PromptLayerTrace, bool) {
+	for _, state := range trace.LayerStates {
+		if state.Name == name {
+			return state, true
+		}
+	}
+	return H3PromptLayerTrace{}, false
 }

@@ -1279,7 +1279,18 @@ function automationCompilePayload(book, settings, audioAssetID = '', semantic = 
   const video = object(promptConfig.video);
   const constraints = object(promptConfig.constraints);
   const selections = Array.isArray(constraints.selections) ? constraints.selections : [];
-  const restriction = selections.find(item => item?.constraintCategory === 'restriction' && item?.presetId === 'script-constraint-restriction-h3-visual-policy');
+  const enabled = constraints.enabled !== false;
+  const enabledCategories = Array.isArray(constraints.enabledCategories)
+    ? new Set(constraints.enabledCategories.map(String))
+    : new Set(['prefix', 'quality', 'restriction', 'negative']);
+  const layer = category => enabled && enabledCategories.has(category)
+    ? selections.find(item => item?.constraintCategory === category) || null
+    : null;
+  const prefix = layer('prefix');
+  const quality = layer('quality');
+  const restriction = layer('restriction');
+  const negative = layer('negative');
+  const smartUnified = prefix?.presetId === SMART_UNIFIED_PREFIX_PRESET_ID;
   const presetBody = splitVideoPresetBody(video.body);
   const template = presetBody.finalTemplate.includes('{{storyboard}}') ? presetBody.finalTemplate : '';
   return {
@@ -1287,7 +1298,7 @@ function automationCompilePayload(book, settings, audioAssetID = '', semantic = 
     audio_asset_id: audioAssetID,
     allow_semantic_timeline: semantic,
     preset: {
-      key: String(video.presetId || video.id || 'h3-video-normal'),
+      key: String(video.presetKey || video.presetId || video.id || 'h3-video-normal'),
       revision: Math.max(1, Number(video.presetVersion || video.version || 1)),
       format: 'h3-structured-v1',
       max_segment_ms: Number(settings.storyboardDurationLimit) === 15 ? 15000 : 10000,
@@ -1297,11 +1308,17 @@ function automationCompilePayload(book, settings, audioAssetID = '', semantic = 
         ? '按冻结导演数据和所选最终模板生成当前 VIDEO 提示词。'
         : (presetBody.directorRules || '按结构化时间线输出当前 VIDEO，保持人物、动作、机位和场景连续性。')
     },
+    prefix_text: smartUnified ? '' : String(prefix?.body || ''),
+    quality_text: String(quality?.body || ''),
     visual_restriction_text: String(restriction?.body || ''),
+    negative_text: String(negative?.body || ''),
     switches: {
-      smart_unified: selections.some(item => item?.constraintCategory === 'prefix' && item?.presetId === SMART_UNIFIED_PREFIX_PRESET_ID),
-      base_setup: constraints.baseSetup?.enabled === true,
-      visual_restriction: Boolean(restriction)
+      smart_unified: smartUnified,
+      base_setup: enabled && constraints.baseSetup?.enabled !== false,
+      prefix: Boolean(prefix && !smartUnified && String(prefix.body || '').trim()),
+      quality: Boolean(quality && String(quality.body || '').trim()),
+      visual_restriction: Boolean(restriction && String(restriction.body || '').trim()),
+      negative: Boolean(negative && String(negative.body || '').trim())
     }
   };
 }
@@ -1726,6 +1743,7 @@ module.exports = {
   batchFactory121OrganizationsPath,
   organizationOptions,
   automationPublishSettings,
+  automationCompilePayload,
   safeAutomationStatus,
   splitVideoPresetBody,
   listBatchFactory121Organizations,

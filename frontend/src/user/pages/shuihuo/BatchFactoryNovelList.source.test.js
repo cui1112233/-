@@ -54,11 +54,16 @@ test('renders an uncompiled H3 card as readable storyboard text with a complete 
   assert.match(precompiled, /value=\{formatH3DirectorCardPrompt\(/);
   assert.doesNotMatch(precompiled, /JSON\.stringify\(card, null, 2\)/);
   assert.match(precompiled, />保存<\/Button>/);
+  assert.match(precompiled, />编译最终提示词<\/Button>/);
   assert.match(precompiled, />编辑<\/Button>/);
   assert.match(precompiled, />生成视频<\/Button>/);
   assert.match(precompiled, />查看候选版本<\/Button>/);
   assert.match(precompiled, />查看 H3 Trace<\/Button>/);
   assert.match(precompiled, />重试<\/Button>/);
+});
+
+test('keeps an H3 final-template compile request valid without leaking fallback prose into the template', () => {
+  assert.match(source, /output_constraints: videoPromptTemplate \? '按冻结导演数据和所选最终模板生成当前 VIDEO 提示词。' :/);
 });
 
 test('makes a saved unified configuration authoritative for every book', () => {
@@ -1033,7 +1038,7 @@ test('recompiles existing H3 director data after constraint or VIDEO preset sett
 });
 
 test('maps the selected smart-unified prefix to baseline injection', () => {
-	assert.match(source, /smart_unified: \(constraints\.selections \|\| \[\]\)\.some/);
+	assert.match(source, /buildBatchFactoryH3Constraints\(constraints\)/);
 	assert.match(bookSettingsSource, /智能统一/);
 });
 
