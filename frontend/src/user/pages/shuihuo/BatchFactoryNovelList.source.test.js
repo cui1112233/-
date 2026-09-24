@@ -73,6 +73,12 @@ test('makes a saved unified configuration authoritative for every book', () => {
   assert.match(source, /await syncUnifiedSettingsToBooks\(savedBatch\)/);
 });
 
+test('recompiles existing H3 VIDEO prompts after a unified configuration save without regenerating director cards', () => {
+  assert.match(source, /async function recompileUnifiedH3Prompts\(currentBatch\)/);
+  assert.match(source, /await recompileUnifiedH3Prompts\(syncedBatch\)/);
+  assert.match(source, /compileBookH3Videos\(book, \{ interactive: false, allowAudioSynthesis: true \}\)/);
+});
+
 test('lets a book review a viral candidate before replacing working content', () => {
   assert.match(source, /生成爆款候选/);
   assert.match(source, /替换为当前生产内容/);

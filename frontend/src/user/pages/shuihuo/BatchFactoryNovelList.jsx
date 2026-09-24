@@ -2269,7 +2269,22 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
       : []);
     if (failed.length) throw new Error(`统一配置已保存，但 ${failed.length} 本小说未完成同步：${failed.join('；')}`);
   }
-	async function compileBookH3Videos(book) {
+	async function recompileUnifiedH3Prompts(currentBatch) {
+		const candidates = (currentBatch?.books || []).filter(book => h3DirectorCards(book).length > 0);
+		const result = { compiled: 0, manual: 0, waitingForAudio: 0, failed: [] };
+		for (const book of candidates) {
+			try {
+				const outcome = await compileBookH3Videos(book, { interactive: false, allowAudioSynthesis: true });
+				if (outcome?.skipped === 'manual') result.manual += 1;
+				else if (outcome?.skipped === 'audio') result.waitingForAudio += 1;
+				else if (outcome?.compiled) result.compiled += 1;
+			} catch (error) {
+				result.failed.push(`${book.title || book.bookId || '当前小说'}：${error?.message || '重新编译失败'}`);
+			}
+		}
+		return result;
+	}
+	async function compileBookH3Videos(book, { interactive = true, allowAudioSynthesis = true } = {}) {
 		const latestResponse = await getBatch(batch.id);
 		const latestBatch = latestResponse?.batch || latestResponse;
 		const latestBook = (latestBatch?.books || []).find(item => item?.id === book.id);
@@ -2282,14 +2297,17 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
 		catch (error) { if (Number(error?.status) !== 404 && !String(error?.message || '').includes('404')) throw error; }
 		const hasManualPrompts = (priorTrace?.compilation?.compilation?.segments || []).some(segment => segment.compile_trace?.editable_copy_source === 'user_final_prompt');
 		if (hasManualPrompts) {
+			if (!interactive) return { skipped: 'manual' };
 			const confirmed = await new Promise(resolve => Modal.confirm({ title: '重新编译会替换手动编辑的分镜提示词', content: '历史提交记录保留。是否按当前配置重新生成完整提示词？', okText: '确认重新编译', cancelText: '保留手动提示词', onOk: () => resolve(true), onCancel: () => resolve(false) }));
 			if (!confirmed) throw new Error('已保留手动提示词，当前配置尚未应用到最终分镜');
 		}
 		let audioResult = null;
 		if (settings.audioPlanningEnabled === true) {
 			const tts = await batchFactoryBookTts(settings);
+			const previousMeasurement = priorTrace?.timeline?.timeline?.audio_measurement;
+			if (!allowAudioSynthesis && !previousMeasurement?.asset_id) return { skipped: 'audio' };
 			audioResult = await measureH3VideoLines({ directorId: director.id, document: h3Document, tts,
-				previous: priorTrace?.timeline?.timeline?.audio_measurement,
+				previous: previousMeasurement,
 				synthesize: textToSpeech, encode: blobToBase64,
 				measure: payload => measureH3Audio(latestBatch.id, latestBook.id, payload) });
 		}
@@ -2323,6 +2341,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
 			expected_compilation_id: priorTrace?.compilation?.id || '',
 			allow_replace_manual_prompts: hasManualPrompts
 		});
+		return { compiled: true };
 	}
 	async function refreshAfterBookSettingsSaved() {
 		const shouldRecompileH3 = ['constraints', 'video', 'media'].includes(configTarget?.region)
@@ -2745,13 +2764,19 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
       const savedResult = await getBatch(batch.id);
       const savedBatch = resultData(savedResult, 'batch');
       await syncUnifiedSettingsToBooks(savedBatch);
+			const syncedResult = await getBatch(batch.id);
+			const syncedBatch = resultData(syncedResult, 'batch');
+			const recompileResult = await recompileUnifiedH3Prompts(syncedBatch);
       if (shouldPrepareAudio) {
-        const refreshedResult = await getBatch(batch.id);
-        const refreshedBatch = resultData(refreshedResult, 'batch');
+			const refreshedResult = await getBatch(batch.id);
+			const refreshedBatch = resultData(refreshedResult, 'batch');
         await prepareAudioPlanningForBatch(refreshedBatch);
       }
       await refreshBatch();
-      message.success(`统一配置已同步到当前批量全部小说。`);
+			if (recompileResult.failed.length) message.warning(`统一配置已同步；${recompileResult.failed.join('；')}`);
+			else if (recompileResult.waitingForAudio || recompileResult.manual) {
+				message.info(`统一配置已同步；${recompileResult.compiled} 本最终 VIDEO Prompt 已更新，${recompileResult.manual ? `${recompileResult.manual} 本保留手动提示词，` : ''}${recompileResult.waitingForAudio ? `${recompileResult.waitingForAudio} 本等待已有逐行配音后再编译。` : ''}`);
+			} else message.success(`统一配置已同步到当前批量全部小说；${recompileResult.compiled} 本最终 VIDEO Prompt 已更新。`);
       return true;
     } catch (error) { message.error(error?.message || '统一配置已保存，但刷新工作台失败'); return false; }
   }
