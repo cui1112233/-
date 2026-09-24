@@ -1,6 +1,6 @@
 (() => {
   const API_ROOT = '/api/batch-rewrite';
-  const taskFilters = { date: '', bookId: '', status: '' };
+  const taskFilters = { date: '', bookId: '', status: '', scope: '' };
   const previewState = { active: false, tasks: [], selected: new Set(), originalInput: '' };
   let rerunSourceBatchId = '';
   let legacyTaskBridgeInstalled = false;
@@ -128,6 +128,7 @@
     if (String(filters.date || '').trim()) params.set('date', String(filters.date).trim());
     if (String(filters.bookId || '').trim()) params.set('bookId', String(filters.bookId).trim());
     if (String(filters.status || '').trim()) params.set('status', String(filters.status).trim());
+    if (String(filters.scope || '').trim()) params.set('scope', String(filters.scope).trim());
     const query = params.toString();
     return query ? `?${query}` : '';
   }
@@ -601,6 +602,16 @@
     queueSummary.className = 'v78-inline-box v78-muted';
     queueSummary.textContent = '任务队列正在读取...';
     host.insertBefore(queueSummary, listDetails);
+    const scopes = document.createElement('div');
+    scopes.className = 'v78-actions compact';
+    scopes.innerHTML = '<button data-v78-task-scope="current">当前批次</button><button data-v78-task-scope="unfinished">历史未完成</button><button data-v78-task-scope="all">全部任务</button>';
+    scopes.onclick = event => {
+      const button = event.target.closest('[data-v78-task-scope]');
+      if (!button) return;
+      taskFilters.scope = button.dataset.v78TaskScope || '';
+      if (typeof loadTasks === 'function') void loadTasks();
+    };
+    host.insertBefore(scopes, listDetails);
     const history = document.createElement('div');
     history.id = 'v78HistoryBatchesPanel';
     history.className = 'v78-inline-box';
