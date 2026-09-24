@@ -19,7 +19,7 @@ test('V2 page injects a shared runtime before feature scripts', () => {
   assert.ok(injected.indexOf('v78-novel-fetch-v2-runtime.js') < injected.indexOf('app.js?v='));
   assert.ok(injected.indexOf('app.js?v=20260922-retry-progress-r1') < injected.indexOf('v78-novel-fetch-v2.js'));
   assert.match(injected, /app\.js\?v=20260922-retry-progress-r1/);
-  assert.match(injected, /v78-novel-fetch-v2\.js\?v=20260924-manual-priority-r1/);
+  assert.match(injected, /v78-novel-fetch-v2\.js\?v=20260925-processing-flow-r1/);
 });
 
 test('runtime provides single-flight requests and activity-aware polling', () => {
@@ -157,6 +157,21 @@ test('manual start is captured by the V2 workflow so the legacy handler cannot a
   assert.match(client, /button\.addEventListener\('click',\s*event\s*=>\s*\{/);
   assert.match(client, /event\.stopImmediatePropagation\(\)/);
   assert.match(client, /void startSelectedProcessing\(\)/);
+});
+
+test('processing controls expose a saved text-model selector beside version choices', () => {
+  const client = read('public/batch-rewrite/v78-novel-fetch-v2.js');
+  assert.match(client, /v78ProcessingTextModel/);
+  assert.match(client, /persistSelectedTextModel\(select\.value\)/);
+  assert.match(client, /text_model_id:\s*byId\('v78ProcessingTextModel'\)/);
+});
+
+test('task page exposes queue summary scopes and current-job progress', () => {
+  const client = read('public/batch-rewrite/v78-novel-fetch-v2.js');
+  assert.match(client, /v78QueueSummary/);
+  assert.match(client, /当前批次/);
+  assert.match(client, /历史未完成/);
+  assert.match(client, /seenProgressKeys/);
 });
 
 test('network submit rejects an empty selected-task request instead of reporting zero groups complete', () => {

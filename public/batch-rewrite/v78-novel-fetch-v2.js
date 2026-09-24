@@ -1,12 +1,13 @@
 (() => {
   const API_ROOT = '/api/batch-rewrite';
-  const taskFilters = { date: '', bookId: '', status: '' };
+  const taskFilters = { date: '', bookId: '', status: '', scope: '' };
   const previewState = { active: false, tasks: [], selected: new Set(), originalInput: '' };
   let rerunSourceBatchId = '';
   let legacyTaskBridgeInstalled = false;
   let retryProgressBridgeInstalled = false;
   let currentBatchTimer = null;
   const processLogState = { lines: [] };
+  const seenProgressKeys = new Set();
 
   function byId(id) { return document.getElementById(id); }
   function value(id, fallback = '') { return byId(id)?.value ?? fallback; }
@@ -39,6 +40,7 @@
   }
   function resetProcessLog() {
     processLogState.lines = [];
+    seenProgressKeys.clear();
     setText('processResult', '');
   }
   function appendProcessLog(message) {
@@ -112,6 +114,7 @@
       column_order: value('columnOrderInput', '书籍ID,书名,推荐理由,男女频,标签,评级'),
       input_text: inputText,
       max_txt: Number(value('fetchMaxTxt', 4000)) || 4000,
+      text_model_id: byId('v78ProcessingTextModel')?.value || state?.config?.app_config?.text_model_id || '',
       target_versions: targets,
       targetVersions: targets,
       ai_slot_methods_snapshot: configuredAiSlotMethods(),
@@ -125,6 +128,7 @@
     if (String(filters.date || '').trim()) params.set('date', String(filters.date).trim());
     if (String(filters.bookId || '').trim()) params.set('bookId', String(filters.bookId).trim());
     if (String(filters.status || '').trim()) params.set('status', String(filters.status).trim());
+    if (String(filters.scope || '').trim()) params.set('scope', String(filters.scope).trim());
     const query = params.toString();
     return query ? `?${query}` : '';
   }
@@ -215,6 +219,7 @@
     box.innerHTML = `
       <div class="v78-inline-head"><div><h3>本次处理</h3><div class="v78-muted">选择本次需要的文案版本；点击“开始处理”后自动解析并创建当前批次。</div></div></div>
       <div class="v78-version-grid">
+        <label class="v78-version-item">文本模型 <select id="v78ProcessingTextModel"><option value="">正在读取模型...</option></select></label>
         <label class="v78-version-item"><input id="v78TargetOriginal" type="checkbox"/> 原文</label>
         <label class="v78-version-item"><input id="v78TargetAi1" type="checkbox" checked/> AI1 <small data-v78-method="ai1">自动轮换</small></label>
         <label class="v78-version-item"><input id="v78TargetAi2" type="checkbox"/> AI2 <small data-v78-method="ai2">自动轮换</small></label>
@@ -222,11 +227,22 @@
         <label class="v78-version-item"><input id="v78TargetAi4" type="checkbox"/> AI4 <small data-v78-method="ai4">自动轮换</small></label>
         <label class="v78-version-item"><input id="v78TargetAi5" type="checkbox"/> AI5 <small data-v78-method="ai5">自动轮换</small></label>
       </div>
+      <div id="v78ProcessingTextModelStatus" class="v78-muted" style="margin-top:8px"></div>
       <div class="v78-muted" style="margin-top:8px">AI文案处理优先方案：跟随“配置”中 AI1～AI5 的现有设置。</div>
       <div id="v78ParsedBooks" class="v78-parsed-list" hidden></div>
       <div class="v78-actions compact"><button id="v78BackToInput" type="button" hidden>返回编辑</button><span id="v78PreviewStatus" class="v78-muted"></span></div>`;
     input.insertAdjacentElement('afterend', box);
     byId('v78BackToInput').onclick = backToInput;
+    const select = byId('v78ProcessingTextModel');
+    select.onchange = async () => {
+      try {
+        await persistSelectedTextModel(select.value);
+        setText('v78ProcessingTextModelStatus', '已保存为后续批次默认文本模型');
+      } catch (error) {
+        setText('v78ProcessingTextModelStatus', `保存文本模型失败：${error.message || '请稍后重试'}`);
+      }
+    };
+    void loadProcessingTextModels(select);
     box.addEventListener('change', event => {
       if (!event.target.matches('#v78TargetVersions input')) return;
       if (typeof saveWorkFormState === 'function') saveWorkFormState();
@@ -239,6 +255,37 @@
     refreshSlotMethodLabels();
     const processButton = byId('processBtn');
     bindV2ProcessButton(processButton);
+  }
+
+  async function loadProcessingTextModels(select) {
+    try {
+      const data = typeof api === 'function'
+        ? await api('/api/models?kind=text')
+        : await fetch('/api/models?kind=text', { headers: tokenHeaders() }).then(async response => {
+          const body = await response.json();
+          if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
+          return body;
+        });
+      const models = asArray(data.models);
+      select.innerHTML = '';
+      if (!models.length) {
+        select.innerHTML = '<option value="">暂无可用文本模型</option>';
+        setText('v78ProcessingTextModelStatus', '请先在 API 配置中启用文本模型');
+        return;
+      }
+      for (const model of models) {
+        const option = document.createElement('option');
+        option.value = model.id || model.modelId || '';
+        option.textContent = model.displayName || model.name || model.modelId || model.id;
+        select.appendChild(option);
+      }
+      const saved = String(state?.config?.app_config?.text_model_id || state?.config?.text_model_id || '');
+      select.value = models.some(model => String(model.id || model.modelId) === saved) ? saved : select.options[0].value;
+      setText('v78ProcessingTextModelStatus', '执行时使用此模型；修改后将作为后续批次默认值');
+    } catch (error) {
+      select.innerHTML = '<option value="">读取文本模型失败</option>';
+      setText('v78ProcessingTextModelStatus', `读取模型失败：${error.message || '请稍后重试'}`);
+    }
   }
 
   function refreshSlotMethodLabels() {
@@ -337,6 +384,12 @@
       for (;;) {
         await new Promise(resolve => setTimeout(resolve, 800));
         const current = await v2Api(`/process/jobs/${encodeURIComponent(job.id)}`);
+        for (const entry of asArray(current.progress)) {
+          const key = [entry.at, entry.book_id, entry.stage, entry.status].join(':');
+          if (seenProgressKeys.has(key)) continue;
+          seenProgressKeys.add(key);
+          appendProcessLog(`${entry.book_id || '批次'} · ${entry.stage || 'processing'} · ${taskStatusLabel(entry.status, entry.status)}${entry.message ? `：${entry.message}` : ''}`);
+        }
         if (current.queue_state && current.queue_state !== lastQueueState) {
           lastQueueState = current.queue_state;
           appendProcessLog(queueStateLabel(current.queue_state));
@@ -501,6 +554,7 @@
   async function refreshAllData() {
     const results = await Promise.allSettled([
       loadCurrentBatch(),
+      refreshQueueSummary(),
       typeof loadTasks === 'function' ? loadTasks() : Promise.resolve()
     ]);
     const tasks = typeof state === 'object' && Array.isArray(state.tasks) ? state.tasks : [];
@@ -543,6 +597,21 @@
     tabs.className = 'v78-history-tabs';
     tabs.innerHTML = `<button id="v78CurrentTasksTab" class="active">当前任务</button><button id="v78HistoryTab">历史批次</button>`;
     host.insertBefore(tabs, listDetails);
+    const queueSummary = document.createElement('div');
+    queueSummary.id = 'v78QueueSummary';
+    queueSummary.className = 'v78-inline-box v78-muted';
+    queueSummary.textContent = '任务队列正在读取...';
+    host.insertBefore(queueSummary, listDetails);
+    const scopes = document.createElement('div');
+    scopes.className = 'v78-actions compact';
+    scopes.innerHTML = '<button data-v78-task-scope="current">当前批次</button><button data-v78-task-scope="unfinished">历史未完成</button><button data-v78-task-scope="all">全部任务</button>';
+    scopes.onclick = event => {
+      const button = event.target.closest('[data-v78-task-scope]');
+      if (!button) return;
+      taskFilters.scope = button.dataset.v78TaskScope || '';
+      if (typeof loadTasks === 'function') void loadTasks();
+    };
+    host.insertBefore(scopes, listDetails);
     const history = document.createElement('div');
     history.id = 'v78HistoryBatchesPanel';
     history.className = 'v78-inline-box';
@@ -562,6 +631,18 @@
       const retryFailed = byId('retryFailedBtn');
       if (retryFailed?.parentElement === actions) retryFailed.insertAdjacentElement('afterend', button); else actions.appendChild(button);
       button.onclick = () => void stopSelectedTasks();
+    }
+  }
+
+  async function refreshQueueSummary() {
+    const box = byId('v78QueueSummary');
+    if (!box) return;
+    try {
+      const data = await v2Api('/realtime/status');
+      const counts = data.counts || {};
+      box.textContent = `任务中心 · 执行中 ${counts.running || 0} · 排队 ${counts.queued || 0} · 重试等待 ${counts.waiting_retry || 0} · 失败 ${counts.failed || 0} · 已停止 ${counts.stopped || 0}`;
+    } catch (error) {
+      box.textContent = `任务队列读取失败：${error.message || '请稍后重试'}`;
     }
   }
 
