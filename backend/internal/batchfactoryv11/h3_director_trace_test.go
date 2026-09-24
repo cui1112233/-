@@ -69,6 +69,27 @@ func TestParseH3DirectorDocumentNormalizesAConsistentZeroBasedModelIndex(t *test
 	}
 }
 
+func TestParseH3DirectorDocumentNormalizesStructuredCardAction(t *testing.T) {
+	value := decodeH3FixtureObject(t, "h3_v12_complete_director_trace.json")
+	h3FixtureCard(value, 0)["action"] = map[string]any{
+		"initial":     "母亲紧握病床栏杆",
+		"development": "她俯身靠近病床",
+		"result":      "手指停在孩子手背上方",
+	}
+	raw, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	document, err := ParseH3DirectorDocument(raw, acceptanceH3VideoSource())
+	if err != nil {
+		t.Fatalf("structured card action should be normalized: %v", err)
+	}
+	if got, want := document.DirectorCards[0].Action, "母亲紧握病床栏杆；她俯身靠近病床；手指停在孩子手背上方"; got != want {
+		t.Fatalf("normalized card action = %q, want %q", got, want)
+	}
+}
+
 func TestParseH3DirectorDocumentRejectsStringSceneMemory(t *testing.T) {
 	var value map[string]any
 	if err := json.Unmarshal(readH3Fixture(t, "h3_v12_complete_director_trace.json"), &value); err != nil {
