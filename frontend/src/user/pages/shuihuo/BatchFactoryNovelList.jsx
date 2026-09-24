@@ -2140,8 +2140,9 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
       setActionBusy('');
     }
   }
-  async function ensureBookAudioDuration(book, { force = false, quiet = false } = {}) {
-    const settings = effectiveBookSettings(batch, book);
+  async function ensureBookAudioDuration(book, { force = false, quiet = false, batchSnapshot = batch } = {}) {
+    const currentBatch = batchSnapshot || batch;
+    const settings = effectiveBookSettings(currentBatch, book);
     if (settings.fixedSingleVideo === true || settings.audioPlanningEnabled !== true) return Number(settings.audioDurationSeconds || 0);
     const input = batchFactoryBookAudioInput(book);
     const tts = await batchFactoryBookTts(settings);
@@ -2150,8 +2151,30 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
     if (!force && currentSeconds > 0 && (settings.audioDurationManual === true || String(settings.audioDurationFingerprint || '') === fingerprint)) return currentSeconds;
     if (!quiet) message.info(`正在为《${book.title || book.bookId || '当前小说'}》读取真实配音时长…`);
     const measured = await generateBatchFactoryBookAudioMeasurement(book, settings);
-    await saveBookOverrideWithRetry(batch.id, book.id, Number(book.revision || 0), { patch: { audioDurationSeconds: measured.durationSeconds, audioDurationFingerprint: measured.fingerprint, audioDurationManual: false } });
+    await saveBookOverrideWithRetry(currentBatch.id, book.id, Number(book.revision || 0), { patch: { audioDurationSeconds: measured.durationSeconds, audioDurationFingerprint: measured.fingerprint, audioDurationManual: false } });
     return measured.durationSeconds;
+  }
+
+  async function prepareAudioPlanningForBatch(currentBatch) {
+    const candidates = (currentBatch?.books || []).filter(book => {
+      const settings = effectiveBookSettings(currentBatch, book);
+      return settings.audioPlanningEnabled === true && settings.fixedSingleVideo !== true;
+    });
+    if (!candidates.length) return;
+    message.info(`正在逐本生成配音并读取 ${candidates.length} 本小说的真实时长…`);
+    const failed = [];
+    for (const book of candidates) {
+      try {
+        await ensureBookAudioDuration(book, { force: true, quiet: true, batchSnapshot: currentBatch });
+      } catch (error) {
+        failed.push(`${book.title || book.bookId || '当前小说'}：${error?.message || '配音时长读取失败'}`);
+      }
+    }
+    if (failed.length) {
+      message.warning(`已完成 ${candidates.length - failed.length}/${candidates.length} 本配音时长读取；${failed.join('；')}`);
+      return;
+    }
+    message.success(`已生成并读取 ${candidates.length} 本小说的真实配音时长。`);
   }
 	async function compileBookH3Videos(book) {
 		const latestResponse = await getBatch(batch.id);
@@ -2596,7 +2619,9 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
     } catch (error) { message.error(error?.message || '保存小说元数据失败'); } finally { setMetadataSaving(false); }
   }
   async function saveSettings(patch) {
+    const audioPlanningWasEnabled = batch?.settingsState?.patch?.audioPlanningEnabled === true;
     const normalized = { ...patch, audioDurationSeconds: 0, ...(patch.fixedSingleVideo === true ? { audioPlanningEnabled: false, audioMergeEnabled: false } : {}) };
+    const shouldPrepareAudio = audioPlanningWasEnabled === false && normalized.audioPlanningEnabled === true && normalized.fixedSingleVideo !== true;
     try {
       await saveBatchSettings(batch.id, { patch: normalized, expectedRevision: Number(batch?.settingsState?.revision || 0) }, { suppressGlobalError: true });
     } catch (error) {
@@ -2623,6 +2648,12 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
     }
     try {
       await refreshBatch();
+      if (shouldPrepareAudio) {
+        const refreshedResult = await getBatch(batch.id);
+        const refreshedBatch = resultData(refreshedResult, 'batch');
+        await prepareAudioPlanningForBatch(refreshedBatch);
+        await refreshBatch();
+      }
       message.success(`统一配置已应用到当前批量；已有单书覆盖保持不变。`);
       return true;
     } catch (error) { message.error(error?.message || '统一配置已保存，但刷新工作台失败'); return false; }

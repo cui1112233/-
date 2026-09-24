@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Opening the Batch Factory audio-planning toggle prepares per-book TTS duration without starting production, and automation heals missing durations before Director.
+**Goal:** Opening the Batch Factory audio-planning toggle prepares per-book TTS duration without starting production.
 
-**Architecture:** Keep duration preparation behind an automation adapter method and reuse the page’s existing TTS measurement contract. The unified-settings save handler compares the old and new switch state; only an off-to-on change invokes the page callback. The controller invokes the same adapter just before Director when the snapshot needs audio planning.
+**Architecture:** Reuse the page’s existing TTS measurement contract. The unified-settings save handler compares the old and new switch state; only an off-to-on change invokes the page callback. This browser-side preparation can read the generated audio metadata truthfully; it intentionally does not run Director or any production stage.
 
 **Tech Stack:** React, Node.js `node:test`, V12 compatibility API, existing Batch Factory settings and automation controller.
 
@@ -16,25 +16,16 @@
 
 ---
 
-### Task 1: Controller audio-duration preparation
+### Task 1: Toggle-time preparation
 
-**Files:** `lib/batch-factory-v11/automation-orchestrator.js`, `test/batch-factory-automation.test.js`.
+**Files:** `frontend/src/user/pages/shuihuo/BatchFactoryNovelList.jsx`, `frontend/src/user/pages/shuihuo/BatchFactoryNovelList.source.test.js`.
 
-- [ ] Write a failing test with an adapter `prepareAudioDuration` that records `audio`, then assert the order is `assets`, `audio`, `director` when `audioPlanningEnabled` is true.
-- [ ] Run `node --test --test-name-pattern='prepares audio duration before director' test/batch-factory-automation.test.js` and confirm it fails because preparation is absent.
-- [ ] Before Director, call optional `adapter.prepareAudioDuration({ owner, isOwner, batch, book, settings, job })` when audio planning is enabled. Preserve the existing per-book error behavior if preparation throws.
-- [ ] Run `node --test test/batch-factory-automation.test.js` and commit `fix(batch-factory): prepare audio before automated director`.
+- [ ] Add a failing source test asserting that a false-to-true `audioPlanningEnabled` save calls the existing per-book duration measurement, and does not invoke Director/production APIs.
+- [ ] After settings save, prepare non-fixed books only when the switch changed from off to on. Each measurement uses configured TTS, reads audio metadata, and persists it with the latest book revision.
+- [ ] Keep missing-duration automatic Director failures explicit for legacy batches; a separate server-side measurement capability requires a real source and is not implied by this toggle.
+- [ ] Run the source test and `npm --prefix frontend run build`; commit `fix(batch-factory): prepare audio when planning is enabled`.
 
-### Task 2: Toggle-time preparation and adapter
-
-**Files:** `routes/batch-factory-v11.js`, `frontend/src/user/pages/shuihuo/BatchFactoryNovelList.jsx`, `frontend/src/user/pages/shuihuo/BatchFactoryNovelList.source.test.js`.
-
-- [ ] Add a failing source test asserting that a false-to-true `audioPlanningEnabled` save calls `ensureBookAudioDuration(book, { quiet: true })`, and does not invoke Director/production APIs.
-- [ ] Add `prepareAudioDuration` to the automation adapter; it uses the configured TTS, reads the audio duration, and persists it with the latest book revision.
-- [ ] Pass an audio-preparation callback to the settings drawer. After settings save, call it only for non-fixed books when the switch changed from off to on.
-- [ ] Run the source test, `NODE_PATH=/Users/ming/Documents/ChatGPT/一战晟铭/node_modules node --test test/batch-factory-automation.test.js`, and `npm --prefix frontend run build`; commit `fix(batch-factory): prepare audio when planning is enabled`.
-
-### Task 3: Release verification
+### Task 2: Release verification
 
 - [ ] Push the exact `v88` SHA.
 - [ ] Deploy only the Node service from that SHA and reload Nginx.

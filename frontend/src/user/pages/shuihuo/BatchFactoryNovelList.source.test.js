@@ -760,6 +760,17 @@ test('lets each book measure temporary TTS audio for storyboard planning without
   assert.match(settingsSource, /音频不会保存或加入最终合并/);
 });
 
+test('prepares only temporary audio duration when unified audio planning is enabled', () => {
+  const start = source.indexOf('async function prepareAudioPlanningForBatch(currentBatch)');
+  const end = source.indexOf('async function compileBookH3Videos(book)', start);
+  const preparation = start >= 0 && end > start ? source.slice(start, end) : '';
+  assert.match(source, /const audioPlanningWasEnabled = batch\?\.settingsState\?\.patch\?\.audioPlanningEnabled === true;/);
+  assert.match(source, /audioPlanningWasEnabled === false && normalized\.audioPlanningEnabled === true/);
+  assert.match(source, /await prepareAudioPlanningForBatch\(refreshedBatch\)/);
+  assert.match(preparation, /await ensureBookAudioDuration\(book, \{ force: true, quiet: true, batchSnapshot: currentBatch \}\)/);
+  assert.doesNotMatch(preparation, /runBookStage|runBatchDirector|submitBatchProduction|runProduction/);
+});
+
 test('offers image generation inside the asset edit dialog after saving the current prompt', () => {
   const editor = source.match(/function AssetEditor[\s\S]*?function storyboardAssetDefaults/)?.[0] || '';
   assert.match(editor, /async function generateEditedAssetImage/);
