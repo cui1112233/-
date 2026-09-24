@@ -197,9 +197,80 @@ function sameSettingsPatch(left, right) {
   return JSON.stringify(left || {}) === JSON.stringify(right || {});
 }
 function h3DirectorCards(book) {
-  const output = book?.directorRevision?.output || {};
-  const document = output.h3_director || output.h3Director || {};
+  const document = h3DirectorDocument(book);
   return Array.isArray(document.director_cards) ? document.director_cards : Array.isArray(document.directorCards) ? document.directorCards : [];
+}
+function h3DirectorDocument(book) {
+  const output = book?.directorRevision?.output || {};
+  return output.h3_director || output.h3Director || {};
+}
+function h3Text(value) { return String(value || '').trim(); }
+function h3NumberText(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? String(number) : '';
+}
+function h3Value(object, snakeKey, camelKey = '') {
+  return object?.[snakeKey] ?? (camelKey ? object?.[camelKey] : undefined);
+}
+function h3CardCharacterNames(document, slotIDs = []) {
+  const roster = h3Value(document, 'character_roster', 'characterRoster');
+  const bySlot = new Map((Array.isArray(roster) ? roster : []).map(character => [h3Text(h3Value(character, 'slot_id', 'slotId')), character]));
+  return (Array.isArray(slotIDs) ? slotIDs : []).map(slotID => {
+    const character = bySlot.get(h3Text(slotID));
+    const name = h3Text(h3Value(character, 'canonical_name', 'canonicalName'));
+    return name ? `${slotID}(${name})` : h3Text(slotID);
+  }).filter(Boolean).join('、');
+}
+function h3AudioText(audio = {}, document = {}) {
+  const speaker = h3Text(h3Value(audio, 'speaker_slot_id', 'speakerSlotId'));
+  const speakerName = h3CardCharacterNames(document, speaker ? [speaker] : []);
+  const dialogue = h3Text(audio.dialogue);
+  const voiceOver = h3Text(h3Value(audio, 'voice_over', 'voiceOver'));
+  const effects = h3Value(audio, 'sound_effects', 'soundEffects');
+  const ambience = audio.ambience;
+  const parts = [
+    speakerName ? `说话人：${speakerName}` : '',
+    dialogue ? `对白：${dialogue}` : '',
+    voiceOver ? `旁白：${voiceOver}` : '',
+    Array.isArray(effects) && effects.length ? `音效：${effects.filter(Boolean).join('、')}` : '',
+    Array.isArray(ambience) && ambience.length ? `环境：${ambience.filter(Boolean).join('、')}` : h3Text(audio.ambient) ? `环境：${h3Text(audio.ambient)}` : ''
+  ].filter(Boolean);
+  return parts.join('；');
+}
+function formatH3DirectorCardPrompt(document = {}, card = {}) {
+  const roster = h3Value(document, 'character_roster', 'characterRoster');
+  const subjects = (Array.isArray(roster) ? roster : []).map((character, index) => {
+    const name = h3Text(h3Value(character, 'canonical_name', 'canonicalName')) || h3Text(h3Value(character, 'slot_id', 'slotId'));
+    const appearance = h3Text(character.appearance);
+    return name ? `<Subject ${index + 1}> ${name}${appearance ? `：${appearance}` : ''}` : '';
+  }).filter(Boolean);
+  const sourceIndex = Number(card.source_index ?? card.sourceIndex) || 1;
+  const scene = h3Text(h3Value(card, 'scene_description', 'sceneDescription')) || h3Text(card.visual_context ?? card.visualContext);
+  const sourceText = h3Text(card.source_text ?? card.sourceText);
+  const visual = h3Text(card.visual_context ?? card.visualContext);
+  const action = h3Text(card.action);
+  const characters = h3CardCharacterNames(document, h3Value(card, 'character_slot_ids', 'characterSlotIds'));
+  const camera = card.camera || {};
+  const movement = card.movement || {};
+  const cameraParts = [h3Text(h3Value(camera, 'shot_size', 'shotSize')), h3Text(h3Value(camera, 'shot_angle', 'shotAngle')), h3Text(camera.framing)].filter(Boolean);
+  const movementParts = [h3Text(h3Value(movement, 'camera_movement', 'cameraMovement')), h3Text(h3Value(movement, 'subject_movement', 'subjectMovement')), h3Text(movement.transition)].filter(Boolean);
+  const duration = h3NumberText(card.preferred_duration ?? card.preferredDuration ?? card.duration);
+  const lines = [];
+  if (subjects.length) lines.push('subject_definitions:', ...subjects, '');
+  lines.push(`[Scene ${sourceIndex}] ${scene || '未命名场景'}`);
+  if (sourceText) lines.push(`Event: ${sourceText}`);
+  if (visual) lines.push(`导演调度：${visual}`);
+  if (duration) lines.push(`Total duration: ${duration} seconds.`);
+  lines.push('[Shot 1]');
+  if (characters) lines.push(`人物：${characters}`);
+  if (visual) lines.push(`画面：${visual}`);
+  if (action) lines.push(`动作：${action}`);
+  if (cameraParts.length) lines.push(`机位：${cameraParts.join('，')}`);
+  if (movementParts.length) lines.push(`运镜：${movementParts.join('，')}`);
+  if (h3Text(card.rhythm)) lines.push(`节奏：${h3Text(card.rhythm)}`);
+  const audio = h3AudioText(card.audio || {}, document);
+  if (audio) lines.push(`Audio: ${audio}`);
+  return lines.join('\n');
 }
 function finalVideoPromptTemplate(body) {
   const value = String(body || '');
@@ -853,6 +924,7 @@ function PromptPanel({ book, batchId, settingsRevision, initialVideoId = '', onS
   const selectedIndex = Math.max(0, videos.findIndex(video => video.id === selectedVideoId));
   const selectedVideo = videos[selectedIndex] || null;
   const selectedPrecompiledFrame = resolvePrecompiledStoryboardFrame(book, selectedVideoId || initialVideoId);
+  const h3Document = h3DirectorDocument(book);
   const { displayPrompt, compiledPrompt, smartUnifiedPending, loading: compilingPrompt } = useCompiledVideoPrompt(batchId, book, selectedVideo, settingsRevision);
   const hasVisualPrompt = Boolean(String(visualPrompt || '').trim());
   const hasVideoPrompt = Boolean(String(videoPrompt || '').trim());
@@ -920,8 +992,16 @@ function PromptPanel({ book, batchId, settingsRevision, initialVideoId = '', onS
     return <div className="batch-factory-prompt-modal-stack">
       <div className="batch-factory-prompt-modal-head"><Space><Tooltip title="上一张 H3 导演卡"><Button aria-label="上一张 H3 导演卡" icon={<LeftOutlined />} disabled={selectedPrecompiledFrame.index === 0} onClick={() => movePrecompiledFrame(-1)} /></Tooltip><span className="batch-factory-prompt-modal-index">{selectedPrecompiledFrame.index + 1}/{precompiledWorkspace.frames.length}</span><Tooltip title="下一张 H3 导演卡"><Button aria-label="下一张 H3 导演卡" icon={<RightOutlined />} disabled={selectedPrecompiledFrame.index >= precompiledWorkspace.frames.length - 1} onClick={() => movePrecompiledFrame(1)} /></Tooltip></Space><span className="batch-factory-prompt-status">H3 导演卡 · 待编译 VIDEO</span></div>
       <Alert type="info" showIcon message="当前是 H3 导演结构，不是最终 VIDEO 提示词" description="开启跟随配音后会先读取每行真实时长，再按 10/15 秒确定性切段并填充最终 VIDEO Prompt。" />
-      <label className="shuihuo-form-label batch-factory-prompt-editor-label">H3 导演分镜<Input.TextArea rows={18} readOnly value={JSON.stringify(card, null, 2)} /></label>
-      <div className="batch-factory-prompt-modal-actions"><Button loading={regenerating} disabled={regenerating || !onRegenerate} onClick={onRegenerate}>重新生成导演分镜</Button><Button onClick={openH3Trace}>查看 H3 Trace</Button></div>
+      <label className="shuihuo-form-label batch-factory-prompt-editor-label">分镜视频提示词<Input.TextArea rows={18} readOnly value={formatH3DirectorCardPrompt(h3Document, card)} /></label>
+      <div className="batch-factory-prompt-modal-actions">
+        <Tooltip title="等待最终 VIDEO 编译后才能保存"><Button type="primary" disabled>保存</Button></Tooltip>
+        <Button loading={regenerating} disabled={regenerating || !onRegenerate} onClick={onRegenerate}>重新生成导演分镜</Button>
+        <Tooltip title="等待最终 VIDEO 编译后才能编辑"><Button disabled>编辑</Button></Tooltip>
+        <Tooltip title="等待 H3 最终 VIDEO 编译"><Button disabled>生成视频</Button></Tooltip>
+        <Tooltip title="等待当前分镜生成视频候选版本"><Button disabled>查看候选版本</Button></Tooltip>
+        <Button onClick={openH3Trace}>查看 H3 Trace</Button>
+        <Button type="text" disabled={regenerating} onClick={() => onRetry?.()}>重试</Button>
+      </div>
       <p className="shuihuo-modal-note">此处与当前行的资产、分镜视频共用同一张 H3 导演卡；最终 VIDEO 生成前，不会伪造可播放视频。</p>
       <Modal title="H3 分镜编译与提交 Trace" open={h3TraceOpen} onCancel={() => setH3TraceOpen(false)} footer={null} width={980}>{h3TraceBusy ? <Alert type="info" showIcon message="正在读取编译 Trace…" /> : h3TraceError ? <Alert type="error" showIcon message="编译 Trace 读取失败" description={h3TraceError} /> : <Alert type="info" showIcon message="当前导演卡尚未产生最终 VIDEO 编译记录" />}</Modal>
     </div>;
