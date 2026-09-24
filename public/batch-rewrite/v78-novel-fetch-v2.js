@@ -193,6 +193,18 @@
     document.head.appendChild(style);
   }
 
+  function bindV2ProcessButton(button) {
+    if (!button || button.dataset.v78V2ProcessBound === '1') return;
+    button.dataset.v78V2ProcessBound = '1';
+    // The legacy app registers its own onclick after this V2 client loads.
+    // Capture the gesture so one click always follows preview -> V2 queue start.
+    button.addEventListener('click', event => {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      void startSelectedProcessing();
+    }, true);
+  }
+
   function mountProcessingControls() {
     if (byId('v78TargetVersions')) return;
     const input = byId('inputText');
@@ -226,7 +238,7 @@
     }
     refreshSlotMethodLabels();
     const processButton = byId('processBtn');
-    if (processButton) processButton.onclick = () => void startSelectedProcessing();
+    bindV2ProcessButton(processButton);
   }
 
   function refreshSlotMethodLabels() {

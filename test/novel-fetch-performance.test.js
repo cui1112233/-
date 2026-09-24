@@ -19,7 +19,7 @@ test('V2 page injects a shared runtime before feature scripts', () => {
   assert.ok(injected.indexOf('v78-novel-fetch-v2-runtime.js') < injected.indexOf('app.js?v='));
   assert.ok(injected.indexOf('app.js?v=20260922-retry-progress-r1') < injected.indexOf('v78-novel-fetch-v2.js'));
   assert.match(injected, /app\.js\?v=20260922-retry-progress-r1/);
-  assert.match(injected, /v78-novel-fetch-v2\.js\?v=20260922-retry-progress-r1/);
+  assert.match(injected, /v78-novel-fetch-v2\.js\?v=20260924-manual-priority-r1/);
 });
 
 test('runtime provides single-flight requests and activity-aware polling', () => {
@@ -149,6 +149,14 @@ test('V2 parsed-book selections synchronize with the network-submit task selecti
   assert.match(app, /state\.selectedIds = new Set/);
   assert.match(app, /qiantieSubmitSelectedTasks = ids => void submitWebSubmit\("selected", ids\)/);
   assert.match(app, /webSubmitRequestPayload\(mode, force = false, explicitIds = null/);
+});
+
+test('manual start is captured by the V2 workflow so the legacy handler cannot append work to the queue tail', () => {
+  const client = read('public/batch-rewrite/v78-novel-fetch-v2.js');
+  assert.match(client, /function bindV2ProcessButton\(button\)/);
+  assert.match(client, /button\.addEventListener\('click',\s*event\s*=>\s*\{/);
+  assert.match(client, /event\.stopImmediatePropagation\(\)/);
+  assert.match(client, /void startSelectedProcessing\(\)/);
 });
 
 test('network submit rejects an empty selected-task request instead of reporting zero groups complete', () => {
