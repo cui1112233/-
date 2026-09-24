@@ -40,13 +40,16 @@ test('keeps H3 director cards in the workbench until final VIDEO compilation', (
   assert.match(source, /待编译的 H3 分镜视频/);
 });
 
-test('uses one unified configuration entry without clearing single-book overrides', () => {
+test('makes a saved unified configuration authoritative for every book', () => {
   const toolbar = source.match(/<div className="shuihuo-workbench-toolbar"[\s\S]*?<\/div>\n      <div className="shuihuo-workbench-export">/)?.[0] || '';
   assert.match(toolbar, />统一配置<\/Button>/);
   assert.doesNotMatch(toolbar, />引擎配置<\/Button>/);
   assert.doesNotMatch(toolbar, />AI 推理<\/Button>/);
   assert.match(source, /BatchFactoryUnifiedSettingsModal/);
-  assert.doesNotMatch(source, /restoreKeys: UNIFIED_BOOK_SETTING_KEYS/);
+  assert.match(source, /const UNIFIED_CONFIGURATION_KEYS = \[/);
+  assert.match(source, /async function syncUnifiedSettingsToBooks\(currentBatch\)/);
+  assert.match(source, /restoreKeys: UNIFIED_CONFIGURATION_KEYS/);
+  assert.match(source, /await syncUnifiedSettingsToBooks\(savedBatch\)/);
 });
 
 test('lets a book review a viral candidate before replacing working content', () => {

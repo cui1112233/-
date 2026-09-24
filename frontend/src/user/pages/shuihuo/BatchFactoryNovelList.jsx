@@ -97,11 +97,10 @@ import { videoProviderForModel } from './videoProviderBinding';
 
 
 const DEFAULT_TTS = { voice: 'zh-CN-XiaoxiaoNeural', style: 'general', speed: 1.8, pitch: 10 };
-const UNIFIED_BOOK_SETTING_KEYS = [
+const UNIFIED_CONFIGURATION_KEYS = [
   'textModelId', 'imageModelId', 'videoModelId', 'videoProvider', 'aspectRatio', 'imageAspectRatio', 'videoAspectRatio', 'videoResolution', 'productionMode',
   'storyboardDurationLimit', 'maxVideoDuration', 'fixedSingleVideo', 'audioPlanningEnabled',
-  'audioMergeEnabled', 'audioDurationSeconds', 'audioDurationFingerprint', 'audioDurationManual',
-  'tts', 'publishRewriteEnabled', 'publishSettings'
+  'audioMergeEnabled', 'tts', 'publishRewriteEnabled', 'publishSettings', 'aiPromptConfig'
 ];
 function readBatchFactoryAudioDuration(blob) {
   return new Promise((resolve, reject) => {
@@ -2176,6 +2175,20 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
     }
     message.success(`已生成并读取 ${candidates.length} 本小说的真实配音时长。`);
   }
+
+  async function syncUnifiedSettingsToBooks(currentBatch) {
+    const candidates = currentBatch?.books || [];
+    const results = await Promise.allSettled(candidates.map(async book => {
+      const bookPatch = book?.settingsState?.patch || {};
+      const restoreKeys = UNIFIED_CONFIGURATION_KEYS.filter(key => Object.hasOwn(bookPatch, key));
+      if (!restoreKeys.length) return;
+      await saveBookOverrideWithRetry(currentBatch.id, book.id, Number(book.revision || 0), { patch: {}, restoreKeys: UNIFIED_CONFIGURATION_KEYS });
+    }));
+    const failed = results.flatMap((result, index) => result.status === 'rejected'
+      ? [`${candidates[index]?.title || candidates[index]?.bookId || '当前小说'}：${result.reason?.message || '同步失败'}`]
+      : []);
+    if (failed.length) throw new Error(`统一配置已保存，但 ${failed.length} 本小说未完成同步：${failed.join('；')}`);
+  }
 	async function compileBookH3Videos(book) {
 		const latestResponse = await getBatch(batch.id);
 		const latestBatch = latestResponse?.batch || latestResponse;
@@ -2648,13 +2661,16 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
     }
     try {
       await refreshBatch();
+      const savedResult = await getBatch(batch.id);
+      const savedBatch = resultData(savedResult, 'batch');
+      await syncUnifiedSettingsToBooks(savedBatch);
       if (shouldPrepareAudio) {
         const refreshedResult = await getBatch(batch.id);
         const refreshedBatch = resultData(refreshedResult, 'batch');
         await prepareAudioPlanningForBatch(refreshedBatch);
-        await refreshBatch();
       }
-      message.success(`统一配置已应用到当前批量；已有单书覆盖保持不变。`);
+      await refreshBatch();
+      message.success(`统一配置已同步到当前批量全部小说。`);
       return true;
     } catch (error) { message.error(error?.message || '统一配置已保存，但刷新工作台失败'); return false; }
   }
