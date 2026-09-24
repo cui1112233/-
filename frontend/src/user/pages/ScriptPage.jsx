@@ -575,7 +575,7 @@ export function ScriptPage() {
         prompt,
         modelKey: scriptVideoModelKey,
         duration: resolvedDuration.duration,
-        resolution: scriptVideoModelKey === 'minimax-h3-video' ? '480p竖' : scriptVideoResolution,
+        resolution: scriptVideoResolution,
         aspectRatio: scriptVideoAspectRatio,
         imageUrls: withoutReferences ? [] : collectShotReferenceImages({ shotText: prompt, extractInfo, shotIndex: index, shotReferenceStates })
       });
@@ -1945,6 +1945,7 @@ export function ScriptPage() {
           <Form.Item label="图片画幅" style={{ marginBottom: 0 }}><Segmented block options={['16:9', '9:16', '1:1']} value={scriptConfigDraft.imageAspectRatio} onChange={imageAspectRatio => setScriptConfigDraft(current => ({ ...current, imageAspectRatio }))} /></Form.Item>
           <Form.Item label="视频画幅" style={{ marginBottom: 0 }}><Segmented block options={['16:9', '9:16']} value={scriptConfigDraft.videoAspectRatio} onChange={videoAspectRatio => setScriptConfigDraft(current => ({ ...current, videoAspectRatio }))} /></Form.Item>
           <Form.Item label="视频分辨率" style={{ marginBottom: 0 }}><Segmented block options={['480p', '720p', '1080p']} value={scriptConfigDraft.videoResolution} onChange={videoResolution => setScriptConfigDraft(current => ({ ...current, videoResolution }))} /></Form.Item>
+          {scriptConfigDraft.videoModelKey === 'minimax-h3-video' ? <Typography.Text type="secondary">H3 会保持所选横竖画幅；720p 与 1080p 会按 H3 的 768p 档提交。</Typography.Text> : null}
           <Typography.Text type="secondary">保存后会成为当前账号后续剧本生成的默认值；仍可随时在这里更换。</Typography.Text>
         </Space>
       </Modal>
