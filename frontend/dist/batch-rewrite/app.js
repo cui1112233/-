@@ -3297,37 +3297,24 @@ async function transferSelectedToBatchFactory() {
     const details = await Promise.all(ids.map(id => api(`/api/tasks/${encodeURIComponent(id)}`)));
     const items = details.flatMap((detail, index) => {
       const meta = detail?.meta || {};
+      const sourceText = String(detail?.original || "").trim();
+      if (!sourceText) return [];
       const sourceTaskId = String(meta.book_id || ids[index]).trim();
       const bookId = String(meta.book_id || ids[index]).trim();
       if (!sourceTaskId || !bookId) return [];
-      const baseTitle = String(meta.book_name || bookId).trim();
-      const versions = [{ version: "original", text: detail?.original }]
-        .concat(Array.isArray(detail?.ai_texts) ? detail.ai_texts : []);
-      const seenVersions = new Set();
-      return versions.flatMap(item => {
-        const version = String(item?.version || item?.name || "").trim().toLowerCase();
-        const sourceText = String(item?.text || "").trim();
-        if (!version || !sourceText || seenVersions.has(version)) return [];
-        seenVersions.add(version);
-        return [{
-          sourceTaskId,
-          bookId,
-          title: version === "original" ? baseTitle : `${version.toUpperCase()}·${baseTitle}`,
-          platform: String(meta.platform_name || "").trim(),
-          sourceText,
-          txtText: sourceText,
-          sourceMetadata: { ...meta, sourceContentVersion: version },
-        }];
-      });
+      return [{
+        sourceTaskId,
+        bookId,
+        title: String(meta.book_name || bookId).trim(),
+        platform: String(meta.platform_name || "").trim(),
+        sourceText,
+        txtText: sourceText,
+        sourceMetadata: meta,
+      }];
     });
-    const transferredTaskCount = details.filter(detail => {
-      const hasOriginal = Boolean(String(detail?.original || "").trim());
-      const hasAiVersion = Array.isArray(detail?.ai_texts) && detail.ai_texts.some(item => String(item?.text || "").trim());
-      return hasOriginal || hasAiVersion;
-    }).length;
-    const skipped = ids.length - transferredTaskCount;
+    const skipped = ids.length - items.length;
     if (!items.length) throw new Error("选中的任务都没有可用原文，请先完成原文获取");
-    const result = await platformApi("/api/batch-factory/v12/intakes/novel-fetch", {
+    const result = await platformApi("/api/batch-factory/v11/intakes/novel-fetch", {
       method: "POST",
       body: JSON.stringify({
         books: items.map(item => ({
@@ -3349,14 +3336,10 @@ async function transferSelectedToBatchFactory() {
       }),
     });
     const intakeId = String(result?.intake?.id || "").trim();
-    const redirectTo = intakeId ? `/shuihuo-production?intake=${encodeURIComponent(intakeId)}` : "";
-    if (!redirectTo) throw new Error("小说获取交接创建成功但未返回交接编号");
+    const redirectTo = result.redirectTo || (intakeId ? `/batch-factory?intake=${encodeURIComponent(intakeId)}` : "");
+    if (!redirectTo) throw new Error("V11 Intake 创建成功但未返回跳转地址");
     setBatchStatus(`已转入 ${items.length} 本${skipped ? `, 跳过 ${skipped} 本未完成任务` : ""}`);
-    if (window.parent !== window) {
-      window.parent.postMessage({ type: "qiantie:batch-factory-intake", intakeId, redirectTo }, window.location.origin);
-    } else {
-      window.location.assign(redirectTo);
-    }
+    window.parent.postMessage({ type: "qiantie:batch-factory-intake", redirectTo }, window.location.origin);
   } catch (error) {
     setBatchStatus(error.message || "转入批量工厂失败");
   } finally {
