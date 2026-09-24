@@ -96,7 +96,7 @@ export default function ScriptMentionEditor({
   candidates,
   editable,
   placeholder,
-  selectionOffset,
+  selectionOffset: initialSelectionOffset,
   onChange,
   onQueryChange,
   onEditorKeyDown
@@ -110,11 +110,11 @@ export default function ScriptMentionEditor({
     const root = editorRef.current;
     if (!root) return;
     renderSegments(root, segments);
-    if (Number.isInteger(selectionOffset)) restoreOffsetRef.current = selectionOffset;
+    if (Number.isInteger(initialSelectionOffset)) restoreOffsetRef.current = initialSelectionOffset;
     if (restoreOffsetRef.current === null) return;
     setSelectionOffset(root, restoreOffsetRef.current);
     restoreOffsetRef.current = null;
-  }, [selectionOffset, value, segments]);
+  }, [initialSelectionOffset, value, segments]);
 
   const emitQuery = useCallback(() => {
     const root = editorRef.current;

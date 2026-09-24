@@ -43,3 +43,10 @@ test('reads the live editor text on keyup so it cannot close a newly opened @ me
 
   assert.match(source, /const emitQuery = useCallback\(\(\) => \{\s*const root = editorRef\.current;\s*if \(!root\) return;\s*const text = root\.innerText\.replace\(\/\\r\/g, ''\);\s*onQueryChange\?\.\(\{ text, cursor: selectionOffset\(root\), rect: selectionRect\(root\) \}\);\s*\}, \[onQueryChange\]\);/s);
 });
+
+test('does not shadow the selection-offset helper with its numeric selection prop', () => {
+  const source = fs.readFileSync(sourcePath, 'utf8');
+
+  assert.match(source, /selectionOffset: initialSelectionOffset,/);
+  assert.match(source, /Number\.isInteger\(initialSelectionOffset\)/);
+});
