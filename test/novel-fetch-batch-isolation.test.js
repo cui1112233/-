@@ -7,6 +7,7 @@ const path = require('node:path');
 const { createNovelFetchBatches } = require('../lib/novel-fetch-workshop/batches');
 const { createWorkshopTasks } = require('../lib/novel-fetch-workshop/tasks');
 const { attachBatch } = require('../lib/novel-fetch-workshop/v2-api-contract');
+const { runNovelFetchBatch } = require('../lib/novel-fetch-workshop/runner');
 
 test('completed batch keeps only its submitted task ids and input order', () => {
   const usersDir = fs.mkdtempSync(path.join(os.tmpdir(), 'novel-fetch-batches-'));
@@ -73,4 +74,24 @@ test('task listing recovers batch date from metadata when the index is stale', a
   const listed = tasks.listTasks('tester');
   assert.equal(listed[0].batchId, 'batch-old');
   assert.equal(listed[0].batchCreatedAt, '2026-09-18T08:00:00.000Z');
+});
+
+test('runner result contains only the books parsed for this batch, never the account history', async () => {
+  const parsed = [{ bookId: 'new-1', bookName: '本次第一本' }, { bookId: 'new-2', bookName: '本次第二本' }];
+  const result = await runNovelFetchBatch({
+    username: 'tester',
+    payload: { input_text: 'new-1\nnew-2', batch_id: 'batch-current', batch_created_at: '2026-09-24T00:00:00.000Z' },
+    configStore: {
+      getConfig: () => ({ workflow: { auto_classify_missing: false, auto_fetch_original: false, auto_rewrite_after_fetch: false, auto_submit_after_rewrite: false }, fetch: {}, rewrite: {} }),
+      getStyles: () => [], getPlatforms: () => []
+    },
+    tasks: { saveTasks: async () => {} },
+    parseBooks: () => ({ tasks: parsed, duplicateCount: 0, emptyIdCount: 0 }),
+    listTasks: async () => [
+      { bookId: 'old-1', batchId: 'batch-old' },
+      { bookId: 'new-2', batchId: 'batch-current' },
+      { bookId: 'new-1', batchId: 'batch-current' }
+    ]
+  });
+  assert.deepEqual(result.tasks.map(task => task.bookId), ['new-1', 'new-2']);
 });
