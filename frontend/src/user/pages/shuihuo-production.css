@@ -2065,6 +2065,9 @@ body.batch-factory-column-resizing, body.batch-factory-column-resizing * { curso
   transition:transform .38s cubic-bezier(.18,.82,.18,1.04);
   will-change:transform;
 }
+.batch-factory-media-bottom-sheet.is-precompiled-collapsed {
+  height:56px;
+}
 [data-theme='light'] .batch-factory-media-bottom-sheet {
   box-shadow:0 -18px 42px rgba(38,54,75,.16);
 }
@@ -3330,3 +3333,21 @@ body.shuihuo-reference-shell
 }
 
 /* BF_ASSET_VERTICAL_ALIGN_AND_WORKBENCH_FILL_END */
+
+/* 上传确认弹窗的会话状态必须在深色工作台中保持可读。 */
+.batch-factory-publish-session-tag.ant-tag {
+  margin: 0;
+  font-weight: 700;
+}
+
+.batch-factory-publish-session-tag.is-unverified {
+  color: #ffd4cf !important;
+  border-color: #a94035 !important;
+  background: #4a1718 !important;
+}
+
+.batch-factory-publish-session-tag.is-ready {
+  color: #82e4c6 !important;
+  border-color: #3b7167 !important;
+  background: #183a39 !important;
+}
