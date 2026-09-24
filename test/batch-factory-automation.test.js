@@ -102,6 +102,20 @@ test('audio-planned automation measures and saves duration before running direct
   assert.deepEqual(order.slice(0, 3), ['assets', 'audio', 'director']);
 });
 
+test('automation skips visual prompt generation when that AI option is not enabled', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-no-visual-'));
+  const { batch, adapter } = fixture();
+  batch.settingsState.patch.aiPromptConfig = { visual: { enabled: false } };
+  const stages = [];
+  const originalRunStage = adapter.runStage;
+  adapter.runStage = async input => { stages.push(input.stage); return originalRunStage(input); };
+  const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} } });
+  await controller.start({ owner: 'user', batchId: batch.id, runMode: 'video_no_submit' });
+  for (let i = 0; i < 9; i += 1) { await controller.tick(); await wait(); }
+  assert.equal(stages.includes('visual'), false);
+  assert.equal(stages.includes('video'), true);
+});
+
 test('automation with autoPublish uploads a confirmed merged book exactly once', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-test-'));
   const { adapter } = fixture();
