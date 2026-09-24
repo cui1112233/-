@@ -45,7 +45,12 @@ async function providerAccessibleImageUrls(req, value) {
   const requestedImages = Array.isArray(value) ? value : [];
   const assetStore = req.app?.locals?.novelPanelPremiumStore;
   return Promise.all(requestedImages.map(async imageURL => {
-    const tosUrl = await assetStore?.syncReferenceAssetUrlToTos?.(req.username, imageURL);
+    let tosUrl = null;
+    try {
+      tosUrl = await assetStore?.syncReferenceAssetUrlToTos?.(req.username, imageURL);
+    } catch (_) {
+      // A configured-but-unreachable TOS endpoint must not prevent the signed public-link fallback.
+    }
     return tosUrl || h3ReferenceUrl(imageURL, req.username);
   }));
 }
