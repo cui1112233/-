@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { buildInlineMentionNodes, replaceMentionToken, serializeInlineMentionRoot } from './inlineMentionDocument';
 import { findMentionToken } from './mentionAssetMenu';
 
@@ -77,6 +77,29 @@ export const InlineMentionEditor = forwardRef(function InlineMentionEditor({ val
   )), [assets, failedImages]);
   const nodes = useMemo(() => buildInlineMentionNodes(renderValue, usableAssets), [renderValue, usableAssets]);
 
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const fragment = document.createDocumentFragment();
+    nodes.forEach(node => {
+      if (node.kind !== 'mention') {
+        fragment.append(document.createTextNode(node.text));
+        return;
+      }
+      const mention = document.createElement('span');
+      mention.className = 'inline-image-mention';
+      mention.contentEditable = 'false';
+      mention.dataset.mentionName = node.name;
+      const image = document.createElement('img');
+      image.src = node.imageUrl;
+      image.alt = '';
+      image.addEventListener('error', () => setFailedImages(current => new Set([...current, node.imageUrl])), { once: true });
+      mention.append(image, document.createTextNode(node.name));
+      fragment.append(mention);
+    });
+    root.replaceChildren(fragment);
+  }, [nodes]);
+
   function syncMentionTarget() {
     const before = selectedTextBefore(rootRef.current);
     const token = findMentionToken(before, before.length);
@@ -141,12 +164,5 @@ export const InlineMentionEditor = forwardRef(function InlineMentionEditor({ val
     onClick={syncMentionTarget}
     onFocus={syncMentionTarget}
     onBlur={commitDraft}
-  >
-    {nodes.map((node, index) => node.kind === 'mention' ? <span
-      className="inline-image-mention"
-      contentEditable={false}
-      data-mention-name={node.name}
-      key={`${node.name}-${index}`}
-    ><img src={node.imageUrl} alt="" onError={() => setFailedImages(current => new Set([...current, node.imageUrl]))} />{node.name}</span> : node.text)}
-  </div>;
+  />;
 });
