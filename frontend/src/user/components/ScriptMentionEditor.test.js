@@ -8,12 +8,12 @@ test('declares an editable surface and non-editable visual mention chips', () =>
   const source = fs.readFileSync(sourcePath, 'utf8');
 
   assert.match(source, /contentEditable=\{editable\}/);
-  assert.match(source, /contentEditable=\{false\}/);
+  assert.match(source, /chip\.contentEditable = 'false'/);
   assert.match(source, /buildInlineMentionSegments\(value, candidates\)/);
-  assert.match(source, /loading="lazy"/);
+  assert.match(source, /image\.loading = 'lazy'/);
   assert.match(source, /script-mention-editor/);
   assert.match(source, /getClientRects\(\)/);
-  assert.match(source, /data-mention-value/);
+  assert.match(source, /chip\.dataset\.mentionValue/);
 });
 
 test('wires composition and plain-text paste guards into the editor surface', () => {
@@ -22,4 +22,12 @@ test('wires composition and plain-text paste guards into the editor surface', ()
   assert.match(source, /onCompositionStart/);
   assert.match(source, /onCompositionEnd/);
   assert.match(source, /clipboardData\.getData\('text\/plain'\)/);
+});
+
+test('renders editable children outside React reconciliation', () => {
+  const source = fs.readFileSync(sourcePath, 'utf8');
+
+  assert.match(source, /useLayoutEffect/);
+  assert.match(source, /root\.replaceChildren/);
+  assert.doesNotMatch(source, /\{segments\.map\(/);
 });
