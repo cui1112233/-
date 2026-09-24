@@ -22,7 +22,7 @@
 
 **Files:**
 - Modify: `routes/script-video.js:125-135,307-320`
-- Modify: `routes/script-video.test.js`
+- Create: `routes/script-video-h3-media.test.js`
 
 **Interfaces:**
 - Produces: `resolveH3VideoMedia({ aspectRatio, resolution }) -> { aspectRatio, resolution }`.
@@ -38,7 +38,7 @@ test('maps H3 video settings without reading the image ratio', () => {
 
 - [ ] **Step 2: Verify RED**
 
-Run `node --test --test-name-pattern='maps H3 video settings' routes/script-video.test.js` and expect failure because the mapper is absent.
+Run `node --test routes/script-video-h3-media.test.js` and expect failure because the mapper is absent.
 
 - [ ] **Step 3: Implement the smallest mapper**
 
@@ -54,17 +54,17 @@ Use its `resolution` before the existing H3 request validator. Export it for the
 
 - [ ] **Step 4: Verify GREEN**
 
-Run `node --test routes/script-video.test.js` and expect all route tests to pass.
+Run `node --test routes/script-video-h3-media.test.js` and expect all route tests to pass.
 
 - [ ] **Step 5: Commit**
 
-Commit `routes/script-video.js` and `routes/script-video.test.js` as `fix(script): map H3 video media settings`.
+Commit `routes/script-video.js` and `routes/script-video-h3-media.test.js` as `fix(script): map H3 video media settings`.
 
 ### Task 2: Independent UI payload and H3 capability copy
 
 **Files:**
 - Modify: `frontend/src/user/pages/ScriptPage.jsx:570-581,1943-1948`
-- Create: `frontend/src/user/pages/ScriptPage.media-settings.source.test.js`
+- Create: `frontend/src/user/pages/scriptVideoMediaSettings.test.js`
 
 **Interfaces:**
 - Consumes: `scriptVideoAspectRatio`, `scriptVideoResolution`, and `scriptVideoModelKey`.
@@ -82,7 +82,7 @@ test('does not hard-code vertical H3 media settings', () => {
 
 - [ ] **Step 2: Verify RED**
 
-Run `node --test frontend/src/user/pages/ScriptPage.media-settings.source.test.js` and expect the hard-coded H3 setting assertion to fail.
+Run `node --test frontend/src/user/pages/scriptVideoMediaSettings.test.js` and expect the hard-coded H3 setting assertion to fail.
 
 - [ ] **Step 3: Implement the smallest UI change**
 
@@ -90,7 +90,7 @@ Always send `scriptVideoResolution` and `scriptVideoAspectRatio` as the video pa
 
 - [ ] **Step 4: Verify GREEN**
 
-Run `node --test frontend/src/user/pages/ScriptPage.media-settings.source.test.js` and expect it to pass.
+Run `node --test frontend/src/user/pages/scriptVideoMediaSettings.test.js` and expect it to pass.
 
 - [ ] **Step 5: Commit**
 
@@ -100,8 +100,8 @@ Commit the page and source test as `fix(script): keep video settings independent
 
 **Files:**
 - Verify: `routes/config.script-defaults.test.js`
-- Verify: `routes/script-video.test.js`
-- Verify: `frontend/src/user/pages/ScriptPage.media-settings.source.test.js`
+- Verify: `routes/script-video-h3-media.test.js`
+- Verify: `frontend/src/user/pages/scriptVideoMediaSettings.test.js`
 
 - [ ] **Step 1: Run targeted tests and frontend build**
 
