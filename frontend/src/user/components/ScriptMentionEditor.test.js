@@ -31,3 +31,9 @@ test('renders editable children outside React reconciliation', () => {
   assert.match(source, /root\.replaceChildren/);
   assert.doesNotMatch(source, /\{segments\.map\(/);
 });
+
+test('captures the @ query cursor before a parent output update can redraw the editor', () => {
+  const source = fs.readFileSync(sourcePath, 'utf8');
+
+  assert.match(source, /const cursor = selectionOffset\(root\);\s*const rect = selectionRect\(root\);\s*restoreOffsetRef\.current = cursor;\s*onChange\?\.\(text\);\s*onQueryChange\?\.\(\{ text, cursor, rect \}\)/s);
+});

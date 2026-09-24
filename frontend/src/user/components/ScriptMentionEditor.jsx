@@ -125,10 +125,15 @@ export default function ScriptMentionEditor({
     const root = editorRef.current;
     if (!root) return;
     const text = root.innerText.replace(/\r/g, '');
-    restoreOffsetRef.current = selectionOffset(root);
+    // Changing the parent value can synchronously redraw this contenteditable
+    // surface. Read the caret before that redraw so an @ just typed still
+    // opens its candidate menu at the original location.
+    const cursor = selectionOffset(root);
+    const rect = selectionRect(root);
+    restoreOffsetRef.current = cursor;
     onChange?.(text);
-    emitQuery(text);
-  }, [emitQuery, onChange]);
+    onQueryChange?.({ text, cursor, rect });
+  }, [onChange, onQueryChange]);
 
   const handlePaste = useCallback(event => {
     event.preventDefault();
