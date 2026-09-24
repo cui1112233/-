@@ -81,7 +81,10 @@ services:
       QIANTIE_REFERENCE_ASSET_TOS_BUCKET: ${QIANTIE_REFERENCE_ASSET_TOS_BUCKET:-}
       QIANTIE_REFERENCE_ASSET_TOS_ACCESS_KEY: ${QIANTIE_REFERENCE_ASSET_TOS_ACCESS_KEY:-}
       QIANTIE_REFERENCE_ASSET_TOS_SECRET_KEY: ${QIANTIE_REFERENCE_ASSET_TOS_SECRET_KEY:-}
-      QIANTIE_RELEASE_SHA: ${QIANTIE_NODE_RELEASE_SHA:-${QIANTIE_RELEASE_SHA}}
+      # Compose does not recursively expand the fallback expression inside a
+      # variable default. Keep the Node release identity explicit so the
+      # running build-info always reports the exact Node image SHA.
+      QIANTIE_RELEASE_SHA: ${QIANTIE_NODE_RELEASE_SHA}
     volumes:
       - v88_data:/app/data
       - v88_outputs:/app/outputs
