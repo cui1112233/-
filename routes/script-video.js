@@ -41,6 +41,15 @@ function acceptsScriptImages(modelKey) {
   return [YD_MODEL_KEY, H3_MODEL_KEY, YFAI_SEEDANCE_MODEL].includes(String(modelKey || '').trim());
 }
 
+async function providerAccessibleImageUrls(req, value) {
+  const requestedImages = Array.isArray(value) ? value : [];
+  const assetStore = req.app?.locals?.novelPanelPremiumStore;
+  return Promise.all(requestedImages.map(async imageURL => {
+    const tosUrl = await assetStore?.syncReferenceAssetUrlToTos?.(req.username, imageURL);
+    return tosUrl || h3ReferenceUrl(imageURL, req.username);
+  }));
+}
+
 function readTaskID(payload) {
   const candidates = [payload?.task_id, payload?.taskId, payload?.id, payload?.data?.task_id, payload?.data?.taskId, payload?.data?.id, payload?.result?.task_id, payload?.result?.taskId];
   const value = candidates.find(item => typeof item === 'string' || typeof item === 'number');
@@ -289,13 +298,7 @@ function createScriptVideoRouter({
       let resolution;
       try {
         const requestedImages = req.body?.referenceImages ?? req.body?.imageUrls;
-        const assetStore = req.app?.locals?.novelPanelPremiumStore;
-        const normalizedReferences = Array.isArray(requestedImages)
-          ? await Promise.all(requestedImages.map(async imageURL => {
-            const tosUrl = await assetStore?.syncReferenceAssetUrlToTos?.(req.username, imageURL);
-            return tosUrl || h3ReferenceUrl(imageURL, req.username);
-          }))
-          : requestedImages;
+        const normalizedReferences = await providerAccessibleImageUrls(req, requestedImages);
         referenceImages = validH3ReferenceImageURLs(normalizedReferences);
         duration = h3Duration(req.body?.duration);
         resolution = h3Resolution(req.body?.resolution);
@@ -329,13 +332,14 @@ function createScriptVideoRouter({
       }
       let payload;
       try {
+        const imageUrls = await providerAccessibleImageUrls(req, req.body?.imageUrls);
         payload = buildYfaiSeedancePayload({
           prompt,
           duration: req.body?.duration,
           resolution: req.body?.resolution,
           aspectRatio: req.body?.aspectRatio || req.body?.aspect_ratio,
           quality: req.body?.quality,
-          imageUrls: req.body?.imageUrls
+          imageUrls
         });
       } catch (error) {
         return res.status(400).json({ error: error.message || 'Seedance 参数不正确' });
@@ -350,7 +354,7 @@ function createScriptVideoRouter({
       }
     }
     let imageUrls;
-    try { imageUrls = validOptionalImageURLs(req.body?.imageUrls); } catch (error) { return res.status(400).json({ error: error.message || '可选图片参数不正确' }); }
+    try { imageUrls = validOptionalImageURLs(await providerAccessibleImageUrls(req, req.body?.imageUrls)); } catch (error) { return res.status(400).json({ error: error.message || '可选图片参数不正确' }); }
     const apiKey = getVideoApiKey(configReader(req.username), 'yd');
     if (!apiKey) return res.status(400).json({ error: '请先在设置中保存视频生成 API Key' });
     try {

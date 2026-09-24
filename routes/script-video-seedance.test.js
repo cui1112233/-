@@ -22,6 +22,13 @@ test('script video submits Seedance through the configured YFAI adapter', async 
   });
   const app = express();
   app.use(express.json());
+  app.locals.novelPanelPremiumStore = {
+    syncReferenceAssetUrlToTos: async (username, imageUrl) => {
+      assert.equal(username, 'owner');
+      assert.equal(imageUrl, '/api/novel-panel/reference-assets/file/character/wife/main');
+      return 'https://assets.example/reference-assets/owner/character/wife/main.png?signature=1';
+    }
+  };
   app.use('/api/script-video', router);
   const server = await new Promise(resolve => {
     const instance = app.listen(0, '127.0.0.1', () => resolve(instance));
@@ -30,12 +37,17 @@ test('script video submits Seedance through the configured YFAI adapter', async 
     const response = await fetch(`http://127.0.0.1:${server.address().port}/api/script-video`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ modelKey: 'seedance-2-0-official', prompt: '夜晚的城市雨巷' })
+      body: JSON.stringify({
+        modelKey: 'seedance-2-0-official',
+        prompt: '夜晚的城市雨巷',
+        imageUrls: ['/api/novel-panel/reference-assets/file/character/wife/main']
+      })
     });
     assert.equal(response.status, 202);
     assert.deepEqual(await response.json(), { ok: true, taskId: 'yfai:task-seedance-1', provider: 'yfai_seedance' });
     assert.equal(submitted.apiKey, 'yfai-test-key');
-    assert.equal(submitted.payload.params.mode, 'text-to-video');
+    assert.equal(submitted.payload.params.mode, 'reference');
+    assert.deepEqual(submitted.payload.params.images, ['https://assets.example/reference-assets/owner/character/wife/main.png?signature=1']);
   } finally {
     await new Promise(resolve => server.close(resolve));
   }
