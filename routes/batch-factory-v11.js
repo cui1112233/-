@@ -1706,7 +1706,8 @@ function createBatchFactoryV11Router(options = {}) {
       const batch = current?.batch || current;
       const result = await automation.start({
         ...automationContext(req), scheduledAt: req.body?.scheduledAt,
-        runMode: req.body?.runMode, preset: preset ? { id: preset.id, name: preset.name, version: preset.version } : {},
+        runMode: req.body?.runMode, concurrency: req.body?.concurrency,
+        preset: preset ? { id: preset.id, name: preset.name, version: preset.version } : {},
         configSnapshot: preset?.config || object(batch?.settingsState?.patch)
       });
       return res.status(201).json({ automation: result });

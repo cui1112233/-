@@ -13,21 +13,23 @@ test('uses a full novel-fetch metadata preset by default', () => {
   assert.match(source, /书籍ID,书名,男女频,风格,标签,推荐理由,评级/);
 });
 
-test('starts a scheduled batch at a production start time with one frozen automation preset and run mode', () => {
+test('offers immediate and Beijing-time automation with a frozen concurrency limit', () => {
   assert.match(source, /开始定时/);
+  assert.match(source, /立即执行/);
   assert.match(source, /listAutomationPresets/);
   assert.match(source, /automationPresetID/);
   assert.match(source, /automationRunMode/);
   assert.match(source, /选择已保存预设/);
   assert.match(source, /只生成分镜/);
   assert.match(source, /生成视频不提交/);
-  assert.match(source, /自动启动时间/);
+  assert.match(source, /自动启动时间（北京时间 UTC\+8）/);
   assert.match(source, /到点启动自动生产；生成、合成与上传按后续流程继续，不会在此时间直接提交。/);
   assert.match(source, /全自动生成并提交（成片完成后上传）/);
   assert.match(source, /presetId: automationPresetID/);
   assert.match(source, /runMode: automationRunMode/);
-  assert.doesNotMatch(source, /automationConcurrency/);
-  assert.doesNotMatch(source, />并发数</);
+  assert.match(source, /automationConcurrency/);
+  assert.match(source, /同时处理书籍/);
+  assert.match(source, /parseBeijingDatetimeLocal/);
   assert.match(source, /定时任务/);
   assert.doesNotMatch(source, /<strong>自动补抓正文<\/strong>/);
   assert.doesNotMatch(source, /<strong>自动生产<\/strong>/);

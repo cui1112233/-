@@ -71,3 +71,21 @@ test('manual batch submission preserves explicit scheduled full-automation choic
   assert.equal(uploadOnly.automationEnabled, false);
   assert.equal(uploadOnly.autoPublishEnabled, false);
 });
+
+test('manual batch submission preserves immediate automation and its frozen book concurrency', () => {
+  const payload = buildManualBatchSubmission({
+    title: '立即生产',
+    platformId: '15',
+    inputText: '2083601795096502516\\t淮雪',
+    sourceTextByBookId: { '2083601795096502516': '正文' },
+    automationEnabled: true,
+    scheduledAt: '',
+    runMode: 'full_submit',
+    automationConcurrency: 4
+  });
+
+  assert.equal(payload.automationEnabled, true);
+  assert.equal(payload.scheduledAt, '');
+  assert.equal(payload.autoPublishEnabled, true);
+  assert.equal(payload.automationConcurrency, 4);
+});

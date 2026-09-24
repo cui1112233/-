@@ -23,16 +23,20 @@ test('keeps people and scene presets inside each book row instead of the global 
 	assert.match(source, /管理当前书资产/);
 });
 
-test('starts scheduled automation from an existing preset at a production start time', () => {
-  const scheduleDialog = source.match(/<Modal title="开始定时"[\s\S]*?<\/Modal>/)?.[0] || '';
+test('offers existing batches explicit immediate and Beijing-time automation actions', () => {
+  const scheduleDialog = source.match(/<Modal title="自动生产"[\s\S]*?<\/Modal>/)?.[0] || '';
   assert.match(scheduleDialog, /<b>自动化预设<\/b>/);
   assert.match(scheduleDialog, /<b>执行模式<\/b>/);
-  assert.match(scheduleDialog, /<b>自动启动时间<\/b>/);
-  assert.match(scheduleDialog, /到点启动自动生产；生成、合成与上传按后续流程继续，不会在此时间直接提交。/);
+  assert.match(scheduleDialog, /<b>自动启动时间（北京时间 UTC\+8）<\/b>/);
+  assert.match(scheduleDialog, />立即执行<\/Button>/);
+  assert.match(scheduleDialog, />保存定时任务<\/Button>/);
+  assert.match(scheduleDialog, /同时处理书籍/);
   assert.match(scheduleDialog, /全自动生成并提交（成片完成后上传）/);
   assert.doesNotMatch(scheduleDialog, /预设名称/);
   assert.doesNotMatch(scheduleDialog, /saveCurrentAutomationPreset/);
   assert.match(source, /请先选择自动化预设/);
+  assert.match(source, /parseBeijingDatetimeLocal/);
+  assert.match(source, /下次重试：北京时间/);
 });
 
 test('keeps H3 director cards in the workbench until final VIDEO compilation', () => {

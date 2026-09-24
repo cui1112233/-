@@ -15,12 +15,16 @@ export function hasFetchedManualSources(bookIds, sourceTextByBookId) {
   return bookIds.length > 0 && bookIds.every(bookId => String(sourceTextByBookId?.[bookId] || '').trim());
 }
 
-export function buildManualBatchSubmission({ title, scheduledAt = '', automationEnabled = false, autoPublishEnabled = false, ...input }) {
+export function buildManualBatchSubmission({ title, scheduledAt = '', automationEnabled = false, autoPublishEnabled = false, automationConcurrency = 2, runMode = '', ...input }) {
+  const enabled = automationEnabled === true;
+  const normalizedRunMode = String(runMode || '').trim();
   return {
     ...input,
     title: String(title || '').trim(),
     scheduledAt: String(scheduledAt || ''),
-    automationEnabled: automationEnabled === true,
-    autoPublishEnabled: automationEnabled === true && autoPublishEnabled === true
+    runMode: normalizedRunMode,
+    automationEnabled: enabled,
+    autoPublishEnabled: enabled && (autoPublishEnabled === true || normalizedRunMode === 'full_submit'),
+    automationConcurrency: [1, 2, 4].includes(Number(automationConcurrency)) ? Number(automationConcurrency) : 2
   };
 }

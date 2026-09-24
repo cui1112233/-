@@ -151,14 +151,164 @@ test('full-submit upload receives the frozen publish settings instead of live ba
   assert.deepEqual(publishSettings, { organization: 'frozen-org', category: 'FROZEN' });
 });
 
-test('automation uses controller dispatcher capacity and does not persist caller concurrency on a job', async () => {
+test('automation freezes the requested per-job concurrency and defaults old callers to two books', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-test-'));
   const { adapter } = fixture();
   const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} }, dispatcherConcurrency: 1 });
   const started = await controller.start({ owner: 'user', batchId: 'batch-1', concurrency: 4, runMode: 'storyboard_only' });
-  assert.equal(Object.hasOwn(started, 'concurrency'), false);
+  assert.equal(started.concurrency, 4);
   const persisted = JSON.parse(fs.readFileSync(controller.statePath, 'utf8'));
-  assert.equal(Object.hasOwn(Object.values(persisted.jobs)[0], 'concurrency'), false);
+  assert.equal(Object.values(persisted.jobs)[0].concurrency, 4);
+
+  const fallback = await controller.start({ owner: 'user', batchId: 'batch-2', runMode: 'storyboard_only' });
+  assert.equal(fallback.concurrency, 2);
+});
+
+test('ten-book automation honors the frozen four-book admission limit', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-test-'));
+  const { batch, adapter } = fixture();
+  batch.books = Array.from({ length: 10 }, (_, index) => ({ id: `book-${index + 1}`, bookId: String(index + 1), title: `小说 ${index + 1}`, sourceText: '正文', settingsState: { patch: {} }, assetRecords: [], videos: [] }));
+  let active = 0;
+  let maximum = 0;
+  adapter.runStage = async ({ book, stage }) => {
+    assert.equal(stage, 'assets');
+    active += 1;
+    maximum = Math.max(maximum, active);
+    await wait(25);
+    book.assetRecords = [{ id: `asset-${book.id}`, kind: 'character' }];
+    active -= 1;
+  };
+  const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} }, dispatcherConcurrency: 1 });
+  const started = await controller.start({ owner: 'user', batchId: batch.id, concurrency: 4, runMode: 'storyboard_only' });
+  assert.equal(started.concurrency, 4);
+  await wait(70);
+  assert.equal(maximum, 4);
+  assert.equal(controller.status({ owner: 'user', batchId: batch.id }).concurrency, 4);
+});
+
+test('a transient failure waits for retry without occupying the next book slot', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-test-'));
+  const { batch, adapter } = fixture();
+  batch.books.push({ id: 'book-2', bookId: '102', title: '第二本', sourceText: '正文', settingsState: { patch: {} }, assetRecords: [{ id: 'ready-asset', kind: 'character' }], videos: [] });
+  let currentTime = 0;
+  const actions = [];
+  adapter.runStage = async ({ book, stage }) => {
+    actions.push(`${book.id}:${stage}`);
+    if (book.id === 'book-1' && stage === 'assets') throw new Error('provider temporarily unavailable');
+    if (book.id === 'book-2' && stage === 'director') { book.directorRevision = { id: 'd2' }; book.videos = [{ id: 'v2', label: 'VIDEO02', visualPrompt: '最终提示词' }]; }
+  };
+  const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} }, now: () => currentTime, dispatcherConcurrency: 1 });
+  await controller.start({ owner: 'user', batchId: batch.id, concurrency: 1, runMode: 'storyboard_only' });
+  await controller.tick();
+  await wait();
+  await controller.tick();
+  await wait();
+  const status = controller.status({ owner: 'user', batchId: batch.id });
+  const retrying = status.books.find(book => book.bookId === 'book-1');
+  assert.equal(retrying.status, 'waiting');
+  assert.equal(retrying.retryCount, 1);
+  assert.equal(retrying.retryAt, '1970-01-01T00:00:30.000Z');
+  assert.deepEqual(actions, ['book-1:assets', 'book-2:director']);
+});
+
+test('invalid API keys remain terminal instead of consuming automatic retries', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-test-'));
+  const { adapter } = fixture();
+  adapter.runStage = async () => { throw new Error('personal video provider did not create a task: Invalid API key'); };
+  const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} } });
+  await controller.start({ owner: 'user', batchId: 'batch-1', concurrency: 2 });
+  await controller.tick();
+  await wait();
+  const status = controller.status({ owner: 'user', batchId: 'batch-1' });
+  assert.equal(status.books[0].status, 'failed');
+  assert.equal(status.books[0].retryCount, 0);
+});
+
+test('a transient provider VIDEO failure is retried only for that VIDEO after its backoff', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-test-'));
+  const { batch, adapter } = fixture();
+  const book = batch.books[0];
+  book.assetRecords = [{ id: 'a1', kind: 'character' }];
+  book.directorRevision = { id: 'd1' };
+  book.videos = [{ id: 'video-1', label: 'VIDEO01', visualPrompt: '提示词' }];
+  let currentTime = 0;
+  let production = { batchId: batch.id, jobs: [{ id: 'p-failed', bookId: book.id, tasks: [{ id: 't-failed', videoId: 'video-1', status: 'failed', errorMessage: 'provider temporary timeout' }] }] };
+  const retried = [];
+  adapter.getProductionStatus = async () => production;
+  adapter.runStage = async ({ stage, mode, videoId }) => {
+    retried.push({ stage, mode, videoId });
+    production = { batchId: batch.id, jobs: [{ id: 'p-succeeded', bookId: book.id, tasks: [{ id: 't-succeeded', videoId: 'video-1', status: 'succeeded', mediaUrl: '/media/video.mp4' }] }] };
+  };
+  const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} }, now: () => currentTime });
+  await controller.start({ owner: 'user', batchId: batch.id, concurrency: 2 });
+  await controller.tick();
+  await wait();
+  let status = controller.status({ owner: 'user', batchId: batch.id });
+  assert.equal(status.books[0].status, 'waiting');
+  assert.equal(status.books[0].retryAt, '1970-01-01T00:00:30.000Z');
+  currentTime = 30_000;
+  await controller.tick();
+  await wait();
+  assert.deepEqual(retried, [{ stage: 'video', mode: 'force', videoId: 'video-1' }]);
+});
+
+test('a transient merge failure retries only that book after its backoff', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-test-'));
+  const { batch, adapter } = fixture();
+  const book = batch.books[0];
+  book.assetRecords = [{ id: 'a1', kind: 'character' }];
+  book.directorRevision = { id: 'd1' };
+  book.videos = [{ id: 'video-1', label: 'VIDEO01', visualPrompt: '提示词' }];
+  let currentTime = 0;
+  let merge = { batchId: batch.id, jobs: [{ id: 'm-failed', bookId: book.id, status: 'failed', errorMessage: 'merge worker timeout' }] };
+  let submissions = 0;
+  adapter.getProductionStatus = async () => ({ batchId: batch.id, jobs: [{ id: 'p-ok', bookId: book.id, tasks: [{ id: 't-ok', videoId: 'video-1', status: 'succeeded', mediaUrl: '/media/video.mp4' }] }] });
+  adapter.getMergeStatus = async () => merge;
+  adapter.submitBookMerge = async ({ bookId }) => {
+    submissions += 1;
+    merge = { batchId: batch.id, jobs: [{ id: 'm-ok', bookId, status: 'succeeded', outputUrl: '/media/merged.mp4' }] };
+  };
+  const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} }, now: () => currentTime });
+  await controller.start({ owner: 'user', batchId: batch.id });
+  await controller.tick();
+  await wait();
+  let status = controller.status({ owner: 'user', batchId: batch.id });
+  assert.equal(status.books[0].status, 'waiting');
+  assert.equal(status.books[0].stage, 'merge');
+  assert.equal(status.books[0].retryAt, '1970-01-01T00:00:30.000Z');
+  currentTime = 30_000;
+  await controller.tick();
+  await wait();
+  assert.equal(submissions, 1);
+});
+
+test('a transient video-management upload failure retries only after merged media exists', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-test-'));
+  const { batch, adapter } = fixture();
+  const book = batch.books[0];
+  book.assetRecords = [{ id: 'a1', kind: 'character' }];
+  book.directorRevision = { id: 'd1' };
+  book.videos = [{ id: 'video-1', label: 'VIDEO01', visualPrompt: '提示词' }];
+  let currentTime = 0;
+  let calls = 0;
+  adapter.getProductionStatus = async () => ({ batchId: batch.id, jobs: [{ id: 'p-ok', bookId: book.id, tasks: [{ id: 't-ok', videoId: 'video-1', status: 'succeeded', mediaUrl: '/media/video.mp4' }] }] });
+  adapter.getMergeStatus = async () => ({ batchId: batch.id, jobs: [{ id: 'm-ok', bookId: book.id, status: 'succeeded', outputUrl: '/media/merged.mp4' }] });
+  adapter.publishBook = async () => {
+    calls += 1;
+    if (calls === 1) throw new Error('upload gateway timeout');
+    return { status: 'confirmed', receipt: { remoteRecord: { found: true, headVideo: true } } };
+  };
+  const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} }, now: () => currentTime });
+  await controller.start({ owner: 'user', batchId: batch.id, runMode: 'full_submit' });
+  await controller.tick();
+  await wait();
+  let status = controller.status({ owner: 'user', batchId: batch.id });
+  assert.equal(status.books[0].status, 'waiting');
+  assert.equal(status.books[0].stage, 'upload');
+  currentTime = 30_000;
+  await controller.tick();
+  await wait();
+  assert.equal(calls, 2);
 });
 
 test('automation freezes a deep copy of the selected unified preset at start', async () => {
@@ -216,7 +366,10 @@ test('retry regenerates only a failed VIDEO and then completes', async () => {
     await wait();
     if (controller.status({ owner: 'user', batchId: batch.id }).state === 'needs_attention') break;
   }
-  assert.equal(controller.status({ owner: 'user', batchId: batch.id }).state, 'needs_attention');
+  const waiting = controller.status({ owner: 'user', batchId: batch.id });
+  assert.equal(waiting.state, 'running');
+  assert.equal(waiting.books[0].status, 'waiting');
+  assert.ok(waiting.books[0].retryAt);
   await controller.retry({ owner: 'user', batchId: batch.id });
   for (let i = 0; i < 6; i += 1) { await controller.tick(); await wait(); }
   const status = controller.status({ owner: 'user', batchId: batch.id });

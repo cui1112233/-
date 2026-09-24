@@ -4,6 +4,7 @@ import { getWorkshopPlatforms } from '../../../shared/api/novelFetchWorkshop';
 import { fetchDirectOriginals, getBatchAutomationStatus, listAutomationPresets, listBatches } from '../../../shared/api/batchFactoryV11';
 import { batchFactoryPlatformOptions } from './batchFactoryPlatformOptions';
 import { buildManualBatchSubmission, hasFetchedManualSources, manualBookIDsFromInput } from './batchFactoryManualFetch';
+import { formatBeijingDatetimeLocal, normalizeAutomationConcurrency, parseBeijingDatetimeLocal } from './batchFactoryAutomationSchedule';
 
 const parseModes = [
   { value: 'smart', label: '智能识别' },
@@ -43,6 +44,7 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
   const [columnOrder, setColumnOrder] = useState('书籍ID,书名,男女频,风格,标签,推荐理由,评级');
   const [inputText, setInputText] = useState('');
   const [scheduleDialogOpen, setScheduleDialogOpen] = useState(false);
+  const [automationDialogMode, setAutomationDialogMode] = useState('scheduled');
   const [scheduleTasksOpen, setScheduleTasksOpen] = useState(false);
   const [scheduleTasks, setScheduleTasks] = useState([]);
   const [scheduleTasksLoading, setScheduleTasksLoading] = useState(false);
@@ -50,6 +52,7 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
   const [automationPresets, setAutomationPresets] = useState([]);
   const [automationPresetID, setAutomationPresetID] = useState('');
   const [automationRunMode, setAutomationRunMode] = useState('video_no_submit');
+  const [automationConcurrency, setAutomationConcurrency] = useState(2);
   const [contentRangeLines, setContentRangeLines] = useState(5);
   const [contentCaptureCharacters, setContentCaptureCharacters] = useState(4000);
   const [sourceTextByBookId, setSourceTextByBookId] = useState({});
@@ -118,8 +121,10 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
     setScheduleTasksOpen(false);
     setScheduleTasks([]);
     setScheduledAt('');
+    setAutomationDialogMode('scheduled');
     setAutomationPresetID('');
     setAutomationRunMode('video_no_submit');
+    setAutomationConcurrency(2);
     setContentRangeLines(5);
     setContentCaptureCharacters(4000);
     clearFetchedSources();
@@ -191,11 +196,11 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
     return true;
   }
 
-  async function openScheduleDialog() {
+  async function openAutomationDialog(mode = 'scheduled') {
     if (!validateDraft()) return;
-    const date = new Date(Date.now() + 10 * 60 * 1000);
-    const pad = value => String(value).padStart(2, '0');
-    setScheduledAt(`${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`);
+    const scheduled = mode === 'scheduled';
+    setAutomationDialogMode(scheduled ? 'scheduled' : 'immediate');
+    setScheduledAt(scheduled ? formatBeijingDatetimeLocal(new Date(Date.now() + 10 * 60 * 1000).toISOString()) : '');
     try {
       const result = await listAutomationPresets();
       setAutomationPresets(Array.isArray(result?.presets) ? result.presets : []);
@@ -225,7 +230,7 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
     }
   }
 
-  async function submit({ scheduledRun = false } = {}) {
+  async function submit({ scheduledRun = false, automationRun = false } = {}) {
     if (!validateDraft()) return;
 
     let resolvedSources = sourceTextByBookId;
@@ -238,10 +243,11 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
       resolvedSources = fetched.sources;
     }
 
-    if (scheduledRun && !scheduledAt) return message.warning('请选择开始时间');
-    if (scheduledRun && !automationPresetID) return message.warning('请选择自动化预设');
-    const scheduled = scheduledRun ? new Date(scheduledAt) : null;
-    if (scheduledRun && (!Number.isFinite(scheduled.getTime()) || scheduled.getTime() <= Date.now())) return message.warning('定时时间需要晚于现在');
+    const automationEnabled = scheduledRun || automationRun;
+    if (scheduledRun && !scheduledAt) return message.warning('请选择北京时间自动启动时间');
+    if (automationEnabled && !automationPresetID) return message.warning('请选择自动化预设');
+    const scheduledAtISO = scheduledRun ? parseBeijingDatetimeLocal(scheduledAt) : '';
+    if (scheduledRun && (!scheduledAtISO || new Date(scheduledAtISO).getTime() <= Date.now())) return message.warning('北京时间自动启动时间需要晚于现在');
 
     setBusy(true);
     try {
@@ -257,11 +263,12 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
         sourceTextByBookId: resolvedSources,
         contentRangeLines,
         contentCaptureCharacters,
-        scheduledAt: scheduled ? scheduled.toISOString() : '',
-        automationEnabled: scheduledRun,
-        autoPublishEnabled: scheduledRun && automationRunMode === 'full_submit',
+        scheduledAt: scheduledAtISO,
+        automationEnabled,
+        autoPublishEnabled: automationEnabled && automationRunMode === 'full_submit',
         presetId: automationPresetID,
-        runMode: automationRunMode
+        runMode: automationRunMode,
+        automationConcurrency: normalizeAutomationConcurrency(automationConcurrency)
       }));
       reset();
     } catch (error) {
@@ -323,7 +330,8 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
     <div className="batch-factory-create-toolbar">
       <Button type="primary" loading={busy || fetching} disabled={createDisabled} onClick={() => submit()}>{createLabel}</Button>
       <Button loading={fetching} disabled={!hasSelectedPlatform || !bookIds.length} onClick={() => fetchMissingOriginals()}>{missingBookIds.length && fetchedCount ? '重试未获取' : '获取内容'}</Button>
-      <Button onClick={openScheduleDialog}>开始定时</Button>
+      <Button type="primary" disabled={createDisabled} onClick={() => openAutomationDialog('immediate')}>立即执行</Button>
+      <Button onClick={() => openAutomationDialog('scheduled')}>开始定时</Button>
       <Button onClick={openScheduleTasks}>定时任务</Button>
     </div>
 
@@ -340,24 +348,26 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
     </div>
   </Modal>
   <Modal
-    title="开始定时"
+    title={automationDialogMode === 'scheduled' ? '开始定时' : '立即执行自动生产'}
     open={scheduleDialogOpen}
     onCancel={() => setScheduleDialogOpen(false)}
     confirmLoading={busy || fetching}
-    okText="创建并定时执行"
+    okText={automationDialogMode === 'scheduled' ? '创建并定时执行' : '创建并立即执行'}
     cancelText="取消"
-    onOk={() => submit({ scheduledRun: true })}
+    onOk={() => submit({ scheduledRun: automationDialogMode === 'scheduled', automationRun: true })}
   >
-    <label className="shuihuo-form-label" htmlFor="batch-scheduled-at">自动启动时间 <em>*</em></label>
+    {automationDialogMode === 'scheduled' ? <><label className="shuihuo-form-label" htmlFor="batch-scheduled-at">自动启动时间（北京时间 UTC+8） <em>*</em></label>
     <Input id="batch-scheduled-at" type="datetime-local" value={scheduledAt} onChange={event => setScheduledAt(event.target.value)} />
-    <small>到点启动自动生产；生成、合成与上传按后续流程继续，不会在此时间直接提交。</small>
+    <small>到点启动自动生产；生成、合成与上传按后续流程继续，不会在此时间直接提交。</small></> : <Alert type="info" showIcon message="创建完成后立即启动自动生产" description="不会直接提交；只有选择全自动模式且成片完成后，才会上传视频管理系统。" />}
     <label className="shuihuo-form-label">自动化预设 <em>*</em></label>
     <Select value={automationPresetID || undefined} onChange={setAutomationPresetID} placeholder="选择已保存预设" options={automationPresets.map(item => ({ value: item.id, label: `${item.name} · v${item.version}` }))} />
     <label className="shuihuo-form-label">执行模式</label>
     <Select value={automationRunMode} onChange={setAutomationRunMode} options={[{ value: 'storyboard_only', label: '只生成分镜' }, { value: 'video_no_submit', label: '生成视频不提交' }, { value: 'full_submit', label: '全自动生成并提交（成片完成后上传）' }]} />
+    <label className="shuihuo-form-label">同时处理书籍</label>
+    <Select value={automationConcurrency} onChange={value => setAutomationConcurrency(normalizeAutomationConcurrency(value))} options={[1, 2, 4].map(value => ({ value, label: `${value} 本并行` }))} />
   </Modal>
   <Modal title="定时任务" open={scheduleTasksOpen} onCancel={() => setScheduleTasksOpen(false)} footer={<Button onClick={() => setScheduleTasksOpen(false)}>关闭</Button>}>
     <Button loading={scheduleTasksLoading} onClick={openScheduleTasks}>刷新</Button>
-    <div className="batch-factory-log-list">{scheduleTasks.length ? scheduleTasks.map(task => <section key={task.id}><strong>{task.title}</strong><span>{task.scheduledAt || '立即执行'} · {task.state}</span></section>) : <p>{scheduleTasksLoading ? '读取中…' : '暂无定时任务'}</p>}</div>
+    <div className="batch-factory-log-list">{scheduleTasks.length ? scheduleTasks.map(task => <section key={task.id}><strong>{task.title}</strong><span>{task.scheduledAt ? `北京时间 ${formatBeijingDatetimeLocal(task.scheduledAt)}` : '立即执行'} · {task.state}</span></section>) : <p>{scheduleTasksLoading ? '读取中…' : '暂无定时任务'}</p>}</div>
   </Modal></>;
 }

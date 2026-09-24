@@ -95,6 +95,7 @@ import { checkWebSubmitEnvironment, getWebSubmitConfig, testWebSubmitVisible } f
 import { batchFactoryPlatformOptions } from './batchFactoryPlatformOptions';
 import { BOOK_CONFIG_REGIONS, bookAssetSummary, bookConfigRegionStatus } from './batchFactoryBookConfigRegions';
 import { videoProviderForModel } from './videoProviderBinding';
+import { formatBeijingDatetimeLocal, normalizeAutomationConcurrency, parseBeijingDatetimeLocal } from './batchFactoryAutomationSchedule';
 
 
 const DEFAULT_TTS = { voice: 'zh-CN-XiaoxiaoNeural', style: 'general', speed: 1.8, pitch: 10 };
@@ -1971,8 +1972,8 @@ function BatchLogs({ automationStatus, productionStatus, mergeStatus, error }) {
   const automationCounts = automationStatus?.counts || {};
   const autoPublish = automationStatus?.autoPublish === true;
   return <><Alert type={error ? 'warning' : 'info'} showIcon message={error || '实时读取 V12 自动生产、视频与合并状态'} description={autoPublish ? '自动生产完成合成后会提交视频管理系统，并等待视频管理系统回读确认；未确认前不会显示上传成功。' : '刷新只回读状态，不会额外提交新任务。自动生产默认停在待上传，不会自动提交视频管理系统。'} />
-    {automationStatus?.state && automationStatus.state !== 'idle' ? <Alert type={['needs_attention', 'unavailable'].includes(automationStatus.state) ? 'warning' : automationStatus.state === 'completed' ? 'success' : 'info'} showIcon message={automationStatus.state === 'unavailable' ? '自动生产状态暂不可读' : `自动生产 · ${automationStatus.state}`} description={automationStatus.state === 'unavailable' ? '不影响当前书的手动提取、配音、VIDEO 或上传操作。' : `就绪 ${Number(automationCounts.ready || 0)} / ${Number(automationCounts.total || automationBooks.length)}；执行中 ${Number(automationCounts.running || 0)}；失败 ${Number(automationCounts.failed || 0)}；阻塞 ${Number(automationCounts.blocked || 0)}`} /> : null}
-    <div className="batch-factory-log-list">{automationBooks.map(book => <section key={`automation-${book.bookId}`}><strong>自动生产 · {book.title || book.bookId}</strong><span>{book.stage || 'pending'} · {book.status || 'pending'} · {book.updatedAt || '—'}</span><p>{book.message || '等待自动生产'}{book.error ? ` · ${book.error}` : ''}</p></section>)}{jobs.map(job => <section key={job.id}><strong>生成任务 · {job.status}</strong><span>{job.bookId || '批量任务'} · {job.updatedAt || job.createdAt || '—'}</span>{(job.tasks || []).map(task => { const durations = [['目标', task.targetDurationSeconds], ['请求', task.requestedDurationSeconds], ['实际', task.actualDurationSeconds]].filter(([, value]) => Number(value) > 0).map(([label, value]) => `${label} ${Number(value).toFixed(2).replace(/\.00$/, '')}s`).join(' · '); return <p key={task.id}>{task.videoId} · {task.status}{durations ? ` · ${durations}` : ''}{task.errorMessage ? ` · ${task.errorMessage}` : ''}</p>; })}</section>)}{merges.map(job => <section key={job.id}><strong>合并任务 · {job.status}</strong><span>{job.updatedAt || job.createdAt || '—'}</span><p>{job.outputUrl || job.errorMessage || '等待合并结果'}</p></section>)}{!automationBooks.length && !jobs.length && !merges.length ? <p>当前没有自动生产、视频或合并任务。</p> : null}</div>
+    {automationStatus?.state && automationStatus.state !== 'idle' ? <Alert type={['needs_attention', 'unavailable'].includes(automationStatus.state) ? 'warning' : automationStatus.state === 'completed' ? 'success' : 'info'} showIcon message={automationStatus.state === 'unavailable' ? '自动生产状态暂不可读' : `自动生产 · ${automationStatus.state}`} description={automationStatus.state === 'unavailable' ? '不影响当前书的手动提取、配音、VIDEO 或上传操作。' : `并行 ${Number(automationStatus.concurrency || 2)} 本；就绪 ${Number(automationCounts.ready || 0)} / ${Number(automationCounts.total || automationBooks.length)}；执行中 ${Number(automationCounts.running || 0)}；失败 ${Number(automationCounts.failed || 0)}；阻塞 ${Number(automationCounts.blocked || 0)}`} /> : null}
+    <div className="batch-factory-log-list">{automationBooks.map(book => <section key={`automation-${book.bookId}`}><strong>自动生产 · {book.title || book.bookId}</strong><span>{book.stage || 'pending'} · {book.status || 'pending'} · {book.updatedAt || '—'}</span><p>{book.message || '等待自动生产'}{book.retryAt ? ` · 下次重试：北京时间 ${formatBeijingDatetimeLocal(book.retryAt)}` : ''}{book.error ? ` · ${book.error}` : ''}</p></section>)}{jobs.map(job => <section key={job.id}><strong>生成任务 · {job.status}</strong><span>{job.bookId || '批量任务'} · {job.updatedAt || job.createdAt || '—'}</span>{(job.tasks || []).map(task => { const durations = [['目标', task.targetDurationSeconds], ['请求', task.requestedDurationSeconds], ['实际', task.actualDurationSeconds]].filter(([, value]) => Number(value) > 0).map(([label, value]) => `${label} ${Number(value).toFixed(2).replace(/\.00$/, '')}s`).join(' · '); return <p key={task.id}>{task.videoId} · {task.status}{durations ? ` · ${durations}` : ''}{task.errorMessage ? ` · ${task.errorMessage}` : ''}</p>; })}</section>)}{merges.map(job => <section key={job.id}><strong>合并任务 · {job.status}</strong><span>{job.updatedAt || job.createdAt || '—'}</span><p>{job.outputUrl || job.errorMessage || '等待合并结果'}</p></section>)}{!automationBooks.length && !jobs.length && !merges.length ? <p>当前没有自动生产、视频或合并任务。</p> : null}</div>
   </>;
 }
 
@@ -2156,6 +2157,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
   const [automationPresetID, setAutomationPresetID] = useState('');
   const [automationRunMode, setAutomationRunMode] = useState('video_no_submit');
   const [automationScheduledAt, setAutomationScheduledAt] = useState('');
+  const [automationConcurrency, setAutomationConcurrency] = useState(2);
   const [productionStatus, setProductionStatus] = useState(null);
 	const [activeProductionRequestID, setActiveProductionRequestID] = useState('');
   const [mergeStatus, setMergeStatus] = useState(null);
@@ -2680,23 +2682,29 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
     try {
       const values = await loadAutomationPresets();
       setAutomationPresetID(current => current || values[0]?.id || '');
+      setAutomationScheduledAt(current => current || formatBeijingDatetimeLocal(new Date(Date.now() + 10 * 60 * 1000).toISOString()));
       setAutomationStartOpen(true);
     } catch (error) { message.error(error?.message || '读取自动化预设失败'); }
   }
-  async function runAutomationAction(key) {
+  async function runAutomationAction(key, { immediate = false } = {}) {
     if (!batch?.id || automationBusy) return;
     if (key === 'start' && !automationPresetID) { message.warning('请先选择自动化预设'); return; }
+    const scheduledAt = immediate ? '' : parseBeijingDatetimeLocal(automationScheduledAt);
+    if (key === 'start' && !immediate && (!scheduledAt || new Date(scheduledAt).getTime() <= Date.now())) {
+      message.warning('请选择晚于现在的北京时间自动启动时间');
+      return;
+    }
     setAutomationBusy(key);
     try {
       let result;
-      if (key === 'start') result = await startBatchAutomation(batch.id, { presetId: automationPresetID, runMode: automationRunMode, scheduledAt: automationScheduledAt || undefined });
+      if (key === 'start') result = await startBatchAutomation(batch.id, { presetId: automationPresetID, runMode: automationRunMode, scheduledAt: scheduledAt || undefined, concurrency: normalizeAutomationConcurrency(automationConcurrency) });
       else if (key === 'pause') result = await pauseBatchAutomation(batch.id);
       else if (key === 'resume') result = await resumeBatchAutomation(batch.id);
       else if (key === 'retry') result = await retryBatchAutomation(batch.id);
       else if (key === 'cancel') result = await cancelBatchAutomation(batch.id);
       const next = resultData(result, 'automation');
       setAutomationStatus(next || automationStatus);
-      if (key === 'start') { setAutomationStartOpen(false); message.success(automationScheduledAt ? '已创建定时自动化任务。' : '已启动自动化任务。'); }
+      if (key === 'start') { setAutomationStartOpen(false); message.success(immediate ? '已立即启动自动化任务。' : '已创建北京时间定时自动化任务。'); }
       else if (key === 'pause') message.info('已暂停自动化；已提交给模型或合并器的在途任务不会被强制删除。');
       else if (key === 'resume') message.success('已继续自动化。');
       else if (key === 'retry') message.success('已重置失败或阻塞小说，并从缺失阶段继续。');
@@ -2940,11 +2948,12 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
 
     <BatchFactoryUnifiedSettingsModal open={unifiedSettingsOpen} batch={batch} onClose={() => setUnifiedSettingsOpen(false)} onSaved={saveSettings} />
     <Modal title="任务 / 日志" open={logsOpen} onCancel={() => setLogsOpen(false)} footer={<Button onClick={() => loadRuntimeStatus()}>刷新状态</Button>} width={860}><BatchLogs automationStatus={automationStatus} productionStatus={productionStatus} mergeStatus={mergeStatus} error={logsError} /></Modal>
-    <Modal title="开始定时" open={automationStartOpen} onCancel={() => setAutomationStartOpen(false)} onOk={() => runAutomationAction('start')} confirmLoading={automationBusy === 'start'} okText={automationScheduledAt ? '保存定时任务' : '立即开始'} width={620} destroyOnClose>
+    <Modal title="自动生产" open={automationStartOpen} onCancel={() => setAutomationStartOpen(false)} width={620} destroyOnClose footer={<Space><Button onClick={() => setAutomationStartOpen(false)}>取消</Button><Button loading={automationBusy === 'start'} onClick={() => runAutomationAction('start', { immediate: true })}>立即执行</Button><Button type="primary" loading={automationBusy === 'start'} onClick={() => runAutomationAction('start')}>保存定时任务</Button></Space>}>
       <Space direction="vertical" size={14} style={{ width: '100%' }}>
         <label className="batch-factory-engine-field"><span><b>自动化预设</b></span><Select value={automationPresetID || undefined} onChange={setAutomationPresetID} placeholder="选择已保存预设" options={automationPresets.map(item => ({ value: item.id, label: `${item.name} · v${item.version}` }))} style={{ width: '100%' }} /></label>
         <label className="batch-factory-engine-field"><span><b>执行模式</b></span><Select value={automationRunMode} onChange={setAutomationRunMode} style={{ width: '100%' }} options={[{ value: 'storyboard_only', label: '只生成分镜' }, { value: 'video_no_submit', label: '生成视频不提交' }, { value: 'full_submit', label: '全自动生成并提交（成片完成后上传）' }]} /></label>
-        <label className="batch-factory-engine-field"><span><b>自动启动时间</b></span><Input type="datetime-local" value={automationScheduledAt} onChange={event => setAutomationScheduledAt(event.target.value)} placeholder="留空则立即执行" /><small>到点启动自动生产；生成、合成与上传按后续流程继续，不会在此时间直接提交。</small></label>
+        <label className="batch-factory-engine-field"><span><b>自动启动时间（北京时间 UTC+8）</b></span><Input type="datetime-local" value={automationScheduledAt} onChange={event => setAutomationScheduledAt(event.target.value)} /><small>“保存定时任务”会在此时间启动生产；“立即执行”不使用此时间。两者均在成片后才按执行模式决定是否上传。</small></label>
+        <label className="batch-factory-engine-field"><span><b>同时处理书籍</b></span><Select value={automationConcurrency} onChange={value => setAutomationConcurrency(normalizeAutomationConcurrency(value))} style={{ width: '100%' }} options={[1, 2, 4].map(value => ({ value, label: `${value} 本并行` }))} /></label>
       </Space>
     </Modal>
     <UploadNetwork batch={batch} books={books} selectedBookIds={selectedBookIds} productionStatus={productionStatus} mergeStatus={mergeStatus} mode={uploadMode} onClose={() => setUploadMode('')} onOpenPublish={() => { setUploadMode(''); setUnifiedSettingsOpen(true); }} onRefresh={refreshBatch} />

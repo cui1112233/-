@@ -189,7 +189,8 @@ export function ShuihuoProductionPage({ openBatchOnLoad = false }) {
           scheduledAt: input.scheduledAt || '',
           presetId: input.presetId || '',
           runMode: input.runMode || (input.autoPublishEnabled === true ? 'full_submit' : 'video_no_submit'),
-          autoPublish: input.autoPublishEnabled === true
+          autoPublish: input.autoPublishEnabled === true,
+          concurrency: input.automationConcurrency
         });
         message.success(input.scheduledAt ? `批量工程已创建，自动生产将在设定时间启动${input.autoPublishEnabled ? '，并自动上传视频管理系统' : ''}。` : `批量工程已创建并启动自动生产${input.autoPublishEnabled ? '，完成后将自动上传视频管理系统' : ''}。`);
       } catch (error) {
