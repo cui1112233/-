@@ -167,11 +167,13 @@ test('builds Seedance payload with selected duration and resolution', () => {
     modelKey: 'seedance-2-0-official',
     duration: 15,
     resolution: '720p',
+    aspectRatio: '16:9',
     imageUrls: []
   }), {
     prompt: '夜晚的城市雨巷',
     modelKey: 'seedance-2-0-official',
     duration: 15,
-    resolution: '720p'
+    resolution: '720p',
+    aspectRatio: '16:9'
   });
 });

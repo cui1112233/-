@@ -368,7 +368,11 @@ function createScriptVideoRouter({
     const apiKey = getVideoApiKey(configReader(req.username), 'yd');
     if (!apiKey) return res.status(400).json({ error: '请先在设置中保存视频生成 API Key' });
     try {
-      const upstream = await submit({ apiKey, payload: { model: 'yd2.0-mini', prompt, image_urls: [DEFAULT_FIRST_FRAME_URL, ...imageUrls], duration: '1', aspect_ratio: '9:16', resolution: '720p' } });
+      const aspectRatio = ['16:9', '9:16'].includes(String(req.body?.aspectRatio || req.body?.aspect_ratio || ''))
+        ? String(req.body?.aspectRatio || req.body?.aspect_ratio) : '9:16';
+      const resolution = ['480p', '720p', '1080p'].includes(String(req.body?.resolution || ''))
+        ? String(req.body?.resolution) : '720p';
+      const upstream = await submit({ apiKey, payload: { model: 'yd2.0-mini', prompt, image_urls: [DEFAULT_FIRST_FRAME_URL, ...imageUrls], duration: '1', aspect_ratio: aspectRatio, resolution } });
       if (upstream.statusCode < 200 || upstream.statusCode >= 300) return res.status(502).json({ error: `视频服务请求失败（HTTP ${upstream.statusCode}）` });
       let body;
       try { body = JSON.parse(upstream.text); } catch { return res.status(502).json({ error: '视频服务返回了无法识别的响应' }); }
