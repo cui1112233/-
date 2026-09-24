@@ -68,11 +68,14 @@ function setCaretAtCanonicalOffset(root, offset) {
 
 export const InlineMentionEditor = forwardRef(function InlineMentionEditor({ value, assets, onChange, onMentionTarget, ariaLabel, className = '' }, ref) {
   const rootRef = useRef(null);
+  const draftRef = useRef(value);
+  const committedValueRef = useRef(value);
   const [failedImages, setFailedImages] = useState(() => new Set());
+  const [renderValue, setRenderValue] = useState(value);
   const usableAssets = useMemo(() => (Array.isArray(assets) ? assets : []).map(asset => (
     failedImages.has(asset.mainImageUrl) ? { ...asset, hasImage: false, mainImageUrl: '' } : asset
   )), [assets, failedImages]);
-  const nodes = useMemo(() => buildInlineMentionNodes(value, usableAssets), [value, usableAssets]);
+  const nodes = useMemo(() => buildInlineMentionNodes(renderValue, usableAssets), [renderValue, usableAssets]);
 
   function syncMentionTarget() {
     const before = selectedTextBefore(rootRef.current);
@@ -81,13 +84,24 @@ export const InlineMentionEditor = forwardRef(function InlineMentionEditor({ val
   }
 
   function handleInput() {
-    onChange?.(serializeInlineMentionRoot(rootRef.current));
+    draftRef.current = serializeInlineMentionRoot(rootRef.current);
     requestAnimationFrame(syncMentionTarget);
+  }
+
+  function commitDraft() {
+    const nextValue = draftRef.current;
+    if (nextValue === committedValueRef.current) return;
+    committedValueRef.current = nextValue;
+    setRenderValue(nextValue);
+    onChange?.(nextValue);
   }
 
   useImperativeHandle(ref, () => ({
     replaceTarget(target, asset) {
-      const next = replaceMentionToken(value, target, asset);
+      const next = replaceMentionToken(draftRef.current, target, asset);
+      draftRef.current = next.text;
+      committedValueRef.current = next.text;
+      setRenderValue(next.text);
       onChange?.(next.text);
       requestAnimationFrame(() => {
         setCaretAtCanonicalOffset(rootRef.current, next.caret);
@@ -97,7 +111,14 @@ export const InlineMentionEditor = forwardRef(function InlineMentionEditor({ val
     focus() {
       rootRef.current?.focus();
     }
-  }), [value, onChange]);
+  }), [onChange]);
+
+  useEffect(() => {
+    if (value === committedValueRef.current) return;
+    draftRef.current = value;
+    committedValueRef.current = value;
+    setRenderValue(value);
+  }, [value]);
 
   useEffect(() => {
     setFailedImages(current => {
@@ -119,6 +140,7 @@ export const InlineMentionEditor = forwardRef(function InlineMentionEditor({ val
     onKeyUp={syncMentionTarget}
     onClick={syncMentionTarget}
     onFocus={syncMentionTarget}
+    onBlur={commitDraft}
   >
     {nodes.map((node, index) => node.kind === 'mention' ? <span
       className="inline-image-mention"

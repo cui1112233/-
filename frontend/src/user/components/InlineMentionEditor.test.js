@@ -10,3 +10,10 @@ test('renders image mentions as atomic inline labels and serializes canonical te
   assert.match(source, /serializeInlineMentionRoot/);
   assert.match(source, /useImperativeHandle/);
 });
+
+test('keeps long documents inside the editor while typing and commits on blur', () => {
+  const inputHandler = source.match(/function handleInput\(\) \{([\s\S]*?)\n  \}/)?.[1] || '';
+  assert.doesNotMatch(inputHandler, /onChange\?\./);
+  assert.match(source, /function commitDraft\(\)/);
+  assert.match(source, /onBlur=\{commitDraft\}/);
+});
