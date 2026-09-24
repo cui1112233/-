@@ -133,6 +133,22 @@ function h3Resolution(value) {
   return resolution;
 }
 
+function resolveH3VideoMedia({ aspectRatio, resolution } = {}) {
+  const legacyResolution = String(resolution || '').trim();
+  if (['480p竖', '768p竖', '480p横', '768p横'].includes(legacyResolution)) {
+    return {
+      aspectRatio: legacyResolution.endsWith('横') ? '16:9' : '9:16',
+      resolution: legacyResolution
+    };
+  }
+  const normalizedAspectRatio = String(aspectRatio || '').trim() === '16:9' ? '16:9' : '9:16';
+  const resolutionTier = String(resolution || '').trim() === '480p' ? '480p' : '768p';
+  return {
+    aspectRatio: normalizedAspectRatio,
+    resolution: `${resolutionTier}${normalizedAspectRatio === '16:9' ? '横' : '竖'}`
+  };
+}
+
 function defaultSubmit({ apiKey, payload }) {
   return new Promise((resolve, reject) => {
     const body = JSON.stringify(payload);
@@ -311,7 +327,10 @@ function createScriptVideoRouter({
         const normalizedReferences = await providerAccessibleImageUrls(req, requestedImages);
         referenceImages = validH3ReferenceImageURLs(normalizedReferences);
         duration = h3Duration(req.body?.duration);
-        resolution = h3Resolution(req.body?.resolution);
+        resolution = h3Resolution(resolveH3VideoMedia({
+          aspectRatio: req.body?.aspectRatio || req.body?.aspect_ratio,
+          resolution: req.body?.resolution
+        }).resolution);
       } catch (error) {
         return res.status(400).json({ error: error.message || 'H3 参数不正确' });
       }
@@ -477,6 +496,7 @@ module.exports = {
   h3ApiKeyFromEnvironment,
   h3Duration,
   h3Resolution,
+  resolveH3VideoMedia,
   h3WorkflowForRequest,
   publicH3TaskID,
   publicYfaiTaskID,
