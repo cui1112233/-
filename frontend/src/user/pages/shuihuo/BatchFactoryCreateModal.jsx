@@ -348,12 +348,13 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
     cancelText="取消"
     onOk={() => submit({ scheduledRun: true })}
   >
-    <label className="shuihuo-form-label" htmlFor="batch-scheduled-at">开始时间 <em>*</em></label>
+    <label className="shuihuo-form-label" htmlFor="batch-scheduled-at">自动启动时间 <em>*</em></label>
     <Input id="batch-scheduled-at" type="datetime-local" value={scheduledAt} onChange={event => setScheduledAt(event.target.value)} />
+    <small>到点启动自动生产；生成、合成与上传按后续流程继续，不会在此时间直接提交。</small>
     <label className="shuihuo-form-label">自动化预设 <em>*</em></label>
     <Select value={automationPresetID || undefined} onChange={setAutomationPresetID} placeholder="选择已保存预设" options={automationPresets.map(item => ({ value: item.id, label: `${item.name} · v${item.version}` }))} />
     <label className="shuihuo-form-label">执行模式</label>
-    <Select value={automationRunMode} onChange={setAutomationRunMode} options={[{ value: 'storyboard_only', label: '只生成分镜' }, { value: 'video_no_submit', label: '生成视频不提交' }, { value: 'full_submit', label: '全自动生成并提交' }]} />
+    <Select value={automationRunMode} onChange={setAutomationRunMode} options={[{ value: 'storyboard_only', label: '只生成分镜' }, { value: 'video_no_submit', label: '生成视频不提交' }, { value: 'full_submit', label: '全自动生成并提交（成片完成后上传）' }]} />
   </Modal>
   <Modal title="定时任务" open={scheduleTasksOpen} onCancel={() => setScheduleTasksOpen(false)} footer={<Button onClick={() => setScheduleTasksOpen(false)}>关闭</Button>}>
     <Button loading={scheduleTasksLoading} onClick={openScheduleTasks}>刷新</Button>
