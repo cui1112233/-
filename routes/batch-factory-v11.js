@@ -156,7 +156,10 @@ async function listBatchFactory121Organizations(req, options = {}) {
   const sessionStore = options.novelFetchStore || req.app?.locals?.novelFetchStore;
   if (!sessionStore?.getSession) throw requestError('121 登录会话存储未启用', 503, 'PUBLISH_121_SESSION_UNAVAILABLE');
   const client = options.directClient || create121DirectClient();
-  const session = sessionStore.getSession(req.username);
+  const session = await resolveBatchFactory121Session(req.username, {
+    sessionStore,
+    webSubmit: options.webSubmit || req.app?.locals?.novelFetchV2WebSubmit
+  });
   await client.verify({ cookie: session?.cookie });
   const response = await client.action({ cookie: session?.cookie, method: 'GET', path: '/tttadmin/api/organization.php' });
   let payload = {};
@@ -164,6 +167,17 @@ async function listBatchFactory121Organizations(req, options = {}) {
   catch (_) { throw requestError('121 组织目录返回了非 JSON 数据', 502, 'PUBLISH_121_ORGANIZATION_UNAVAILABLE'); }
   if (payload?.success === false) throw requestError(String(payload?.message || payload?.msg || '121 组织目录读取失败'), 502, 'PUBLISH_121_ORGANIZATION_UNAVAILABLE');
   return { organizations: organizationOptions(payload) };
+}
+
+async function resolveBatchFactory121Session(owner, { sessionStore, webSubmit } = {}) {
+  if (webSubmit?.ensureSession) {
+    const ready = await webSubmit.ensureSession(owner);
+    const cookie = String(ready?.request?.sessionKey || ready?.result?.sessionKey || '').trim();
+    if (cookie) return { ...(sessionStore?.getSession?.(owner) || {}), cookie };
+  }
+  const browser = sessionStore?.getBrowserSession?.(owner);
+  const cookie = String(browser?.sessionKey || sessionStore?.getSession?.(owner)?.cookie || '').trim();
+  return cookie ? { ...(browser || {}), cookie } : null;
 }
 
 async function fetchBatchFactory121Media({ username, isOwner = false, mediaURL, goBaseUrl, bridgeSecret, fetchImpl = globalThis.fetch, now = Date.now } = {}) {
@@ -453,7 +467,10 @@ async function submitBatchFactoryBookTo121(req, route, options = {}) {
     loadMergeStatus: async (owner, batchId) => v11JSONRequest({ username: owner, isOwner: req.auth?.account?.isOwner === true, method: 'GET', pathname: `/api/batch-factory/v11/batches/${encodeURIComponent(batchId)}/merge-status`, ...goOptions }),
     loadProductionStatus: async (owner, batchId) => v11JSONRequest({ username: owner, isOwner: req.auth?.account?.isOwner === true, method: 'GET', pathname: `/api/batch-factory/v11/batches/${encodeURIComponent(batchId)}/status`, ...goOptions }),
     fetchMedia: (owner, mediaURL) => fetchBatchFactory121Media({ username: owner, isOwner: req.auth?.account?.isOwner === true, mediaURL, ...goOptions }),
-    getSession: owner => sessionStore.getSession(owner),
+    getSession: owner => resolveBatchFactory121Session(owner, {
+      sessionStore,
+      webSubmit: options.webSubmit || req.app?.locals?.novelFetchV2WebSubmit
+    }),
     directClient: options.directClient || create121DirectClient(),
     onProgress: reportProgress,
     now: options.clock || (() => new Date())
@@ -628,7 +645,7 @@ async function analyzeBatchFactorySmartUnifiedStyle({ username, isOwner = false,
   // This endpoint is also used by the direct director route, so keep the H3
   // / smart-unified eligibility guard here as well as in batch/retry runs.
   if (!directorVisualBaselineRequired(batch, book)) return '';
-  const sourceText = String(book?.sourceText || '').trim();
+  const sourceText = batchFactoryProductionText(book);
   if (!sourceText) throw requestError('智能统一需要当前书完整原文', 422, 'SOURCE_TEXT_REQUIRED');
   const stylePreset = smartUnifiedStyleSystemPreset(batch, book, presetStore);
   const cached = savedSmartUnifiedStyleAnalysis(book, sourceText, stylePreset);
@@ -668,6 +685,20 @@ async function analyzeBatchFactorySmartUnifiedStyle({ username, isOwner = false,
     if (persist) await freezeSmartUnifiedStyleAnalysis({ username, isOwner, batchId, book, sourceText, preset: stylePreset, analysis, goBaseUrl, bridgeSecret, fetchImpl, now });
     return analysis;
   } catch (error) { throw requestError(error?.message || '智能统一视觉分析结果无效', 422, 'SMART_UNIFIED_INVALID_RESPONSE'); }
+}
+
+function batchFactoryProductionText(book) {
+  const source = String(book?.workingFrontContent || book?.sourceText || '');
+  const configured = Number(book?.sourceMetadata?.contentRangeLines);
+  const limit = Number.isInteger(configured) && configured > 0 ? Math.min(configured, 500) : 5;
+  const lines = [];
+  for (const line of source.split(/\r?\n/)) {
+    const value = line.trim();
+    if (!value) continue;
+    lines.push(value);
+    if (lines.length >= limit) break;
+  }
+  return lines.join('\n');
 }
 
 function imageSizeForAspectRatio(aspectRatio) {
@@ -1742,6 +1773,7 @@ module.exports = {
   batchFactoryBookClassificationPath,
   batchFactory121OrganizationsPath,
   organizationOptions,
+  resolveBatchFactory121Session,
   automationPublishSettings,
   automationCompilePayload,
   safeAutomationStatus,

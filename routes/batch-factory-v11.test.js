@@ -17,6 +17,7 @@ const {
   batchFactory121PublishPath,
   batchFactory121OrganizationsPath,
   organizationOptions,
+  resolveBatchFactory121Session,
   automationPublishSettings,
   submitBatchFactoryBookTo121,
   classifyBatchFactoryBookFor121,
@@ -27,6 +28,16 @@ const {
   safeAutomationStatus,
   splitVideoPresetBody
 } = require('./batch-factory-v11');
+
+test('Batch Factory 121 session auto-recovers through the shared durable login service', async () => {
+  const calls = [];
+  const session = await resolveBatchFactory121Session('alice', {
+    sessionStore: { getSession: () => null, getBrowserSession: () => null },
+    webSubmit: { async ensureSession(owner) { calls.push(owner); return { request: { sessionKey: 'PHPSESSID=renewed' } }; } }
+  });
+  assert.deepEqual(calls, ['alice']);
+  assert.equal(session.cookie, 'PHPSESSID=renewed');
+});
 
 test('style.system runs during asset extraction but never when a director stage is requested', () => {
   const assetPath = '/api/batch-factory/v11/batches/batch-1/books/book-1/stages/assets';
@@ -328,6 +339,30 @@ test('asset preparation requests a JSON object from compatible style.system prov
   });
   assert.deepEqual(modelRequest.response_format, { type: 'json_object' });
   assert.equal(modelRequest.messages.some(message => /json/i.test(String(message.content || ''))), true);
+});
+
+test('style.system analyzes only the configured production lines', async () => {
+  const requests = [];
+  const fields = {
+    final_genre: '现代都市短剧', genre: '现代都市短剧', trailer_style: '高级电影感', story_era: '当代都市',
+    negative_prompt: '无畸形', picture_limit_prompt: '无字幕', quality_constraint_prompt: '画面稳定'
+  };
+  await analyzeBatchFactorySmartUnifiedStyle({
+    username: 'alice', batchId: 'batch-1', bookId: 'book-1', goBaseUrl: 'http://go.local', bridgeSecret: 'secret',
+    textProvider: { endpoint: 'http://text.local/v1/chat/completions', apiKey: 'key', model: 'text-model' },
+    fetchImpl: async (_url, init = {}) => {
+      if (init.method === 'GET') return new Response(JSON.stringify({
+        batch: { id: 'batch-1', settingsState: { patch: {} }, books: [{
+          id: 'book-1', sourceText: '一\n\n二\n三\n四\n五\n六', sourceMetadata: { contentRangeLines: 5 }, settingsState: { patch: {} }, assetRecords: []
+        }] }
+      }), { status: 200 });
+      requests.push(JSON.parse(init.body));
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(fields) } }] }), { status: 200 });
+    }
+  });
+  const prompt = requests[0].messages.map(message => String(message.content || '')).join('\n');
+  assert.match(prompt, /一\n二\n三\n四\n五/);
+  assert.doesNotMatch(prompt, /六/);
 });
 
 test('asset preparation freezes the style.system result on the book for later director use', async () => {
