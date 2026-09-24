@@ -15,6 +15,7 @@ const { createAutomationPresetStore } = require('../lib/batch-factory-v11/automa
 const PERSONAL_PROVIDER = 'personal_api';
 const LOCAL_PROVIDER = 'doubao_local_executor';
 const H3_PROVIDER = 'autodl_comfyui';
+const YFAI_PROVIDER = 'yfai_seedance';
 const PERSONAL_MODEL = 'yd2.0-mini';
 const H3_MODEL = 'minimax-h3-video';
 const H3_CREATE_URL = 'https://autodl.art/api/v1/comfyui/comfyui_workflow/{workflow}';
@@ -799,6 +800,7 @@ function normalizedProvider(value) {
   if (!provider || ['personal', 'personal_api', 'yd_video', 'yadi'].includes(provider)) return PERSONAL_PROVIDER;
   if (['doubao', 'doubao_local', 'doubao_local_executor'].includes(provider)) return LOCAL_PROVIDER;
   if (['h3', 'minimax_h3', 'minimax-h3-video', 'autodl', 'autodl_comfyui', 'autodl_comfyui_video'].includes(provider)) return H3_PROVIDER;
+  if (['yfai', 'yfai_seedance', 'seedance-2-0-official'].includes(provider)) return YFAI_PROVIDER;
   return provider;
 }
 
@@ -1085,13 +1087,25 @@ function personalApiKeyForUser(req) {
   return getVideoApiKey(config, 'yd');
 }
 
+function resolveBatchVideoProviderConfig(username, modelId, options = {}) {
+  const selected = String(modelId || '').trim();
+  if (selected === 'seedance-2-0-official') {
+    const model = resolveRuntimeModel({ username, kind: 'video', modelId: selected, memberStore: options.memberStore, accountStore: options.accountStore, account: { isOwner: true }, configReader: options.configReader || readConfig });
+    if (!model?.credential) return null;
+    return { provider: YFAI_PROVIDER, model: model.modelId || selected, apiKey: model.credential, baseUrl: model.baseUrl || 'https://yf.token6688.com' };
+  }
+  const apiKey = getVideoApiKey((options.configReader || readConfig)(username), 'yd');
+  return apiKey ? { provider: PERSONAL_PROVIDER, model: PERSONAL_MODEL, apiKey } : null;
+}
+
 async function syncPersonalProviderConfig(req, options, { allowMissing = false } = {}) {
   const fetchImpl = options.fetchImpl || globalThis.fetch;
   if (!fetchImpl) throw new Error('fetch implementation is required');
   const base = String(options.goBaseUrl || resolveV11GoBaseUrl()).replace(/\/$/, '');
   const secret = options.bridgeSecret || process.env.QIANTIE_BRIDGE_SECRET || '';
-  const apiKey = personalApiKeyForUser(req);
-  if (!apiKey) {
+  const selectedModel = String(req.body?.modelId || req.body?.videoModelId || '').trim();
+  const providerConfig = resolveBatchVideoProviderConfig(req.username, selectedModel, options);
+  if (!providerConfig) {
     if (allowMissing) return false;
     const error = new Error('请先在个人中心配置视频 API Key');
     error.status = 400;
@@ -1113,9 +1127,10 @@ async function syncPersonalProviderConfig(req, options, { allowMissing = false }
     method: 'PUT',
     headers,
     body: JSON.stringify({
-      provider: PERSONAL_PROVIDER,
-      model: PERSONAL_MODEL,
-      apiKey
+      provider: providerConfig.provider,
+      model: providerConfig.model,
+      apiKey: providerConfig.apiKey,
+      ...(providerConfig.baseUrl ? { createUrl: providerConfig.baseUrl } : {})
     }),
     redirect: 'manual'
   });
@@ -1225,6 +1240,7 @@ function automationVideoProvider(settings = {}) {
   const model = String(settings.videoModelId || '').trim().toLowerCase();
   if (model.includes('h3') || model.includes('minimax-h3') || model.includes('autodl')) return H3_PROVIDER;
   if (model.includes('doubao') || model.includes('local-executor')) return LOCAL_PROVIDER;
+  if (model === 'seedance-2-0-official') return YFAI_PROVIDER;
   return normalizedProvider(settings.videoProvider);
 }
 
@@ -1465,7 +1481,7 @@ function createBatchFactoryV11Router(options = {}) {
             username,
             auth: { account: { isOwner } },
             method: 'POST',
-            body: { provider },
+            body: { provider, videoModelId: settings.videoModelId },
             originalUrl: pathname,
             url: pathname
           };
@@ -1525,7 +1541,7 @@ function createBatchFactoryV11Router(options = {}) {
             username,
             auth: { account: { isOwner } },
             method: 'POST',
-            body: { provider },
+            body: { provider, videoModelId: settings.videoModelId },
             originalUrl: pathname,
             url: pathname
           };
@@ -1806,6 +1822,8 @@ module.exports = {
   H3_PROVIDER,
   PERSONAL_PROVIDER,
   LOCAL_PROVIDER,
+  YFAI_PROVIDER,
+  resolveBatchVideoProviderConfig,
   h3ApiKeyForRequest,
   normalizedProvider,
   needsH3ConfigSync,

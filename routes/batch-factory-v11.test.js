@@ -30,6 +30,17 @@ const {
   splitVideoPresetBody
 } = require('./batch-factory-v11');
 
+test('resolves the selected Seedance model instead of reusing the YD credential', () => {
+  const { resolveBatchVideoProviderConfig } = require('./batch-factory-v11');
+  const config = resolveBatchVideoProviderConfig('owner', 'seedance-2-0-official', {
+    configReader: () => ({ modelCatalog: [
+      { id: 'yd2-mini-video', kind: 'video', enabled: true, adapterKind: 'openai_video', credential: 'yd-key' },
+      { id: 'seedance-2-0-official', kind: 'video', enabled: true, adapterKind: 'yfai_seedance', baseUrl: 'https://yf.token6688.com', modelId: 'seedance-2-0-official', credential: 'seedance-key' }
+    ] })
+  });
+  assert.deepEqual(config, { provider: 'yfai_seedance', model: 'seedance-2-0-official', apiKey: 'seedance-key', baseUrl: 'https://yf.token6688.com' });
+});
+
 test('reads the real duration from MPEG audio frames used by automatic planning', () => {
   const frameLength = Math.floor((144000 * 128) / 44100);
   const frame = Buffer.alloc(frameLength);

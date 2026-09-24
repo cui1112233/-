@@ -184,6 +184,23 @@ func (s *ProductionService) resolveProvider(ctx context.Context, owner, provider
 		}
 		return adapter, model, nil
 	}
+	if provider == VideoProviderYFAISeedance {
+		if s.ProviderRegistry == nil {
+			return nil, FrozenVideoModel{}, fmt.Errorf("%w: YFAI Seedance provider registry is unavailable", ErrUnavailable)
+		}
+		cfg, err := s.ProviderRegistry.Resolve(ctx, owner, provider)
+		if err != nil {
+			return nil, FrozenVideoModel{}, err
+		}
+		model := s.Model
+		model.ID = cfg.Model
+		model.MaxDuration = 15
+		adapter := &YFAISeedanceAdapter{BaseURL: cfg.CreateURL, APIKey: cfg.APIKey, Model: cfg.Model}
+		if err := adapter.Validate(); err != nil {
+			return nil, FrozenVideoModel{}, err
+		}
+		return adapter, model, nil
+	}
 	if provider != VideoProviderPersonalAPI {
 		return nil, FrozenVideoModel{}, fmt.Errorf("%w: unsupported video provider", ErrInvalid)
 	}
