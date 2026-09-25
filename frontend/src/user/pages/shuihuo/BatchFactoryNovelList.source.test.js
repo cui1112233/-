@@ -106,10 +106,11 @@ test('treats a missing saved viral candidate as an empty review state', () => {
   assert.match(source, /getDraft\([\s\S]*suppressGlobalError: true/);
 });
 
-test('does not silently use an old video prompt while smart unified analysis is pending', () => {
+test('keeps existing video prompts usable while smart unified analysis is pending', () => {
   assert.match(source, /smartUnifiedPending/);
   assert.match(source, /智能统一待分析/);
-  assert.match(source, /重新生成文案/);
+  assert.match(source, /资产提取时与资产同次获取/);
+  assert.match(source, /不影响本分镜的提示词使用/);
 });
 
 test('exposes an explicit regenerate-copy action once a book already has director output', () => {

@@ -120,12 +120,6 @@ function styleSystemBookPath(pathname) {
   return match ? { batchId: decodeURIComponent(match[1]), bookId: decodeURIComponent(match[2]) } : null;
 }
 
-function smartUnifiedRefreshBookPath(pathname) {
-  const match = String(pathname || '').match(/^\/api\/batch-factory\/v11\/batches\/([^/]+)\/books\/([^/]+)\/(?:assets|stages\/assets|stages\/retry)$/);
-  if (!match) return null;
-  try { return { batchId: decodeURIComponent(match[1]), bookId: decodeURIComponent(match[2]) }; } catch (_) { return null; }
-}
-
 function batchFactorySmartUnifiedRefreshPath(pathname) {
   const match = String(pathname || '').match(/^\/api\/batch-factory\/v11\/batches\/([^/]+)\/books\/([^/]+)\/smart-unified\/refresh$/);
   if (!match) return null;
@@ -1629,17 +1623,6 @@ function createBatchFactoryV11Router(options = {}) {
         if (['assets', 'director', 'visual'].includes(stage)) {
           const textModelId = String(settings.textModelId || '').trim();
           payload.textProvider = requestTextProvider({ username, body: { textModelId } }, upstreamOptions, textModelId);
-          if (stage === 'assets') {
-            const smartUnified = await refreshSmartUnifiedNonBlocking({
-              username, isOwner, batchId, bookId, textModelId, textProvider: payload.textProvider,
-              presetStore: upstreamOptions.presetStore,
-              goBaseUrl: upstreamOptions.goBaseUrl, bridgeSecret: upstreamOptions.bridgeSecret,
-              fetchImpl: upstreamOptions.fetchImpl, now: upstreamOptions.now,
-              memberStore: upstreamOptions.memberStore, accountStore: upstreamOptions.accountStore,
-              configReader: upstreamOptions.configReader || readConfig, persist: true
-            });
-            if (smartUnified.style) payload.smartUnifiedStyle = smartUnified.style;
-          }
         }
         if (stage === 'video') {
           const provider = automationVideoProvider(settings);
@@ -1694,18 +1677,19 @@ function createBatchFactoryV11Router(options = {}) {
           requestId,
           textProvider: requestTextProvider({ username, body: { textModelId } }, upstreamOptions, textModelId)
         };
-        // A retry always rechecks the optional visual baseline, even when the
-        // failed stage itself is video or merge. A provider outage is recorded
-        // but never prevents the requested recovery from running.
-        const smartUnified = await refreshSmartUnifiedNonBlocking({
-            username, isOwner, batchId, bookId, textModelId, textProvider: payload.textProvider,
-            presetStore: upstreamOptions.presetStore,
-            goBaseUrl: upstreamOptions.goBaseUrl, bridgeSecret: upstreamOptions.bridgeSecret,
-            fetchImpl: upstreamOptions.fetchImpl, now: upstreamOptions.now,
-            memberStore: upstreamOptions.memberStore, accountStore: upstreamOptions.accountStore,
-            configReader: upstreamOptions.configReader || readConfig, persist: true
-        });
-        if (smartUnified.style) payload.smartUnifiedStyle = smartUnified.style;
+        // An asset retry obtains its baseline inside that one combined asset
+        // request. Other retries retain the explicit non-blocking refresh.
+        if (stage !== 'assets') {
+          const smartUnified = await refreshSmartUnifiedNonBlocking({
+              username, isOwner, batchId, bookId, textModelId, textProvider: payload.textProvider,
+              presetStore: upstreamOptions.presetStore,
+              goBaseUrl: upstreamOptions.goBaseUrl, bridgeSecret: upstreamOptions.bridgeSecret,
+              fetchImpl: upstreamOptions.fetchImpl, now: upstreamOptions.now,
+              memberStore: upstreamOptions.memberStore, accountStore: upstreamOptions.accountStore,
+              configReader: upstreamOptions.configReader || readConfig, persist: true
+          });
+          if (smartUnified.style) payload.smartUnifiedStyle = smartUnified.style;
+        }
         if (stage === 'video') {
           const provider = automationVideoProvider(settings);
           payload.provider = provider;
@@ -1976,26 +1960,6 @@ function createBatchFactoryV11Router(options = {}) {
       const execution = presetDrivenExecutionPath(req, parsed.pathname);
       if (execution) {
         await refreshBatchFactoryPresetSnapshot({ username: req.username, isOwner: req.auth?.account?.isOwner === true, ...execution, goBaseUrl: upstreamOptions.goBaseUrl, bridgeSecret: upstreamOptions.bridgeSecret, presetStore: upstreamOptions.presetStore, fetchImpl: upstreamOptions.fetchImpl, now: upstreamOptions.now });
-      }
-      const smartUnifiedBook = smartUnifiedRefreshBookPath(parsed.pathname);
-      if (smartUnifiedBook) {
-        const smartUnified = await refreshSmartUnifiedNonBlocking({
-          username: req.username,
-          isOwner: req.auth?.account?.isOwner === true,
-          ...smartUnifiedBook,
-          textModelId: String(req.body?.textModelId || '').trim(),
-          textProvider: req.body?.textProvider,
-          presetStore: upstreamOptions.presetStore,
-          goBaseUrl: upstreamOptions.goBaseUrl,
-          bridgeSecret: upstreamOptions.bridgeSecret,
-          fetchImpl: upstreamOptions.fetchImpl,
-          now: upstreamOptions.now,
-          memberStore: upstreamOptions.memberStore,
-          accountStore: upstreamOptions.accountStore,
-          configReader: upstreamOptions.configReader || readConfig,
-          persist: true
-        });
-        if (smartUnified.style) req.body = { ...(req.body || {}), smartUnifiedStyle: smartUnified.style };
       }
       return await proxyV11Request(req, res, {
         ...upstreamOptions,

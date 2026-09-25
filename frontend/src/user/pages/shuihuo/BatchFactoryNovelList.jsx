@@ -838,7 +838,9 @@ function InlineBookPrompts({ batch, book, batchId, settingsRevision, selectedVid
   const visualPrompt = String(video?.visualPrompt || '');
   const hasVisualPrompt = Boolean(visualPrompt.trim());
   const { displayPrompt, compiledPrompt, smartUnifiedPending, loading } = useCompiledVideoPrompt(batchId, book, video, settingsRevision);
-  const videoPrompt = smartUnifiedPending ? '' : (compiledPrompt || displayPrompt || rawVideoPrompt);
+  // 智能统一是增强层。视觉基线尚未取得时，仍须展示并允许使用已经
+  // 编译的 VIDEO 提示词，不能把一条可执行分镜伪装成“什么都没有”。
+  const videoPrompt = compiledPrompt || displayPrompt || rawVideoPrompt;
   const activePrompt = promptKind === 'visual' ? visualPrompt : videoPrompt;
 
   useEffect(() => {
@@ -884,7 +886,7 @@ function InlineBookPrompts({ batch, book, batchId, settingsRevision, selectedVid
 
   if (!video) return <div className="shuihuo-workbench-cell shuihuo-prompt-cell batch-factory-book-prompt-cell"><div className="batch-factory-cell-shell"><div className="batch-factory-cell-empty">AI 推理后会在这里显示当前书的分镜提示词。</div></div></div>;
 
-  const stateLabel = promptKind === 'visual' ? (hasVisualPrompt ? '画面已生成' : '待生成') : smartUnifiedPending ? '待分析' : loading ? '编译中' : videoPrompt.trim() ? '最终已编译' : '待生成';
+  const stateLabel = promptKind === 'visual' ? (hasVisualPrompt ? '画面已生成' : '待生成') : loading ? '编译中' : videoPrompt.trim() ? (smartUnifiedPending ? '基线未获取' : '最终已编译') : '待生成';
 
   return <div className="shuihuo-workbench-cell shuihuo-prompt-cell batch-factory-book-prompt-cell">
     <div className="batch-factory-cell-shell batch-factory-prompt-entry-card">
@@ -897,7 +899,7 @@ function InlineBookPrompts({ batch, book, batchId, settingsRevision, selectedVid
       </header>
       <button type="button" className="batch-factory-cell-content batch-factory-prompt-entry-content" aria-label="打开分镜提示词编辑" onClick={() => onManage?.(video.id)}>
         <span className="batch-factory-prompt-status">{stateLabel}</span>
-        <p>{activePrompt || (smartUnifiedPending && promptKind === 'video' ? '智能统一已开启，重新生成文案后显示本书分析结果' : loading && promptKind === 'video' ? '正在编译最终视频提示词…' : promptKind === 'visual' ? '请生成画面提示词再查看' : '请生成视频提示词再查看')}</p>
+        <p>{activePrompt || (smartUnifiedPending && promptKind === 'video' ? '智能统一视觉基线尚未取得；不影响本分镜的提示词使用' : loading && promptKind === 'video' ? '正在编译最终视频提示词…' : promptKind === 'visual' ? '请生成画面提示词再查看' : '请生成视频提示词再查看')}</p>
         <small>点击打开完整提示词</small>
       </button>
       <div className="batch-factory-cell-pager">
@@ -989,9 +991,9 @@ function PromptPanel({ book, batchId, settingsRevision, initialVideoId = '', onS
     if (frame) setSelectedVideoId(frame.key);
   }
 	  const activeLabel = promptKind === 'visual' ? '画面提示词' : '分镜视频提示词';
-  const submittedVideoPrompt = smartUnifiedPending ? '' : (compiledPrompt || displayPrompt || videoPrompt);
+  const submittedVideoPrompt = compiledPrompt || displayPrompt || videoPrompt;
   const activeValue = promptKind === 'visual' ? visualPrompt : editing ? videoPrompt : submittedVideoPrompt;
-  const activeReady = promptKind === 'visual' ? hasVisualPrompt : !smartUnifiedPending && Boolean(submittedVideoPrompt.trim());
+  const activeReady = promptKind === 'visual' ? hasVisualPrompt : Boolean(submittedVideoPrompt.trim());
   const regenerateCurrentPrompt = promptKind === 'visual' ? onRegenerateVisual : onRegenerate;
   const h3Segments = h3Trace?.compilation?.compilation?.segments || [];
   const h3Segment = h3Segments[selectedIndex] || null;
@@ -1027,7 +1029,7 @@ function PromptPanel({ book, batchId, settingsRevision, initialVideoId = '', onS
         <button type="button" className={promptKind === 'video' ? 'is-video active' : 'is-video'} disabled={!hasVideoPrompt} onClick={() => setPromptKind('video')}>视频提示词</button>
       </div>
     </div>
-    {!activeReady ? <Alert type="info" showIcon message={smartUnifiedPending && promptKind === 'video' ? '智能统一待分析' : promptKind === 'visual' ? '请生成画面提示词再查看' : '请生成视频提示词再查看'} description={smartUnifiedPending && promptKind === 'video' ? '智能统一只会在重新生成导演分镜时运行；它会更新最终 VIDEO 提示词，但不会提交视频生成任务。' : '当前分镜尚未有这一类提示词；切换分镜时会保持当前查看类型。'} action={smartUnifiedPending && promptKind === 'video' ? <Button size="small" type="primary" loading={regenerating} onClick={onRegenerate}>重新生成导演分镜</Button> : null} /> : <>
+    {!activeReady ? <Alert type="info" showIcon message={smartUnifiedPending && promptKind === 'video' ? '智能统一待分析' : promptKind === 'visual' ? '请生成画面提示词再查看' : '请生成视频提示词再查看'} description={smartUnifiedPending && promptKind === 'video' ? '智能统一会在资产提取时与资产同次获取；未取得基线不会阻断资产、分镜或视频。可在资产区单独刷新。' : '当前分镜尚未有这一类提示词；切换分镜时会保持当前查看类型。'} /> : <>
       <label className="shuihuo-form-label batch-factory-prompt-editor-label">{activeLabel}<Input.TextArea rows={14} readOnly={!editing} value={activeValue} onChange={event => promptKind === 'visual' ? setVisualPrompt(event.target.value) : setVideoPrompt(event.target.value)} placeholder={promptKind === 'visual' ? '仅用于生成当前分镜的画面图片' : '会进入当前分镜的最终视频编译'} /></label>
       <div className="batch-factory-prompt-modal-actions">
         <Button type="primary" loading={saving} disabled={!editing || !selectedVideo} onClick={savePrompt}>保存</Button>

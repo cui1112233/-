@@ -411,13 +411,14 @@ func selectedConstraintBody(config AIReasoningPromptConfig, book Book, category 
 const smartUnifiedPrefixPresetID = "script-constraint-prefix-smart-unified"
 
 func smartUnifiedStyleForRevision(book Book, config AIReasoningPromptConfig) string {
-	if !config.Constraints.appliesTo(book) || book.DirectorRevision == nil {
+	if !smartUnifiedSelectedForRevision(book, config) {
 		return ""
 	}
-	for _, selection := range config.Constraints.Selections {
-		if constraintCategory(selection) == "prefix" && selection.ID == smartUnifiedPrefixPresetID {
-			return strings.TrimSpace(book.DirectorRevision.Output.SmartUnifiedStyle)
-		}
+	if book.DirectorRevision != nil && strings.TrimSpace(book.DirectorRevision.Output.SmartUnifiedStyle) != "" {
+		return strings.TrimSpace(book.DirectorRevision.Output.SmartUnifiedStyle)
+	}
+	if analysis, err := parseSmartUnifiedAnalysis(rawString(book.SettingsState.Patch, "h3StyleAnalysis", "")); err == nil && analysis != nil {
+		return analysis.Prompt
 	}
 	return ""
 }

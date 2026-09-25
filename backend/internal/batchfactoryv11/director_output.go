@@ -560,3 +560,26 @@ func NormalizeAssetExtractionOutput(raw json.RawMessage) (DirectorAssets, error)
 	}
 	return DirectorAssets{Characters: characters, Scenes: scenes, Props: props}, nil
 }
+
+// SmartUnifiedAnalysisFromAssetExtractionOutput reads the optional visual
+// baseline emitted beside the normal asset arrays. Invalid or missing analysis
+// is intentionally handled by the caller as an enhancement failure: assets
+// remain valid and must never be discarded because this optional field failed.
+func SmartUnifiedAnalysisFromAssetExtractionOutput(raw json.RawMessage) (*SmartUnifiedAnalysis, error) {
+	root, err := decodeDirectorObject(raw)
+	if err != nil {
+		return nil, err
+	}
+	value, ok := root["smart_unified_analysis"]
+	if !ok || value == nil {
+		return nil, nil
+	}
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	if string(encoded) == "null" {
+		return nil, nil
+	}
+	return parseSmartUnifiedAnalysis(string(encoded))
+}
