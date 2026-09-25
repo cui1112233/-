@@ -7,7 +7,7 @@ import { batchFactoryMergeCoverFrom } from './shuihuo/batchFactoryMergeCover';
 import { ProjectsView } from './shuihuo/ProjectsView';
 import { AssetsView } from './shuihuo/AssetsView';
 import { confirmSegmentation, createProject, deleteProject, getProductionHealth, getProject, listModels, listProjects, paragraphSegmentation, replaceProjectSource, smartSegmentation } from '../../shared/api/shuihuoProduction';
-import { appendNovelFetchIntake, createBatchFromIntake, createManualIntake, getBatch, getIntake, getMergeStatus, getProductionStatus, listBatches, startBatchAutomation } from '../../shared/api/batchFactoryV11';
+import { appendNovelFetchIntake, classifyFetchedBatchMetadata, createBatchFromIntake, createManualIntake, getBatch, getIntake, getMergeStatus, getProductionStatus, listBatches, startBatchAutomation } from '../../shared/api/batchFactoryV11';
 import { BATCH_FACTORY_ACTIVE_BATCH_STORAGE_KEY, novelFetchIntakeBooks, pendingNovelFetchIntakeId } from './shuihuo/batchFactoryNovelFetchHandoff';
 import './shuihuo-production.css';
 
@@ -183,6 +183,21 @@ export function ShuihuoProductionPage({ openBatchOnLoad = false }) {
     setActiveBatchProject(batch);
     setView('batch-novels');
     await refreshProjects();
+    if (batch?.id) {
+      try {
+        const result = await classifyFetchedBatchMetadata(batch.id);
+        const rows = Array.isArray(result?.results) ? result.results : [];
+        const classified = rows.filter(item => item?.status === 'classified').length;
+        const failed = rows.filter(item => item?.status === 'failed').length;
+        if (classified) message.success(`已识别 ${classified} 本小说的男女频与风格`);
+        if (failed) message.warning(`${failed} 本小说的男女频与风格暂未识别，可在单书中重试；不影响生产。`);
+        const refreshed = batchFactoryBatchFromResponse(await getBatch(batch.id));
+        if (mountedRef.current) setActiveBatchProject(current => String(current?.id) === String(batch.id) ? refreshed : current);
+        await refreshProjects();
+      } catch (error) {
+        if (mountedRef.current) message.warning(`男女频与风格暂未识别：${error?.message || '可在单书中重试；不影响生产。'}`);
+      }
+    }
     if (input?.automationEnabled === true && batch?.id) {
       try {
         await startBatchAutomation(batch.id, {

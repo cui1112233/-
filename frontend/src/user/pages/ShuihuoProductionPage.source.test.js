@@ -15,3 +15,10 @@ test('shared Shuihuo library loads both commentary projects and Batch Factory ba
   assert.match(page, /getProductionStatus\(project\.batchId/);
   assert.match(page, /getMergeStatus\(project\.batchId/);
 });
+
+test('manual batch creation in the public Shuihuo page starts detached publish-metadata classification', () => {
+  const page = fs.readFileSync(pagePath, 'utf8');
+
+  assert.match(page, /classifyFetchedBatchMetadata/);
+  assert.match(page, /await classifyFetchedBatchMetadata\(batch\.id\)/);
+});
