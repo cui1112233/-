@@ -134,7 +134,7 @@ function batchFactoryBookClassificationPath(pathname) {
 }
 
 function batchFactory121PublishPath(pathname) {
-  const match = String(pathname || '').match(/^\/api\/batch-factory\/v11\/batches\/([^/]+)\/books\/([^/]+)\/publish-121$/);
+  const match = String(pathname || '').match(/^\/api\/batch-factory\/v1[12]\/batches\/([^/]+)\/books\/([^/]+)\/publish-121$/);
   if (!match) return null;
   try { return { batchId: decodeURIComponent(match[1]), bookId: decodeURIComponent(match[2]) }; }
   catch (_) { return null; }

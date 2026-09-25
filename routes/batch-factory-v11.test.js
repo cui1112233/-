@@ -33,6 +33,13 @@ const {
   splitVideoPresetBody
 } = require('./batch-factory-v11');
 
+test('keeps a V12 book submission on the Node-owned 121 publisher', () => {
+  assert.deepEqual(
+    batchFactory121PublishPath('/api/batch-factory/v12/batches/batch-1/books/book-1/publish-121'),
+    { batchId: 'batch-1', bookId: 'book-1' }
+  );
+});
+
 test('uses the first enabled text model to classify a newly imported book without batch settings', () => {
   const provider = resolveBatchFactoryBookClassificationTextProvider(
     { username: 'alice', body: {} },
