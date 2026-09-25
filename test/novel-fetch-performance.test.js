@@ -20,7 +20,7 @@ test('V2 page injects a shared runtime before feature scripts', () => {
   assert.ok(injected.indexOf('app.js?v=20260922-retry-progress-r1') < injected.indexOf('v78-novel-fetch-v2.js'));
   assert.match(injected, /app\.js\?v=20260922-retry-progress-r1/);
   assert.match(injected, /v78-novel-fetch-v2\.js\?v=20260925-processing-flow-r1/);
-  assert.match(injected, /v78-novel-fetch-v2-run-controls\.js\?v=20260925-text-model-surface-r1/);
+  assert.match(injected, /v78-novel-fetch-v2-run-controls\.js\?v=20260925-text-model-layout-r2/);
 });
 
 test('runtime provides single-flight requests and activity-aware polling', () => {
@@ -160,11 +160,13 @@ test('manual start is captured by the V2 workflow so the legacy handler cannot a
   assert.match(client, /void startSelectedProcessing\(\)/);
 });
 
-test('processing controls mount the saved text-model selector in the final compact run surface', () => {
+test('processing controls mount the saved text-model selector beside version configuration', () => {
   const client = read('public/batch-rewrite/v78-novel-fetch-v2.js');
   const controls = read('public/batch-rewrite/v78-novel-fetch-v2-run-controls.js');
   assert.match(controls, /v78RunTextModel/);
   assert.match(controls, /window\.persistSelectedTextModel/);
+  assert.match(controls, /versionConfigBtn/);
+  assert.match(controls, /launcher\.insertBefore\(label, versionButton\)/);
   assert.match(client, /text_model_id:\s*\(byId\('v78RunTextModel'\)\?\.value \|\| byId\('v78ProcessingTextModel'\)/);
 });
 

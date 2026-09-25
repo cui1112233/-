@@ -38,8 +38,9 @@
       #v78RunMethodGrid label{display:grid;gap:6px;min-width:0;font-size:11px;color:var(--muted)}
       #v78RunMethodGrid select{width:100%;min-height:34px;padding:6px 8px;border-radius:6px}
       #v78RunMethodGrid select:disabled{opacity:.48;cursor:not-allowed}
-      #v78RunMeta .v78-run-text-model{display:grid;gap:5px;min-width:0;font-size:12px;color:var(--muted)}
-      #v78RunMeta .v78-run-text-model select{min-height:34px;min-width:0;padding:6px 8px;border-radius:6px}
+      .version-config-launcher .v78-run-text-model{display:grid;gap:4px;flex:0 1 248px;min-width:180px;font-size:12px;color:var(--muted)}
+      .version-config-launcher .v78-run-text-model select{width:100%;min-height:34px;min-width:0;padding:6px 8px;border-radius:6px}
+      .version-config-launcher .v78-run-text-model small{min-height:14px;font-size:11px;line-height:14px}
       #v78ScheduleBtn,#v78ScheduleManagerBtn,#v78SensitiveRepairBtn{min-height:37px}
       #v78ScheduleDialog,#v78ScheduleListDialog{border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--text);padding:0;box-shadow:0 24px 80px rgba(0,0,0,.5)}
       #v78ScheduleDialog{width:min(420px,calc(100vw - 32px))}
@@ -58,7 +59,7 @@
       .v78-schedule-row .v78-schedule-row-actions{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap}
       .v78-schedule-row button{min-height:30px;padding:4px 9px;font-size:11px}
       .v78-schedule-empty{padding:26px 12px;text-align:center;border:1px dashed var(--line);border-radius:8px;color:var(--muted);font-size:12px}
-      @media(max-width:900px){#v78RunMethodGrid{grid-template-columns:repeat(2,minmax(0,1fr))}.v78-schedule-row{grid-template-columns:1fr}.v78-schedule-row .v78-schedule-row-actions{justify-content:flex-start}}
+      @media(max-width:900px){#v78RunMethodGrid{grid-template-columns:repeat(2,minmax(0,1fr))}.v78-schedule-row{grid-template-columns:1fr}.v78-schedule-row .v78-schedule-row-actions{justify-content:flex-start}.version-config-launcher .v78-run-text-model{flex:1 1 220px}}
     `;
     document.head.appendChild(style);
   }
@@ -164,8 +165,9 @@
   }
 
   function mountTextModelSelector() {
-    const meta = $('v78RunMeta');
-    if (!meta) return false;
+    const versionButton = $('versionConfigBtn');
+    const launcher = versionButton?.parentElement;
+    if (!launcher) return false;
     if ($('v78RunTextModel')) return true;
     const label = document.createElement('label');
     label.className = 'v78-run-text-model';
@@ -176,7 +178,7 @@
     const status = document.createElement('small');
     status.id = 'v78RunTextModelStatus';
     label.append(select, status);
-    meta.appendChild(label);
+    launcher.insertBefore(label, versionButton);
     select.addEventListener('change', async () => {
       try {
         if (typeof window.persistSelectedTextModel !== 'function') throw new Error('文本模型保存功能尚未就绪');
