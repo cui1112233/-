@@ -122,6 +122,24 @@ function BatchFactoryPublishSettingsForm({ value, onChange, active }) {
     setAccount(config?.settings || config?.config || {});
     setEnvironment({ environment: result, session: hasSession(result), visible: null });
   };
+  const markPublishSessionExpired = error => {
+    const detail = error?.message || '视频管理系统登录会话已失效，请重新验证登录';
+    setEnvironment(current => ({ ...current, error: detail, session: false, visible: { ok: false, error: detail } }));
+  };
+  const refreshOrganizations = async () => {
+    setOrganizationsError('');
+    try {
+      const result = await get121OrganizationOptions();
+      setOrganizations(Array.isArray(result?.organizations) ? result.organizations : []);
+      return { ok: true };
+    } catch (error) {
+      setOrganizations([]);
+      const detail = error?.message || '视频管理系统组织目录读取失败';
+      setOrganizationsError(detail);
+      if (/(登录会话|session[_\s-]*expired|unauthorized|\b401\b)/i.test(detail)) markPublishSessionExpired(error);
+      return { ok: false, error: new Error(detail) };
+    }
+  };
   const selfCheck = async () => {
     setChecking(true);
     try {
@@ -130,7 +148,8 @@ function BatchFactoryPublishSettingsForm({ value, onChange, active }) {
       const visible = session ? await testWebSubmitVisible() : null;
       const checked = { environment: result, session, visible };
       setEnvironment(checked);
-      return checked;
+      const organizations = session && visible?.ok ? await refreshOrganizations() : null;
+      return { ...checked, organizations };
     } catch (error) {
       const checked = { error: error?.message || '视频管理系统环境自检失败', session: false, visible: null };
       setEnvironment(checked);
@@ -150,14 +169,7 @@ function BatchFactoryPublishSettingsForm({ value, onChange, active }) {
       return undefined;
     }
     let alive = true;
-    setOrganizationsError('');
-    get121OrganizationOptions().then(result => {
-      if (alive) setOrganizations(Array.isArray(result?.organizations) ? result.organizations : []);
-    }).catch(error => {
-      if (!alive) return;
-      setOrganizations([]);
-      setOrganizationsError(error?.message || '视频管理系统组织目录读取失败');
-    });
+    refreshOrganizations();
     return () => { alive = false; };
   }, [active, organizationCatalogReady]);
   const login = async () => {
@@ -169,8 +181,9 @@ function BatchFactoryPublishSettingsForm({ value, onChange, active }) {
       setLoginPassword('');
       const checked = await selfCheck();
       if (!checked?.session || !checked.visible?.ok) throw new Error(sessionDetail(checked?.environment) || checked?.error || '视频管理系统登录后验证未通过');
+      if (!checked.organizations?.ok) throw (checked.organizations?.error || new Error('视频管理系统组织目录读取失败'));
       setLoginOpen(false);
-      message.success('视频管理系统已登录并完成验证');
+      message.success('视频管理系统已登录、验证并读取组织目录');
     } catch (error) { message.error(error?.message || '视频管理系统登录失败'); }
     finally { setLoginBusy(false); }
   };
