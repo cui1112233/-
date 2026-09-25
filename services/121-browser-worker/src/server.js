@@ -33,7 +33,10 @@ function createWorkerApp({
   loginTimeoutMs = Number(process.env.QIANTIE_121_LOGIN_TIMEOUT_MS) || 45_000
 } = {}) {
   if (!secret) throw new Error('worker internal secret is required');
-  const store = sessionStore || createSessionStore({ rootDir: process.env.QIANTIE_121_SESSION_DIR || path.join('/data', 'sessions') });
+  const store = sessionStore || createSessionStore({
+    rootDir: process.env.QIANTIE_121_SESSION_DIR || path.join('/data', 'sessions'),
+    legacyRootDir: process.env.QIANTIE_121_LEGACY_SESSION_DIR || ''
+  });
   const runAction = action || createActionRunner({ maxConcurrent: Number(process.env.QIANTIE_121_ACTION_CONCURRENCY) || 1 });
   const app = express();
   app.use(express.json({ limit: '2mb' }));

@@ -29,6 +29,10 @@ services:
       PORT: "8787"
       QIANTIE_121_HEADED_ENABLED: "1"
       QIANTIE_121_SESSION_DIR: /data/sessions
+      # Read-only migration source for sessions created by the original
+      # browser-worker service. The worker adopts a matching identity into
+      # novel-fetch-121-data on first successful lookup.
+      QIANTIE_121_LEGACY_SESSION_DIR: /data/legacy-sessions
       QIANTIE_121_WORKER_SECRET: ${QIANTIE_121_WORKER_SECRET}
       QIANTIE_121_CREDENTIAL_SECRET: ${QIANTIE_121_CREDENTIAL_SECRET}
       QIANTIE_121_STORAGE_STATE_SECRET: ${QIANTIE_121_STORAGE_STATE_SECRET}
@@ -38,6 +42,7 @@ services:
       - "8787"
     volumes:
       - novel-fetch-121-data:/data
+      - browser_sessions:/data/legacy-sessions:ro
     healthcheck:
       test:
         - CMD
@@ -54,3 +59,6 @@ services:
 
 volumes:
   novel-fetch-121-data:
+  browser_sessions:
+    external: true
+    name: v88-public_browser_sessions
