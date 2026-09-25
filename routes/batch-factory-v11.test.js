@@ -23,6 +23,7 @@ const {
   automationPublishSettings,
   submitBatchFactoryBookTo121,
   classifyBatchFactoryBookFor121,
+  resolveBatchFactoryBookClassificationTextProvider,
   classificationFailureMetadata,
   parseBatchBookClassification,
   ensureBatchFactory121ResubmissionAllowed,
@@ -31,6 +32,24 @@ const {
   safeAutomationStatus,
   splitVideoPresetBody
 } = require('./batch-factory-v11');
+
+test('uses the first enabled text model to classify a newly imported book without batch settings', () => {
+  const provider = resolveBatchFactoryBookClassificationTextProvider(
+    { username: 'alice', body: {} },
+    { settingsState: { patch: {} } },
+    { settingsState: { patch: {} } },
+    {
+      memberStore: { getMember: username => ({ username, active: true, role: 'manager' }) },
+      configReader: () => ({ modelCatalog: [{ id: 'text-auto', kind: 'text', enabled: true, baseUrl: 'https://text.example/v1', modelId: 'gpt-classifier', credential: 'classify-key', displayName: '自动分类模型' }] })
+    }
+  );
+  assert.deepEqual(provider, {
+    endpoint: 'https://text.example/v1/chat/completions',
+    apiKey: 'classify-key',
+    model: 'gpt-classifier',
+    displayName: '自动分类模型'
+  });
+});
 
 test('keeps existing publication fields while persisting a visible classification failure', () => {
   const metadata = classificationFailureMetadata({

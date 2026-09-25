@@ -350,6 +350,29 @@ function batchBookTextModelId(batch, book, requestBody = {}) {
   ).trim();
 }
 
+// A manually imported batch has no engine settings yet.  Classification is
+// part of that import flow, so use the account's first usable text model when
+// neither the request nor the new batch selected one explicitly.
+function resolveBatchFactoryBookClassificationTextProvider(req, batch, book, options = {}) {
+  const selectedModelID = batchBookTextModelId(batch, book, req.body);
+  if (selectedModelID) return requestTextProvider(req, options, selectedModelID);
+  const candidates = listVisibleModels({
+    username: req.username,
+    kind: 'text',
+    memberStore: options.memberStore,
+    accountStore: options.accountStore,
+    account: { isOwner: req.auth?.account?.isOwner === true },
+    configReader: options.configReader || readConfig
+  });
+  let lastError;
+  for (const candidate of candidates) {
+    try { return requestTextProvider(req, options, String(candidate?.id || '').trim()); }
+    catch (error) { lastError = error; }
+  }
+  if (lastError) throw lastError;
+  return requestTextProvider(req, options, '');
+}
+
 function normalizedBookGender(value) {
   const input = String(value || '').trim();
   if (input === '男' || input === '男频') return '男频';
@@ -487,7 +510,7 @@ async function prepareBatchFactoryBookClassification(req, route, options = {}) {
     return { book, classification: { gender, style, tags: String(metadata.tags || '').trim(), reason: String(metadata.classifyReason || '').trim() }, reused: true };
   }
   try {
-    const textProvider = requestTextProvider(req, options, batchBookTextModelId(batch, book, req.body));
+    const textProvider = resolveBatchFactoryBookClassificationTextProvider(req, batch, book, options);
     return await classifyBatchFactoryBookFor121({
       username: req.username, isOwner: req.auth?.account?.isOwner === true, batchId: route.batchId, bookId: route.bookId,
       textProvider, force, ...goOptions
@@ -2021,6 +2044,7 @@ module.exports = {
   fetchBatchFactory121Media,
   submitBatchFactoryBookTo121,
   batchBookTextModelId,
+  resolveBatchFactoryBookClassificationTextProvider,
   normalizedBookGender,
   normalizedBookStyle,
   classificationFailureMetadata,
