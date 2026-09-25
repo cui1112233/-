@@ -30,11 +30,13 @@ services:
       PORT: "8787"
       QIANTIE_121_WORKER_SECRET: ${QIANTIE_121_WORKER_SECRET}
       QIANTIE_121_SESSION_DIR: /data/sessions
+      QIANTIE_121_LEGACY_SESSION_DIR: /data/legacy-sessions
       QIANTIE_121_HEADED_ENABLED: "1"
       QIANTIE_121_VERIFY_TIMEOUT_MS: ${QIANTIE_121_VERIFY_TIMEOUT_MS:-30000}
       QIANTIE_121_LOGIN_TIMEOUT_MS: ${QIANTIE_121_LOGIN_TIMEOUT_MS:-55000}
     volumes:
       - browser_sessions:/data/sessions
+      - novel-fetch-121-data:/data/legacy-sessions:ro
     expose:
       - "8787"
     networks:
@@ -122,6 +124,9 @@ volumes:
   browser_sessions:
     external: true
     name: v88-public_browser_sessions
+  novel-fetch-121-data:
+    external: true
+    name: v88-public_novel-fetch-121-data
   v88_data:
     external: true
     name: v88-public_v88_data
