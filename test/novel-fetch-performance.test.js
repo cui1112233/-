@@ -9,6 +9,8 @@ const read = file => fs.readFileSync(path.join(root, file), 'utf8');
 test('V2 page injects a shared runtime before feature scripts', () => {
   const fs = require('node:fs');
   const page = read('lib/novel-fetch-workshop/v2-page.js');
+  assert.match(page, /'frontend', 'public', 'batch-rewrite', 'index\.html'/);
+  assert.match(page, /fs\.existsSync\(trackedIndexPath\) \? trackedIndexPath : distIndexPath/);
   assert.match(page, /v78-novel-fetch-v2-runtime\.js/);
   assert.match(page, /qiantie-novel-fetch-runtime/);
   assert.match(page, /APP_SCRIPT_TAG_RE/);
