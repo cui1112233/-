@@ -2,12 +2,38 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
+  classifyBatchFactoryBooks,
   fetchBatchFactoryOriginals,
   refillMissingBatchFactoryBookSource,
   routeV12UpstreamPath,
   rewriteV12PathForLegacyRead,
   rejectLegacyV11Mutations
 } = require('./batch-factory-v12');
+
+test('classifies every fetched book independently without letting one failure block the others', async () => {
+  const calls = [];
+  const result = await classifyBatchFactoryBooks({
+    books: [
+      { id: 'book-1', sourceText: '正文一', sourceMetadata: {} },
+      { id: 'book-2', sourceText: '正文二', sourceMetadata: { gender: '女频', style: '现代甜文' } },
+      { id: 'book-3', sourceText: '', sourceMetadata: {} },
+      { id: 'book-4', sourceText: '正文四', sourceMetadata: {} }
+    ],
+    classifyBook: async book => {
+      calls.push(book.id);
+      if (book.id === 'book-4') throw new Error('文本模型暂不可用');
+      return { classification: { gender: '男频', style: '男频都市' }, reused: false };
+    }
+  });
+
+  assert.deepEqual(calls, ['book-1', 'book-4']);
+  assert.deepEqual(result, [
+    { bookId: 'book-1', status: 'classified', classification: { gender: '男频', style: '男频都市' }, reused: false },
+    { bookId: 'book-2', status: 'reused', classification: { gender: '女频', style: '现代甜文', tags: '', reason: '' }, reused: true },
+    { bookId: 'book-3', status: 'skipped', reason: 'SOURCE_TEXT_REQUIRED' },
+    { bookId: 'book-4', status: 'failed', error: '文本模型暂不可用' }
+  ]);
+});
 const { automationCompilePayload } = require('./batch-factory-v11');
 
 test('batch factory direct fetch returns per-book results without creating Novel Fetch tasks', async () => {

@@ -124,6 +124,12 @@ export function fetchBookOriginal(batchId, bookId) {
   return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/fetch-original`), { method: 'POST', body: body({}) });
 }
 
+// Runs after a manual batch has been created.  The API isolates failures per
+// book, so classification is useful metadata rather than a creation gate.
+export function classifyFetchedBatchMetadata(batchId) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/classify-fetched-metadata`), { method: 'POST', body: body({}) });
+}
+
 export function getBatch(batchId) {
   return apiRequest(bf11Path(`batches/${id(batchId)}`));
 }
