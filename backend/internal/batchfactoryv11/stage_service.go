@@ -26,6 +26,7 @@ type BookStageService struct {
 	Production        *ProductionService
 	SmartUnifiedStyle string
 	H3Director        bool
+	ProviderOverride  string
 }
 
 func (s *BookStageService) repository() (BookStageRunRepository, error) {
@@ -209,7 +210,10 @@ func (s *BookStageService) run(ctx context.Context, owner, batchID, bookID strin
 		}
 	case BookStageVideo:
 		effective := ResolveSettings(batch.SettingsState.Patch, book.SettingsState.Patch)
-		provider := VideoProviderForModel(rawString(effective, "videoModelId", ""), rawString(effective, "videoProvider", VideoProviderPersonalAPI))
+		provider := strings.TrimSpace(s.ProviderOverride)
+		if provider == "" {
+			provider = VideoProviderForModel(rawString(effective, "videoModelId", ""), rawString(effective, "videoProvider", VideoProviderPersonalAPI))
+		}
 		if mode == StageModeMissing {
 			var job ProductionJob
 			job, err = s.Production.SubmitBookProductionWithOptions(ctx, owner, batchID, bookID, requestID, provider, ProductionOptions{VideoID: videoID, CompilationID: frozenCompilationID})

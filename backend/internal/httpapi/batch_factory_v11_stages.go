@@ -13,6 +13,7 @@ type bookStageRunInput struct {
 	VideoID           string                    `json:"videoId,omitempty"`
 	TextProvider      *textProviderInput        `json:"textProvider"`
 	SmartUnifiedStyle string                    `json:"smartUnifiedStyle"`
+	Provider          string                    `json:"provider,omitempty"`
 	H3                bool                      `json:"h3"`
 }
 
@@ -49,6 +50,7 @@ func registerBookStageRoutes(mux *http.ServeMux, service *batchfactoryv11.BookSt
 		runner.Director = director
 		runner.SmartUnifiedStyle = input.SmartUnifiedStyle
 		runner.H3Director = input.H3
+		runner.ProviderOverride = input.Provider
 		summary, err := runner.Run(r.Context(), owner, r.PathValue("batchId"), r.PathValue("bookId"), batchfactoryv11.BookStage(r.PathValue("stage")), input.Mode, input.RequestID, input.VideoID)
 		if err != nil {
 			if errors.Is(err, batchfactoryv11.ErrUnavailable) {
@@ -79,6 +81,7 @@ func registerBookStageRoutes(mux *http.ServeMux, service *batchfactoryv11.BookSt
 		runner.Director = director
 		runner.SmartUnifiedStyle = input.SmartUnifiedStyle
 		runner.H3Director = input.H3
+		runner.ProviderOverride = input.Provider
 		summary, err := runner.RetryLastFailed(r.Context(), owner, r.PathValue("batchId"), r.PathValue("bookId"), input.RequestID, input.VideoID)
 		if err != nil {
 			if errors.Is(err, batchfactoryv11.ErrUnavailable) {
