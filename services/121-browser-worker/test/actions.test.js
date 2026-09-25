@@ -107,3 +107,39 @@ test('action runner releases an idle browser after its bounded lifetime', async 
   await new Promise(resolve => setTimeout(resolve, 20));
   assert.equal(closes, 1);
 });
+
+test('queued idle close does not terminate a newly active authenticated action', async () => {
+  let closes = 0;
+  let idleClose;
+  let releaseAction;
+  const { browser } = fakeBrowser();
+  browser.close = async () => { closes += 1; };
+  const originalSetTimeout = global.setTimeout;
+  const originalClearTimeout = global.clearTimeout;
+  global.setTimeout = callback => { idleClose = callback; return 1; };
+  global.clearTimeout = () => {};
+  try {
+    const runner = createActionRunner({
+      idleMs: 5,
+      playwright: { chromium: { launch: async () => browser } },
+      perform: async ({ hold }) => {
+        if (hold) await new Promise(resolve => { releaseAction = resolve; });
+        return { status: 200, storageState: { cookies: [] } };
+      }
+    });
+
+    await runner({ baseUrl, storageState: { cookies: [] } });
+    const inFlight = runner({ baseUrl, storageState: { cookies: [] }, hold: true });
+    await new Promise(resolve => setImmediate(resolve));
+    idleClose();
+    await Promise.resolve();
+
+    assert.equal(closes, 0);
+    releaseAction();
+    await inFlight;
+    await runner.close();
+  } finally {
+    global.setTimeout = originalSetTimeout;
+    global.clearTimeout = originalClearTimeout;
+  }
+});
