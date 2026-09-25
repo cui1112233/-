@@ -168,10 +168,19 @@ function organizationOptions(payload) {
 async function listBatchFactory121Organizations(req, options = {}) {
   const sessionStore = options.novelFetchStore || req.app?.locals?.novelFetchStore;
   if (!sessionStore?.getSession) throw requestError('121 登录会话存储未启用', 503, 'PUBLISH_121_SESSION_UNAVAILABLE');
+  const webSubmit = options.webSubmit || req.app?.locals?.novelFetchV2WebSubmit;
+  if (typeof webSubmit?.workerAction === 'function') {
+    const response = await webSubmit.workerAction(req.username, 'organization_list');
+    let payload = {};
+    try { payload = JSON.parse(String(response?.body || '{}')); }
+    catch (_) { throw requestError('121 组织目录返回了非 JSON 数据', 502, 'PUBLISH_121_ORGANIZATION_UNAVAILABLE'); }
+    if (payload?.success === false) throw requestError(String(payload?.message || payload?.msg || '121 组织目录读取失败'), 502, 'PUBLISH_121_ORGANIZATION_UNAVAILABLE');
+    return { organizations: organizationOptions(payload) };
+  }
   const client = options.directClient || create121DirectClient();
   const session = await resolveBatchFactory121Session(req.username, {
     sessionStore,
-    webSubmit: options.webSubmit || req.app?.locals?.novelFetchV2WebSubmit
+    webSubmit
   });
   await client.verify({ cookie: session?.cookie });
   const response = await client.action({ cookie: session?.cookie, method: 'GET', path: '/tttadmin/api/organization.php' });
@@ -475,6 +484,7 @@ async function submitBatchFactoryBookTo121(req, route, options = {}) {
   if (!initialBook) throw requestError('批量作品或单本书不存在', 404, 'BATCH_BOOK_NOT_FOUND');
   ensureBatchFactory121ResubmissionAllowed(initialBook, req.body);
   const reportProgress = progress => persistBatchFactory121Progress(req, route, progress, goOptions);
+  const webSubmit = options.webSubmit || req.app?.locals?.novelFetchV2WebSubmit;
   const publisher = createBatchFactory121Publisher({
     loadBatch: async (owner, batchId) => v11JSONRequest({ username: owner, isOwner: req.auth?.account?.isOwner === true, method: 'GET', pathname: `/api/batch-factory/v11/batches/${encodeURIComponent(batchId)}`, ...goOptions }),
     loadMergeStatus: async (owner, batchId) => v11JSONRequest({ username: owner, isOwner: req.auth?.account?.isOwner === true, method: 'GET', pathname: `/api/batch-factory/v11/batches/${encodeURIComponent(batchId)}/merge-status`, ...goOptions }),
@@ -482,9 +492,10 @@ async function submitBatchFactoryBookTo121(req, route, options = {}) {
     fetchMedia: (owner, mediaURL) => fetchBatchFactory121Media({ username: owner, isOwner: req.auth?.account?.isOwner === true, mediaURL, ...goOptions }),
     getSession: owner => resolveBatchFactory121Session(owner, {
       sessionStore,
-      webSubmit: options.webSubmit || req.app?.locals?.novelFetchV2WebSubmit
+      webSubmit
     }),
     directClient: options.directClient || create121DirectClient(),
+    workerAction: typeof webSubmit?.workerAction === 'function' ? (owner, action, payload) => webSubmit.workerAction(owner, action, payload) : undefined,
     onProgress: reportProgress,
     now: options.clock || (() => new Date())
   });

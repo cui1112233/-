@@ -8,6 +8,7 @@ function buildActionRequest(baseUrl, action, payload = {}) {
   const origin = targetOrigin(baseUrl);
   if (action === 'dashboard') return { method: 'GET', url: `${origin}/tttadmin/zidingyi.php`, headers: {} };
   if (action === 'config_list') return { method: 'GET', url: `${origin}/tttadmin/api/zdy_config.php?action=list`, headers: {} };
+  if (action === 'organization_list') return { method: 'GET', url: `${origin}/tttadmin/api/organization.php`, headers: {} };
   if (action === 'book_list') {
     const bookId = String(payload.bookId || '').trim();
     if (!/^\d{1,20}$/.test(bookId)) throw new Error('invalid bookId');
@@ -23,6 +24,16 @@ function buildActionRequest(baseUrl, action, payload = {}) {
       method: 'POST',
       url: `${origin}/tttadmin/api/zbooklist_upload.php`,
       headers: { 'content-type': contentType },
+      data: Buffer.from(bodyBase64, 'base64')
+    };
+  }
+  if (action === 'asset_presign') {
+    const bodyBase64 = String(payload.bodyBase64 || '');
+    if (!bodyBase64) throw new Error('asset presign body is required');
+    return {
+      method: 'POST',
+      url: `${origin}/tttadmin/api/music_put_url.php`,
+      headers: { 'content-type': 'application/json' },
       data: Buffer.from(bodyBase64, 'base64')
     };
   }

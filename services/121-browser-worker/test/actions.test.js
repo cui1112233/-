@@ -27,6 +27,8 @@ test('action builder only allows known 121 endpoints', () => {
   assert.match(buildActionRequest(baseUrl, 'dashboard', {}).url, /\/tttadmin\/zidingyi\.php$/);
   assert.match(buildActionRequest(baseUrl, 'config_list', {}).url, /\/tttadmin\/api\/zdy_config\.php\?action=list$/);
   assert.match(buildActionRequest(baseUrl, 'book_list', { bookId: '123' }).url, /zbooklist_get\.php\?.*bookid=123/);
+  assert.match(buildActionRequest(baseUrl, 'organization_list', {}).url, /\/tttadmin\/api\/organization\.php$/);
+  assert.match(buildActionRequest(baseUrl, 'asset_presign', { bodyBase64: 'e30=' }).url, /\/tttadmin\/api\/music_put_url\.php$/);
   assert.match(buildActionRequest(baseUrl, 'upload', { contentType: 'multipart\/form-data; boundary=x', bodyBase64: 'YWJj' }).url, /zbooklist_upload\.php$/);
   assert.throws(() => buildActionRequest(baseUrl, 'http://evil.example/', {}), /unsupported 121 action/);
 });
@@ -55,6 +57,15 @@ test('upload sends exact multipart bytes through authenticated context', async (
   assert.equal(request.options.method, 'POST');
   assert.equal(request.options.headers['content-type'], 'multipart/form-data; boundary=abc');
   assert.equal(Buffer.from(request.options.data).toString(), 'payload');
+});
+
+test('asset presign sends its JSON only through the authenticated browser context', async () => {
+  const { browser, calls } = fakeBrowser();
+  await performAuthenticatedAction({ browser, baseUrl, storageState: { cookies: [] }, action: 'asset_presign', payload: { bodyBase64: Buffer.from('{"files":[]}').toString('base64') } });
+  const request = calls.find(item => item.url);
+  assert.equal(request.options.method, 'POST');
+  assert.equal(request.options.headers['content-type'], 'application/json');
+  assert.equal(Buffer.from(request.options.data).toString(), '{"files":[]}');
 });
 
 test('action runner reuses one browser and closes it after an expired session', async () => {
