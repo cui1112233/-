@@ -25,8 +25,12 @@ func (fn localMergeRunFunc) Merge(ctx context.Context, inputs []string, output s
 }
 
 func TestLocalMergeAdapterCreatesProtectedArtifactForCompletedMerge(t *testing.T) {
-	artifacts := localartifact.NewStore(t.TempDir(), 1<<20)
+	artifactRoot := t.TempDir()
+	artifacts := localartifact.NewStore(artifactRoot, 1<<20)
 	adapter := NewLocalMergeAdapter(artifacts)
+	if adapter.WorkRoot != artifactRoot {
+		t.Fatalf("work root=%q want artifact root=%q", adapter.WorkRoot, artifactRoot)
+	}
 	adapter.Downloader = localMergeDownloadFunc(func(_ context.Context, _ []MergeMedia, dir string, onProgress func(int, int)) ([]string, error) {
 		input := filepath.Join(dir, "input.mp4")
 		err := os.WriteFile(input, []byte("input"), 0o600)

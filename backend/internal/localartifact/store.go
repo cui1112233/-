@@ -42,6 +42,14 @@ func NewStore(root string, maxBytes int64) *Store {
 	return &Store{root: filepath.Clean(root), maxBytes: maxBytes}
 }
 
+// Root returns the private directory that is mounted for local artifacts.
+func (s *Store) Root() string {
+	if s == nil {
+		return ""
+	}
+	return s.root
+}
+
 func (s *Store) SaveMP4(id string, src io.Reader) (artifact Artifact, err error) {
 	if s == nil || !safeArtifactID.MatchString(id) || src == nil {
 		return Artifact{}, ErrInvalidID

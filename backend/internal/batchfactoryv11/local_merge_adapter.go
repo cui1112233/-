@@ -65,11 +65,15 @@ func (d safeLocalMergeDownloader) Download(ctx context.Context, sources []MergeM
 }
 
 func NewLocalMergeAdapter(artifacts *localartifact.Store) *LocalMergeAdapter {
+	workRoot := os.TempDir()
+	if artifacts != nil && strings.TrimSpace(artifacts.Root()) != "" {
+		workRoot = artifacts.Root()
+	}
 	return &LocalMergeAdapter{
 		Artifacts:  artifacts,
 		Downloader: safeLocalMergeDownloader{delegate: &mergeworker.Downloader{}},
 		Merger:     &mergeworker.FFmpegRunner{},
-		WorkRoot:   os.TempDir(),
+		WorkRoot:   workRoot,
 		tasks:      map[string]MergeJob{},
 	}
 }
