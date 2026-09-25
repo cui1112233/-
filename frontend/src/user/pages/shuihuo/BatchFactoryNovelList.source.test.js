@@ -1084,3 +1084,7 @@ test('loads protected local merge files through the authenticated media boundary
   assert.match(source, /import \{ ProductionMediaBoundary \} from '\.\.\/batch-factory-v11\/ProductionMediaBoundary';/);
   assert.match(source, /<ProductionMediaBoundary showDownload=\{false\}>/);
 });
+
+test('keeps production polling failures inside the task panel', () => {
+  assert.match(source, /getProductionStatus\(batch\.id, \{ suppressGlobalError: true \}\)/);
+});

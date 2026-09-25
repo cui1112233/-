@@ -224,6 +224,31 @@ test('invalid API keys remain terminal instead of consuming automatic retries', 
   assert.equal(status.books[0].retryCount, 0);
 });
 
+test('continue automation resets a failed book and resumes from its missing stage', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-resume-'));
+  const { adapter } = fixture();
+  let attempts = 0;
+  adapter.runStage = async ({ book, stage }) => {
+    if (stage !== 'assets') return;
+    attempts += 1;
+    if (attempts === 1) throw new Error('invalid API key');
+    book.assetRecords = [{ id: 'a1', kind: 'character' }];
+  };
+  const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} } });
+  await controller.start({ owner: 'user', batchId: 'batch-1', concurrency: 1, runMode: 'storyboard_only' });
+  await controller.tick();
+  await wait();
+  assert.equal(controller.status({ owner: 'user', batchId: 'batch-1' }).books[0].status, 'failed');
+
+  const resumed = await controller.resume({ owner: 'user', batchId: 'batch-1' });
+  assert.equal(resumed.state, 'running');
+  assert.equal(resumed.books[0].status, 'pending');
+
+  await controller.tick();
+  await wait();
+  assert.equal(attempts, 2);
+});
+
 test('a transient provider VIDEO failure is retried only for that VIDEO after its backoff', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-test-'));
   const { batch, adapter } = fixture();

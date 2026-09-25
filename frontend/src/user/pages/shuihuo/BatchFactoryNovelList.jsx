@@ -2385,7 +2385,9 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
     setLogsLoading(true);
     try {
       const [production, mergeResult] = await Promise.all([
-        getProductionStatus(batch.id),
+        // This endpoint is polled continuously. Surface its failure inside
+        // the task panel, rather than renewing a global error banner forever.
+        getProductionStatus(batch.id, { suppressGlobalError: true }),
         getMergeStatus(batch.id, { suppressGlobalError: true }).catch(error => {
           // A batch without a merge record is normal. Older Go runtimes use
           // 404 for that empty state; it is neither an auth failure nor a
@@ -2757,7 +2759,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
       setAutomationStatus(next || automationStatus);
       if (key === 'start') { setAutomationStartOpen(false); message.success(immediate ? '已立即启动自动化任务。' : '已创建北京时间定时自动化任务。'); }
       else if (key === 'pause') message.info('已暂停自动化；已提交给模型或合并器的在途任务不会被强制删除。');
-      else if (key === 'resume') message.success('已继续自动化。');
+      else if (key === 'resume') message.success('已继续自动化；失败或卡住的步骤将从缺失环节重试。');
       else if (key === 'retry') message.success('已重置失败或阻塞小说，并从缺失阶段继续。');
       else if (key === 'cancel') message.info('已停止自动化编排；已在途的供应商任务仍会保留。');
       await Promise.allSettled([refreshBatch(), loadRuntimeStatus({ quiet: true })]);
@@ -2865,7 +2867,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
   const automationMenuItems = [
     { key: 'start', label: '开始定时', disabled: automationActive || automationStartBlocked },
     { key: 'pause', label: '暂停自动化', disabled: !automationActive },
-    { key: 'resume', label: '继续自动化', disabled: automationState !== 'paused' },
+    { key: 'resume', label: '继续自动化（重试卡住步骤）', disabled: !['paused', 'needs_attention', 'completed'].includes(automationState) },
     { key: 'retry', label: `重试失败小说（${Number(automationCounts.failed || 0) + Number(automationCounts.blocked || 0)}）`, disabled: !(Number(automationCounts.failed || 0) + Number(automationCounts.blocked || 0)) },
     { key: 'cancel', label: '停止自动化编排', danger: true, disabled: ['idle', 'completed', 'cancelled'].includes(automationState) }
   ];
