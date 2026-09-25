@@ -39,3 +39,8 @@ test('offers immediate and Beijing-time automation with a frozen concurrency lim
   assert.match(source, /batch-factory-create-toolbar/);
   assert.doesNotMatch(source, /内容范围决定本次配音、H3 导演和 VIDEO 编译/);
 });
+
+test('immediate execution defaults to the end-to-end upload automation mode', () => {
+  assert.match(source, /const \[automationRunMode, setAutomationRunMode\] = useState\('full_submit'\)/);
+	assert.match(source, /if \(!scheduled\) setAutomationRunMode\('full_submit'\);/);
+});

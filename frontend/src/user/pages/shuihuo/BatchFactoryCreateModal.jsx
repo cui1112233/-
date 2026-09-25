@@ -51,7 +51,7 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
   const [scheduledAt, setScheduledAt] = useState('');
   const [automationPresets, setAutomationPresets] = useState([]);
   const [automationPresetID, setAutomationPresetID] = useState('');
-  const [automationRunMode, setAutomationRunMode] = useState('video_no_submit');
+  const [automationRunMode, setAutomationRunMode] = useState('full_submit');
   const [automationConcurrency, setAutomationConcurrency] = useState(2);
   const [contentRangeLines, setContentRangeLines] = useState(5);
   const [contentCaptureCharacters, setContentCaptureCharacters] = useState(4000);
@@ -123,7 +123,7 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
     setScheduledAt('');
     setAutomationDialogMode('scheduled');
     setAutomationPresetID('');
-    setAutomationRunMode('video_no_submit');
+    setAutomationRunMode('full_submit');
     setAutomationConcurrency(2);
     setContentRangeLines(5);
     setContentCaptureCharacters(4000);
@@ -200,6 +200,7 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
     if (!validateDraft()) return;
     const scheduled = mode === 'scheduled';
     setAutomationDialogMode(scheduled ? 'scheduled' : 'immediate');
+    if (!scheduled) setAutomationRunMode('full_submit');
     setScheduledAt(scheduled ? formatBeijingDatetimeLocal(new Date(Date.now() + 10 * 60 * 1000).toISOString()) : '');
     try {
       const result = await listAutomationPresets();
