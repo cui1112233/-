@@ -160,13 +160,15 @@ test('manual start is captured by the V2 workflow so the legacy handler cannot a
   assert.match(client, /void startSelectedProcessing\(\)/);
 });
 
-test('processing controls mount the saved text-model selector beside version configuration', () => {
+test('processing controls mount the saved text-model selector beside platform input', () => {
   const client = read('public/batch-rewrite/v78-novel-fetch-v2.js');
   const controls = read('public/batch-rewrite/v78-novel-fetch-v2-run-controls.js');
+  const html = read('frontend/public/batch-rewrite/index.html');
   assert.match(controls, /v78RunTextModel/);
   assert.match(controls, /window\.persistSelectedTextModel/);
-  assert.match(controls, /versionConfigBtn/);
-  assert.match(controls, /launcher\.insertBefore\(label, versionButton\)/);
+  assert.match(html, /id="v78BatchInputControls"/);
+  assert.match(controls, /v78BatchInputControls/);
+  assert.match(controls, /controls\.appendChild\(label\)/);
   assert.match(client, /text_model_id:\s*\(byId\('v78RunTextModel'\)\?\.value \|\| byId\('v78ProcessingTextModel'\)/);
 });
 
