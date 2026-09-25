@@ -50,12 +50,32 @@ test('keeps existing publication fields while persisting a visible classificatio
 test('resolves the selected Seedance model instead of reusing the YD credential', () => {
   const { resolveBatchVideoProviderConfig } = require('./batch-factory-v11');
   const config = resolveBatchVideoProviderConfig('owner', 'seedance-2-0-official', {
+    accountStore: { getInternalAccount: () => ({ isOwner: true }) },
     configReader: () => ({ modelCatalog: [
       { id: 'yd2-mini-video', kind: 'video', enabled: true, adapterKind: 'openai_video', credential: 'yd-key' },
       { id: 'seedance-2-0-official', kind: 'video', enabled: true, adapterKind: 'yfai_seedance', baseUrl: 'https://yf.token6688.com', modelId: 'seedance-2-0-official', credential: 'seedance-key' }
     ] })
   });
   assert.deepEqual(config, { provider: 'yfai_seedance', model: 'seedance-2-0-official', apiKey: 'seedance-key', baseUrl: 'https://yf.token6688.com' });
+});
+
+test('uses the bound manager video credential for an authorized member on the legacy personal provider', () => {
+  const { resolveBatchVideoProviderConfig } = require('./batch-factory-v11');
+  const config = resolveBatchVideoProviderConfig('member', 'yd2-mini-video', {
+    memberStore: {
+      getMember(username) {
+        return username === 'member'
+          ? { username, active: true, role: 'member', boundTo: 'manager' }
+          : { username, active: true, role: 'manager' };
+      },
+      canUseApi: () => true
+    },
+    accountStore: { getInternalAccount: () => ({ isOwner: false }) },
+    configReader: username => username === 'manager'
+      ? { modelCatalog: [{ id: 'yd2-mini-video', kind: 'video', enabled: true, adapterKind: 'openai_video', credential: 'manager-video-key' }] }
+      : { modelCatalog: [] }
+  });
+  assert.deepEqual(config, { provider: 'personal_api', model: 'yd2.0-mini', apiKey: 'manager-video-key' });
 });
 
 test('reads the real duration from MPEG audio frames used by automatic planning', () => {

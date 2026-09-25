@@ -1238,11 +1238,26 @@ function personalApiKeyForUser(req) {
 
 function resolveBatchVideoProviderConfig(username, modelId, options = {}) {
   const selected = String(modelId || '').trim();
+  const catalogModelId = selected || 'yd2-mini-video';
+  let model = null;
+  try {
+    model = resolveRuntimeModel({
+      username,
+      kind: 'video',
+      modelId: catalogModelId,
+      memberStore: options.memberStore,
+      accountStore: options.accountStore,
+      configReader: options.configReader || readConfig
+    });
+  } catch (_) {
+    // Keep the legacy owner-only YD configuration working while old batches
+    // migrate to the model catalog.
+  }
   if (selected === 'seedance-2-0-official') {
-    const model = resolveRuntimeModel({ username, kind: 'video', modelId: selected, memberStore: options.memberStore, accountStore: options.accountStore, account: { isOwner: true }, configReader: options.configReader || readConfig });
     if (!model?.credential) return null;
     return { provider: YFAI_PROVIDER, model: model.modelId || selected, apiKey: model.credential, baseUrl: model.baseUrl || 'https://yf.token6688.com' };
   }
+  if (model?.credential) return { provider: PERSONAL_PROVIDER, model: PERSONAL_MODEL, apiKey: model.credential };
   const apiKey = getVideoApiKey((options.configReader || readConfig)(username), 'yd');
   return apiKey ? { provider: PERSONAL_PROVIDER, model: PERSONAL_MODEL, apiKey } : null;
 }

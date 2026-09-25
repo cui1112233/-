@@ -345,10 +345,6 @@ export function BatchFactoryV11UiPage({ initialBatchId = '' } = {}) {
       message.error('没有在线的豆包本地执行器；请先在生产统一设置生成配对码并让 Mac 执行器上线。');
       return false;
     }
-    if (provider === 'personal_api' && runtimeState.videoProviders?.personalAPI?.configured === false) {
-      message.error('请先在个人中心 API 配置视频 API Key。');
-      return false;
-    }
     if (provider === 'autodl_comfyui' && runtimeState.videoProviders?.h3?.configured === false) {
       message.error('服务端尚未配置 AutoDL H3 API Key，请先配置后再提交。');
       return false;
