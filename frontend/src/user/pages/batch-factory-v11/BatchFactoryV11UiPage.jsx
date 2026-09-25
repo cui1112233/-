@@ -8,6 +8,7 @@ import { BookSettingsModal, VideoSettingsDrawer } from './BatchFactoryV11ScopedS
 import { DirectorRefreshProvider } from './DirectorRefreshContext.jsx';
 import { FinalPromptPreviewDrawer } from './FinalPromptPreviewDrawer.jsx';
 import { ExternalPublishPanel } from './ExternalPublishPanel.jsx';
+import { videoProviderForModel } from '../shuihuo/videoProviderBinding.js';
 import { actionState, intakeCreateState } from './batchFactoryV11State.js';
 import { createBf11UiAdapter } from './bf11UiAdapter.js';
 import { createBf11Runtime, createdBatchIdFrom } from './bf11Runtime.js';
@@ -340,7 +341,10 @@ export function BatchFactoryV11UiPage({ initialBatchId = '' } = {}) {
 
   async function runProduction(targetBatch, targetBook = null) {
     if (!targetBatch?.id || productionBusy) return false;
-    const provider = batchSettingsState.patch.videoProvider || 'personal_api';
+    const provider = videoProviderForModel(
+      batchSettingsState.patch.videoModelId,
+      batchSettingsState.patch.videoProvider || 'personal_api'
+    );
     if (provider === 'doubao_local_executor' && !runtimeState.localExecutors.some(item => item.online)) {
       message.error('没有在线的豆包本地执行器；请先在生产统一设置生成配对码并让 Mac 执行器上线。');
       return false;

@@ -8,4 +8,5 @@ const source = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.
 
 test('lets the server resolve an authorized member team video provider', () => {
   assert.doesNotMatch(source, /provider === 'personal_api' && runtimeState\.videoProviders\?\.personalAPI\?\.configured === false/);
+  assert.match(source, /videoProviderForModel\(\n      batchSettingsState\.patch\.videoModelId/);
 });
