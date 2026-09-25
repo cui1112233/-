@@ -54,6 +54,12 @@ test('opens legacy nested unified settings as the original editable configuratio
   assert.match(source, /setDraftPatch\(normalizeLegacyPatch\(batch\?\.settingsState\?\.patch\)\)/);
 });
 
+test('does not discard an open unified-configuration draft when the batch refreshes', () => {
+  const resetEffect = source.match(/useEffect\(\(\) => \{\n    if \(open\) setDraftPatch\(normalizeLegacyPatch\(batch\?\.settingsState\?\.patch\)\);\n  \}, \[[^\]]+\]\);/)?.[0] || '';
+  assert.doesNotMatch(resetEffect, /batch\?\.settingsState\?\.revision/);
+  assert.match(resetEffect, /\[open, batch\?\.id\]/);
+});
+
 test('unified configuration makes an unavailable model directory actionable instead of rendering empty selectors', () => {
   assert.match(source, /const \[modelsError, setModelsError\] = useState\(''\)/);
   assert.match(source, /setModelsError\(error\?\.message \|\| '未能读取个人中心已启用模型'\)/);

@@ -270,7 +270,7 @@ export function BatchFactoryUnifiedSettingsModal({ open, batch, onClose, onSaved
   const selectedPreset = presets.find(item => item.id === selectedPresetId);
   useEffect(() => {
     if (open) setDraftPatch(normalizeLegacyPatch(batch?.settingsState?.patch));
-  }, [open, batch?.id, batch?.settingsState?.revision]);
+  }, [open, batch?.id]);
   const loadPresets = async () => {
     const result = await listAutomationPresets();
     const values = Array.isArray(result?.presets) ? result.presets : [];
