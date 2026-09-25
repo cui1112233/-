@@ -316,6 +316,17 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   // Forward pairing, heartbeat, claim and lease JSON after parsing.
   app.use('/api/local-executor/v1', createLocalExecutorDeviceRouter({ targetBaseUrl: process.env.QIANTIE_GO_BASE_URL }));
 
+  // V2 小说获取的增强脚本由仓库根目录维护。它们必须优先于前端
+  // 构建目录中的历史副本，否则页面会出现“源码已更新、线上仍加载旧脚本”。
+  // 未在这里维护的通用资源会继续回退到 frontend/dist。
+  app.use('/batch-rewrite', express.static(path.join(PUBLIC_DIR, 'batch-rewrite'), {
+    setHeaders(res, filePath) {
+      if (/\.(?:js|css)$/i.test(String(filePath || ''))) {
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+      }
+    }
+  }));
+
   // React 前端构建资源（存在时启用；不存在时保留旧 HTML 回退）
   if (fs.existsSync(frontendDist)) {
     app.use('/assets', express.static(path.join(frontendDist, 'assets'), {

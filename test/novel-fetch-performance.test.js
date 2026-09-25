@@ -170,6 +170,15 @@ test('processing controls mount the saved text-model selector beside version con
   assert.match(client, /text_model_id:\s*\(byId\('v78RunTextModel'\)\?\.value \|\| byId\('v78ProcessingTextModel'\)/);
 });
 
+test('V2 serves tracked custom controls before stale frontend build artifacts', () => {
+  const app = read('app.js');
+  const customStatic = "app.use('/batch-rewrite', express.static(path.join(PUBLIC_DIR, 'batch-rewrite')";
+  const distStatic = "app.use('/batch-rewrite', express.static(path.join(frontendDist, 'batch-rewrite')";
+  assert.ok(app.indexOf(customStatic) >= 0, 'tracked batch-rewrite assets need a dedicated static mount');
+  assert.ok(app.indexOf(distStatic) >= 0, 'frontend build remains the fallback asset mount');
+  assert.ok(app.indexOf(customStatic) < app.indexOf(distStatic), 'tracked custom assets must win over stale frontend dist copies');
+});
+
 test('task page exposes queue summary scopes and current-job progress', () => {
   const client = read('public/batch-rewrite/v78-novel-fetch-v2.js');
   assert.match(client, /v78QueueSummary/);
