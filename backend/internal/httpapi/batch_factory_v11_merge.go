@@ -163,11 +163,13 @@ func registerMergeRoutes(mux *http.ServeMux, service *batchfactoryv11.MergeServi
 			Close() error
 		}
 		if files != nil {
-			file, err = files.Open(artifactID + ".mp4")
-		}
-		if err != nil && !errors.Is(err, localartifact.ErrInvalidID) && !errors.Is(err, os.ErrNotExist) {
-			writeStoreError(w, batchfactoryv11.ErrUnavailable)
-			return
+			localFile, localErr := files.Open(artifactID + ".mp4")
+			if localErr == nil {
+				file = localFile
+			} else if !errors.Is(localErr, localartifact.ErrInvalidID) && !errors.Is(localErr, os.ErrNotExist) {
+				writeStoreError(w, batchfactoryv11.ErrUnavailable)
+				return
+			}
 		}
 		if file == nil && remote != nil {
 			file, err = remote.Open(r.Context(), artifactID)
