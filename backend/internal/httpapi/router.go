@@ -9,6 +9,7 @@ import (
 	"qiantie/backend/internal/batchfactoryv11/external"
 	"qiantie/backend/internal/localartifact"
 	"qiantie/backend/internal/localexecutor"
+	"qiantie/backend/internal/mergeworker"
 	"qiantie/backend/internal/novelfetchworkshop"
 )
 
@@ -29,6 +30,7 @@ type RouterOptions struct {
 	NovelFetchStore novelfetchworkshop.LifecycleStore
 	LocalExecutors  *localexecutor.Service
 	LocalArtifacts  *localartifact.Store
+	MergeOutput     mergeworker.ObjectStore
 }
 
 func NewRouter(options RouterOptions) http.Handler {
@@ -50,7 +52,11 @@ func NewRouter(options RouterOptions) http.Handler {
 		registerProductionRoutes(v11, options.Production)
 	}
 	if options.Merge != nil && options.Slice >= 5 {
-		registerMergeRoutes(v11, options.Merge, options.LocalArtifacts)
+		var mergeReader mergeworker.ObjectReader
+		if candidate, ok := options.MergeOutput.(mergeworker.ObjectReader); ok {
+			mergeReader = candidate
+		}
+		registerMergeRoutes(v11, options.Merge, options.LocalArtifacts, options.MergeOutput, mergeReader)
 	}
 	if options.External != nil && options.Slice >= 6 {
 		registerExternalRoutes(v11, options.External)

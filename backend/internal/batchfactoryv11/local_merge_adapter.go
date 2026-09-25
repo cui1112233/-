@@ -23,7 +23,10 @@ type LocalMergeAdapter struct {
 	Artifacts  *localartifact.Store
 	Downloader localMergeDownloader
 	Merger     localMergeRunner
-	WorkRoot   string
+	// Output stores completed MP4s remotely. When configured, a successful
+	// remote write replaces the otherwise local finished-artifact copy.
+	Output   mergeworker.ObjectStore
+	WorkRoot string
 
 	mu    sync.RWMutex
 	tasks map[string]MergeJob
@@ -144,24 +147,44 @@ func (a *LocalMergeAdapter) run(taskID, batchID string, sources []MergeMedia, op
 		a.fail(taskID, mergeErr)
 		return
 	}
-	file, err := os.Open(outputPath)
-	if err != nil {
-		a.fail(taskID, err)
-		return
-	}
-	defer file.Close()
-	artifactID, err := localMergeID("merge")
-	if err != nil {
-		a.fail(taskID, err)
-		return
-	}
-	if _, err := a.Artifacts.SaveMP4(artifactID, file); err != nil {
-		a.fail(taskID, err)
-		return
+	outputURL := ""
+	if a.Output != nil {
+		outputURL, err = a.Output.PutMerged(ctx, taskID, outputPath)
+		if err != nil {
+			a.fail(taskID, err)
+			return
+		}
+		outputURL = strings.TrimSpace(outputURL)
+		if outputURL == "" {
+			a.fail(taskID, fmt.Errorf("remote merge output URL is empty"))
+			return
+		}
+		if strings.HasPrefix(outputURL, "tos://") {
+			// Private buckets are served by the authenticated merge-media route;
+			// do not expose an unusable bucket URL to the browser.
+			outputURL = "/api/batch-factory/v11/batches/" + batchID + "/merge-media/" + taskID
+		}
+	} else {
+		file, openErr := os.Open(outputPath)
+		if openErr != nil {
+			a.fail(taskID, openErr)
+			return
+		}
+		defer file.Close()
+		artifactID, idErr := localMergeID("merge")
+		if idErr != nil {
+			a.fail(taskID, idErr)
+			return
+		}
+		if _, saveErr := a.Artifacts.SaveMP4(artifactID, file); saveErr != nil {
+			a.fail(taskID, saveErr)
+			return
+		}
+		outputURL = "/api/batch-factory/v11/batches/" + batchID + "/merge-media/" + artifactID
 	}
 	a.update(taskID, func(job *MergeJob) {
 		job.Status, job.ProgressPhase, job.ProgressCurrent, job.ProgressTotal = MergeSucceeded, "completed", len(sources), len(sources)
-		job.OutputURL = "/api/batch-factory/v11/batches/" + batchID + "/merge-media/" + artifactID
+		job.OutputURL = outputURL
 		job.ErrorMessage = ""
 	})
 }

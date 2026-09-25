@@ -232,3 +232,17 @@ func (s *Store) Open(storageRef string) (*os.File, error) {
 	}
 	return os.Open(filepath.Join(s.root, storageRef))
 }
+
+// Path returns a verified, root-confined artifact path for an uploader. It
+// never accepts traversal or a missing object, so callers cannot upload an
+// arbitrary server file by crafting a storage reference.
+func (s *Store) Path(storageRef string) (string, error) {
+	if s == nil || filepath.Base(storageRef) != storageRef {
+		return "", ErrInvalidID
+	}
+	path := filepath.Join(s.root, storageRef)
+	if _, err := os.Stat(path); err != nil {
+		return "", err
+	}
+	return path, nil
+}

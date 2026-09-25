@@ -1,12 +1,16 @@
 package httpapi
 
 import (
+	"errors"
+	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
 	"qiantie/backend/internal/batchfactoryv11"
 	"qiantie/backend/internal/localartifact"
+	"qiantie/backend/internal/mergeworker"
 )
 
 type mergeSubmitInput struct {
@@ -17,7 +21,59 @@ type mergeSubmitInput struct {
 	AudioDurationSeconds float64 `json:"audioDurationSeconds"`
 }
 
-func registerMergeRoutes(mux *http.ServeMux, service *batchfactoryv11.MergeService, files *localartifact.Store) {
+func registerMergeRoutes(mux *http.ServeMux, service *batchfactoryv11.MergeService, files *localartifact.Store, output mergeworker.ObjectStore, remote mergeworker.ObjectReader) {
+	mux.HandleFunc("POST /api/batch-factory/v11/batches/{batchId}/merge-artifacts/migrate-to-tos", func(w http.ResponseWriter, r *http.Request) {
+		owner, ok := bridgeOwner(r)
+		if !ok {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			return
+		}
+		if files == nil || output == nil {
+			writeStoreError(w, batchfactoryv11.ErrUnavailable)
+			return
+		}
+		repository, ok := service.Store.(batchfactoryv11.MergeRepository)
+		if !ok {
+			writeStoreError(w, batchfactoryv11.ErrUnavailable)
+			return
+		}
+		batchID := r.PathValue("batchId")
+		jobs, err := repository.ListMergeJobs(r.Context(), owner, batchID)
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		migrated, retained := 0, 0
+		for _, job := range jobs {
+			prefix := "/api/batch-factory/v11/batches/" + batchID + "/merge-media/"
+			if job.Status != batchfactoryv11.MergeSucceeded || !strings.HasPrefix(strings.TrimSpace(job.OutputURL), prefix) {
+				continue
+			}
+			artifactID := strings.TrimPrefix(strings.TrimSpace(job.OutputURL), prefix)
+			path, pathErr := files.Path(artifactID + ".mp4")
+			if pathErr != nil {
+				continue // already remote or a separately retained legacy artifact
+			}
+			if _, uploadErr := output.PutMerged(r.Context(), job.ID, path); uploadErr != nil {
+				retained++
+				continue
+			}
+			updated := job
+			updated.OutputURL = prefix + job.ID
+			updated.ProgressPhase = "stored"
+			updated.ErrorMessage = ""
+			if _, updateErr := repository.UpdateMergeJob(r.Context(), owner, job.ID, updated); updateErr != nil {
+				retained++
+				continue
+			}
+			if removeErr := files.Remove(artifactID + ".mp4"); removeErr != nil {
+				retained++
+				continue
+			}
+			migrated++
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"migrated": migrated, "retained": retained})
+	})
 	mux.HandleFunc("POST /api/batch-factory/v11/batches/{batchId}/merge", func(w http.ResponseWriter, r *http.Request) {
 		owner, ok := bridgeOwner(r)
 		if !ok {
@@ -79,10 +135,6 @@ func registerMergeRoutes(mux *http.ServeMux, service *batchfactoryv11.MergeServi
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 			return
 		}
-		if files == nil {
-			writeStoreError(w, batchfactoryv11.ErrUnavailable)
-			return
-		}
 		repository, ok := service.Store.(batchfactoryv11.MergeRepository)
 		if !ok {
 			writeStoreError(w, batchfactoryv11.ErrUnavailable)
@@ -106,19 +158,28 @@ func registerMergeRoutes(mux *http.ServeMux, service *batchfactoryv11.MergeServi
 			writeStoreError(w, batchfactoryv11.ErrNotFound)
 			return
 		}
-		file, err := files.Open(artifactID + ".mp4")
-		if err != nil {
-			if err == localartifact.ErrInvalidID {
-				writeStoreError(w, batchfactoryv11.ErrNotFound)
-				return
-			}
+		var file interface {
+			Read([]byte) (int, error)
+			Close() error
+		}
+		if files != nil {
+			file, err = files.Open(artifactID + ".mp4")
+		}
+		if err != nil && !errors.Is(err, localartifact.ErrInvalidID) && !errors.Is(err, os.ErrNotExist) {
 			writeStoreError(w, batchfactoryv11.ErrUnavailable)
+			return
+		}
+		if file == nil && remote != nil {
+			file, err = remote.Open(r.Context(), artifactID)
+		}
+		if file == nil || err != nil {
+			writeStoreError(w, batchfactoryv11.ErrNotFound)
 			return
 		}
 		defer file.Close()
 		w.Header().Set("Content-Type", "video/mp4")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
-		http.ServeContent(w, r, artifactID+".mp4", jobTime(jobs, expectedOutput), file)
+		_, _ = io.Copy(w, file)
 	})
 }
 
