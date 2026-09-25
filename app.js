@@ -326,6 +326,13 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
       }
     }
   }));
+  app.use('/batch-rewrite', express.static(path.join(__dirname, 'frontend', 'public', 'batch-rewrite'), {
+    setHeaders(res, filePath) {
+      if (/\.(?:js|css)$/i.test(String(filePath || ''))) {
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+      }
+    }
+  }));
 
   // React 前端构建资源（存在时启用；不存在时保留旧 HTML 回退）
   if (fs.existsSync(frontendDist)) {

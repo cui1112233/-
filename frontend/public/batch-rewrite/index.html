@@ -272,9 +272,11 @@
             <div class="section-title"><h2>AI接口配置</h2></div>
             <div class="control-grid two">
               <label>
-                文本模型
-                <select id="textModelSelect"><option value="">正在读取可用文本模型...</option></select>
-                <span id="textModelStatus" class="form-hint">模型来自导航栏 API 配置</span>
+                当前默认文本模型
+                <output id="textModelReadOnly">正在读取可用文本模型...</output>
+                <span class="form-hint">请在处理页顶部切换；这里仅展示当前选择。</span>
+                <select id="textModelSelect" class="hidden" aria-hidden="true" tabindex="-1"><option value="">正在读取可用文本模型...</option></select>
+                <span id="textModelStatus" class="hidden" aria-hidden="true"></span>
               </label>
               <label>
                 超时(秒)

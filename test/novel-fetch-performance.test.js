@@ -174,13 +174,25 @@ test('processing controls mount the saved text-model selector beside platform in
   assert.match(client, /text_model_id:\s*\(byId\('v78RunTextModel'\)\?\.value \|\| byId\('v78ProcessingTextModel'\)/);
 });
 
+test('AI interface configuration mirrors the selected model without a second editable selector', () => {
+  const html = read('frontend/public/batch-rewrite/index.html');
+  const app = read('frontend/public/batch-rewrite/app.js');
+  assert.match(html, /id="textModelReadOnly"/);
+  assert.match(html, /请在处理页顶部切换/);
+  assert.match(html, /id="textModelSelect"[^>]*class="hidden"/);
+  assert.match(app, /renderTextModelReadOnly/);
+});
+
 test('V2 serves tracked custom controls before stale frontend build artifacts', () => {
   const app = read('app.js');
   const customStatic = "app.use('/batch-rewrite', express.static(path.join(PUBLIC_DIR, 'batch-rewrite')";
+  const frontendPublicStatic = "app.use('/batch-rewrite', express.static(path.join(__dirname, 'frontend', 'public', 'batch-rewrite')";
   const distStatic = "app.use('/batch-rewrite', express.static(path.join(frontendDist, 'batch-rewrite')";
   assert.ok(app.indexOf(customStatic) >= 0, 'tracked batch-rewrite assets need a dedicated static mount');
+  assert.ok(app.indexOf(frontendPublicStatic) >= 0, 'tracked frontend page assets need a dedicated static mount');
   assert.ok(app.indexOf(distStatic) >= 0, 'frontend build remains the fallback asset mount');
   assert.ok(app.indexOf(customStatic) < app.indexOf(distStatic), 'tracked custom assets must win over stale frontend dist copies');
+  assert.ok(app.indexOf(frontendPublicStatic) < app.indexOf(distStatic), 'tracked frontend assets must win over stale frontend dist copies');
 });
 
 test('task page exposes queue summary scopes and current-job progress', () => {
