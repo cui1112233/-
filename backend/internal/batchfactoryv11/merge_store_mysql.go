@@ -118,12 +118,32 @@ func (s *MySQLStore) UpdateMergeJob(ctx context.Context, owner, jobID string, va
 		return MergeJob{}, ErrInvalid
 	}
 	value.Status = normalizeMergeState(value.Status)
-	result, err := s.db.ExecContext(ctx, `UPDATE batch_factory_v11_merge_jobs SET timing_mode=?,speed=?,provider_task_id=?,status=?,progress_phase=?,progress_current=?,progress_total=?,output_url=?,error_message=?,updated_at=? WHERE id=? AND owner_username=?`, nullableString(value.TimingMode), value.Speed, nullableString(value.ProviderTaskID), value.Status, nullableString(value.ProgressPhase), value.ProgressCurrent, value.ProgressTotal, nullableString(value.OutputURL), nullableString(value.ErrorMessage), time.Now().UTC(), jobID, owner)
+	now := time.Now().UTC()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return MergeJob{}, err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `UPDATE batch_factory_v11_merge_jobs SET timing_mode=?,speed=?,provider_task_id=?,status=?,progress_phase=?,progress_current=?,progress_total=?,output_url=?,error_message=?,updated_at=? WHERE id=? AND owner_username=?`, nullableString(value.TimingMode), value.Speed, nullableString(value.ProviderTaskID), value.Status, nullableString(value.ProgressPhase), value.ProgressCurrent, value.ProgressTotal, nullableString(value.OutputURL), nullableString(value.ErrorMessage), now, jobID, owner)
 	if err != nil {
 		return MergeJob{}, err
 	}
 	if affected, _ := result.RowsAffected(); affected == 0 {
 		return MergeJob{}, ErrNotFound
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM batch_factory_v11_merge_sources WHERE job_id=? AND owner_username=?`, jobID, owner); err != nil {
+		return MergeJob{}, err
+	}
+	for ordinal, source := range value.Sources {
+		if strings.TrimSpace(source.VideoID) == "" || strings.TrimSpace(source.MediaURL) == "" || source.Order != ordinal {
+			return MergeJob{}, ErrInvalid
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO batch_factory_v11_merge_sources(job_id,owner_username,video_id,ordinal,media_url,target_duration_seconds,requested_duration_seconds,actual_duration_seconds,created_at) VALUES(?,?,?,?,?,?,?,?,?)`, jobID, owner, source.VideoID, source.Order, source.MediaURL, source.TargetDurationSeconds, source.RequestedDurationSeconds, source.ActualDurationSeconds, now); err != nil {
+			return MergeJob{}, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return MergeJob{}, err
 	}
 	return loadMergeJob(ctx, s.db, owner, jobID)
 }

@@ -13,6 +13,17 @@ type recordingMergeAdapter struct {
 	options MergeOptions
 }
 
+type scriptedMergeAdapter struct {
+	results []MergeJob
+	calls   int
+}
+
+func (a *scriptedMergeAdapter) Submit(_ context.Context, _ string, _ []MergeMedia, _ MergeOptions) (MergeJob, error) {
+	result := a.results[a.calls]
+	a.calls++
+	return result, nil
+}
+
 type recordingVideoDurationProbe struct {
 	seconds float64
 	calls   int
@@ -79,6 +90,35 @@ func TestMergeRequiresCompletedProductionMediaAndIsIdempotent(t *testing.T) {
 	}
 	if first.ID == "" || first.ID != second.ID || first.Status != MergeSucceeded || mergeAdapter.calls != 1 {
 		t.Fatalf("first=%+v second=%+v calls=%d", first, second, mergeAdapter.calls)
+	}
+}
+
+func TestBookMergeReusesSucceededSpeedAndOverwritesFailedSpeed(t *testing.T) {
+	store, batch, book, _ := seedCompiledVideo(t)
+	production := &ProductionService{Store: store, Compiler: &PromptCompilerService{Store: store}, Adapter: &recordingProductionAdapter{ref: ProviderTaskRef{ProviderTaskID: "provider-book", State: ProductionSucceeded, MediaURL: "https://media.example/book.mp4"}}, Enabled: true, Model: FrozenVideoModel{ID: "video-model-a", MaxDuration: 15}}
+	if _, err := production.SubmitBookProduction(context.Background(), "alice", batch.ID, book.ID, "production-for-speed-dedupe"); err != nil {
+		t.Fatal(err)
+	}
+	adapter := &scriptedMergeAdapter{results: []MergeJob{
+		{Status: MergeFailed, ErrorMessage: "temporary failure"},
+		{Status: MergeSucceeded, OutputURL: "https://media.example/recovered.mp4"},
+	}}
+	merge := &MergeService{Store: store, Adapter: adapter, Enabled: true}
+	failed, err := merge.SubmitBookMerge(context.Background(), "alice", batch.ID, book.ID, "merge-speed-failed", MergeOptions{Speed: 1.1})
+	if err != nil || failed.Status != MergeFailed {
+		t.Fatalf("failed=%+v err=%v", failed, err)
+	}
+	recovered, err := merge.SubmitBookMerge(context.Background(), "alice", batch.ID, book.ID, "merge-speed-retry", MergeOptions{Speed: 1.1})
+	if err != nil || recovered.ID != failed.ID || recovered.Status != MergeSucceeded || adapter.calls != 2 {
+		t.Fatalf("failed=%+v recovered=%+v calls=%d err=%v", failed, recovered, adapter.calls, err)
+	}
+	reused, err := merge.SubmitBookMerge(context.Background(), "alice", batch.ID, book.ID, "merge-speed-repeat", MergeOptions{Speed: 1.1})
+	if err != nil || reused.ID != failed.ID || reused.Status != MergeSucceeded || adapter.calls != 2 {
+		t.Fatalf("reused=%+v calls=%d err=%v", reused, adapter.calls, err)
+	}
+	jobs, err := store.ListMergeJobs(context.Background(), "alice", batch.ID)
+	if err != nil || len(jobs) != 1 {
+		t.Fatalf("jobs=%+v err=%v", jobs, err)
 	}
 }
 

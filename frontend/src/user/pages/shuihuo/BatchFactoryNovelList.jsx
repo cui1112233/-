@@ -1245,7 +1245,9 @@ function MediaVersionPanel({ book, batchId, versionsByVideo, productionStatus, m
   const sheetDragRef = useRef(null);
 
   const completedMerges = mergeJobs.filter(job => job?.status === 'succeeded' && String(job?.outputUrl || '').trim());
-  const mergeJobsNewest = [...mergeJobs].sort((left, right) => String(right?.updatedAt || right?.createdAt || '').localeCompare(String(left?.updatedAt || left?.createdAt || '')));
+  const mergeJobsNewest = mergeJobs
+    .filter(job => String(job?.status || '').toLowerCase() !== 'failed')
+    .sort((left, right) => String(right?.updatedAt || right?.createdAt || '').localeCompare(String(left?.updatedAt || left?.createdAt || '')));
   const selectedUpload = book?.settingsState?.patch?.primaryUploadSource || {};
   const selectedMerge = selectedUpload?.kind === 'merged'
     ? completedMerges.find(job => job.id === selectedUpload.mergeJobId) || null
