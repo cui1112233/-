@@ -3,7 +3,7 @@ const crypto = require('crypto');
 const { getVideoApiKey, readConfig } = require('../lib/shared');
 const { proxyV11Request, createSignedBridgeHeaders } = require('../lib/batch-factory-v11/go-proxy');
 const { BATCH_FACTORY_PRESET_REQUIREMENTS, isPublishedPresetAllowed, resolveSystemPresetBody } = require('../lib/system-preset-catalog');
-const { resolveRuntimeModel } = require('../lib/model-catalog-runtime');
+const { listVisibleModels, resolveRuntimeModel } = require('../lib/model-catalog-runtime');
 const { buildSmartUnifiedStyleMessages } = require('../lib/script-smart-unified-route');
 const { parseSmartUnifiedVisualStyle, SMART_UNIFIED_PREFIX_PRESET_ID } = require('../lib/script-generation-rules');
 const { createBatchFactory121Publisher } = require('../lib/batch-factory-v11/121-publisher');
@@ -118,6 +118,18 @@ function directorBookPath(pathname) {
 function styleSystemBookPath(pathname) {
   const match = String(pathname || '').match(/^\/api\/batch-factory\/v11\/batches\/([^/]+)\/books\/([^/]+)\/(?:assets|stages\/assets)$/);
   return match ? { batchId: decodeURIComponent(match[1]), bookId: decodeURIComponent(match[2]) } : null;
+}
+
+function smartUnifiedRefreshBookPath(pathname) {
+  const match = String(pathname || '').match(/^\/api\/batch-factory\/v11\/batches\/([^/]+)\/books\/([^/]+)\/(?:assets|stages\/assets|stages\/retry)$/);
+  if (!match) return null;
+  try { return { batchId: decodeURIComponent(match[1]), bookId: decodeURIComponent(match[2]) }; } catch (_) { return null; }
+}
+
+function batchFactorySmartUnifiedRefreshPath(pathname) {
+  const match = String(pathname || '').match(/^\/api\/batch-factory\/v11\/batches\/([^/]+)\/books\/([^/]+)\/smart-unified\/refresh$/);
+  if (!match) return null;
+  try { return { batchId: decodeURIComponent(match[1]), bookId: decodeURIComponent(match[2]) }; } catch (_) { return null; }
 }
 
 function batchFactoryBookClassificationPath(pathname) {
@@ -522,9 +534,10 @@ function h3VideoSelected(batch, book) {
 }
 
 function directorVisualBaselineRequired(batch, book) {
-  // style.system is a production-stage baseline, not a display switch. Every
-  // book with video-source text obtains and saves it before asset extraction;
-  // “智能统一” only controls whether the frozen result is surfaced/injected.
+  // This legacy/director guard intentionally stays independent of whether the
+  // baseline is rendered in the editable prompt. The new production refresh
+  // path below is opt-in and non-blocking; historical H3 analyses remain
+  // readable and testable for existing books.
   return Boolean(String(book?.sourceText || '').trim());
 }
 
@@ -570,12 +583,13 @@ function savedSmartUnifiedStyleAnalysis(book, sourceText, preset) {
   }
 }
 
-async function freezeSmartUnifiedStyleAnalysis({ username, isOwner, batchId, book, sourceText, preset, analysis, goBaseUrl, bridgeSecret, fetchImpl, now }) {
+async function freezeSmartUnifiedStyleAnalysis({ username, isOwner, batchId, book, sourceText, preset, analysis, runtime, goBaseUrl, bridgeSecret, fetchImpl, now }) {
   const patch = {
     ...object(book?.settingsState?.patch),
     h3StyleAnalysis: analysis,
     h3StyleSourceHash: styleSystemSourceHash(sourceText),
-    h3StylePresetVersion: Number(preset?.version || 0)
+    h3StylePresetVersion: Number(preset?.version || 0),
+    ...(runtime ? { h3SmartUnifiedRuntime: runtime } : {})
   };
   await v11JSONRequest({
     username, isOwner, method: 'PUT',
@@ -636,10 +650,10 @@ function responseMessageText(content) {
   }).join('\n').trim();
 }
 
-async function analyzeBatchFactorySmartUnifiedStyle({ username, isOwner = false, batchId, bookId, textProvider, presetStore, goBaseUrl, bridgeSecret, fetchImpl = globalThis.fetch, now = Date.now, persist = false } = {}) {
+async function analyzeBatchFactorySmartUnifiedStyle({ username, isOwner = false, batchId, bookId, textProvider, presetStore, goBaseUrl, bridgeSecret, fetchImpl = globalThis.fetch, now = Date.now, persist = false, force = false, loadedBatch = null, runtime = null } = {}) {
   if (!fetchImpl || !textProvider?.endpoint || !textProvider?.apiKey || !textProvider?.model) throw requestError('智能统一需要当前书可用的文本模型', 422, 'TEXT_MODEL_REQUIRED');
   const basePath = `/api/batch-factory/v11/batches/${encodeURIComponent(batchId)}`;
-  const loaded = await v11JSONRequest({ username, isOwner, method: 'GET', pathname: basePath, goBaseUrl, bridgeSecret, fetchImpl, now });
+  const loaded = loadedBatch || await v11JSONRequest({ username, isOwner, method: 'GET', pathname: basePath, goBaseUrl, bridgeSecret, fetchImpl, now });
   const batch = loaded?.batch;
   const book = (batch?.books || []).find(item => String(item?.id) === String(bookId));
   if (!batch || !book) throw requestError('批量作品或小说不存在', 404, 'BATCH_BOOK_NOT_FOUND');
@@ -649,7 +663,7 @@ async function analyzeBatchFactorySmartUnifiedStyle({ username, isOwner = false,
   const sourceText = batchFactoryProductionText(book);
   if (!sourceText) throw requestError('智能统一需要当前书完整原文', 422, 'SOURCE_TEXT_REQUIRED');
   const stylePreset = smartUnifiedStyleSystemPreset(batch, book, presetStore);
-  const cached = savedSmartUnifiedStyleAnalysis(book, sourceText, stylePreset);
+  const cached = force ? '' : savedSmartUnifiedStyleAnalysis(book, sourceText, stylePreset);
   if (cached) return cached;
   const assets = Array.isArray(book?.assetRecords) ? book.assetRecords : [];
   const messages = buildSmartUnifiedStyleMessages({
@@ -683,9 +697,91 @@ async function analyzeBatchFactorySmartUnifiedStyle({ username, isOwner = false,
   if (!content) throw requestError('智能统一视觉分析模型没有返回内容', 502, 'SMART_UNIFIED_PROVIDER_INVALID_RESPONSE');
   try {
     const analysis = serializeSmartUnifiedStyleAnalysis(parseSmartUnifiedVisualStyle(unwrapH3StyleSystemFields(content)), stylePreset);
-    if (persist) await freezeSmartUnifiedStyleAnalysis({ username, isOwner, batchId, book, sourceText, preset: stylePreset, analysis, goBaseUrl, bridgeSecret, fetchImpl, now });
+    if (persist) await freezeSmartUnifiedStyleAnalysis({ username, isOwner, batchId, book, sourceText, preset: stylePreset, analysis, runtime, goBaseUrl, bridgeSecret, fetchImpl, now });
     return analysis;
   } catch (error) { throw requestError(error?.message || '智能统一视觉分析结果无效', 422, 'SMART_UNIFIED_INVALID_RESPONSE'); }
+}
+
+// Smart-unified is a visual baseline enhancement. It must be refreshed before
+// asset work and retries, but upstream instability must never stop production.
+// The caller supplies the enabled candidates in user-visible priority order.
+async function persistSmartUnifiedRuntime({ username, isOwner, batchId, book, runtime, goBaseUrl, bridgeSecret, fetchImpl, now }) {
+  return v11JSONRequest({
+    username, isOwner, method: 'PUT',
+    pathname: `/api/batch-factory/v11/batches/${encodeURIComponent(batchId)}/books/${encodeURIComponent(book.id)}/override`,
+    payload: { patch: { ...object(book?.settingsState?.patch), h3SmartUnifiedRuntime: runtime }, expectedRevision: Number(book?.revision || 0) },
+    goBaseUrl, bridgeSecret, fetchImpl, now
+  });
+}
+
+async function acquireBatchFactorySmartUnifiedBaseline({ username, isOwner = false, batchId, bookId, textProviders = [], presetStore, goBaseUrl, bridgeSecret, fetchImpl = globalThis.fetch, now = Date.now, force = true, persist = false } = {}) {
+  const basePath = `/api/batch-factory/v11/batches/${encodeURIComponent(batchId)}`;
+  const loaded = await v11JSONRequest({ username, isOwner, method: 'GET', pathname: basePath, goBaseUrl, bridgeSecret, fetchImpl, now });
+  const batch = loaded?.batch;
+  const book = (batch?.books || []).find(item => String(item?.id) === String(bookId));
+  if (!batch || !book) throw requestError('批量作品或小说不存在', 404, 'BATCH_BOOK_NOT_FOUND');
+  if (!smartUnifiedSelected(batch, book)) return { style: '', attempts: [], skipped: true, nonBlocking: true, reason: '智能统一未开启' };
+
+  const attempts = [];
+  for (const provider of textProviders) {
+    if (!provider?.endpoint || !provider?.apiKey || !provider?.model) continue;
+    try {
+      const runtime = { status: 'succeeded', attempts: [...attempts, { id: String(provider.id || provider.model), name: String(provider.displayName || provider.model), status: 'succeeded' }], modelId: String(provider.id || provider.model), modelName: String(provider.displayName || provider.model), updatedAt: new Date(now()).toISOString() };
+      const style = await analyzeBatchFactorySmartUnifiedStyle({
+        username, isOwner, batchId, bookId, textProvider: provider, presetStore,
+        goBaseUrl, bridgeSecret, fetchImpl, now, force, persist, loadedBatch: loaded, runtime
+      });
+      attempts.push({ id: String(provider.id || provider.model), name: String(provider.displayName || provider.model), status: 'succeeded' });
+      return { style, provider, attempts, skipped: false, nonBlocking: true };
+    } catch (error) {
+      attempts.push({ id: String(provider.id || provider.model), name: String(provider.displayName || provider.model), status: 'failed', message: String(error?.message || '智能统一请求失败'), code: String(error?.code || '') });
+    }
+  }
+  const reason = attempts.length ? '所有已启用文本模型均未完成智能统一分析' : '没有可用于智能统一的文本模型';
+  if (persist) {
+    try {
+      await persistSmartUnifiedRuntime({ username, isOwner, batchId, book, runtime: { status: 'failed', attempts, updatedAt: new Date(now()).toISOString(), reason }, goBaseUrl, bridgeSecret, fetchImpl, now });
+    } catch (_) {
+      // A status write must not turn an optional visual baseline into a blocker.
+    }
+  }
+  return { style: '', attempts, skipped: false, nonBlocking: true, reason };
+}
+
+function smartUnifiedTextProviders({ username, isOwner = false, textModelId, textProvider = null, memberStore, accountStore, configReader } = {}) {
+  const preferred = textProvider?.endpoint && textProvider?.apiKey && textProvider?.model
+    ? [{ id: String(textModelId || textProvider.model || '').trim(), ...textProvider }]
+    : [];
+  const ids = [String(textModelId || '').trim()];
+  try {
+    for (const model of listVisibleModels({ username, kind: 'text', memberStore, accountStore, account: { isOwner }, configReader })) ids.push(String(model?.id || '').trim());
+  } catch (_) {
+    // The selected model remains the primary candidate if the catalog cannot
+    // be listed; stage execution will still report a normal model error.
+  }
+  const unique = [...new Set(ids.filter(Boolean))];
+  const resolved = unique.map(id => {
+    try { return { id, ...requestTextProvider({ username, body: { textModelId: id } }, { memberStore, accountStore, configReader }, id) }; } catch (_) { return null; }
+  }).filter(Boolean);
+  const seen = new Set();
+  return [...preferred, ...resolved].filter(provider => {
+    const key = String(provider?.id || provider?.model || '');
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+async function refreshSmartUnifiedNonBlocking({ username, isOwner = false, batchId, bookId, textModelId, textProvider = null, presetStore, goBaseUrl, bridgeSecret, fetchImpl, now, memberStore, accountStore, configReader, persist = true } = {}) {
+  try {
+    return await acquireBatchFactorySmartUnifiedBaseline({
+      username, isOwner, batchId, bookId,
+      textProviders: smartUnifiedTextProviders({ username, isOwner, textModelId, textProvider, memberStore, accountStore, configReader }),
+      presetStore, goBaseUrl, bridgeSecret, fetchImpl, now, force: true, persist
+    });
+  } catch (error) {
+    return { style: '', attempts: [{ id: String(textModelId || ''), name: '当前文本模型', status: 'failed', message: String(error?.message || '智能统一请求失败'), code: String(error?.code || '') }], skipped: false, nonBlocking: true, reason: '智能统一暂不可用，已跳过，不影响当前步骤' };
+  }
 }
 
 function batchFactoryProductionText(book) {
@@ -1465,13 +1561,16 @@ function createBatchFactoryV11Router(options = {}) {
         if (['assets', 'director', 'visual'].includes(stage)) {
           const textModelId = String(settings.textModelId || '').trim();
           payload.textProvider = requestTextProvider({ username, body: { textModelId } }, upstreamOptions, textModelId);
-          if (['assets', 'director'].includes(stage) && directorVisualBaselineRequired(batch, book)) {
-            payload.smartUnifiedStyle = await analyzeBatchFactorySmartUnifiedStyle({
-              username, isOwner, batchId, bookId, textProvider: payload.textProvider,
+          if (stage === 'assets') {
+            const smartUnified = await refreshSmartUnifiedNonBlocking({
+              username, isOwner, batchId, bookId, textModelId, textProvider: payload.textProvider,
               presetStore: upstreamOptions.presetStore,
               goBaseUrl: upstreamOptions.goBaseUrl, bridgeSecret: upstreamOptions.bridgeSecret,
-              fetchImpl: upstreamOptions.fetchImpl, now: upstreamOptions.now, persist: true
+              fetchImpl: upstreamOptions.fetchImpl, now: upstreamOptions.now,
+              memberStore: upstreamOptions.memberStore, accountStore: upstreamOptions.accountStore,
+              configReader: upstreamOptions.configReader || readConfig, persist: true
             });
+            if (smartUnified.style) payload.smartUnifiedStyle = smartUnified.style;
           }
         }
         if (stage === 'video') {
@@ -1527,14 +1626,18 @@ function createBatchFactoryV11Router(options = {}) {
           requestId,
           textProvider: requestTextProvider({ username, body: { textModelId } }, upstreamOptions, textModelId)
         };
-		if (['assets', 'director'].includes(stage) && directorVisualBaselineRequired(batch, book)) {
-          payload.smartUnifiedStyle = await analyzeBatchFactorySmartUnifiedStyle({
-            username, isOwner, batchId, bookId, textProvider: payload.textProvider,
+        // A retry always rechecks the optional visual baseline, even when the
+        // failed stage itself is video or merge. A provider outage is recorded
+        // but never prevents the requested recovery from running.
+        const smartUnified = await refreshSmartUnifiedNonBlocking({
+            username, isOwner, batchId, bookId, textModelId, textProvider: payload.textProvider,
             presetStore: upstreamOptions.presetStore,
             goBaseUrl: upstreamOptions.goBaseUrl, bridgeSecret: upstreamOptions.bridgeSecret,
-            fetchImpl: upstreamOptions.fetchImpl, now: upstreamOptions.now, persist: true
-          });
-        }
+            fetchImpl: upstreamOptions.fetchImpl, now: upstreamOptions.now,
+            memberStore: upstreamOptions.memberStore, accountStore: upstreamOptions.accountStore,
+            configReader: upstreamOptions.configReader || readConfig, persist: true
+        });
+        if (smartUnified.style) payload.smartUnifiedStyle = smartUnified.style;
         if (stage === 'video') {
           const provider = automationVideoProvider(settings);
           payload.provider = provider;
@@ -1760,6 +1863,29 @@ function createBatchFactoryV11Router(options = {}) {
         const result = await prepareBatchFactoryBookClassification(req, classification, upstreamOptions);
         return res.json(result);
       }
+      const smartUnifiedRefresh = batchFactorySmartUnifiedRefreshPath(parsed.pathname);
+      if (req.method === 'POST' && smartUnifiedRefresh) {
+        const smartUnified = await refreshSmartUnifiedNonBlocking({
+          username: req.username,
+          isOwner: req.auth?.account?.isOwner === true,
+          ...smartUnifiedRefresh,
+          textModelId: String(req.body?.textModelId || '').trim(),
+          presetStore: upstreamOptions.presetStore,
+          goBaseUrl: upstreamOptions.goBaseUrl,
+          bridgeSecret: upstreamOptions.bridgeSecret,
+          fetchImpl: upstreamOptions.fetchImpl,
+          now: upstreamOptions.now,
+          memberStore: upstreamOptions.memberStore,
+          accountStore: upstreamOptions.accountStore,
+          configReader: upstreamOptions.configReader || readConfig,
+          persist: true
+        });
+        return res.json({ smartUnified: {
+          available: Boolean(smartUnified.style), skipped: Boolean(smartUnified.skipped),
+          reason: smartUnified.reason || '', attempts: smartUnified.attempts || [],
+          provider: smartUnified.provider ? { id: smartUnified.provider.id || smartUnified.provider.model, name: smartUnified.provider.displayName || smartUnified.provider.model } : null
+        } });
+      }
       const publish121 = batchFactory121PublishPath(parsed.pathname);
       if (req.method === 'POST' && publish121) {
         const result = await submitBatchFactoryBookTo121(req, publish121, upstreamOptions);
@@ -1783,21 +1909,25 @@ function createBatchFactoryV11Router(options = {}) {
       if (execution) {
         await refreshBatchFactoryPresetSnapshot({ username: req.username, isOwner: req.auth?.account?.isOwner === true, ...execution, goBaseUrl: upstreamOptions.goBaseUrl, bridgeSecret: upstreamOptions.bridgeSecret, presetStore: upstreamOptions.presetStore, fetchImpl: upstreamOptions.fetchImpl, now: upstreamOptions.now });
       }
-      const styleSystemBook = styleSystemBookPath(parsed.pathname);
-      if (styleSystemBook) {
-        const smartUnifiedStyle = await analyzeBatchFactorySmartUnifiedStyle({
+      const smartUnifiedBook = smartUnifiedRefreshBookPath(parsed.pathname);
+      if (smartUnifiedBook) {
+        const smartUnified = await refreshSmartUnifiedNonBlocking({
           username: req.username,
           isOwner: req.auth?.account?.isOwner === true,
-          ...styleSystemBook,
+          ...smartUnifiedBook,
+          textModelId: String(req.body?.textModelId || '').trim(),
           textProvider: req.body?.textProvider,
           presetStore: upstreamOptions.presetStore,
           goBaseUrl: upstreamOptions.goBaseUrl,
           bridgeSecret: upstreamOptions.bridgeSecret,
           fetchImpl: upstreamOptions.fetchImpl,
           now: upstreamOptions.now,
+          memberStore: upstreamOptions.memberStore,
+          accountStore: upstreamOptions.accountStore,
+          configReader: upstreamOptions.configReader || readConfig,
           persist: true
         });
-        if (smartUnifiedStyle) req.body = { ...(req.body || {}), smartUnifiedStyle };
+        if (smartUnified.style) req.body = { ...(req.body || {}), smartUnifiedStyle: smartUnified.style };
       }
       return await proxyV11Request(req, res, {
         ...upstreamOptions,
@@ -1871,6 +2001,7 @@ module.exports = {
   smartUnifiedSelected,
   directorVisualBaselineRequired,
   analyzeBatchFactorySmartUnifiedStyle,
+  acquireBatchFactorySmartUnifiedBaseline,
   upstreamErrorMessage,
   createBatchFactoryV11Router
 };

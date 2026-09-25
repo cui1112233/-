@@ -10,6 +10,7 @@ const {
   directorVisualBaselineRequired,
   styleSystemBookPath,
   analyzeBatchFactorySmartUnifiedStyle,
+  acquireBatchFactorySmartUnifiedBaseline,
   needsPersonalConfigSync,
   needsH3ConfigSync,
   redactBatchFactorySystemPromptBodies,
@@ -251,7 +252,7 @@ test('uses the runtime fetch when V11 helper receives no injected fetch', async 
   }
 });
 
-test('asset preparation analyses style.system even when smart-unified display is off', async () => {
+test('asset preparation skips style.system when smart-unified is disabled', async () => {
   const calls = [];
   const fields = {
     imageMedium: '真人数字电影短剧', captureProcess: '数字电影摄影', grainTexture: '细腻胶片颗粒',
@@ -259,9 +260,9 @@ test('asset preparation analyses style.system even when smart-unified display is
     contrast: '中等对比', saturation: '低饱和', lightingHierarchy: '层次化侧逆光',
     narrativeComposition: '人物关系优先', atmosphere: '克制悬疑'
   };
-  const style = await analyzeBatchFactorySmartUnifiedStyle({
+  const style = await acquireBatchFactorySmartUnifiedBaseline({
     username: 'alice', batchId: 'batch-1', bookId: 'book-1', goBaseUrl: 'http://go.local', bridgeSecret: 'secret',
-    textProvider: { endpoint: 'http://text.local/v1/chat/completions', apiKey: 'key', model: 'text-model' },
+    textProviders: [{ id: 'text-model', endpoint: 'http://text.local/v1/chat/completions', apiKey: 'key', model: 'text-model' }],
     fetchImpl: async (url, init = {}) => {
       calls.push({ url, init });
       if (init.method === 'GET') {
@@ -281,8 +282,47 @@ test('asset preparation analyses style.system even when smart-unified display is
       return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(fields) } }] }), { status: 200 });
     }
   });
-  assert.equal(calls.length, 2);
-  assert.match(style, /影像媒介：真人数字电影短剧/);
+  assert.equal(calls.length, 1);
+  assert.equal(style.style, '');
+  assert.equal(style.skipped, true);
+});
+
+test('smart-unified falls back to another enabled text model after an upstream failure', async () => {
+  const fields = { final_genre: '现代都市短剧', genre: '现代都市短剧', trailer_style: '高级电影感', story_era: '当代都市', negative_prompt: '无畸形', picture_limit_prompt: '无字幕', quality_constraint_prompt: '画面稳定' };
+  const calls = [];
+  const result = await acquireBatchFactorySmartUnifiedBaseline({
+    username: 'alice', batchId: 'batch-1', bookId: 'book-1', goBaseUrl: 'http://go.local', bridgeSecret: 'secret', force: true,
+    textProviders: [
+      { id: 'primary', endpoint: 'http://primary.local/v1/chat/completions', apiKey: 'one', model: 'primary', displayName: '主模型' },
+      { id: 'backup', endpoint: 'http://backup.local/v1/chat/completions', apiKey: 'two', model: 'backup', displayName: '备用模型' }
+    ],
+    fetchImpl: async (url, init = {}) => {
+      calls.push(url);
+      if (init.method === 'GET') return new Response(JSON.stringify({ batch: { id: 'batch-1', settingsState: { patch: { aiPromptConfig: { constraints: { selections: [{ presetId: 'script-constraint-prefix-smart-unified', constraintCategory: 'prefix' }] } } } }, books: [{ id: 'book-1', sourceText: '完整原文', settingsState: { patch: {} }, assetRecords: [] }] } }), { status: 200 });
+      if (url.startsWith('http://primary.local')) return new Response(JSON.stringify({ error: { message: 'temporary unavailable' } }), { status: 502 });
+      if (url.startsWith('http://backup.local')) return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(fields) } }] }), { status: 200 });
+      if (init.method === 'PUT') return new Response(JSON.stringify({ book: { id: 'book-1', revision: 2 } }), { status: 200 });
+      throw new Error(`unexpected ${url}`);
+    }
+  });
+  assert.equal(result.provider.id, 'backup');
+  assert.match(result.style, /现代都市短剧/);
+  assert.deepEqual(result.attempts.map(item => item.status), ['failed', 'succeeded']);
+});
+
+test('smart-unified failure is non-blocking after every enabled model fails', async () => {
+  const result = await acquireBatchFactorySmartUnifiedBaseline({
+    username: 'alice', batchId: 'batch-1', bookId: 'book-1', goBaseUrl: 'http://go.local', bridgeSecret: 'secret', force: true,
+    textProviders: [{ id: 'primary', endpoint: 'http://primary.local/v1/chat/completions', apiKey: 'one', model: 'primary' }],
+    fetchImpl: async (_url, init = {}) => {
+      if (init.method === 'GET') return new Response(JSON.stringify({ batch: { id: 'batch-1', settingsState: { patch: { aiPromptConfig: { constraints: { selections: [{ presetId: 'script-constraint-prefix-smart-unified', constraintCategory: 'prefix' }] } } } }, books: [{ id: 'book-1', sourceText: '完整原文', settingsState: { patch: {} }, assetRecords: [] }] } }), { status: 200 });
+      return new Response(JSON.stringify({ error: { message: 'temporary unavailable' } }), { status: 502 });
+    }
+  });
+  assert.equal(result.style, '');
+  assert.equal(result.nonBlocking, true);
+  assert.equal(result.attempts.length, 1);
+  assert.match(result.attempts[0].message, /temporary unavailable/);
 });
 
 test('asset preparation accepts style.system JSON wrapped in a model explanation', async () => {

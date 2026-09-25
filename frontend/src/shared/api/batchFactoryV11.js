@@ -298,6 +298,10 @@ export function retryBookStage(batchId, bookId, payload = {}) {
   return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/stages/retry`), { method: 'POST', body: body(payload) });
 }
 
+export function refreshBookSmartUnified(batchId, bookId, payload = {}) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/smart-unified/refresh`), { method: 'POST', body: body(payload) });
+}
+
 export function runBatchDirector(batchId, payload = {}) {
   return apiRequest(bf11Path(`batches/${id(batchId)}/director`), { method: 'POST', body: body(payload) });
 }
@@ -430,8 +434,8 @@ export function getBookMergeStatus(batchId, bookId, requestId) {
   return apiRequest(`${bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/merge-status`)}${query({ requestId })}`);
 }
 
-export function getMergeStatus(batchId) {
-  return apiRequest(bf11Path(`batches/${id(batchId)}/merge-status`));
+export function getMergeStatus(batchId, options = {}) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/merge-status`), options);
 }
 
 export function getPublishCredential(provider) {
