@@ -23,6 +23,7 @@ const {
   automationPublishSettings,
   submitBatchFactoryBookTo121,
   classifyBatchFactoryBookFor121,
+  classificationFailureMetadata,
   parseBatchBookClassification,
   ensureBatchFactory121ResubmissionAllowed,
   persisted121PublicationMetadata,
@@ -30,6 +31,21 @@ const {
   safeAutomationStatus,
   splitVideoPresetBody
 } = require('./batch-factory-v11');
+
+test('keeps existing publication fields while persisting a visible classification failure', () => {
+  const metadata = classificationFailureMetadata({
+    gender: '女频', style: '现代甜文', tags: '追妻', classifyStatus: 'classified'
+  }, new Error('请先在单书配置或引擎配置中选择已启用的文本模型'), () => new Date('2026-09-25T10:00:00.000Z'));
+
+  assert.deepEqual(metadata, {
+    gender: '女频',
+    style: '现代甜文',
+    tags: '追妻',
+    classifyStatus: 'failed',
+    classifyError: '请先在单书配置或引擎配置中选择已启用的文本模型',
+    classifyAt: '2026-09-25T10:00:00.000Z'
+  });
+});
 
 test('resolves the selected Seedance model instead of reusing the YD credential', () => {
   const { resolveBatchVideoProviderConfig } = require('./batch-factory-v11');

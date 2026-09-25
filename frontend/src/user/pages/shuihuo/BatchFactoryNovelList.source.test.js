@@ -848,6 +848,13 @@ test('derives each 121 platform from its book and classifies remaining metadata 
   assert.match(source, /单书发布覆盖优先、批量统一设置兜底/);
 });
 
+test('keeps AI publication classification progress and failures visible in the book detail modal', () => {
+  assert.match(source, /function classificationDetail\(metadata = \{\}\)/);
+  assert.match(source, /正在识别男女频、风格和标签/);
+  assert.match(source, /AI 判断未完成/);
+  assert.match(source, /classifyError/);
+});
+
 test('uses grouped cards for the unified Batch Factory engine settings', () => {
   assert.match(engineSource, /function EngineCard\(/);
   assert.match(engineSource, /className="batch-factory-engine-card/);

@@ -403,6 +403,31 @@ function batchBookClassificationMessages(book) {
   ];
 }
 
+function classificationFailureMetadata(metadata, error, now = Date.now) {
+  return {
+    ...object(metadata),
+    classifyStatus: 'failed',
+    classifyError: String(error?.message || '男女频和风格识别失败'),
+    classifyAt: new Date(now()).toISOString()
+  };
+}
+
+async function persistBatchFactoryBookClassificationFailure({ username, isOwner = false, batchId, bookId, error, goBaseUrl, bridgeSecret, fetchImpl = globalThis.fetch, now = Date.now } = {}) {
+  const basePath = `/api/batch-factory/v11/batches/${encodeURIComponent(batchId)}`;
+  const loaded = await v11JSONRequest({ username, isOwner, method: 'GET', pathname: basePath, goBaseUrl, bridgeSecret, fetchImpl, now });
+  const batch = loaded?.batch;
+  const book = (batch?.books || []).find(item => String(item?.id) === String(bookId));
+  if (!batch || !book) throw requestError('批量作品或单本书不存在', 404, 'BATCH_BOOK_NOT_FOUND');
+  const metadata = classificationFailureMetadata(book.sourceMetadata, error, now);
+  const saved = await v11JSONRequest({
+    username, isOwner, method: 'PUT',
+    pathname: `${basePath}/books/${encodeURIComponent(book.id)}/metadata`,
+    payload: { metadata, expectedRevision: Number(book.revision || 0) },
+    goBaseUrl, bridgeSecret, fetchImpl, now
+  });
+  return saved?.book || { ...book, sourceMetadata: metadata };
+}
+
 async function classifyBatchFactoryBookFor121({ username, isOwner = false, batchId, bookId, textProvider, force = false, goBaseUrl, bridgeSecret, fetchImpl = globalThis.fetch, now = Date.now } = {}) {
   if (!textProvider?.endpoint || !textProvider?.apiKey || !textProvider?.model) throw requestError('请先在当前书或引擎配置中选择已启用的文本模型，才能识别男女频和风格', 422, 'TEXT_MODEL_REQUIRED');
   const basePath = `/api/batch-factory/v11/batches/${encodeURIComponent(batchId)}`;
@@ -467,11 +492,28 @@ async function prepareBatchFactoryBookClassification(req, route, options = {}) {
   if (!force && gender && style) {
     return { book, classification: { gender, style, tags: String(metadata.tags || '').trim(), reason: String(metadata.classifyReason || '').trim() }, reused: true };
   }
-  const textProvider = requestTextProvider(req, options, batchBookTextModelId(batch, book, req.body));
-  return classifyBatchFactoryBookFor121({
-    username: req.username, isOwner: req.auth?.account?.isOwner === true, batchId: route.batchId, bookId: route.bookId,
-    textProvider, force, ...goOptions
-  });
+  try {
+    const textProvider = requestTextProvider(req, options, batchBookTextModelId(batch, book, req.body));
+    return await classifyBatchFactoryBookFor121({
+      username: req.username, isOwner: req.auth?.account?.isOwner === true, batchId: route.batchId, bookId: route.bookId,
+      textProvider, force, ...goOptions
+    });
+  } catch (error) {
+    // The result must remain visible on the book even when no model is
+    // configured or the provider rejects the call.  Failing to write this
+    // diagnostic must not hide the original, actionable classification error.
+    try {
+      await persistBatchFactoryBookClassificationFailure({
+        username: req.username,
+        isOwner: req.auth?.account?.isOwner === true,
+        batchId: route.batchId,
+        bookId: route.bookId,
+        error,
+        ...goOptions
+      });
+    } catch (_) { /* preserve the original classification error */ }
+    throw error;
+  }
 }
 
 async function submitBatchFactoryBookTo121(req, route, options = {}) {
@@ -2002,6 +2044,8 @@ module.exports = {
   batchBookTextModelId,
   normalizedBookGender,
   normalizedBookStyle,
+  classificationFailureMetadata,
+  persistBatchFactoryBookClassificationFailure,
   parseBatchBookClassification,
   classifyBatchFactoryBookFor121,
   prepareBatchFactoryBookClassification,
