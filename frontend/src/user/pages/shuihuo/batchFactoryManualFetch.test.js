@@ -6,6 +6,10 @@ test('collects each numeric Book ID once from a manual novel list', () => {
   assert.deepEqual(manualBookIDsFromInput('100000000001\t书A\n100000000002  书B\n100000000001\t重复'), ['100000000001', '100000000002']);
 });
 
+test('collects short Qimao numeric Book IDs from a manual novel list', () => {
+  assert.deepEqual(manualBookIDsFromInput('567168 晚风惊扰旧梦\n705142 她指指方向，我未对路\n697029 旧日微尽赴朝光'), ['567168', '705142', '697029']);
+});
+
 test('creation is only ready when every listed book has fetched original text', () => {
   const ids = ['100000000001', '100000000002'];
   assert.equal(hasFetchedManualSources(ids, { '100000000001': '原文' }), false);

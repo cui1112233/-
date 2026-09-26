@@ -28,10 +28,10 @@ type manualRow struct {
 	columns                                                                              []string
 }
 
-var manualDigits = regexp.MustCompile(`^\d{10,25}$`)
-var manualDigitsInLine = regexp.MustCompile(`\d{10,25}`)
-var manualBookIDAndTitle = regexp.MustCompile(`^(\d{10,25})\s+(.+)$`)
-var manualPastedBookIDAndTitle = regexp.MustCompile(`^(\d{10,25})(\D.+)$`)
+var manualDigits = regexp.MustCompile(`^\d{6,25}$`)
+var manualDigitsInLine = regexp.MustCompile(`\d{6,25}`)
+var manualBookIDAndTitle = regexp.MustCompile(`^(\d{6,25})\s+(.+)$`)
+var manualPastedBookIDAndTitle = regexp.MustCompile(`^(\d{6,25})(\D.+)$`)
 var manualSpaces = regexp.MustCompile(`\s{2,}`)
 var manualMonth = regexp.MustCompile(`\d{4}[-/年]\d{1,2}`)
 var manualAliases = map[string]string{

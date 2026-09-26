@@ -58,6 +58,25 @@ func TestParseManualBookListSeparatesBookIDAndTitleWithSingleSpace(t *testing.T)
 	}
 }
 
+func TestParseManualBookListAcceptsShortQimaoBookIDs(t *testing.T) {
+	books, err := ParseManualBookList(ManualIntakeInput{
+		PlatformID:     "3",
+		PlatformName:   "七猫付费",
+		ParseMode:      "smart",
+		ColumnPresetID: "full_metadata",
+		InputText:      "567168 晚风惊扰旧梦\n705142 她指指方向，我未对路",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(books) != 2 || books[0].BookID != "567168" || books[0].Title != "晚风惊扰旧梦" || books[1].BookID != "705142" || books[1].Title != "她指指方向，我未对路" {
+		t.Fatalf("books=%+v", books)
+	}
+	if books[0].Platform != "3" || books[0].SourceMetadata["platformName"] != "七猫付费" {
+		t.Fatalf("book=%+v", books[0])
+	}
+}
+
 func TestParseManualBookListSeparatesPastedBookIDAndTitleAndKeepsFetchedOriginal(t *testing.T) {
 	const bookID = "7655922169695718462"
 	const title = "未婚妻拿我当踏板，我加入剧组她却哭了"
