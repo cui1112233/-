@@ -1590,7 +1590,7 @@ function automationCompilePayload(book, settings, audioAssetID = '', semantic = 
 function createBatchFactoryV11Router(options = {}) {
   const upstreamOptions = { ...options, goBaseUrl: options.goBaseUrl || resolveV11GoBaseUrl() };
   const automationPresets = options.automationPresetStore || createAutomationPresetStore({ statePath: options.automationPresetStatePath });
-  const automation = createBatchFactoryAutomationController({
+  const automation = options.automationController || createBatchFactoryAutomationController({
     statePath: options.automationStatePath,
     pollMs: options.automationPollMs,
     logger: options.logger || console,
@@ -2004,6 +2004,7 @@ function createBatchFactoryV11Router(options = {}) {
       return res.status(status).json({ error: message, code });
     }
   });
+  router.automationController = automation;
   return router;
 }
 

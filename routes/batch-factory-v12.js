@@ -40,6 +40,11 @@ function rejectLegacyV11Mutations(req, res, next) {
 	});
 }
 
+function isV12DeletionPath(value) {
+  const parsed = new URL(String(value || ''), 'http://qiantie.local');
+  return /^\/api\/batch-factory\/v12\/batches\/[^/]+(?:\/books\/[^/]+)?$/.test(parsed.pathname);
+}
+
 async function fetchBatchFactoryOriginals(payload, fetchDirectOriginal) {
   const numericPlatform = Number(payload?.platform);
   if (!Number.isInteger(numericPlatform) || numericPlatform <= 0) throw new Error('无效的平台 ID');
@@ -209,6 +214,24 @@ function createBatchFactoryV12Router(options = {}) {
       return res.status(Number(error?.status) || 400).json({ error: error?.message || '识别男女频和风格失败' });
     }
   });
+	// Deletion is intentionally the only V12 mutation delegated to Go.  It is
+	// owner-scoped and removes only local records; no 121 or provider call runs.
+	router.delete('/batches/:batchId/books/:bookId', async (req, res) => {
+		try {
+		const account = { username: req.username, isOwner: req.auth?.account?.isOwner === true };
+			await v11JSONRequest({ ...account, method: 'DELETE', pathname: `${V11_BASE}/batches/${encodeURIComponent(req.params.batchId)}/books/${encodeURIComponent(req.params.bookId)}`, goBaseUrl: options.goBaseUrl, bridgeSecret: options.bridgeSecret, fetchImpl: options.fetchImpl });
+			await legacy.automationController?.removeBook({ owner: account.username, batchId: String(req.params.batchId), bookId: String(req.params.bookId) });
+			return res.status(204).end();
+		} catch (error) { return res.status(Number(error?.status) || 400).json({ error: error?.message || '删除小说失败' }); }
+	});
+	router.delete('/batches/:batchId', async (req, res) => {
+		try {
+			const account = { username: req.username, isOwner: req.auth?.account?.isOwner === true };
+			await v11JSONRequest({ ...account, method: 'DELETE', pathname: `${V11_BASE}/batches/${encodeURIComponent(req.params.batchId)}`, goBaseUrl: options.goBaseUrl, bridgeSecret: options.bridgeSecret, fetchImpl: options.fetchImpl });
+			await legacy.automationController?.removeBatch({ owner: account.username, batchId: String(req.params.batchId) });
+			return res.status(204).end();
+		} catch (error) { return res.status(Number(error?.status) || 400).json({ error: error?.message || '删除批量项目失败' }); }
+	});
   router.use((req, res, next) => {
     const originalURL = req.originalUrl;
     const rewritten = routeV12UpstreamPath(originalURL);
@@ -229,6 +252,7 @@ module.exports = {
   fetchBatchFactoryOriginals,
   refillMissingBatchFactoryBookSource,
   isNativeV12H3Path,
+	  isV12DeletionPath,
   routeV12UpstreamPath,
   rewriteV12PathForLegacyRead,
   rejectLegacyV11Mutations,

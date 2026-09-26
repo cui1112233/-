@@ -134,6 +134,14 @@ export function getBatch(batchId) {
   return apiRequest(bf11Path(`batches/${id(batchId)}`));
 }
 
+export function deleteBatchFactoryBook(batchId, bookId) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}`), { method: 'DELETE' });
+}
+
+export function deleteBatchFactoryProject(batchId) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}`), { method: 'DELETE' });
+}
+
 export function updateBookSource(batchId, bookId, input) {
   return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/source`), { method: 'PUT', body: body(input) });
 }

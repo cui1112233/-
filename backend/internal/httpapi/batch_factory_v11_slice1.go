@@ -186,6 +186,18 @@ func registerSliceOneRoutes(mux *http.ServeMux, store batchfactoryv11.Store) {
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"batch": batch})
 	})
+	mux.HandleFunc("DELETE /api/batch-factory/v11/batches/{batchId}/books/{bookId}", func(w http.ResponseWriter, r *http.Request) {
+		owner, ok := bridgeOwner(r)
+		if !ok { writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"}); return }
+		if err := store.DeleteBook(r.Context(), owner, r.PathValue("batchId"), r.PathValue("bookId")); err != nil { writeStoreError(w, err); return }
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("DELETE /api/batch-factory/v11/batches/{batchId}", func(w http.ResponseWriter, r *http.Request) {
+		owner, ok := bridgeOwner(r)
+		if !ok { writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"}); return }
+		if err := store.DeleteBatch(r.Context(), owner, r.PathValue("batchId")); err != nil { writeStoreError(w, err); return }
+		w.WriteHeader(http.StatusNoContent)
+	})
 	mux.HandleFunc("PUT /api/batch-factory/v11/batches/{batchId}/settings", settingsHandler(store, batchfactoryv11.ScopeBatch))
 	mux.HandleFunc("PUT /api/batch-factory/v11/batches/{batchId}/books/{bookId}/metadata", func(w http.ResponseWriter, r *http.Request) {
 		owner, ok := bridgeOwner(r)

@@ -16,6 +16,7 @@ import {
 	RightOutlined,
   SettingOutlined,
   UploadOutlined
+  ,DeleteOutlined
 } from '@ant-design/icons';
 import {
   Alert,
@@ -76,6 +77,7 @@ import {
   saveDraft,
 	  saveVideoOverride,
   deleteProductionTask,
+	deleteBatchFactoryBook,
   submitBatchMerge,
   submitBookMerge,
   submitBatchProduction,
@@ -2219,6 +2221,18 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
   async function refreshBatch() {
     await onBatchChanged?.();
   }
+  async function deleteBook(book) {
+    if (!batch?.id || !book?.id || actionBusy) return;
+    setActionBusy(`delete-${book.id}`);
+    try {
+      await deleteBatchFactoryBook(batch.id, book.id);
+      setViewingBook(null);
+      setSelectedBookIds(current => current.filter(id => id !== book.id));
+      await refreshBatch();
+      message.success('已删除当前小说及其本地生产记录；121 内容未受影响');
+    } catch (error) { message.error(error?.message || '删除小说失败'); }
+    finally { setActionBusy(''); }
+  }
   async function fetchMissingBookSource(book) {
     if (!batch?.id || !book?.id || actionBusy || runtimeResolveBookProductionText(book)) return;
     setActionBusy(`source-${book.id}`);
@@ -2949,7 +2963,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
         const videos = book.videos || [];
         return <article className="shuihuo-workbench-row batch-factory-book-row" key={book.id} role="row" style={columnWidths ? { gridTemplateColumns: columnWidths.map(width => `${width}px`).join(' ') } : undefined}>
           <div className="shuihuo-workbench-cell shuihuo-order-cell"><Checkbox checked={selectedBookIds.includes(book.id)} onChange={event => setSelectedBookIds(current => event.target.checked ? [...new Set([...current, book.id])] : current.filter(id => id !== book.id))} aria-label={`选择 ${book.title || `小说 ${index + 1}`}`} /><strong>{index + 1}</strong></div>
-          <div className="shuihuo-workbench-cell batch-factory-book-content" role="button" tabIndex={0} title="点击编辑当前小说的生产内容" onClick={() => openContentEditor(book)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openContentEditor(book); } }}><strong>{book.title || `小说 ${index + 1}`}</strong><span>bookId：{book.bookId || '—'} · 书城：{bookPlatformName(book, platformNames)} · 生产前 {rangeLines} 行</span><p>{previewText || '原文尚未获取'}</p></div>
+          <div className="shuihuo-workbench-cell batch-factory-book-content" role="button" tabIndex={0} title="点击编辑当前小说的生产内容" onClick={() => openContentEditor(book)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openContentEditor(book); } }}><strong>{book.title || `小说 ${index + 1}`}</strong><span>bookId：{book.bookId || '—'} · 书城：{bookPlatformName(book, platformNames)} · 生产前 {rangeLines} 行</span><p>{previewText || '原文尚未获取'}</p><Popconfirm title="删除本书？" description="将删除本书及本地生产记录，不影响已提交到 121 的内容。" okText="删除" cancelText="取消" onConfirm={event => { event?.stopPropagation?.(); return deleteBook(book); }}><Button danger size="small" icon={<DeleteOutlined />} loading={actionBusy === `delete-${book.id}`} onClick={event => event.stopPropagation()}>删除本书</Button></Popconfirm></div>
           <div className="shuihuo-workbench-cell batch-factory-book-config-cell"><div className="batch-factory-book-config-regions">{batchFactoryWorkbenchConfigRegions(book).map(region => { const status = region.combinedStatus || bookConfigRegionStatus(book, region.key); const detail = region.key === 'assets' ? bookAssetSummary(book) : status.label; return <button type="button" key={region.key} className={`batch-factory-book-config-region is-${status.tone}`} onClick={() => region.key === 'assets' ? setAssetBook(book) : setConfigTarget({ book, region: region.key })}><b>{region.label}</b><small>{detail}</small></button>; })}</div></div>
 		  <div className="shuihuo-workbench-cell shuihuo-preset-cell batch-factory-book-preset-cell"><InlineStoryboardAssets book={book} batchId={batch?.id} selectedVideoId={rowStoryboardSelection[book.id] || videos[0]?.id || ''} onSelectedVideoChange={videoId => setRowStoryboardSelection(current => ({ ...current, [book.id]: videoId }))} onManage={() => setAssetBook(book)} onSaved={refreshBatch} /></div>
 		  <InlineBookPrompts batch={batch} book={book} batchId={batch?.id} settingsRevision={batch?.settingsState?.revision} selectedVideoId={rowStoryboardSelection[book.id] || videos[0]?.id || ''} onSelectedVideoChange={videoId => setRowStoryboardSelection(current => ({ ...current, [book.id]: videoId }))} onManage={videoId => { setPromptVideoId(videoId || ''); setPromptBook(book); }} />

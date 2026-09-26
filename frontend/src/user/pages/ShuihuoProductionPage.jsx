@@ -7,7 +7,7 @@ import { batchFactoryMergeCoverFrom } from './shuihuo/batchFactoryMergeCover';
 import { ProjectsView } from './shuihuo/ProjectsView';
 import { AssetsView } from './shuihuo/AssetsView';
 import { confirmSegmentation, createProject, deleteProject, getProductionHealth, getProject, listModels, listProjects, paragraphSegmentation, replaceProjectSource, smartSegmentation } from '../../shared/api/shuihuoProduction';
-import { appendNovelFetchIntake, classifyFetchedBatchMetadata, createBatchFromIntake, createManualIntake, getBatch, getIntake, getMergeStatus, getProductionStatus, listBatches, startBatchAutomation } from '../../shared/api/batchFactoryV11';
+import { appendNovelFetchIntake, classifyFetchedBatchMetadata, createBatchFromIntake, createManualIntake, deleteBatchFactoryProject, getBatch, getIntake, getMergeStatus, getProductionStatus, listBatches, startBatchAutomation } from '../../shared/api/batchFactoryV11';
 import { BATCH_FACTORY_ACTIVE_BATCH_STORAGE_KEY, novelFetchIntakeBooks, pendingNovelFetchIntakeId } from './shuihuo/batchFactoryNovelFetchHandoff';
 import './shuihuo-production.css';
 
@@ -289,7 +289,8 @@ export function ShuihuoProductionPage({ openBatchOnLoad = false }) {
     // A delayed project read must not restore an item after it has been deleted.
     projectRequestRef.current += 1;
     try {
-      await deleteProject(project.id);
+      if (isBatchFactoryV11Project(project)) await deleteBatchFactoryProject(project.batchId);
+      else await deleteProject(project.id);
       if (activeProject?.project?.id === project.id) { setActiveProject(null); setView('projects'); }
       await refreshProjects();
       message.success('项目已删除');
