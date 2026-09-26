@@ -3,6 +3,7 @@ package httpapi
 import (
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -124,6 +125,7 @@ func registerMergeRoutes(mux *http.ServeMux, service *batchfactoryv11.MergeServi
 		}
 		jobs, err := service.GetBatchStatus(r.Context(), owner, r.PathValue("batchId"))
 		if err != nil {
+			log.Printf("batch factory merge status failed: batch=%q owner=%q error=%v", r.PathValue("batchId"), owner, err)
 			writeStoreError(w, err)
 			return
 		}
