@@ -224,6 +224,20 @@ test('invalid API keys remain terminal instead of consuming automatic retries', 
   assert.equal(status.books[0].retryCount, 0);
 });
 
+test('removing one book clears only that book automation state', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-delete-test-'));
+  const { adapter } = fixture();
+  adapter.loadBatch = async () => ({ id: 'batch-1', books: [
+    { id: 'book-1', title: 'one', sourceText: 'one', settingsState: { patch: {} }, assetRecords: [], videos: [] },
+    { id: 'book-2', title: 'two', sourceText: 'two', settingsState: { patch: {} }, assetRecords: [], videos: [] }
+  ] });
+  const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} } });
+  await controller.start({ owner: 'user', batchId: 'batch-1', concurrency: 1 });
+  await controller.removeBook({ owner: 'user', batchId: 'batch-1', bookId: 'book-1' });
+  const status = controller.status({ owner: 'user', batchId: 'batch-1' });
+  assert.deepEqual(status.books.map(book => book.bookId), ['book-2']);
+});
+
 test('continue automation resets a failed book and resumes from its missing stage', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-resume-'));
   const { adapter } = fixture();
