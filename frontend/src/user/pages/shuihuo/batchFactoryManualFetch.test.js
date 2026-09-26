@@ -37,6 +37,17 @@ test('manual batch submission keeps schedule metadata with automation explicitly
   assert.equal(payload.autoPublishEnabled, false);
 });
 
+test('manual intake treats the leading number of each row as a book ID regardless of length', () => {
+  assert.deepEqual(
+    manualBookIDsFromInput('7 短 ID\n748725 事不过三，过三遭殃\n2086529323515883958 长 ID'),
+    ['7', '748725', '2086529323515883958']
+  );
+});
+
+test('manual intake does not mistake numbers inside a book title for a book ID', () => {
+  assert.deepEqual(manualBookIDsFromInput('事不过三，2026 再相见'), []);
+});
+
 test('manual batch submission preserves explicit scheduled full-automation choices', () => {
   const payload = buildManualBatchSubmission({
     title: ' 淮雪 ',

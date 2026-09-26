@@ -1,8 +1,9 @@
 export function manualBookIDsFromInput(inputText = '') {
   const seen = new Set();
   const ids = [];
-  for (const match of String(inputText).matchAll(/\d{6,25}/g)) {
-    const id = match[0];
+  for (const line of String(inputText).split(/\r?\n/)) {
+    const id = line.match(/^\s*(\d+)(?=\s|$)/)?.[1];
+    if (!id) continue;
     if (!seen.has(id)) {
       seen.add(id);
       ids.push(id);
