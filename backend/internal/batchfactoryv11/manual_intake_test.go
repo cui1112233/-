@@ -58,6 +58,28 @@ func TestParseManualBookListSeparatesBookIDAndTitleWithSingleSpace(t *testing.T)
 	}
 }
 
+func TestParseManualBookListSeparatesPastedBookIDAndTitleAndKeepsFetchedOriginal(t *testing.T) {
+	const bookID = "7655922169695718462"
+	const title = "未婚妻拿我当踏板，我加入剧组她却哭了"
+	books, err := ParseManualBookList(ManualIntakeInput{
+		PlatformID:           "2",
+		PlatformName:         "番茄付费",
+		ParseMode:            "smart",
+		ColumnPresetID:       "full_metadata",
+		InputText:            bookID + title,
+		SourceTextByBookID:   map[string]string{bookID: "已抓取的小说正文"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(books) != 1 || books[0].BookID != bookID || books[0].Title != title {
+		t.Fatalf("books=%+v", books)
+	}
+	if books[0].SourceText != "已抓取的小说正文" {
+		t.Fatalf("source text was not matched: %+v", books[0])
+	}
+}
+
 func TestParseManualBookListUnderstandsHeaderAndDeduplicatesBookID(t *testing.T) {
 	books, err := ParseManualBookList(ManualIntakeInput{
 		PlatformID: "zhihu-paid",

@@ -31,6 +31,7 @@ type manualRow struct {
 var manualDigits = regexp.MustCompile(`^\d{10,25}$`)
 var manualDigitsInLine = regexp.MustCompile(`\d{10,25}`)
 var manualBookIDAndTitle = regexp.MustCompile(`^(\d{10,25})\s+(.+)$`)
+var manualPastedBookIDAndTitle = regexp.MustCompile(`^(\d{10,25})(\D.+)$`)
 var manualSpaces = regexp.MustCompile(`\s{2,}`)
 var manualMonth = regexp.MustCompile(`\d{4}[-/年]\d{1,2}`)
 var manualAliases = map[string]string{
@@ -217,6 +218,12 @@ func finalize(row manualRow, mode string) manualRow {
 			row.bookID = row.freeID
 		} else {
 			row.bookID = manualDigitsInLine.FindString(row.sourceLine)
+		}
+	}
+	if parts := manualPastedBookIDAndTitle.FindStringSubmatch(row.bookID); len(parts) == 3 {
+		row.bookID = parts[1]
+		if row.title == "" {
+			row.title = cleanManual(parts[2])
 		}
 	}
 	row.gender = manualGender(row.gender)
