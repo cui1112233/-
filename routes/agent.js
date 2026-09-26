@@ -2,6 +2,7 @@ const express = require('express');
 const { apiAuth, checkRateLimit } = require('../middleware/auth');
 const { USERS_DIR, safeUserName, readConfig, ensureReadyConfig, requestUpstream, collectResponse } = require('../lib/shared');
 const { createAgentStore } = require('../lib/agent-store');
+const { normalizeTextModelId } = require('../lib/agent-catalog-selection');
 
 const MAX_CONTEXT_LENGTH = 18000;
 const HISTORY_WINDOW = 12;
@@ -221,6 +222,10 @@ function createAgentRouter({
   }
 
   router.use(apiAuth);
+  router.get('/capabilities', (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    return res.json({ version: 1, textModelSelection: respond?.supportsCatalogSelection === true, nativeToolExecution: false });
+  });
 
   router.get('/tasks', (req, res) => res.json({ tasks: agentStore.listTasks(req.username) }));
 
@@ -280,6 +285,12 @@ function createAgentRouter({
     const prompt = cleanText(req.body?.prompt, 6000);
     if (!prompt) return res.status(400).json({ error: '请输入要问 CM 的内容' });
 
+    let textModelId;
+    try { textModelId = normalizeTextModelId(req.body?.textModelId); }
+    catch (error) { return res.status(400).json({ error: error.message, code: error.code }); }
+    if (textModelId && respond?.supportsCatalogSelection !== true) {
+      return res.status(503).json({ error: '当前 Agent 服务尚未接入模型选择；没有改用默认模型。', code: 'AGENT_MODEL_SELECTION_UNAVAILABLE' });
+    }
     let skills;
     try {
       skills = skillStore ? skillStore.resolveForChat(req.username, req.body?.skillIds) : [];
@@ -311,12 +322,20 @@ function createAgentRouter({
         const history = selectedTask.messages.slice(-HISTORY_WINDOW);
         const userMessage = agentStore.append(req.username, taskId, { role: 'user', content: prompt });
         if (!userMessage) return null;
+        let resolvedModel = null;
         let answer = INTERNAL_DISCLOSURE_PATTERN.test(prompt) ? INTERNAL_DISCLOSURE_REPLY : '';
+        const modelCallSkipped = Boolean(answer);
         if (!answer) {
           const context = normalizePageContext(req.body?.context);
           const messages = buildAgentMessages({ history, prompt, context, skills });
           if (respond) {
-            answer = await respond({ username: req.username, messages, context, skills });
+            answer = await respond({ username: req.username, messages, context, skills, textModelId, signal: clientAbortController.signal,
+              onResolvedModel: selection => {
+                if (selection && typeof selection.catalogId === 'string' && typeof selection.modelId === 'string') {
+                  resolvedModel = { catalogId: selection.catalogId.slice(0, 180), modelId: selection.modelId.slice(0, 180), source: selection.source === 'catalog' ? 'catalog' : 'default' };
+                }
+              }
+            });
           } else {
             const config = configReader(req.username);
             ensureReadyConfig(config);
@@ -338,7 +357,7 @@ function createAgentRouter({
         const assistantMessage = agentStore.append(req.username, taskId, { role: 'assistant', content: answer });
         if (!assistantMessage) return null;
         const task = agentStore.getTask(req.username, taskId);
-        return task ? { task, user: userMessage, assistant: assistantMessage } : null;
+        return task ? { task, user: userMessage, assistant: assistantMessage, resolvedModel, modelCallSkipped } : null;
       });
       if (clientAbortController.signal.aborted || res.destroyed) return;
       return result ? res.json(result) : sendTaskNotFound(res);
@@ -349,6 +368,9 @@ function createAgentRouter({
       }
       if (/^(?:Base URL|Model|API Key) is required$/.test(error?.message || '')) {
         return res.status(422).json({ error: error.message });
+      }
+      if ([403, 422, 429].includes(error?.status)) {
+        return res.status(error.status).json({ error: '所选模型不可用、账号未获授权或额度不足；没有切换到其他模型。', code: 'AGENT_MODEL_ACCESS_DENIED' });
       }
       return res.status(502).json({ error: error.message || 'Agent 请求失败' });
     } finally {
