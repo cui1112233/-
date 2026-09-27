@@ -271,7 +271,7 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
     }
   }
 
-  const createDisabled = busy || fetching || !title.trim() || !inputText.trim() || !bookIds.length || !hasSelectedPlatform;
+  const createDisabled = busy || fetching;
   const createLabel = sourceReady ? '确定创建' : '获取并创建';
   return <><Modal
     className="shuihuo-create-project-modal"
@@ -322,7 +322,7 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
 
     <div className="batch-factory-create-toolbar">
       <Button type="primary" loading={busy || fetching} disabled={createDisabled} onClick={() => submit()}>{createLabel}</Button>
-      <Button loading={fetching} disabled={!hasSelectedPlatform || !bookIds.length} onClick={() => fetchMissingOriginals()}>{missingBookIds.length && fetchedCount ? '重试未获取' : '获取内容'}</Button>
+      <Button loading={fetching} disabled={fetching} onClick={() => fetchMissingOriginals()}>{missingBookIds.length && fetchedCount ? '重试未获取' : '获取内容'}</Button>
       <Button onClick={openScheduleDialog}>开始定时</Button>
       <Button onClick={openScheduleTasks}>定时任务</Button>
     </div>
