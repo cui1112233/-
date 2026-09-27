@@ -186,6 +186,10 @@ async function listBatchFactory121Organizations(req, options = {}) {
 }
 
 async function resolveBatchFactory121Session(owner, { sessionStore, webSubmit } = {}) {
+  // 优先使用已保存的真实 HTTP cookie（直接客户端需要），避免被浏览器 sessionKey 覆盖
+  const directSession = sessionStore?.getSession?.(owner);
+  const realCookie = String(directSession?.cookie || '').trim();
+  if (realCookie) return { ...(directSession || {}), cookie: realCookie };
   if (webSubmit?.ensureSession) {
     const ready = await webSubmit.ensureSession(owner);
     const cookie = String(ready?.request?.sessionKey || ready?.result?.sessionKey || '').trim();
