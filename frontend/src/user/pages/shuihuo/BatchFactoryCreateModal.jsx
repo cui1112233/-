@@ -1,9 +1,9 @@
-import { Alert, Button, Input, InputNumber, Modal, Select, Space, message } from 'antd';
+import { Alert, Button, Input, InputNumber, Modal, Select, Space, Tag, message } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 import { getWorkshopPlatforms } from '../../../shared/api/novelFetchWorkshop';
 import { fetchDirectOriginals, getBatchAutomationStatus, listAutomationPresets, listBatches } from '../../../shared/api/batchFactoryV11';
 import { batchFactoryPlatformOptions } from './batchFactoryPlatformOptions';
-import { buildManualBatchSubmission, hasFetchedManualSources, manualBookIDsFromInput } from './batchFactoryManualFetch';
+import { buildManualBatchSubmission, hasFetchedManualSources, manualBookIDsFromInput, removePlatformGroup, replacePlatformGroup, totalGroupBookCount, upsertPlatformGroup } from './batchFactoryManualFetch';
 import { formatBeijingDatetimeLocal, normalizeAutomationConcurrency, parseBeijingDatetimeLocal } from './batchFactoryAutomationSchedule';
 
 const parseModes = [
@@ -59,6 +59,8 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
   const [fetchErrorsByBookId, setFetchErrorsByBookId] = useState({});
   const [fetching, setFetching] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [groups, setGroups] = useState([]);
+  const [editingPlatformId, setEditingPlatformId] = useState(null);
 
   async function loadPlatforms() {
     setPlatformState('loading');
@@ -127,7 +129,52 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
     setAutomationConcurrency(2);
     setContentRangeLines(5);
     setContentCaptureCharacters(4000);
+    setGroups([]);
+    setEditingPlatformId(null);
     clearFetchedSources();
+  }
+
+  function handleAddPlatformGroup() {
+    const id = String(platformId || '').trim();
+    if (!id) return message.warning('请先选择书城');
+    const ids = manualBookIDsFromInput(inputText);
+    if (!ids.length) return message.warning('小说列表中没有有效的 Book ID（每行以书 ID 开头）');
+    const editingOldCount = editingPlatformId
+      ? manualBookIDsFromInput(groups.find(group => group.platformId === editingPlatformId)?.inputText).length
+      : 0;
+    if (totalGroupBookCount(groups) - editingOldCount + ids.length > 50) {
+      return message.warning('一个批量最多 50 本书');
+    }
+    if (editingPlatformId) {
+      setGroups(current => replacePlatformGroup(current, editingPlatformId, inputText));
+      setEditingPlatformId(null);
+    } else {
+      const platformName = platformOptions.find(option => option.value === platformId)?.label || platformId;
+      setGroups(current => upsertPlatformGroup(current, { platformId, platformName, inputText }));
+    }
+    setInputText('');
+  }
+
+  function handleEditGroup(group) {
+    if (editingPlatformId && editingPlatformId !== group.platformId) {
+      return message.warning('请先完成当前修改：点“添加书城”保存，或点当前标签的 × 放弃');
+    }
+    setPlatformId(group.platformId);
+    setInputText(group.inputText);
+    setEditingPlatformId(group.platformId);
+  }
+
+  function handleRemoveGroup(removedPlatformId) {
+    if (editingPlatformId === removedPlatformId) {
+      // 编辑中点自己的 × = 放弃修改
+      setEditingPlatformId(null);
+      setInputText('');
+      return;
+    }
+    if (editingPlatformId) {
+      return message.warning('请先完成当前修改：点“添加书城”保存，或点当前标签的 × 放弃');
+    }
+    setGroups(current => removePlatformGroup(current, removedPlatformId));
   }
 
   async function fetchMissingOriginals({ quiet = false } = {}) {
@@ -296,7 +343,14 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
       <label className="shuihuo-form-label">书城
         <Select
           value={platformId || undefined}
-          onChange={value => { setPlatformId(value); clearFetchedSources(); }}
+          onChange={value => {
+            if (editingPlatformId && value !== editingPlatformId) {
+              message.warning('请先完成当前修改：点“添加书城”保存，或点当前标签的 × 放弃');
+              return;
+            }
+            setPlatformId(value);
+            clearFetchedSources();
+          }}
           options={platformOptions}
           loading={platformState === 'loading'}
           disabled={platformState === 'loading'}
@@ -317,7 +371,6 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
       </Space>}
     /> : null}
 
-    <label className="shuihuo-form-label" htmlFor="batch-column-order">自定义列顺序</label>
     <Input id="batch-column-order" value={columnOrder} onChange={event => { setColumnOrder(event.target.value); clearFetchedSources(); }} placeholder="书籍ID,书名,标签,推荐理由" />
     <label className="shuihuo-form-label" htmlFor="batch-input-text">小说列表 <em>*</em></label>
     <Input.TextArea
@@ -329,12 +382,27 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
     />
 
     <div className="batch-factory-create-toolbar">
-      <Button type="primary" loading={busy || fetching} onClick={() => submit()}>{createLabel}</Button>
-      <Button loading={fetching} onClick={() => fetchMissingOriginals()}>{missingBookIds.length && fetchedCount ? '重试未获取' : '获取内容'}</Button>
-      <Button type="primary" onClick={() => openAutomationDialog('immediate')}>立即执行</Button>
+      <Button type="primary" onClick={handleAddPlatformGroup}>{editingPlatformId ? '保存书城修改' : '添加书城'}</Button>
+      <Button type="primary" loading={busy} onClick={() => openAutomationDialog('immediate')}>立即执行</Button>
       <Button onClick={() => openAutomationDialog('scheduled')}>开始定时</Button>
       <Button onClick={openScheduleTasks}>定时任务</Button>
     </div>
+    {groups.length ? (
+      <div className="batch-factory-platform-groups" data-testid="platform-groups">
+        {groups.map(group => (
+          <Tag
+            key={group.platformId}
+            color={editingPlatformId === group.platformId ? 'processing' : 'blue'}
+            closable
+            onClose={event => { event.preventDefault(); handleRemoveGroup(group.platformId); }}
+            onClick={() => handleEditGroup(group)}
+            style={{ cursor: 'pointer', marginBottom: 4 }}
+          >
+            {group.platformName} ×{manualBookIDsFromInput(group.inputText).length}{editingPlatformId === group.platformId ? '（编辑中）' : ''}
+          </Tag>
+        ))}
+      </div>
+    ) : null}
 
     {bookIds.length ? <Alert
       type={sourceReady ? 'success' : failedBookIds.length ? 'warning' : 'info'}
