@@ -227,6 +227,8 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
       // 编辑中点了定时入口也会先校验；此时 groups 是唯一事实源。
       // 正文按组隔离：不同书城即便撞 Book ID 也各自抓各自的，互不覆盖。
       const sourcesByGroup = {};
+      const failedPlatforms = [];
+      let fetchedCount = 0;
       for (const group of groups) {
         const groupKey = String(group.platformId);
         const ids = manualBookIDsFromInput(group.inputText);
@@ -245,13 +247,18 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
             if (item?.status === 'ok' && text) groupSources[String(item.bookId)] = text;
           }
           sourcesByGroup[groupKey] = { ...have, ...groupSources };
-        } catch {
+          // 只按本组请求的 pending id 计数，防止接口回传意外 ID 高估成功数
+          for (const bookId of pending) {
+            if (String(groupSources[bookId] || '').trim()) fetchedCount += 1;
+          }
+        } catch (error) {
           // 单组抓取失败不阻断：该组正文留空，书照样创建，列表中标红后可单独重试
+          failedPlatforms.push(group.platformName || group.platformId);
+          console.warn('分组抓取失败', group.platformId, error);
           sourcesByGroup[groupKey] = { ...have };
         }
       }
       // 设计约定：抓不到的书照样创建（正文为空，列表中标红），不阻断整个批量
-      const fetchedCount = Object.values(sourcesByGroup).reduce((sum, groupSources) => sum + Object.keys(groupSources).length, 0);
       const totalCount = totalGroupBookCount(groups);
 
       await onCreated(buildManualBatchSubmission({
@@ -275,7 +282,11 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
         automationConcurrency: normalizeAutomationConcurrency(automationConcurrency)
       }));
       reset();
-      if (fetchedCount < totalCount) message.warning(`${fetchedCount}/${totalCount} 本已抓到正文，其余书将在列表中标红，可单独重试`);
+      if (failedPlatforms.length > 0) {
+        message.warning(`${fetchedCount}/${totalCount} 本已抓到正文；以下书城抓取失败：${failedPlatforms.join('、')}。失败的书已在列表中标红，可单独重试`);
+      } else if (fetchedCount < totalCount) {
+        message.warning(`${fetchedCount}/${totalCount} 本已抓到正文，其余书将在列表中标红，可单独重试`);
+      }
     } catch (error) {
       message.error(normalizedError(error, '新建批量失败'));
     } finally {

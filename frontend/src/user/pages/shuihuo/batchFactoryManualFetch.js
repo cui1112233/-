@@ -2,7 +2,7 @@ export function manualBookIDsFromInput(inputText = '') {
   const seen = new Set();
   const ids = [];
   for (const line of String(inputText).split(/\r?\n/)) {
-    const id = line.match(/^\s*(\d+)(?=\s|$)/)?.[1];
+    const id = line.match(/^\s*(\d{6,25})(?=\s|$)/)?.[1];
     if (!id) continue;
     if (!seen.has(id)) {
       seen.add(id);
@@ -38,13 +38,13 @@ export function mergeGroupLines(oldText = '', newText = '') {
   const byId = new Map();
   const order = [];
   for (const line of nonEmptyLines(oldText)) {
-    const id = line.match(/^\s*(\d+)(?=\s|$)/)?.[1];
+    const id = line.match(/^\s*(\d{6,25})(?=\s|$)/)?.[1];
     if (!id) continue;
+    if (!byId.has(id)) order.push(id);
     byId.set(id, line);
-    order.push(id);
   }
   for (const line of nonEmptyLines(newText)) {
-    const id = line.match(/^\s*(\d+)(?=\s|$)/)?.[1];
+    const id = line.match(/^\s*(\d{6,25})(?=\s|$)/)?.[1];
     if (!id) continue;
     if (!byId.has(id)) order.push(id);
     byId.set(id, line); // 新行优先

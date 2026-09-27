@@ -37,11 +37,24 @@ test('manual batch submission keeps schedule metadata with automation explicitly
   assert.equal(payload.autoPublishEnabled, false);
 });
 
-test('manual intake treats the leading number of each row as a book ID regardless of length', () => {
+test('manual intake treats the leading 6-25 digit number of each row as a book ID', () => {
   assert.deepEqual(
-    manualBookIDsFromInput('7 短 ID\n748725 事不过三，过三遭殃\n2086529323515883958 长 ID'),
-    ['7', '748725', '2086529323515883958']
+    manualBookIDsFromInput('700000 六位数 ID\n748725 事不过三，过三遭殃\n2086529323515883958 长 ID'),
+    ['700000', '748725', '2086529323515883958']
   );
+});
+
+test('manual intake ignores leading numbers shorter than 6 digits, aligned with the backend rule', () => {
+  assert.deepEqual(manualBookIDsFromInput('73709 五位短号\n567168 六位正常'), ['567168']);
+  assert.deepEqual(manualBookIDsFromInput('7 个位数行'), []);
+  // mergeGroupLines 里的同款正则也必须忽略不足 6 位的行
+  assert.equal(mergeGroupLines('73709 旧短号\n567168 正常书', '73708 新短号'), '567168 正常书');
+});
+
+test('mergeGroupLines deduplicates an ID repeated within the old text itself', () => {
+  const merged = mergeGroupLines('737092 甲\n737092 甲重复', '');
+  assert.equal(merged, '737092 甲重复');
+  assert.equal((merged.match(/737092/g) || []).length, 1);
 });
 
 test('manual intake does not mistake numbers inside a book title for a book ID', () => {

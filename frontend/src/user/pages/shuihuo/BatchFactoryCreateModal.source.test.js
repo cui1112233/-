@@ -44,3 +44,17 @@ test('immediate execution defaults to the end-to-end upload automation mode', ()
   assert.match(source, /const \[automationRunMode, setAutomationRunMode\] = useState\('full_submit'\)/);
 	assert.match(source, /if \(!scheduled\) setAutomationRunMode\('full_submit'\);/);
 });
+
+test('grouped submit surfaces failed book cities and counts only fetched pending books', () => {
+  // I3：失败书城可见——catch 里记录书城名并 console.warn，最终 warning 带出具体书城
+  assert.match(source, /const failedPlatforms = \[\]/);
+  assert.match(source, /failedPlatforms\.push\(group\.platformName \|\| group\.platformId\)/);
+  assert.match(source, /console\.warn\('分组抓取失败', group\.platformId, error\)/);
+  assert.match(source, /以下书城抓取失败：\$\{failedPlatforms\.join\('、'\)\}/);
+  assert.match(source, /失败的书已在列表中标红，可单独重试/);
+  // 全部成功但有书没正文时，沿用原来的 X/Y 文案
+  assert.match(source, /\} else if \(fetchedCount < totalCount\) \{/);
+  // #6：fetchedCount 只对本组 pending id 中真正拿到非空正文的计数
+  assert.match(source, /let fetchedCount = 0/);
+  assert.match(source, /for \(const bookId of pending\) \{\s*if \(String\(groupSources\[bookId\] \|\| ''\)\.trim\(\)\) fetchedCount \+= 1;/);
+});
