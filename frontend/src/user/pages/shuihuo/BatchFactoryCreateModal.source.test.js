@@ -8,9 +8,17 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const source = fs.readFileSync(path.join(here, 'BatchFactoryCreateModal.jsx'), 'utf8');
 
 test('uses a full novel-fetch metadata preset by default', () => {
-  assert.match(source, /value: 'full_metadata'/);
-  assert.match(source, /useState\('full_metadata'\)/);
-  assert.match(source, /书籍ID,书名,男女频,风格,标签,推荐理由,评级/);
+  // 输入格式/列顺序固定为默认值，不再暴露控件（AI 自动分析男女频/风格）
+  assert.match(source, /const DEFAULT_COLUMN_PRESET_ID = 'full_metadata'/);
+  assert.match(source, /const DEFAULT_COLUMN_ORDER = '书籍ID,书名,男女频,风格,标签,推荐理由,评级'/);
+  assert.doesNotMatch(source, /自定义列顺序/);
+  assert.doesNotMatch(source, /列顺序预设/);
+});
+
+test('platform group tags use theme-aware css classes, not antd preset colors', () => {
+  // 暗色主题下 antd color="blue" 对比度太低看不清，改用 CSS 类控制配色
+  assert.match(source, /className=\{editingPlatformId === group\.platformId \? 'platform-group-tag is-editing' : 'platform-group-tag'\}/);
+  assert.doesNotMatch(source, /color=\{editingPlatformId/);
 });
 
 test('offers immediate and Beijing-time automation with a frozen concurrency limit', () => {

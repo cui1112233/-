@@ -6,24 +6,10 @@ import { batchFactoryPlatformOptions } from './batchFactoryPlatformOptions';
 import { buildManualBatchSubmission, manualBookIDsFromInput, removePlatformGroup, replacePlatformGroup, totalGroupBookCount, upsertPlatformGroup } from './batchFactoryManualFetch';
 import { formatBeijingDatetimeLocal, normalizeAutomationConcurrency, parseBeijingDatetimeLocal } from './batchFactoryAutomationSchedule';
 
-const parseModes = [
-  { value: 'smart', label: '智能识别' },
-  { value: 'header', label: '单行表头' },
-  { value: 'multi_header', label: '多行表头' },
-  { value: 'fixed_full_11', label: '完整 11 列' },
-  { value: 'fixed_from_b', label: '从 B 列开始' },
-  { value: 'fixed_paid_basic', label: '付费 ID 基础列' },
-  { value: 'custom', label: '自定义列顺序' }
-];
-const presets = [
-  { value: '', label: '不使用预设' },
-  { value: 'paid_name_reason', label: '付费 ID / 书名 / 推荐理由' },
-  { value: 'paid_name_gender_reason', label: '付费 ID / 书名 / 男女频 / 推荐理由' },
-  { value: 'free_paid_name_gender_reason', label: '免费 ID / 付费 ID / 书名 / 男女频 / 推荐理由' },
-  { value: 'sample_input', label: '书籍 ID / 书名 / 推荐理由 / 男女频 / 标签 / 评级' },
-  { value: 'full_metadata', label: '书籍 ID / 书名 / 男女频 / 风格 / 标签 / 推荐理由 / 评级' },
-  { value: 'full_11', label: '完整 11 列' }
-];
+// 输入格式与列顺序固定为默认值（智能识别 + 完整元数据列），AI 会自动分析男女频/风格，无需用户手选
+const DEFAULT_PARSE_MODE = 'smart';
+const DEFAULT_COLUMN_PRESET_ID = 'full_metadata';
+const DEFAULT_COLUMN_ORDER = '书籍ID,书名,男女频,风格,标签,推荐理由,评级';
 
 function normalizedError(error, fallback) {
   return String(error?.message || fallback || '请求失败').trim();
@@ -39,9 +25,9 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
   const [platformOptions, setPlatformOptions] = useState([]);
   const [platformState, setPlatformState] = useState('idle');
   const [platformError, setPlatformError] = useState('');
-  const [parseMode, setParseMode] = useState('smart');
-  const [columnPresetId, setColumnPresetId] = useState('full_metadata');
-  const [columnOrder, setColumnOrder] = useState('书籍ID,书名,男女频,风格,标签,推荐理由,评级');
+  const parseMode = DEFAULT_PARSE_MODE;
+  const columnPresetId = DEFAULT_COLUMN_PRESET_ID;
+  const columnOrder = DEFAULT_COLUMN_ORDER;
   const [inputText, setInputText] = useState('');
   const [scheduleDialogOpen, setScheduleDialogOpen] = useState(false);
   const [automationDialogMode, setAutomationDialogMode] = useState('scheduled');
@@ -305,7 +291,7 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
     <label className="shuihuo-form-label" htmlFor="batch-title">作品名称 <em>*</em></label>
     <Input id="batch-title" value={title} onChange={event => setTitle(event.target.value)} placeholder="请输入作品名称" maxLength={255} />
 
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginTop: 16 }}>
+    <div style={{ marginTop: 16 }}>
       <label className="shuihuo-form-label">书城
         <Select
           value={platformId || undefined}
@@ -322,8 +308,6 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
           placeholder="请选择书城"
         />
       </label>
-      <label className="shuihuo-form-label">输入格式<Select value={parseMode} onChange={setParseMode} options={parseModes} /></label>
-      <label className="shuihuo-form-label">列顺序预设<Select value={columnPresetId} onChange={setColumnPresetId} options={presets} /></label>
     </div>
 
     {platformState === 'fallback' ? <Alert
@@ -336,10 +320,6 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
       </Space>}
     /> : null}
 
-    {parseMode === 'custom' ? <>
-      <label className="shuihuo-form-label" htmlFor="batch-column-order">自定义列顺序</label>
-      <Input id="batch-column-order" value={columnOrder} onChange={event => setColumnOrder(event.target.value)} placeholder="书籍ID,书名,标签,推荐理由" />
-    </> : null}
     <label className="shuihuo-form-label" htmlFor="batch-input-text">小说列表 <em>*</em></label>
     <Input.TextArea
       id="batch-input-text"
@@ -360,7 +340,7 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
         {groups.map(group => (
           <Tag
             key={group.platformId}
-            color={editingPlatformId === group.platformId ? 'processing' : 'blue'}
+            className={editingPlatformId === group.platformId ? 'platform-group-tag is-editing' : 'platform-group-tag'}
             closable
             onClose={event => { event.preventDefault(); handleRemoveGroup(group.platformId); }}
             onClick={() => handleEditGroup(group)}
