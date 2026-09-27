@@ -31,6 +31,9 @@ type ManualIntakeGroup struct {
 	PlatformID   string `json:"platformId"`
 	PlatformName string `json:"platformName"`
 	InputText    string `json:"inputText"`
+	// SourceTextByBookID 可选：该组已抓到的正文，键为书 ID。非空时分组解析
+	// 用它替代顶层同名 map，使跨书城撞 ID 的两本书各取各的正文。
+	SourceTextByBookID map[string]string `json:"sourceTextByBookId,omitempty"`
 }
 type manualRow struct {
 	bookID, paidID, freeID, title, gender, style, tags, reason, rating, sourceLine, mode string
@@ -455,6 +458,9 @@ func ParseGroupedManualBookLists(base ManualIntakeInput) ([]CreateBookInput, err
 		groupInput.PlatformID = strings.TrimSpace(group.PlatformID)
 		groupInput.PlatformName = strings.TrimSpace(group.PlatformName)
 		groupInput.InputText = group.InputText
+		if len(group.SourceTextByBookID) > 0 {
+			groupInput.SourceTextByBookID = group.SourceTextByBookID
+		}
 		books, err := ParseManualBookList(groupInput)
 		if err != nil {
 			return nil, err

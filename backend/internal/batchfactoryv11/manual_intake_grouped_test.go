@@ -58,3 +58,45 @@ func TestParseGroupedManualBookListsEmpty(t *testing.T) {
 		t.Fatal("empty input must fail")
 	}
 }
+
+func TestParseGroupedManualBookListsGroupScopedSourceText(t *testing.T) {
+	input := ManualIntakeInput{
+		// base 故意不带顶层 SourceTextByBookID，证明正文完全按组隔离。
+		Groups: []ManualIntakeGroup{
+			{
+				PlatformID:         "3",
+				PlatformName:       "七猫付费",
+				InputText:          "737092 甲书",
+				SourceTextByBookID: map[string]string{"737092": "甲正文，来自书城 3"},
+			},
+			{
+				PlatformID:         "15",
+				PlatformName:       "知乎付费",
+				InputText:          "737092 乙书",
+				SourceTextByBookID: map[string]string{"737092": "乙正文，来自书城 15"},
+			},
+		},
+	}
+	books, err := ParseGroupedManualBookLists(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(books) != 2 {
+		t.Fatalf("want 2 books with duplicate ID across groups, got %d", len(books))
+	}
+	if books[0].Platform != "3" {
+		t.Fatalf("books[0].Platform = %q, want 3", books[0].Platform)
+	}
+	if books[1].Platform != "15" {
+		t.Fatalf("books[1].Platform = %q, want 15", books[1].Platform)
+	}
+	if books[0].SourceText != "甲正文，来自书城 3" {
+		t.Fatalf("books[0].SourceText = %q, want group-3 text", books[0].SourceText)
+	}
+	if books[1].SourceText != "乙正文，来自书城 15" {
+		t.Fatalf("books[1].SourceText = %q, want group-15 text", books[1].SourceText)
+	}
+	if books[0].SourceText == books[1].SourceText {
+		t.Fatal("cross-platform duplicate IDs must keep separate source texts")
+	}
+}
