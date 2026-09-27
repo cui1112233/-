@@ -329,9 +329,9 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
     />
 
     <div className="batch-factory-create-toolbar">
-      <Button type="primary" loading={busy || fetching} disabled={createDisabled} onClick={() => submit()}>{createLabel}</Button>
-      <Button loading={fetching} disabled={fetching} onClick={() => fetchMissingOriginals()}>{missingBookIds.length && fetchedCount ? '重试未获取' : '获取内容'}</Button>
-      <Button type="primary" disabled={createDisabled} onClick={() => openAutomationDialog('immediate')}>立即执行</Button>
+      <Button type="primary" loading={busy || fetching} onClick={() => submit()}>{createLabel}</Button>
+      <Button loading={fetching} onClick={() => fetchMissingOriginals()}>{missingBookIds.length && fetchedCount ? '重试未获取' : '获取内容'}</Button>
+      <Button type="primary" onClick={() => openAutomationDialog('immediate')}>立即执行</Button>
       <Button onClick={() => openAutomationDialog('scheduled')}>开始定时</Button>
       <Button onClick={openScheduleTasks}>定时任务</Button>
     </div>
