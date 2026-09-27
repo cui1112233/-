@@ -288,3 +288,38 @@ func TestBookOverrideDoesNotChangeBatchSettings(t *testing.T) {
 	}
 	_ = now
 }
+
+func TestManualIntakeGroupedCreatesOneBatchWithPerBookPlatforms(t *testing.T) {
+	now := time.Unix(1700000000, 0)
+	api := NewRouter(RouterOptions{BridgeSecret: "secret", Now: func() time.Time { return now }, Slice: 1, Store: batchfactoryv11.NewMemoryStore()})
+	resp := signedJSONRequest(t, api, now, "alice", http.MethodPost, "/api/batch-factory/v11/intakes/manual", map[string]any{
+		"title": "多书城批", "contentRangeLines": 5, "contentCaptureCharacters": 4000,
+		"groups": []map[string]any{
+			{"platformId": "3", "platformName": "七猫付费", "inputText": "737092 甲\n687404 乙"},
+			{"platformId": "15", "platformName": "知乎付费", "inputText": "567168 丙"},
+		},
+	})
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("want 201, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	var payload struct {
+		Batch struct {
+			Books []struct {
+				Platform       string         `json:"platform"`
+				SourceMetadata map[string]any `json:"sourceMetadata"`
+			} `json:"books"`
+		} `json:"batch"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Batch.Books) != 3 {
+		t.Fatalf("want 3 books, got %d", len(payload.Batch.Books))
+	}
+	if payload.Batch.Books[0].SourceMetadata["platformName"] != "七猫付费" {
+		t.Fatalf("book0 platformName must stay group-scoped, got %v", payload.Batch.Books[0].SourceMetadata["platformName"])
+	}
+	if payload.Batch.Books[2].Platform != "15" {
+		t.Fatalf("book2 platform want 15, got %s", payload.Batch.Books[2].Platform)
+	}
+}
