@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildManualBatchSubmission, hasFetchedManualSources, manualBookIDsFromInput } from './batchFactoryManualFetch.js';
+import { buildManualBatchSubmission, hasFetchedManualSources, manualBookIDsFromInput, mergeGroupLines, upsertPlatformGroup, replacePlatformGroup, removePlatformGroup, totalGroupBookCount } from './batchFactoryManualFetch.js';
 
 test('collects each numeric Book ID once from a manual novel list', () => {
   assert.deepEqual(manualBookIDsFromInput('100000000001\t书A\n100000000002  书B\n100000000001\t重复'), ['100000000001', '100000000002']);
@@ -103,4 +103,34 @@ test('manual batch submission preserves immediate automation and its frozen book
   assert.equal(payload.scheduledAt, '');
   assert.equal(payload.autoPublishEnabled, true);
   assert.equal(payload.automationConcurrency, 4);
+});
+
+test('platform group helpers', () => {
+  // mergeGroupLines
+  assert.equal(mergeGroupLines('737092 甲\n687404 乙', '749269 丙'), '737092 甲\n687404 乙\n749269 丙');
+  const merged = mergeGroupLines('737092 旧标题', '737092 新标题\n749269 丙');
+  assert.match(merged, /^737092 新标题/m);
+  assert.match(merged, /749269 丙/);
+  assert.equal((merged.match(/737092/g) || []).length, 1);
+
+  // upsertPlatformGroup
+  const g1 = upsertPlatformGroup([], { platformId: '3', platformName: '七猫付费', inputText: '737092 甲' });
+  assert.equal(g1.length, 1);
+  const g2 = upsertPlatformGroup(g1, { platformId: '3', platformName: '七猫付费', inputText: '687404 乙' });
+  assert.equal(g2.length, 1);
+  assert.equal(totalGroupBookCount(g2), 2);
+  const g3 = upsertPlatformGroup(g2, { platformId: '15', platformName: '知乎付费', inputText: '567168 丙' });
+  assert.equal(g3.length, 2);
+  assert.equal(totalGroupBookCount(g3), 3);
+
+  // replacePlatformGroup：整体替换；清空则移除
+  const r1 = replacePlatformGroup(g3, '3', '737092 甲\n687404 乙\n711720 丁');
+  assert.equal(totalGroupBookCount(r1), 4);
+  const r2 = replacePlatformGroup(g3, '3', '   ');
+  assert.equal(r2.length, 1);
+  assert.equal(r2[0].platformId, '15');
+
+  // removePlatformGroup
+  assert.equal(removePlatformGroup(g3, '3').length, 1);
+  assert.equal(removePlatformGroup(g3, '99').length, 2);
 });

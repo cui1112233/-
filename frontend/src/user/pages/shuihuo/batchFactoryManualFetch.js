@@ -29,3 +29,57 @@ export function buildManualBatchSubmission({ title, scheduledAt = '', automation
     automationConcurrency: [1, 2, 4].includes(Number(automationConcurrency)) ? Number(automationConcurrency) : 2
   };
 }
+
+function nonEmptyLines(text) {
+  return String(text || '').split(/\r?\n/).map(line => line.trimEnd()).filter(line => line.trim());
+}
+
+export function mergeGroupLines(oldText = '', newText = '') {
+  const byId = new Map();
+  const order = [];
+  for (const line of nonEmptyLines(oldText)) {
+    const id = line.match(/^\s*(\d+)(?=\s|$)/)?.[1];
+    if (!id) continue;
+    byId.set(id, line);
+    order.push(id);
+  }
+  for (const line of nonEmptyLines(newText)) {
+    const id = line.match(/^\s*(\d+)(?=\s|$)/)?.[1];
+    if (!id) continue;
+    if (!byId.has(id)) order.push(id);
+    byId.set(id, line); // 新行优先
+  }
+  return order.map(id => byId.get(id)).join('\n');
+}
+
+export function upsertPlatformGroup(groups = [], { platformId, platformName, inputText } = {}) {
+  const id = String(platformId || '').trim();
+  const name = String(platformName || '').trim();
+  const text = String(inputText || '').trim();
+  if (!id || !manualBookIDsFromInput(text).length) return groups;
+  const existing = groups.find(group => String(group.platformId) === id);
+  if (existing) {
+    return groups.map(group => String(group.platformId) === id
+      ? { ...group, platformName: name || group.platformName, inputText: mergeGroupLines(group.inputText, text) }
+      : group);
+  }
+  return [...groups, { platformId: id, platformName: name, inputText: text }];
+}
+
+export function replacePlatformGroup(groups = [], platformId, inputText = '') {
+  const id = String(platformId || '').trim();
+  const text = String(inputText || '').trim();
+  if (!text || !manualBookIDsFromInput(text).length) {
+    return groups.filter(group => String(group.platformId) !== id);
+  }
+  return groups.map(group => String(group.platformId) === id ? { ...group, inputText: text } : group);
+}
+
+export function removePlatformGroup(groups = [], platformId) {
+  const id = String(platformId || '').trim();
+  return groups.filter(group => String(group.platformId) !== id);
+}
+
+export function totalGroupBookCount(groups = []) {
+  return groups.reduce((sum, group) => sum + manualBookIDsFromInput(group.inputText).length, 0);
+}
