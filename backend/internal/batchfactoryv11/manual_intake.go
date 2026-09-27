@@ -22,6 +22,15 @@ type ManualIntakeInput struct {
 	ContentCaptureCharacters int               `json:"contentCaptureCharacters,omitempty"`
 	ScheduledAt              string            `json:"scheduledAt,omitempty"`
 	SourceTextByBookID       map[string]string `json:"sourceTextByBookId,omitempty"`
+	// Groups 可选：多书城分组录入。非空时每组按各自平台解析，忽略顶层 PlatformID/InputText。
+	Groups []ManualIntakeGroup `json:"groups,omitempty"`
+}
+
+// ManualIntakeGroup 是一个书城下的一批粘贴文本。
+type ManualIntakeGroup struct {
+	PlatformID   string `json:"platformId"`
+	PlatformName string `json:"platformName"`
+	InputText    string `json:"inputText"`
 }
 type manualRow struct {
 	bookID, paidID, freeID, title, gender, style, tags, reason, rating, sourceLine, mode string
@@ -429,6 +438,31 @@ func ParseManualBookList(input ManualIntakeInput) ([]CreateBookInput, error) {
 		meta := map[string]any{"platformName": input.PlatformName, "gender": row.gender, "style": row.style, "tags": row.tags, "reason": row.reason, "rating": row.rating, "paidBookId": row.paidID, "freeBookId": row.freeID, "sourceLine": row.sourceLine, "parseMode": row.mode, "parseColumns": row.columns, "sourceMode": "manual_original"}
 		sourceText := strings.TrimSpace(input.SourceTextByBookID[id])
 		out = append(out, CreateBookInput{ID: id, BookID: id, Title: title, Platform: input.PlatformID, SourceText: sourceText, TxtText: sourceText, SourceMetadata: meta})
+	}
+	return out, nil
+}
+
+// ParseGroupedManualBookLists 按书城分组解析粘贴文本。每组复用
+// ParseManualBookList 的全部解析/组内去重规则，仅平台信息按组取值；
+// 跨组重复 ID 保留（不同书城可能撞 ID，视为两本书）。
+func ParseGroupedManualBookLists(base ManualIntakeInput) ([]CreateBookInput, error) {
+	if len(base.Groups) == 0 {
+		return nil, ErrInvalid
+	}
+	out := make([]CreateBookInput, 0)
+	for _, group := range base.Groups {
+		groupInput := base
+		groupInput.PlatformID = strings.TrimSpace(group.PlatformID)
+		groupInput.PlatformName = strings.TrimSpace(group.PlatformName)
+		groupInput.InputText = group.InputText
+		books, err := ParseManualBookList(groupInput)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, books...)
+	}
+	if len(out) == 0 {
+		return nil, ErrInvalid
 	}
 	return out, nil
 }
