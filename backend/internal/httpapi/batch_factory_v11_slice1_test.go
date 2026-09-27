@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -309,6 +311,11 @@ func TestManualIntakeGroupedCreatesOneBatchWithPerBookPlatforms(t *testing.T) {
 				SourceMetadata map[string]any `json:"sourceMetadata"`
 			} `json:"books"`
 		} `json:"batch"`
+		Intake struct {
+			Payload struct {
+				Metadata map[string]any `json:"metadata"`
+			} `json:"payload"`
+		} `json:"intake"`
 	}
 	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
 		t.Fatal(err)
@@ -321,5 +328,112 @@ func TestManualIntakeGroupedCreatesOneBatchWithPerBookPlatforms(t *testing.T) {
 	}
 	if payload.Batch.Books[2].Platform != "15" {
 		t.Fatalf("book2 platform want 15, got %s", payload.Batch.Books[2].Platform)
+	}
+	if payload.Intake.Payload.Metadata["groupCount"] != float64(2) {
+		t.Fatalf("intake metadata groupCount want 2, got %v", payload.Intake.Payload.Metadata["groupCount"])
+	}
+}
+
+func TestManualIntakeGroupedKeepsSameIDAcrossPlatforms(t *testing.T) {
+	now := time.Unix(1700000000, 0)
+	api := NewRouter(RouterOptions{BridgeSecret: "secret", Now: func() time.Time { return now }, Slice: 1, Store: batchfactoryv11.NewMemoryStore()})
+	resp := signedJSONRequest(t, api, now, "alice", http.MethodPost, "/api/batch-factory/v11/intakes/manual", map[string]any{
+		"title": "跨书城撞 ID", "contentRangeLines": 5, "contentCaptureCharacters": 4000,
+		"groups": []map[string]any{
+			{"platformId": "3", "platformName": "七猫付费", "inputText": "737092 甲"},
+			{"platformId": "15", "platformName": "知乎付费", "inputText": "737092 乙"},
+		},
+	})
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("want 201, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	var payload struct {
+		Batch struct {
+			Books []struct {
+				BookID         string         `json:"bookId"`
+				Platform       string         `json:"platform"`
+				SourceMetadata map[string]any `json:"sourceMetadata"`
+			} `json:"books"`
+		} `json:"batch"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Batch.Books) != 2 {
+		t.Fatalf("cross-platform same ID must create 2 books, got %d", len(payload.Batch.Books))
+	}
+	for index, want := range []struct {
+		platform     string
+		platformName string
+	}{{"3", "七猫付费"}, {"15", "知乎付费"}} {
+		book := payload.Batch.Books[index]
+		if book.BookID != "737092" || book.Platform != want.platform {
+			t.Fatalf("book%d want bookId 737092 platform %s, got bookId=%s platform=%s", index, want.platform, book.BookID, book.Platform)
+		}
+		if book.SourceMetadata["platformName"] != want.platformName {
+			t.Fatalf("book%d platformName want %s, got %v", index, want.platformName, book.SourceMetadata["platformName"])
+		}
+	}
+}
+
+func manualIntakeLines(count int) string {
+	lines := make([]string, 0, count)
+	for i := 0; i < count; i++ {
+		lines = append(lines, fmt.Sprintf("%d 书%02d", 100000000001+i, i+1))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func TestManualIntakeEnforcesFiftyBookLimit(t *testing.T) {
+	now := time.Unix(1700000000, 0)
+
+	t.Run("ungrouped 51 rows is rejected", func(t *testing.T) {
+		api := NewRouter(RouterOptions{BridgeSecret: "secret", Now: func() time.Time { return now }, Slice: 1, Store: batchfactoryv11.NewMemoryStore()})
+		resp := signedJSONRequest(t, api, now, "alice", http.MethodPost, "/api/batch-factory/v11/intakes/manual", map[string]any{
+			"title": "超量非分组", "platformId": "15", "platformName": "知乎付费",
+			"parseMode": "smart", "columnPresetId": "full_metadata", "inputText": manualIntakeLines(51),
+		})
+		if resp.Code != http.StatusBadRequest {
+			t.Fatalf("51 ungrouped rows want 400, got %d body=%s", resp.Code, resp.Body.String())
+		}
+	})
+
+	t.Run("grouped 51 books across two groups is rejected", func(t *testing.T) {
+		api := NewRouter(RouterOptions{BridgeSecret: "secret", Now: func() time.Time { return now }, Slice: 1, Store: batchfactoryv11.NewMemoryStore()})
+		resp := signedJSONRequest(t, api, now, "alice", http.MethodPost, "/api/batch-factory/v11/intakes/manual", map[string]any{
+			"title": "超量分组", "contentRangeLines": 5, "contentCaptureCharacters": 4000,
+			"groups": []map[string]any{
+				{"platformId": "3", "platformName": "七猫付费", "inputText": manualIntakeLines(25)},
+				{"platformId": "15", "platformName": "知乎付费", "inputText": manualIntakeLines(26)},
+			},
+		})
+		if resp.Code != http.StatusBadRequest {
+			t.Fatalf("51 grouped books want 400, got %d body=%s", resp.Code, resp.Body.String())
+		}
+	})
+
+	t.Run("exactly 50 rows are accepted", func(t *testing.T) {
+		api := NewRouter(RouterOptions{BridgeSecret: "secret", Now: func() time.Time { return now }, Slice: 1, Store: batchfactoryv11.NewMemoryStore()})
+		resp := signedJSONRequest(t, api, now, "alice", http.MethodPost, "/api/batch-factory/v11/intakes/manual", map[string]any{
+			"title": "刚好 50", "platformId": "15", "platformName": "知乎付费",
+			"parseMode": "smart", "columnPresetId": "full_metadata", "inputText": manualIntakeLines(50),
+		})
+		if resp.Code != http.StatusCreated {
+			t.Fatalf("50 rows want 201, got %d body=%s", resp.Code, resp.Body.String())
+		}
+	})
+}
+
+func TestManualIntakeGroupedRejectsBlankGroupInputText(t *testing.T) {
+	now := time.Unix(1700000000, 0)
+	api := NewRouter(RouterOptions{BridgeSecret: "secret", Now: func() time.Time { return now }, Slice: 1, Store: batchfactoryv11.NewMemoryStore()})
+	resp := signedJSONRequest(t, api, now, "alice", http.MethodPost, "/api/batch-factory/v11/intakes/manual", map[string]any{
+		"title": "空白组", "contentRangeLines": 5, "contentCaptureCharacters": 4000,
+		"groups": []map[string]any{
+			{"platformId": "3", "platformName": "七猫付费", "inputText": "   \n  "},
+		},
+	})
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("blank group inputText want 400, got %d body=%s", resp.Code, resp.Body.String())
 	}
 }

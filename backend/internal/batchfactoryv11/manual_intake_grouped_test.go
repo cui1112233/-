@@ -1,6 +1,9 @@
 package batchfactoryv11
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
 func TestParseGroupedManualBookLists(t *testing.T) {
 	input := ManualIntakeInput{
@@ -48,14 +51,14 @@ func TestParseGroupedManualBookListsInvalidGroup(t *testing.T) {
 			{PlatformID: "", InputText: "737092 甲"},
 		},
 	}
-	if _, err := ParseGroupedManualBookLists(input); err == nil {
-		t.Fatal("group without platformId must fail")
+	if _, err := ParseGroupedManualBookLists(input); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("group without platformId must fail with ErrInvalid, got %v", err)
 	}
 }
 
 func TestParseGroupedManualBookListsEmpty(t *testing.T) {
-	if _, err := ParseGroupedManualBookLists(ManualIntakeInput{}); err == nil {
-		t.Fatal("empty input must fail")
+	if _, err := ParseGroupedManualBookLists(ManualIntakeInput{}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("empty input must fail with ErrInvalid, got %v", err)
 	}
 }
 
@@ -98,5 +101,34 @@ func TestParseGroupedManualBookListsGroupScopedSourceText(t *testing.T) {
 	}
 	if books[0].SourceText == books[1].SourceText {
 		t.Fatal("cross-platform duplicate IDs must keep separate source texts")
+	}
+}
+
+func TestParseGroupedManualBookListsFallsBackToBaseSourceText(t *testing.T) {
+	input := ManualIntakeInput{
+		// 顶层带已抓正文：组 A 不带组级 map，应回退拿顶层正文；组 B 自带组级 map，拿自己的。
+		SourceTextByBookID: map[string]string{"737092": "顶层正文"},
+		Groups: []ManualIntakeGroup{
+			{PlatformID: "3", PlatformName: "七猫付费", InputText: "737092 甲书"},
+			{
+				PlatformID:         "15",
+				PlatformName:       "知乎付费",
+				InputText:          "737092 乙书",
+				SourceTextByBookID: map[string]string{"737092": "组 B 自己的正文"},
+			},
+		},
+	}
+	books, err := ParseGroupedManualBookLists(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(books) != 2 {
+		t.Fatalf("want 2 books, got %d", len(books))
+	}
+	if books[0].SourceText != "顶层正文" {
+		t.Fatalf("group without its own map must fall back to base SourceTextByBookID, got %q", books[0].SourceText)
+	}
+	if books[1].SourceText != "组 B 自己的正文" {
+		t.Fatalf("group with its own map must keep group-scoped text, got %q", books[1].SourceText)
 	}
 }

@@ -55,6 +55,10 @@ func registerSliceOneRoutes(mux *http.ServeMux, store batchfactoryv11.Store) {
 			writeStoreError(w, err)
 			return
 		}
+		if len(books) > 50 {
+			writeStoreError(w, batchfactoryv11.ErrInvalid)
+			return
+		}
 		for index := range books {
 			if books[index].SourceMetadata == nil {
 				books[index].SourceMetadata = map[string]any{}
