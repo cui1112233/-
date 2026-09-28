@@ -66,9 +66,11 @@ assert.equal(JSON.parse(response.body).code, 'MATERIAL_RESOLVE_REQUIRED');
 
 ## Verification evidence
 
-- Targeted suite: 30/30 tests passed. Existing frontend default suite: 30/30 passed.
+- Targeted suite: 31/31 tests passed. Existing frontend default suite: 30/30 passed.
 - Vite production build succeeded using a temporary output directory; existing brand-image warnings remain.
 - Real IAB form submission returned 141 frames and 4,220 non-whitespace characters, with zero reported frame failures or unaligned boundaries. Both associated platform book IDs remained visible.
 - Opening: `我没有正常的心理认知。`; ending: `从现在起，该轮到我教他什么 / 叫规矩了。` The result remains an OCR draft, not verified platform full text.
 - Real Chrome cancellation left successful metadata intact and no OCR child process running. Retrying via the actual button again returned 141 frames / 4,220 characters.
 - Browser automation did not return a Blob-download event, including Chrome. The real Chrome click nevertheless saved `/Users/ming/Downloads/7689285397448523826-OCR.txt` (13,002 bytes); filesystem comparison confirmed it equals the verified OCR text. This is download evidence, not merely an implemented button.
+- Chrome copy button displayed `已复制正文`, with no console errors.
+- Independent read-only review identified an unknown-coverage gap for empty/cropped OCR frames. A first-failing regression now verifies `emptyBodyFrames` timestamps and count; UI explains possible blank/advertisement/unrecognized text separately from frame failures. Follow-up review found no remaining Critical or Important issue within the Mac prototype scope.

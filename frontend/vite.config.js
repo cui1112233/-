@@ -102,7 +102,7 @@ export function createGiantMaterialExtractionHandler({ getMaterial, extract = ex
       streaming = true;
       const result = await extract(material, { signal: controller.signal, onProgress: progress => {
         // Whitelist counts; never leak frame content or subprocess diagnostics.
-        const counts = Object.fromEntries(['seconds', 'durationSeconds', 'frames', 'characters', 'unaligned', 'frameReadFailures'].filter(key => Number.isFinite(progress[key])).map(key => [key, progress[key]]));
+        const counts = Object.fromEntries(['seconds', 'durationSeconds', 'frames', 'characters', 'unaligned', 'frameReadFailures', 'emptyBodyFrames'].filter(key => Number.isFinite(progress[key])).map(key => [key, progress[key]]));
         send({ type: 'progress', ...counts });
       } });
       controller.signal.throwIfAborted();

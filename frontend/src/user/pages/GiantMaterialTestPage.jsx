@@ -138,7 +138,8 @@ export default function GiantMaterialTestPage() {
       <Stage title="视频读取" status={videoStatus}>{resolved ? <dl><div><dt>视频地址</dt><dd>{safeVideoPath(material.videoUrl) || '未返回'}</dd></div><div><dt>规格</dt><dd>{material.width && material.height ? `${material.width} × ${material.height}` : '未返回'}{material.durationSeconds ? ` · ${material.durationSeconds}s` : ''}</dd></div></dl> : null}</Stage>
       <Stage title="滚屏 OCR" status={ocrStatus}>
         {busy && resolved ? <progress aria-label="滚屏识别进度" max={progress?.durationSeconds || material.durationSeconds || 1} value={progress?.seconds || 0} /> : null}
-        {result ? <p>未对齐片段：{result.issues.length} · 读取失败帧：{result.frameReadFailures.length}。OCR 可能有错字，请校对。</p> : null}
+        {result ? <><p>未对齐片段：{result.issues.length} · 读取失败帧：{result.frameReadFailures.length} · 无正文帧：{result.emptyBodyFrames?.length || 0}。OCR 可能有错字，请校对。</p>
+          {result.emptyBodyFrames?.length ? <p>无正文画面位于 {result.emptyBodyFrames.join('、')} 秒，可能是广告、空白或未识别到文字，不能据此确认原文完整。</p> : null}</> : null}
         <p className="giant-material-test-muted">使用 Mac 本地文字识别，不调用付费大模型；不保存完整视频或抽帧文件。其他视频排版可能需要调整文字区域。</p>
       </Stage>
       <Stage title="小说正文" status={bodyStatus}>{result ? <>
