@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { normalizeGiantMaterialId, normalizeGiantMaterialResponse } from './src/user/pages/giantMaterialTest.js';
+import { extractScrollText, validateMaterial } from '../lib/giant-material/scroll-extractor.mjs';
 
 const rootDir = dirname(fileURLToPath(import.meta.url));
 const GIANT_MATERIAL_SELECT_URL = 'https://n8.hnqingyuwen.top/center-api/material/video/select';
@@ -32,7 +33,7 @@ function writeJson(res, statusCode, payload) {
   res.end(JSON.stringify(payload));
 }
 
-export function createGiantMaterialTestHandler({ fetchImpl = fetch, getToken = () => process.env.QINGYU_N8_ADMIN_TOKEN, now = () => Date.now() } = {}) {
+export function createGiantMaterialTestHandler({ fetchImpl = fetch, getToken = () => process.env.QINGYU_N8_ADMIN_TOKEN, now = () => Date.now(), onResolved = () => {} } = {}) {
   return async function giantMaterialTestHandler(req, res, overrides = {}) {
     if (!isLoopbackAddress(req.socket?.remoteAddress)) return writeJson(res, 403, { ok: false, code: 'LOOPBACK_ONLY' });
     if (String(req.method || '').toUpperCase() !== 'POST') return writeJson(res, 405, { ok: false, code: 'METHOD_NOT_ALLOWED' });
@@ -62,11 +63,60 @@ export function createGiantMaterialTestHandler({ fetchImpl = fetch, getToken = (
       const material = normalizeGiantMaterialResponse(payload);
       if (!material.materialId || !material.videoUrl) return writeJson(res, 502, { ok: false, code: 'QINGYU_MATERIAL_RESPONSE_INVALID' });
       material.giantMaterialId ||= giantMaterialId;
+      onResolved(giantMaterialId, material);
       return writeJson(res, 200, { ok: true, stage: 'resolved', observedAt: new Date(now()).toISOString(), material });
     } catch (error) {
       const code = error?.code === 'REQUEST_TOO_LARGE' || error?.code === 'INVALID_JSON' ? error.code : error?.name === 'AbortError' ? 'QINGYU_TIMEOUT' : 'QINGYU_UPSTREAM_ERROR';
       const status = code === 'REQUEST_TOO_LARGE' || code === 'INVALID_JSON' ? 400 : code === 'QINGYU_TIMEOUT' ? 504 : 502;
       return writeJson(res, status, { ok: false, code });
+    }
+  };
+}
+
+const OCR_ERROR_CODES = new Set(['OCR_VIDEO_NOT_ALLOWED', 'OCR_DURATION_NOT_SUPPORTED', 'OCR_NO_TEXT', 'OCR_PLATFORM_NOT_SUPPORTED', 'OCR_OUTPUT_TOO_LARGE', 'OCR_EXECUTION_FAILED']);
+export function createGiantMaterialExtractionHandler({ getMaterial, extract = extractScrollText, timeoutMs = 600000 } = {}) {
+  let active = false;
+  return async (req, res) => {
+    if (!isLoopbackAddress(req.socket?.remoteAddress)) return writeJson(res, 403, { ok: false, code: 'LOOPBACK_ONLY' });
+    if (req.method !== 'POST') return writeJson(res, 405, { ok: false, code: 'METHOD_NOT_ALLOWED' });
+    let controller, timeout, disconnected = false, streaming = false, ownsLock = false;
+    const disconnect = () => { if (!res.writableEnded) { disconnected = true; controller?.abort(); } };
+    const send = event => { if (!disconnected && !res.writableEnded) res.write(JSON.stringify(event) + '\n'); };
+    try {
+      const body = await readJsonBody(req);
+      const giantMaterialId = normalizeGiantMaterialId(body?.giantMaterialId);
+      if (!giantMaterialId || Object.keys(body).some(key => key !== 'giantMaterialId')) return writeJson(res, 400, { ok: false, code: 'INVALID_GIANT_MATERIAL_ID' });
+      const material = getMaterial?.(giantMaterialId);
+      if (!material) return writeJson(res, 409, { ok: false, code: 'MATERIAL_RESOLVE_REQUIRED' });
+      validateMaterial(material);
+      if (active) return writeJson(res, 409, { ok: false, code: 'OCR_BUSY' });
+      active = ownsLock = true;
+      controller = new AbortController();
+      timeout = setTimeout(() => controller.abort(), timeoutMs);
+      res.on('close', disconnect);
+      req.on('aborted', disconnect);
+      res.statusCode = 200;
+      res.setHeader('content-type', 'application/x-ndjson; charset=utf-8');
+      res.setHeader('cache-control', 'no-store');
+      res.setHeader('x-content-type-options', 'nosniff');
+      streaming = true;
+      const result = await extract(material, { signal: controller.signal, onProgress: progress => {
+        // Whitelist counts; never leak frame content or subprocess diagnostics.
+        const counts = Object.fromEntries(['seconds', 'durationSeconds', 'frames', 'characters', 'unaligned', 'frameReadFailures'].filter(key => Number.isFinite(progress[key])).map(key => [key, progress[key]]));
+        send({ type: 'progress', ...counts });
+      } });
+      controller.signal.throwIfAborted();
+      send({ type: 'complete', result });
+    } catch (error) {
+      const code = error.name === 'AbortError' ? 'OCR_TIMEOUT' : OCR_ERROR_CODES.has(error.code) ? error.code : ['INVALID_JSON', 'REQUEST_TOO_LARGE'].includes(error.code) ? error.code : 'OCR_EXECUTION_FAILED';
+      if (streaming) send({ type: 'error', code });
+      else return writeJson(res, 400, { ok: false, code });
+    } finally {
+      clearTimeout(timeout);
+      res.off('close', disconnect);
+      req.off('aborted', disconnect);
+      if (ownsLock) active = false;
+      if (streaming && !disconnected && !res.writableEnded) res.end();
     }
   };
 }
@@ -94,7 +144,19 @@ const adminRouteEntry = {
 const giantMaterialTestApi = {
   name: 'giant-material-test-api',
   configureServer(server) {
-    server.middlewares.use('/__local/giant-material-test/resolve', createGiantMaterialTestHandler());
+    const cache = new Map();
+    const onResolved = (id, material) => {
+      cache.delete(id);
+      cache.set(id, { material, expiresAt: Date.now() + 15 * 60000 });
+      if (cache.size > 20) cache.delete(cache.keys().next().value);
+    };
+    const getMaterial = id => {
+      const record = cache.get(id);
+      if (!record || record.expiresAt < Date.now()) { cache.delete(id); return null; }
+      return record.material;
+    };
+    server.middlewares.use('/__local/giant-material-test/resolve', createGiantMaterialTestHandler({ onResolved }));
+    server.middlewares.use('/__local/giant-material-test/extract', createGiantMaterialExtractionHandler({ getMaterial }));
   }
 };
 

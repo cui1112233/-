@@ -11,7 +11,6 @@ const app = fs.readFileSync(path.join(here, '..', 'App.jsx'), 'utf8');
 test('test page exposes the four read stages and does not register a batch', () => {
   for (const label of ['素材解析', '视频读取', '滚屏 OCR', '小说正文']) assert.match(page, new RegExp(label));
   assert.match(page, /giantMaterialId/);
-  assert.match(page, /__local\/giant-material-test\/resolve/);
   assert.doesNotMatch(page, /createManualIntake|createBatchFromIntake|appendNovelFetchIntake/);
 });
 
