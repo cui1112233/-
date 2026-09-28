@@ -2125,7 +2125,23 @@ function UploadNetwork({ batch, books, selectedBookIds, productionStatus, mergeS
       {organizationsError ? <Alert type="warning" showIcon message="121 组织目录读取失败" description={organizationsError} /> : null}
       {organizationSelectionMixed ? <Alert type="warning" showIcon message="所选小说存在不同的单书组织覆盖" description="请为本次上传统一选择一个组织归属；此处改选只作用于本次确认单，不会回写任何统一或单书配置。" /> : null}
       <Select value={organizationID || undefined} placeholder="请选择 121 组织归属" style={{ width: '100%' }} onChange={setOrganizationID} options={organizations.map(item => ({ value: item.id, label: item.level ? `${item.name}（${item.level}）` : item.name }))} disabled={!publishSessionReady || busy} />
-      {!manifest ? <Button type="primary" onClick={prepareUpload} loading={busy} disabled={!targetBooks.length || !publishSessionReady || !uploadMediaReady || missingPublishMapping.length > 0 || missingDecompression.length > 0 || requiresReupload || !organizationID}>生成上传清单</Button> : null}
+      {!manifest ? (() => {
+        const disabledReasons = [];
+        if (!targetBooks.length) disabledReasons.push('本次没有可上传的小说');
+        if (!publishSessionReady) disabledReasons.push('121 后台账号尚未登录或未验证');
+        if (!uploadMediaReady) disabledReasons.push('存在尚未准备好的上传主视频');
+        if (missingPublishMapping.length > 0) disabledReasons.push('存在发布信息没填完整的小说');
+        if (missingDecompression.length > 0) disabledReasons.push('存在解压码数量不足的小说');
+        if (requiresReupload) disabledReasons.push('所选小说已上传过，请从该书“查看资料”里选择重新上传');
+        if (!organizationID) disabledReasons.push('请先选择 121 组织归属');
+        return (
+          <Tooltip title={disabledReasons.length ? `暂时不能生成：${disabledReasons.join('；')}` : ''}>
+            <span>
+              <Button type="primary" onClick={prepareUpload} loading={busy} disabled={disabledReasons.length > 0}>生成上传清单</Button>
+            </span>
+          </Tooltip>
+        );
+      })() : null}
       {manifest ? <><Descriptions size="small" column={1} bordered items={manifest.map(item => ({ key: item.id, label: item.title, children: <span>{item.txt} + {item.mp4}（{item.videoType}，解压 {item.jieyaNum}）</span> }))} /><Alert type="warning" showIcon message={reupload ? '确认后将重新提交到 121' : '确认后将直接提交到 121'} description="提交到接口只表示对方已接收；本页会显示等待 121 后台列表回读，不能替代后台完成状态。" /><Button danger type="primary" onClick={submitTo121} loading={busy}>{reupload ? '确认重新上传到 121' : '确认并上传到 121'}</Button></> : null}
       {liveUploadBook ? <Alert type="info" showIcon message={`${liveUploadBook.title || liveUploadBook.bookId}：${liveUploadProgress?.message || '正在创建上传任务'}`} description={liveUploadProgress?.phase ? `当前阶段：${liveUploadProgress.phase}` : '正在等待服务端返回当前阶段。'} /> : null}
       {results.map(item => <Alert key={item.id} type={item.pending ? 'info' : item.ok ? 'info' : 'error'} showIcon message={`${item.title}：${item.pending ? item.message : item.ok ? (item.result?.status === 'confirmed' ? '已提交，121 已回读' : '已提交，等待 121 回读') : '提交失败'}`} description={item.pending ? '上传过程中的实际阶段会写入当前书状态；完成或失败后自动回读。' : item.ok ? `${item.result?.sourceTextFile || ''} + ${item.result?.aiHeadVideoFile || ''}${item.result?.receipt?.remote_record?.detail ? `；${item.result.receipt.remote_record.detail}` : ''}` : item.error} />)}
