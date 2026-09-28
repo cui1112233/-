@@ -2438,6 +2438,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
     if (!batch?.id) return undefined;
     let active = true;
     let polling = false;
+    let wasRunning = false;
     const poll = async () => {
       if (polling) return;
       polling = true;
@@ -2446,7 +2447,15 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
         if (!active) return;
         const next = resultData(result, 'automation');
         setAutomationStatus(next || { state: 'idle', counts: { total: 0, ready: 0, running: 0, pending: 0, failed: 0, blocked: 0 } });
-        if (next?.state === 'running') await onBatchChanged?.();
+        if (next?.state === 'running') {
+          wasRunning = true;
+          await onBatchChanged?.();
+        } else if (wasRunning) {
+          // 任务刚从“执行中”结束，补刷最后一次，拿到最终书籍状态，
+          // 避免页面停在结束前的旧画面（如 1 成功 5 异常）。
+          wasRunning = false;
+          await onBatchChanged?.();
+        }
       } catch (error) {
         if (active && Number(error?.status || 0) !== 404) console.error('[batch-factory-automation] status read failed', error);
       } finally { polling = false; }
