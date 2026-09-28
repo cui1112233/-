@@ -413,6 +413,44 @@ func TestAssetExtractionDoesNotRequireAudioPlanningMeasurement(t *testing.T) {
 	}
 }
 
+func TestAssetExtractionPersistsCombinedSmartUnifiedAnalysisWithOneModelCall(t *testing.T) {
+	store, batch, book := seedDirectorBook(t, "original", false)
+	if _, err := store.SaveSettings(context.Background(), "alice", ScopeRef{Kind: ScopeBatch, BatchID: batch.ID}, SettingsUpdate{
+		Patch: SettingsPatch{"aiPromptConfig": rawSetting(t, map[string]any{
+			"constraints": map[string]any{
+				"enabled": true,
+				"scope":   "all",
+				"selections": []map[string]any{{
+					"presetId": "script-constraint-prefix-smart-unified", "presetName": "智能统一", "presetVersion": 1,
+					"constraintCategory": "prefix", "body": "SMART UNIFIED RULE",
+				}},
+			},
+		})}, ExpectedRevision: batch.Revision}); err != nil {
+		t.Fatal(err)
+	}
+	provider := &queuedDirectorProvider{values: []string{`{
+		"characters":[{"name":"林溪","prompt":"短发女主"}],"scenes":[{"name":"客厅","prompt":"现代客厅"}],"props":[],
+		"smart_unified_analysis":{"schema_version":"h3-style-system/v1","prompt":"现代都市短剧；暖黄室内光。","fields":{"final_genre":"都市情感","trailer_style":"电影感","story_era":"现代都市"},"preset":{"id":"script-constraint-prefix-smart-unified","name":"智能统一","version":1}}
+	}`}}
+	assets, err := (&DirectorService{Store: store, Provider: provider}).RunAssetExtraction(context.Background(), "alice", batch.ID, book.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(provider.calls) != 1 || len(assets) != 2 {
+		t.Fatalf("asset extraction must use one request and persist assets, calls=%d assets=%+v", len(provider.calls), assets)
+	}
+	if !strings.Contains(provider.calls[0].SystemPrompt, "smart_unified_analysis") {
+		t.Fatalf("combined contract must request the visual baseline: %s", provider.calls[0].SystemPrompt)
+	}
+	read, err := store.GetBatch(context.Background(), "alice", batch.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := rawString(read.Books[0].SettingsState.Patch, "h3StyleAnalysis", ""); !strings.Contains(got, "现代都市短剧；暖黄室内光。") {
+		t.Fatalf("combined smart-unified analysis was not persisted: %q", got)
+	}
+}
+
 func TestAssetExtractionWithH3FullPresetCompilesAllCharactersOnce(t *testing.T) {
 	store, batch, book := seedDirectorBook(t, "original", false)
 	if _, err := store.SaveSettings(context.Background(), "alice", ScopeRef{Kind: ScopeBatch, BatchID: batch.ID}, SettingsUpdate{

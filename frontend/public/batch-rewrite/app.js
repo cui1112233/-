@@ -1558,6 +1558,14 @@ function renderAiConfig(appCfg) {
   void loadTextModels(selectedId);
 }
 
+function renderTextModelReadOnly(modelId) {
+  const output = $("textModelReadOnly");
+  if (!output) return;
+  const id = String(modelId || "").trim();
+  const model = (state.textModels || []).find(item => String(item.id || item.modelId || "") === id);
+  output.textContent = model?.displayName || model?.name || model?.modelId || model?.id || id || "暂未选择";
+}
+
 async function persistSelectedTextModel(modelId) {
   const id = String(modelId || "").trim();
   if (!id || !state.config?.app_config) return null;
@@ -1570,6 +1578,7 @@ async function persistSelectedTextModel(modelId) {
     body: JSON.stringify({ app_config: { text_model_id: id } }),
   }).then(result => {
     if (result?.config) mergeConfigResponse({ ...state.config, ...result.config });
+    renderTextModelReadOnly(id);
     return result;
   }).catch(error => {
     if (state.config?.app_config?.text_model_id === id) state.config.app_config.text_model_id = "";
@@ -1594,6 +1603,7 @@ async function loadTextModels(selectedId = "") {
       select.innerHTML = '<option value="">暂无可用文本模型，请先在 API 配置中启用</option>';
       select.value = "";
       if (status) status.textContent = "暂无已启用的文本模型";
+      renderTextModelReadOnly("");
       return;
     }
     for (const model of models) {
@@ -1606,6 +1616,7 @@ async function loadTextModels(selectedId = "") {
       ? String(selectedId)
       : String(models[0].id || models[0].modelId || "");
     select.value = value;
+    renderTextModelReadOnly(value);
     if (value && String(selectedId || "") !== value) {
       void persistSelectedTextModel(value).catch(error => {
         if (status) status.textContent = `保存文本模型失败：${error.message || "请稍后重试"}`;
@@ -1615,6 +1626,7 @@ async function loadTextModels(selectedId = "") {
   } catch (error) {
     select.innerHTML = `<option value="">读取文本模型失败</option>`;
     if (status) status.textContent = `读取模型失败：${error.message || "请稍后重试"}`;
+    renderTextModelReadOnly("");
   }
 }
 

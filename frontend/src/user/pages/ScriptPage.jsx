@@ -3,7 +3,7 @@ import { AudioLines, Clapperboard, Copy, Download, FileText, History, Pencil, Pl
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { deleteScriptConstraintPrompt, extractCharactersAndScenes, generateScript, getConstraintPresetTexts, listScriptConstraintPrompts, listScriptPresetCatalog, saveScriptConstraintPrompt, updateScriptConstraintPrompt } from '../../shared/api/generation';
 import { listHistory, saveHistory, updateHistoryVideoTasks } from '../../shared/api/history';
-import { getConfig, listAvailableModels } from '../../shared/api/config';
+import { getConfig, listAvailableModels, saveConfig } from '../../shared/api/config';
 import { playTaskSound } from '../../shared/notifications/taskSound';
 import { textToSpeech } from '../../shared/api/tts';
 import { getCurrentUsername } from '../../shared/api/auth';
@@ -24,7 +24,8 @@ import { getSelectedShotMatches, getShotCardStarts, replaceAllSelectedShotMatche
 import { buildFinalSegmentCard } from './scriptFinalSegment';
 import { resolveShotVideoDuration } from './scriptVideoDuration';
 import { buildScriptVideoPayload, collectShotReferenceImages, getEntityMedia, toggleShotReferenceState } from './scriptVideoReferences';
-import { appendShotVideoTaskHistory, normalizeShotVideoTaskHistory } from './scriptShotVideoTasks';
+import { appendShotVideoTaskHistory, mergeShotVideoTaskHistoryTask, normalizeShotVideoTaskHistory } from './scriptShotVideoTasks';
+import { extractJSON } from './scriptExtractionJson';
 import { replaceRawShotCard } from './scriptShotCardEdit';
 import { filterShotMentionCandidates, findActiveShotMention, insertActiveShotMention } from './scriptShotMentions';
 import { ShotOutputCards } from '../components/ShotOutputCards';
@@ -40,21 +41,22 @@ function videoModelKey(model) {
 function videoModelLabel(model) {
   const key = videoModelKey(model);
   const name = String(model?.name || model?.displayName || key || '未命名视频模型').trim();
-  return key === 'minimax-h3-video' && model?.configured === false
-    ? `${name}（待配置 Token）`
-    : name;
+  const timing = key === 'minimax-h3-video' ? '1-15秒' : key === 'seedance-2-0-official' ? '4-15秒' : key === 'yd2-mini-video' ? '固定10秒' : '';
+  const unavailable = key === 'minimax-h3-video' && model?.configured === false ? '待配置 Token' : '';
+  const details = [timing, unavailable].filter(Boolean);
+  return details.length ? `${name}（${details.join('，')}）` : name;
 }
 
-function extractJSON(value) {
-  if (value && typeof value === 'object') return value;
-  const text = String(value || '').trim();
-  try {
-    return JSON.parse(text);
-  } catch (error) {
-    const match = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
-    if (match) return JSON.parse(match[1].trim());
-    throw error;
-  }
+const DEFAULT_SCRIPT_UNIFIED_CONFIG = { textModelId: '', imageModelId: '', videoModelKey: 'yd2-mini-video', imageAspectRatio: '9:16', videoAspectRatio: '9:16', videoResolution: '720p' };
+
+function normalizeScriptUnifiedConfig(value = {}) {
+  return {
+    ...DEFAULT_SCRIPT_UNIFIED_CONFIG,
+    ...value,
+    imageAspectRatio: ['16:9', '9:16', '1:1'].includes(value?.imageAspectRatio) ? value.imageAspectRatio : '9:16',
+    videoAspectRatio: ['16:9', '9:16'].includes(value?.videoAspectRatio) ? value.videoAspectRatio : '9:16',
+    videoResolution: ['480p', '720p', '1080p'].includes(value?.videoResolution) ? value.videoResolution : '720p'
+  };
 }
 
 function aiText(response) {
@@ -156,6 +158,12 @@ export function ScriptPage() {
   const [scriptModels, setScriptModels] = useState({ text: [], image: [] });
   const [scriptModelsLoaded, setScriptModelsLoaded] = useState(false);
   const [scriptModelSelection, setScriptModelSelection] = useState({ textModelId: '', imageModelId: '' });
+  const [scriptImageAspectRatio, setScriptImageAspectRatio] = useState('9:16');
+  const [scriptVideoAspectRatio, setScriptVideoAspectRatio] = useState('9:16');
+  const [scriptVideoResolution, setScriptVideoResolution] = useState('720p');
+  const [scriptConfigOpen, setScriptConfigOpen] = useState(false);
+  const [scriptConfigDraft, setScriptConfigDraft] = useState(DEFAULT_SCRIPT_UNIFIED_CONFIG);
+  const [savingScriptConfig, setSavingScriptConfig] = useState(false);
   const [previewVideoTask, setPreviewVideoTask] = useState(null);
   const [previewVideoHistory, setPreviewVideoHistory] = useState({ open: false, shotIndex: 0, tasks: [] });
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -537,12 +545,28 @@ export function ScriptPage() {
       }
     }
     const fallbackDuration = selectedDuration === '15s' ? 15 : 10;
-    const resolvedDuration = scriptVideoModelKey === 'minimax-h3-video'
-      ? resolveShotVideoDuration({ shotText: prompt, fallbackDuration })
+    const modelUsesShotDuration = scriptVideoModelKey === 'minimax-h3-video' || scriptVideoModelKey === 'seedance-2-0-official';
+    const resolvedDuration = modelUsesShotDuration
+      ? resolveShotVideoDuration({
+        shotText: prompt,
+        fallbackDuration,
+        ...(scriptVideoModelKey === 'seedance-2-0-official' ? { minDuration: 4, modelLabel: 'Seedance' } : {})
+      })
       : { ok: true, duration: fallbackDuration };
     if (!resolvedDuration.ok) {
       message.error(resolvedDuration.error);
       return;
+    }
+    if (scriptVideoModelKey === 'yd2-mini-video') {
+      const cardDuration = resolveShotVideoDuration({ shotText: prompt, fallbackDuration });
+      if (!cardDuration.ok) {
+        message.error(cardDuration.error);
+        return;
+      }
+      if (cardDuration.duration !== 10) {
+        message.warning('YD2.0 Mini 固定生成 10 秒；请切换 H3 或 Seedance 后再按当前分镜时长生成');
+        return;
+      }
     }
     setGeneratingShotIndexes(current => new Set([...current, index]));
     try {
@@ -551,7 +575,8 @@ export function ScriptPage() {
         prompt,
         modelKey: scriptVideoModelKey,
         duration: resolvedDuration.duration,
-        resolution: scriptVideoModelKey === 'minimax-h3-video' ? '480p竖' : '720p',
+        resolution: scriptVideoResolution,
+        aspectRatio: scriptVideoAspectRatio,
         imageUrls: withoutReferences ? [] : collectShotReferenceImages({ shotText: prompt, extractInfo, shotIndex: index, shotReferenceStates })
       });
       const result = await createScriptVideo(videoPayload);
@@ -633,6 +658,25 @@ export function ScriptPage() {
       if (mountedRef.current) window.setTimeout(poll, 4000);
     };
     window.setTimeout(poll, 2000);
+  }
+
+  async function openVideoHistory(shotIndex, tasks) {
+    setPreviewVideoHistory({ open: true, shotIndex, tasks });
+    const refreshedTasks = await Promise.all(tasks.map(async task => {
+      try {
+        return mergeShotVideoTaskHistoryTask(task, await getScriptVideoTask(task.taskId));
+      } catch {
+        return { ...task, historyStatusReadError: true };
+      }
+    }));
+    if (!mountedRef.current) return;
+    setPreviewVideoHistory(current => current.open && current.shotIndex === shotIndex
+      ? { ...current, tasks: refreshedTasks }
+      : current);
+    const nextHistory = { ...shotVideoTaskHistory, [shotIndex]: refreshedTasks };
+    setShotVideoTaskHistory(nextHistory);
+    persistDraft(undefined, { videoTaskHistory: nextHistory });
+    if (currentHistoryId) updateHistoryVideoTasks(currentHistoryId, shotVideoTasks, nextHistory).catch(() => {});
   }
 
   async function openScriptHistory() {
@@ -721,6 +765,12 @@ export function ScriptPage() {
         if (!active) return;
         setSoundEnabled(config.notifications?.soundEnabled !== false);
         setSoundVolume(Number.isFinite(config.notifications?.soundVolume) ? config.notifications.soundVolume : 60);
+        const defaults = normalizeScriptUnifiedConfig(config.scriptDefaults);
+        setScriptModelSelection({ textModelId: defaults.textModelId, imageModelId: defaults.imageModelId });
+        setScriptVideoModelKey(defaults.videoModelKey);
+        setScriptImageAspectRatio(defaults.imageAspectRatio);
+        setScriptVideoAspectRatio(defaults.videoAspectRatio);
+        setScriptVideoResolution(defaults.videoResolution);
       })
       .catch(() => {});
     const handleNotificationsUpdated = event => {
@@ -733,6 +783,36 @@ export function ScriptPage() {
       window.removeEventListener('qiantie:notifications-updated', handleNotificationsUpdated);
     };
   }, []);
+
+  function openScriptUnifiedConfig() {
+    setScriptConfigDraft(normalizeScriptUnifiedConfig({
+      textModelId: scriptModelSelection.textModelId,
+      imageModelId: scriptModelSelection.imageModelId,
+      videoModelKey: scriptVideoModelKey,
+      imageAspectRatio: scriptImageAspectRatio,
+      videoAspectRatio: scriptVideoAspectRatio,
+      videoResolution: scriptVideoResolution
+    }));
+    setScriptConfigOpen(true);
+  }
+
+  async function saveScriptUnifiedConfig() {
+    const next = normalizeScriptUnifiedConfig(scriptConfigDraft);
+    setSavingScriptConfig(true);
+    try {
+      const saved = await saveConfig({ scriptDefaults: next });
+      const defaults = normalizeScriptUnifiedConfig(saved.scriptDefaults || next);
+      setScriptModelSelection({ textModelId: defaults.textModelId, imageModelId: defaults.imageModelId });
+      setScriptVideoModelKey(defaults.videoModelKey);
+      setScriptImageAspectRatio(defaults.imageAspectRatio);
+      setScriptVideoAspectRatio(defaults.videoAspectRatio);
+      setScriptVideoResolution(defaults.videoResolution);
+      setScriptConfigOpen(false);
+      message.success('剧本生成统一配置已保存');
+    } catch (error) {
+      message.error(error?.message || '保存统一配置失败');
+    } finally { setSavingScriptConfig(false); }
+  }
 
   useEffect(() => {
     let active = true;
@@ -1449,8 +1529,7 @@ export function ScriptPage() {
         <div className="script-right">
         <div className="script-tabs">
           <Typography.Text strong>剧本生成</Typography.Text>
-          <Select style={{ width: 150 }} value={scriptModelSelection.textModelId || undefined} onChange={textModelId => setScriptModelSelection(current => ({ ...current, textModelId }))} placeholder="文本模型" options={scriptModels.text.map(model => ({ value: model.id, label: model.displayName || model.id }))} />
-          <Select style={{ width: 150 }} value={scriptModelSelection.imageModelId || undefined} onChange={imageModelId => setScriptModelSelection(current => ({ ...current, imageModelId }))} placeholder="图片模型" options={scriptModels.image.map(model => ({ value: model.id, label: model.displayName || model.id }))} />
+          <Button type="text" icon={<Settings2 size={16} aria-hidden="true" />} onClick={openScriptUnifiedConfig} title="剧本生成统一配置">统一配置</Button>
           <Form.Item name="mode" noStyle>
             <Segmented
               options={[
@@ -1485,18 +1564,6 @@ export function ScriptPage() {
             onClick={openConstraints}
             title="约束设置"
           >约束设置</Button>
-          <Select
-            style={{ width: 164 }}
-            loading={loadingScriptVideoModels}
-            value={scriptVideoModelKey}
-            onChange={setScriptVideoModelKey}
-            options={scriptVideoModels.map(model => ({
-              label: videoModelLabel(model),
-              value: videoModelKey(model)
-            }))}
-            notFoundContent="暂无可用的视频模型"
-            title="单分镜视频模型"
-          />
           <Space>
             <Button type="primary" icon={<WandSparkles size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={generateOutput} loading={generating} disabled={extracting || !canGenerateScript || (!extractInfo.characters.length && !extractInfo.scenes.length)}>生成剧本</Button>
             <Button icon={<Copy size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={() => copyText(isShotCardView ? shotCards.join('\n\n') : output)} disabled={!output}>复制</Button>
@@ -1534,6 +1601,7 @@ export function ScriptPage() {
               videoTasks={shotVideoTasks}
               videoTaskHistory={shotVideoTaskHistory}
               extractInfo={extractInfo}
+              mentionCandidates={mentionCandidates}
               shotReferenceStates={shotReferenceStates}
               onToggleReference={(index, imageUrl) => {
                 const current = shotReferenceStates?.[index] || {};
@@ -1545,7 +1613,7 @@ export function ScriptPage() {
                 persistDraft(undefined, { shotReferenceStates: next });
               }}
               onOpenVideo={setPreviewVideoTask}
-              onOpenVideoHistory={(shotIndex, tasks) => setPreviewVideoHistory({ open: true, shotIndex, tasks })}
+              onOpenVideoHistory={openVideoHistory}
               onEditPrompt={openShotEditor}
               output={output}
               activeMatch={shotReplaceOpen ? activeShotMatch : null}
@@ -1625,7 +1693,12 @@ export function ScriptPage() {
           {previewVideoHistory.tasks.map((task, index) => (
             <div key={task.taskId || index}>
               <Typography.Text type="secondary">历史版本 {index + 1}{task.prompt ? ` · ${task.prompt.slice(0, 80)}` : ''}</Typography.Text>
-              {task.videoUrl ? <video controls preload="metadata" style={{ display: 'block', width: '100%', marginTop: 8 }} src={task.videoUrl} /> : <Typography.Paragraph type="secondary">该历史任务没有可播放地址</Typography.Paragraph>}
+              {task.status === 'succeeded' && task.videoUrl ? <video controls preload="metadata" style={{ display: 'block', width: '100%', marginTop: 8 }} src={task.videoUrl} /> : null}
+              {task.historyStatusReadError ? <Typography.Paragraph type="secondary">暂时无法读取任务状态，请稍后再试</Typography.Paragraph> : null}
+              {!task.historyStatusReadError && task.status === 'processing' ? <Typography.Paragraph type="secondary">视频生成中，暂不可播放</Typography.Paragraph> : null}
+              {!task.historyStatusReadError && task.status === 'failed' ? <Typography.Paragraph type="danger">生成失败{task.error ? `：${task.error}` : ''}</Typography.Paragraph> : null}
+              {!task.historyStatusReadError && task.status === 'succeeded' && !task.videoUrl ? <Typography.Paragraph type="danger">任务已完成，但未返回可播放地址</Typography.Paragraph> : null}
+              {!task.historyStatusReadError && !['succeeded', 'processing', 'failed'].includes(task.status) ? <Typography.Paragraph type="secondary">暂时无法读取任务状态，请稍后再试</Typography.Paragraph> : null}
             </div>
           ))}
         </Space>
@@ -1856,6 +1929,26 @@ export function ScriptPage() {
           将当前提示词内容保存到您的账号。保存后可在任何设备登录继续使用，最近一次用于生成会排在最前。
         </Typography.Paragraph>
       </Modal>
+      <Modal
+        title="剧本生成 · 统一配置"
+        open={scriptConfigOpen}
+        onCancel={() => setScriptConfigOpen(false)}
+        onOk={saveScriptUnifiedConfig}
+        okText="保存为默认配置"
+        confirmLoading={savingScriptConfig}
+        destroyOnClose
+      >
+        <Space direction="vertical" size={14} style={{ width: '100%' }}>
+          <Form.Item label="文本模型" style={{ marginBottom: 0 }}><Select value={scriptConfigDraft.textModelId || undefined} placeholder="选择文本模型" options={scriptModels.text.map(model => ({ value: model.id, label: model.displayName || model.id }))} onChange={textModelId => setScriptConfigDraft(current => ({ ...current, textModelId }))} /></Form.Item>
+          <Form.Item label="图片模型" style={{ marginBottom: 0 }}><Select value={scriptConfigDraft.imageModelId || undefined} placeholder="选择图片模型" options={scriptModels.image.map(model => ({ value: model.id, label: model.displayName || model.id }))} onChange={imageModelId => setScriptConfigDraft(current => ({ ...current, imageModelId }))} /></Form.Item>
+          <Form.Item label="视频模型" style={{ marginBottom: 0 }}><Select loading={loadingScriptVideoModels} value={scriptConfigDraft.videoModelKey} options={scriptVideoModels.map(model => ({ value: videoModelKey(model), label: videoModelLabel(model) }))} onChange={videoModelKey => setScriptConfigDraft(current => ({ ...current, videoModelKey }))} /></Form.Item>
+          <Form.Item label="图片画幅" style={{ marginBottom: 0 }}><Segmented block options={['16:9', '9:16', '1:1']} value={scriptConfigDraft.imageAspectRatio} onChange={imageAspectRatio => setScriptConfigDraft(current => ({ ...current, imageAspectRatio }))} /></Form.Item>
+          <Form.Item label="视频画幅" style={{ marginBottom: 0 }}><Segmented block options={['16:9', '9:16']} value={scriptConfigDraft.videoAspectRatio} onChange={videoAspectRatio => setScriptConfigDraft(current => ({ ...current, videoAspectRatio }))} /></Form.Item>
+          <Form.Item label="视频分辨率" style={{ marginBottom: 0 }}><Segmented block options={['480p', '720p', '1080p']} value={scriptConfigDraft.videoResolution} onChange={videoResolution => setScriptConfigDraft(current => ({ ...current, videoResolution }))} /></Form.Item>
+          {scriptConfigDraft.videoModelKey === 'minimax-h3-video' ? <Typography.Text type="secondary">H3 会保持所选横竖画幅；720p 与 1080p 会按 H3 的 768p 档提交。</Typography.Text> : null}
+          <Typography.Text type="secondary">保存后会成为当前账号后续剧本生成的默认值；仍可随时在这里更换。</Typography.Text>
+        </Space>
+      </Modal>
       <EntityEditor
         key={activeEntity?.editorSessionId || 'closed'}
         entity={activeItem}
@@ -1872,6 +1965,7 @@ export function ScriptPage() {
         existingEntitySummary={compactEntitySummary(extractInfo, activeEntity?.isNew ? '' : activeEntity?.id)}
         textModelId={scriptModelSelection.textModelId}
         imageModelId={scriptModelSelection.imageModelId}
+        imageAspectRatio={scriptImageAspectRatio}
         onChange={updateActiveEntity}
         onDelete={deleteActiveEntity}
       />
@@ -2035,7 +2129,7 @@ function EntitySection({ title, type, count, items, protagonistIds = [], onAdd, 
   );
 }
 
-function EntityEditor({ entity, type, assetId, editorSessionId, isNew, open, fullscreen, novelText, extractionPreset, existingEntitySummary, textModelId, imageModelId, onClose, onToggleFullscreen, onChange, onDelete }) {
+function EntityEditor({ entity, type, assetId, editorSessionId, isNew, open, fullscreen, novelText, extractionPreset, existingEntitySummary, textModelId, imageModelId, imageAspectRatio, onClose, onToggleFullscreen, onChange, onDelete }) {
   const [fields, setFields] = useState({});
   const [imageUrls, setImageUrls] = useState([]);
   const [mainImageUrl, setMainImageUrl] = useState('');
@@ -2126,6 +2220,7 @@ function EntityEditor({ entity, type, assetId, editorSessionId, isNew, open, ful
           assetId={assetId}
           generationPayload={{ ...buildReferenceAssetGenerationPayload({ type, entity, fields, novelText, extractionPreset }), asset_id: assetId }}
           imageModelId={imageModelId}
+          imageAspectRatio={imageAspectRatio}
           imageUrls={imageUrls}
           mainImageUrl={mainImageUrl}
           requestKey={imageRequestKey}

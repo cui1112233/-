@@ -22,15 +22,28 @@ type ManualIntakeInput struct {
 	ContentCaptureCharacters int               `json:"contentCaptureCharacters,omitempty"`
 	ScheduledAt              string            `json:"scheduledAt,omitempty"`
 	SourceTextByBookID       map[string]string `json:"sourceTextByBookId,omitempty"`
+	// Groups 可选：多书城分组录入。非空时每组按各自平台解析，忽略顶层 PlatformID/InputText。
+	Groups []ManualIntakeGroup `json:"groups,omitempty"`
+}
+
+// ManualIntakeGroup 是一个书城下的一批粘贴文本。
+type ManualIntakeGroup struct {
+	PlatformID   string `json:"platformId"`
+	PlatformName string `json:"platformName"`
+	InputText    string `json:"inputText"`
+	// SourceTextByBookID 可选：该组已抓到的正文，键为书 ID。非空时分组解析
+	// 用它替代顶层同名 map，使跨书城撞 ID 的两本书各取各的正文。
+	SourceTextByBookID map[string]string `json:"sourceTextByBookId,omitempty"`
 }
 type manualRow struct {
 	bookID, paidID, freeID, title, gender, style, tags, reason, rating, sourceLine, mode string
 	columns                                                                              []string
 }
 
-var manualDigits = regexp.MustCompile(`^\d{10,25}$`)
-var manualDigitsInLine = regexp.MustCompile(`\d{10,25}`)
-var manualBookIDAndTitle = regexp.MustCompile(`^(\d{10,25})\s+(.+)$`)
+var manualDigits = regexp.MustCompile(`^\d{6,25}$`)
+var manualDigitsInLine = regexp.MustCompile(`\d{6,25}`)
+var manualBookIDAndTitle = regexp.MustCompile(`^(\d{6,25})\s+(.+)$`)
+var manualPastedBookIDAndTitle = regexp.MustCompile(`^(\d{6,25})(\D.+)$`)
 var manualSpaces = regexp.MustCompile(`\s{2,}`)
 var manualMonth = regexp.MustCompile(`\d{4}[-/年]\d{1,2}`)
 var manualAliases = map[string]string{
@@ -217,6 +230,12 @@ func finalize(row manualRow, mode string) manualRow {
 			row.bookID = row.freeID
 		} else {
 			row.bookID = manualDigitsInLine.FindString(row.sourceLine)
+		}
+	}
+	if parts := manualPastedBookIDAndTitle.FindStringSubmatch(row.bookID); len(parts) == 3 {
+		row.bookID = parts[1]
+		if row.title == "" {
+			row.title = cleanManual(parts[2])
 		}
 	}
 	row.gender = manualGender(row.gender)
@@ -422,6 +441,34 @@ func ParseManualBookList(input ManualIntakeInput) ([]CreateBookInput, error) {
 		meta := map[string]any{"platformName": input.PlatformName, "gender": row.gender, "style": row.style, "tags": row.tags, "reason": row.reason, "rating": row.rating, "paidBookId": row.paidID, "freeBookId": row.freeID, "sourceLine": row.sourceLine, "parseMode": row.mode, "parseColumns": row.columns, "sourceMode": "manual_original"}
 		sourceText := strings.TrimSpace(input.SourceTextByBookID[id])
 		out = append(out, CreateBookInput{ID: id, BookID: id, Title: title, Platform: input.PlatformID, SourceText: sourceText, TxtText: sourceText, SourceMetadata: meta})
+	}
+	return out, nil
+}
+
+// ParseGroupedManualBookLists 按书城分组解析粘贴文本。每组复用
+// ParseManualBookList 的全部解析/组内去重规则，仅平台信息按组取值；
+// 跨组重复 ID 保留（不同书城可能撞 ID，视为两本书）。
+func ParseGroupedManualBookLists(base ManualIntakeInput) ([]CreateBookInput, error) {
+	if len(base.Groups) == 0 {
+		return nil, ErrInvalid
+	}
+	out := make([]CreateBookInput, 0)
+	for _, group := range base.Groups {
+		groupInput := base
+		groupInput.PlatformID = strings.TrimSpace(group.PlatformID)
+		groupInput.PlatformName = strings.TrimSpace(group.PlatformName)
+		groupInput.InputText = group.InputText
+		if len(group.SourceTextByBookID) > 0 {
+			groupInput.SourceTextByBookID = group.SourceTextByBookID
+		}
+		books, err := ParseManualBookList(groupInput)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, books...)
+	}
+	if len(out) == 0 {
+		return nil, ErrInvalid
 	}
 	return out, nil
 }

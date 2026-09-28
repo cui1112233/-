@@ -11,7 +11,7 @@ import (
 const (
 	h3VideoCompilationSchemaV1 = "h3-video-compilation/v1"
 	h3VideoCompilerKey         = "embedded-h3"
-	h3VideoCompilerVersion     = "h3-video-compiler/v4"
+	h3VideoCompilerVersion     = "h3-video-compiler/v5"
 )
 
 type H3VideoPreset struct {
@@ -27,7 +27,10 @@ type H3VideoPreset struct {
 type H3PromptSwitches struct {
 	SmartUnified      bool `json:"smart_unified"`
 	BaseSetup         bool `json:"base_setup"`
+	Prefix            bool `json:"prefix"`
+	Quality           bool `json:"quality"`
 	VisualRestriction bool `json:"visual_restriction"`
+	Negative          bool `json:"negative"`
 }
 
 type H3AnalysisSnapshot struct {
@@ -48,23 +51,36 @@ type H3VideoCompileInput struct {
 	Timeline              H3CanonicalTimeline               `json:"timeline"`
 	Preset                H3VideoPreset                     `json:"preset"`
 	Analysis              H3AnalysisSnapshot                `json:"analysis"`
+	PrefixText            string                            `json:"prefix_text,omitempty"`
+	QualityText           string                            `json:"quality_text,omitempty"`
 	VisualRestrictionText string                            `json:"visual_restriction_text,omitempty"`
+	NegativeText          string                            `json:"negative_text,omitempty"`
 	Switches              H3PromptSwitches                  `json:"switches"`
 	EditableCopyOverrides map[string]H3EditableCopyRevision `json:"editable_copy_overrides,omitempty"`
 }
 
 type H3CompileTrace struct {
-	CompilerKey          string           `json:"compiler_key"`
-	CompilerVersion      string           `json:"compiler_version"`
-	VideoPresetKey       string           `json:"video_preset_key"`
-	VideoPresetRevision  int64            `json:"video_preset_revision"`
-	Switches             H3PromptSwitches `json:"switches"`
-	InjectedLayers       []string         `json:"injected_layers"`
-	OmittedLayers        []string         `json:"omitted_layers"`
-	EditableCopySource   string           `json:"editable_copy_source"`
-	EditableCopyRevision int64            `json:"editable_copy_revision"`
-	CompiledPromptHash   string           `json:"compiled_prompt_hash"`
-	SourceSlices         []H3SourceSlice  `json:"source_slices"`
+	CompilerKey          string               `json:"compiler_key"`
+	CompilerVersion      string               `json:"compiler_version"`
+	VideoPresetKey       string               `json:"video_preset_key"`
+	VideoPresetRevision  int64                `json:"video_preset_revision"`
+	Switches             H3PromptSwitches     `json:"switches"`
+	InjectedLayers       []string             `json:"injected_layers"`
+	OmittedLayers        []string             `json:"omitted_layers"`
+	LayerStates          []H3PromptLayerTrace `json:"layer_states"`
+	EditableCopySource   string               `json:"editable_copy_source"`
+	EditableCopyRevision int64                `json:"editable_copy_revision"`
+	CompiledPromptHash   string               `json:"compiled_prompt_hash"`
+	SourceSlices         []H3SourceSlice      `json:"source_slices"`
+}
+
+// H3PromptLayerTrace records the effective reason for every deterministic
+// prompt layer, so a saved Trace can demonstrate what a switch did without
+// reconstructing old UI state.
+type H3PromptLayerTrace struct {
+	Name     string `json:"name"`
+	Injected bool   `json:"injected"`
+	Reason   string `json:"reason"`
 }
 
 type H3CompiledVideoSegment struct {
@@ -132,12 +148,15 @@ func CompileH3VideoSegments(input H3VideoCompileInput) (H3VideoCompilation, erro
 		Timeline              H3CanonicalTimeline               `json:"timeline"`
 		Preset                H3VideoPreset                     `json:"preset"`
 		Analysis              H3AnalysisSnapshot                `json:"analysis"`
+		PrefixText            string                            `json:"prefix_text,omitempty"`
+		QualityText           string                            `json:"quality_text,omitempty"`
 		VisualRestrictionText string                            `json:"visual_restriction_text,omitempty"`
+		NegativeText          string                            `json:"negative_text,omitempty"`
 		Switches              H3PromptSwitches                  `json:"switches"`
 		EditableCopyOverrides map[string]H3EditableCopyRevision `json:"editable_copy_overrides,omitempty"`
 		FinalPromptOverrides  map[string]H3EditableCopyRevision `json:"final_prompt_overrides,omitempty"`
 		CompilerVersion       string                            `json:"compiler_version"`
-	}{input.TimelineID, input.Document, input.Timeline, input.Preset, input.Analysis, input.VisualRestrictionText, input.Switches, input.EditableCopyOverrides, input.FinalPromptOverrides, h3VideoCompilerVersion})
+	}{input.TimelineID, input.Document, input.Timeline, input.Preset, input.Analysis, input.PrefixText, input.QualityText, input.VisualRestrictionText, input.NegativeText, input.Switches, input.EditableCopyOverrides, input.FinalPromptOverrides, h3VideoCompilerVersion})
 	if err != nil {
 		return compilation, fmt.Errorf("hash H3 compilation input: %w", err)
 	}
@@ -180,38 +199,18 @@ func CompileH3VideoSegments(input H3VideoCompileInput) (H3VideoCompilation, erro
 			VideoPresetKey:       input.Preset.Key,
 			VideoPresetRevision:  input.Preset.Revision,
 			Switches:             input.Switches,
-			InjectedLayers:       []string{"storyboard_facts", "output_constraints"},
-			OmittedLayers:        []string{},
 			EditableCopySource:   editableSource,
 			EditableCopyRevision: copyRevision.Revision,
 			CompiledPromptHash:   promptHash,
 			SourceSlices:         append([]H3SourceSlice(nil), segment.SourceSlices...),
 		}
-		if overridden {
-			trace.InjectedLayers = append(trace.InjectedLayers, "editable_copy_override")
-		} else {
-			trace.OmittedLayers = append(trace.OmittedLayers, "editable_copy_override")
-		}
-		if input.Switches.SmartUnified {
-			trace.InjectedLayers = append(trace.InjectedLayers, "visual_baseline")
-		} else {
-			trace.OmittedLayers = append(trace.OmittedLayers, "visual_baseline")
-		}
-		if input.Switches.BaseSetup {
-			trace.InjectedLayers = append(trace.InjectedLayers, "asset_settings")
-		} else {
-			trace.OmittedLayers = append(trace.OmittedLayers, "asset_settings")
-		}
-		if input.Switches.VisualRestriction {
-			trace.InjectedLayers = append(trace.InjectedLayers, "visual_restriction")
-		} else {
-			trace.OmittedLayers = append(trace.OmittedLayers, "visual_restriction")
-		}
-		if editableSource == "user_final_prompt" {
-			// The user replaced the entire output. The saved switch settings
-			// are context, not evidence that any automatic layer survived.
-			trace.InjectedLayers = []string{}
-			trace.OmittedLayers = []string{"storyboard_facts", "output_constraints", "editable_copy_override", "visual_baseline", "asset_settings", "visual_restriction"}
+		trace.LayerStates = h3PromptLayerStates(input, overridden, editableSource)
+		for _, state := range trace.LayerStates {
+			if state.Injected {
+				trace.InjectedLayers = append(trace.InjectedLayers, state.Name)
+			} else {
+				trace.OmittedLayers = append(trace.OmittedLayers, state.Name)
+			}
 		}
 		requestDuration, err := h3RequestDuration(segment.CanonicalDurationMS, input.Preset)
 		if err != nil {
@@ -228,6 +227,48 @@ func CompileH3VideoSegments(input H3VideoCompileInput) (H3VideoCompilation, erro
 		})
 	}
 	return compilation, nil
+}
+
+func h3PromptLayerStates(input H3VideoCompileInput, editableOverride bool, editableSource string) []H3PromptLayerTrace {
+	if editableSource == "user_final_prompt" {
+		return []H3PromptLayerTrace{
+			{Name: "storyboard_facts", Reason: "用户手工最终提示词已保护，未覆盖"},
+			{Name: "output_constraints", Reason: "用户手工最终提示词已保护，未覆盖"},
+			{Name: "editable_copy_override", Reason: "用户手工最终提示词已保护，未覆盖"},
+			{Name: "visual_baseline", Reason: "用户手工最终提示词已保护，未覆盖"},
+			{Name: "asset_settings", Reason: "用户手工最终提示词已保护，未覆盖"},
+			{Name: "prefix", Reason: "用户手工最终提示词已保护，未覆盖"},
+			{Name: "quality", Reason: "用户手工最终提示词已保护，未覆盖"},
+			{Name: "visual_restriction", Reason: "用户手工最终提示词已保护，未覆盖"},
+			{Name: "negative", Reason: "用户手工最终提示词已保护，未覆盖"},
+		}
+	}
+	layers := []H3PromptLayerTrace{
+		{Name: "storyboard_facts", Injected: true, Reason: "由冻结的 H3 导演卡确定性编译"},
+		{Name: "output_constraints", Injected: true, Reason: "由当前视频预设提供"},
+		{Name: "editable_copy_override", Injected: editableOverride, Reason: "未使用用户编辑文案"},
+		{Name: "visual_baseline", Injected: input.Switches.SmartUnified && strings.TrimSpace(input.Analysis.VisualBaseline) != "", Reason: "智能统一未开启"},
+		{Name: "asset_settings", Injected: input.Switches.BaseSetup, Reason: "基础设定未开启"},
+		{Name: "prefix", Injected: input.Switches.Prefix && strings.TrimSpace(input.PrefixText) != "", Reason: "画面前缀未开启或预设正文为空"},
+		{Name: "quality", Injected: input.Switches.Quality && strings.TrimSpace(input.QualityText) != "", Reason: "画质约束未开启或预设正文为空"},
+		{Name: "visual_restriction", Injected: input.Switches.VisualRestriction && strings.TrimSpace(input.VisualRestrictionText) != "", Reason: "画面限制未开启或预设正文为空"},
+		{Name: "negative", Injected: input.Switches.Negative && strings.TrimSpace(input.NegativeText) != "", Reason: "负面提示词未开启或预设正文为空"},
+	}
+	for index := range layers {
+		if layers[index].Injected {
+			switch layers[index].Name {
+			case "editable_copy_override":
+				layers[index].Reason = "使用本次用户编辑文案重新编译"
+			case "visual_baseline":
+				layers[index].Reason = "智能统一已开启，使用该书已保存视觉基线"
+			case "asset_settings":
+				layers[index].Reason = "基础设定已开启，使用当前书资产定义"
+			default:
+				layers[index].Reason = "当前约束已开启且预设正文非空"
+			}
+		}
+	}
+	return layers
 }
 
 func validateH3CompileInput(input H3VideoCompileInput) error {
@@ -298,17 +339,32 @@ func compileH3CanonicalSegmentPrompt(input H3VideoCompileInput, segment H3VideoS
 	if input.Switches.BaseSetup {
 		assetDefinitions = "subject_definitions:\n" + h3CanonicalSubjectDefinitions(input.Document, input.Analysis, segment)
 	}
+	prefix := ""
+	if input.Switches.Prefix {
+		prefix = strings.TrimSpace(input.PrefixText)
+	}
+	quality := ""
+	if input.Switches.Quality {
+		quality = strings.TrimSpace(input.QualityText)
+	}
 	storyboard := h3CanonicalPresentation(input.Document, segment)
 	visualRestriction := ""
 	if input.Switches.VisualRestriction {
 		visualRestriction = strings.TrimSpace(input.VisualRestrictionText)
 	}
+	negative := ""
+	if input.Switches.Negative {
+		negative = strings.TrimSpace(input.NegativeText)
+	}
 	if template := strings.TrimSpace(input.Preset.PromptTemplate); template != "" {
 		rendered := renderH3PromptTemplate(template, map[string]string{
 			"visual_baseline":    visualBaseline,
 			"asset_definitions":  assetDefinitions,
+			"prefix":             prefix,
+			"quality":            quality,
 			"storyboard":         storyboard,
 			"visual_restriction": visualRestriction,
+			"negative":           negative,
 			"output_constraints": strings.TrimSpace(input.Preset.OutputConstraints),
 		})
 		// A video preset owns only its director skeleton. Style, asset settings
@@ -316,34 +372,52 @@ func compileH3CanonicalSegmentPrompt(input H3VideoCompileInput, segment H3VideoS
 		// legacy templates that place their placeholders explicitly keep their
 		// historical layout, while storyboard-only templates receive the layers
 		// around the editable skeleton.
-		parts := make([]string, 0, 4)
-		if visualBaseline != "" && !strings.Contains(template, "{{visual_baseline}}") {
-			parts = append(parts, visualBaseline)
-		}
+		parts := make([]string, 0, 7)
 		if assetDefinitions != "" && !strings.Contains(template, "{{asset_definitions}}") {
 			parts = append(parts, assetDefinitions)
 		}
-		parts = append(parts, rendered)
+		if visualBaseline != "" && !strings.Contains(template, "{{visual_baseline}}") {
+			parts = append(parts, visualBaseline)
+		}
+		if prefix != "" && !strings.Contains(template, "{{prefix}}") {
+			parts = append(parts, prefix)
+		}
+		if quality != "" && !strings.Contains(template, "{{quality}}") {
+			parts = append(parts, quality)
+		}
 		if visualRestriction != "" && !strings.Contains(template, "{{visual_restriction}}") {
 			parts = append(parts, visualRestriction)
+		}
+		parts = append(parts, rendered)
+		if negative != "" && !strings.Contains(template, "{{negative}}") {
+			parts = append(parts, negative)
 		}
 		return strings.TrimSpace(strings.Join(parts, "\n\n"))
 	}
 	parts := []string{}
+	if assetDefinitions != "" {
+		parts = append(parts, assetDefinitions)
+	}
 	if visualBaseline != "" {
 		parts = append(parts, visualBaseline)
 	}
-	if assetDefinitions != "" {
-		parts = append(parts, assetDefinitions)
+	if prefix != "" {
+		parts = append(parts, prefix)
+	}
+	if quality != "" {
+		parts = append(parts, quality)
+	}
+	if visualRestriction != "" {
+		parts = append(parts, visualRestriction)
 	}
 	if overridden {
 		parts = append(parts, "editable_story_direction:\n"+strings.TrimSpace(editableCopy))
 	}
 	parts = append(parts, storyboard)
-	if visualRestriction != "" {
-		parts = append(parts, visualRestriction)
-	}
 	parts = append(parts, strings.TrimSpace(input.Preset.OutputConstraints))
+	if negative != "" {
+		parts = append(parts, negative)
+	}
 	return strings.TrimSpace(strings.Join(parts, "\n\n"))
 }
 

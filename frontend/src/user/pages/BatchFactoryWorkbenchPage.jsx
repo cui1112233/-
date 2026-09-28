@@ -3,6 +3,7 @@ import { Button, Modal, Spin, message } from 'antd';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   appendNovelFetchIntake,
+  classifyFetchedBatchMetadata,
   createBatchFromIntake,
   createManualIntake,
   getBatch,
@@ -148,6 +149,22 @@ export default function BatchFactoryWorkbenchPage() {
     localStorage.setItem(BATCH_FACTORY_ACTIVE_BATCH_STORAGE_KEY, batch.id);
     setActiveBatch(batch);
     await refreshBatches({ quiet: true });
+    // Text-model classification is deliberately detached from batch creation:
+    // a provider failure must never prevent a fetched source from entering
+    // production.  The server handles each book independently and persists
+    // successful gender/style results before this refresh.
+    void classifyFetchedBatchMetadata(batch.id).then(async result => {
+      const rows = Array.isArray(result?.results) ? result.results : [];
+      const classified = rows.filter(item => item?.status === 'classified').length;
+      const failed = rows.filter(item => item?.status === 'failed').length;
+      if (classified) message.success(`已识别 ${classified} 本小说的男女频与风格`);
+      if (failed) message.warning(`${failed} 本小说的男女频与风格暂未识别，可在单书中重试；不影响生产。`);
+      const refreshed = asBatch(await getBatch(batch.id));
+      if (mountedRef.current) setActiveBatch(current => String(current?.id) === String(batch.id) ? refreshed : current);
+      await refreshBatches({ quiet: true });
+    }).catch(error => {
+      if (mountedRef.current) message.warning(`男女频与风格暂未识别：${error?.message || '可在单书中重试；不影响生产。'}`);
+    });
     if (!input?.automationEnabled) return;
     try {
       await startBatchAutomation(batch.id, {

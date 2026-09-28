@@ -16,7 +16,10 @@ type H3KernelCompileRequest struct {
 	AudioAssetID              string                            `json:"audio_asset_id"`
 	AllowSemanticTimeline     bool                              `json:"allow_semantic_timeline,omitempty"`
 	Preset                    H3VideoPreset                     `json:"preset"`
+	PrefixText                string                            `json:"prefix_text,omitempty"`
+	QualityText               string                            `json:"quality_text,omitempty"`
 	VisualRestrictionText     string                            `json:"visual_restriction_text,omitempty"`
+	NegativeText              string                            `json:"negative_text,omitempty"`
 	Switches                  H3PromptSwitches                  `json:"switches"`
 	EditableCopyOverrides     map[string]H3EditableCopyRevision `json:"editable_copy_overrides,omitempty"`
 }
@@ -106,7 +109,10 @@ func (s *H3KernelService) Compile(ctx context.Context, owner, batchID, bookID st
 		Timeline:              timelineRevision.Timeline,
 		Preset:                request.Preset,
 		Analysis:              analysis,
+		PrefixText:            request.PrefixText,
+		QualityText:           request.QualityText,
 		VisualRestrictionText: request.VisualRestrictionText,
+		NegativeText:          request.NegativeText,
 		Switches:              request.Switches,
 		EditableCopyOverrides: request.EditableCopyOverrides,
 		FinalPromptOverrides:  request.FinalPromptOverrides,

@@ -58,12 +58,45 @@ function mentionBoundary(segments, cursor, direction) {
   return null;
 }
 
+function renderSegments(root, segments) {
+  const fragment = document.createDocumentFragment();
+  for (const segment of segments) {
+    if (segment.type !== 'mention') {
+      fragment.append(document.createTextNode(segment.value));
+      continue;
+    }
+    const chip = document.createElement('span');
+    chip.className = 'script-mention-chip';
+    chip.contentEditable = 'false';
+    chip.dataset.mentionName = segment.name;
+    chip.dataset.mentionValue = segment.value;
+    if (segment.imageUrl) {
+      const image = document.createElement('img');
+      image.src = segment.imageUrl;
+      image.alt = '';
+      image.loading = 'lazy';
+      chip.append(image);
+    } else {
+      const fallback = document.createElement('span');
+      fallback.className = 'script-mention-chip-placeholder';
+      fallback.setAttribute('aria-hidden', 'true');
+      fallback.textContent = segment.kind === 'scene' ? '景' : '人';
+      chip.append(fallback);
+    }
+    const label = document.createElement('span');
+    label.textContent = `@${segment.name}`;
+    chip.append(label);
+    fragment.append(chip);
+  }
+  root.replaceChildren(fragment);
+}
+
 export default function ScriptMentionEditor({
   value,
   candidates,
   editable,
   placeholder,
-  selectionOffset,
+  selectionOffset: initialSelectionOffset,
   onChange,
   onQueryChange,
   onEditorKeyDown
@@ -74,25 +107,35 @@ export default function ScriptMentionEditor({
   const segments = useMemo(() => buildInlineMentionSegments(value, candidates), [value, candidates]);
 
   useLayoutEffect(() => {
-    if (Number.isInteger(selectionOffset)) restoreOffsetRef.current = selectionOffset;
-    if (restoreOffsetRef.current === null) return;
-    setSelectionOffset(editorRef.current, restoreOffsetRef.current);
-    restoreOffsetRef.current = null;
-  }, [selectionOffset, value, segments]);
-
-  const emitQuery = useCallback((text = canonicalTextFromSegments(segments)) => {
     const root = editorRef.current;
+    if (!root) return;
+    renderSegments(root, segments);
+    if (Number.isInteger(initialSelectionOffset)) restoreOffsetRef.current = initialSelectionOffset;
+    if (restoreOffsetRef.current === null) return;
+    setSelectionOffset(root, restoreOffsetRef.current);
+    restoreOffsetRef.current = null;
+  }, [initialSelectionOffset, value, segments]);
+
+  const emitQuery = useCallback(() => {
+    const root = editorRef.current;
+    if (!root) return;
+    const text = root.innerText.replace(/\r/g, '');
     onQueryChange?.({ text, cursor: selectionOffset(root), rect: selectionRect(root) });
-  }, [onQueryChange, segments]);
+  }, [onQueryChange]);
 
   const emitTextChange = useCallback(() => {
     const root = editorRef.current;
     if (!root) return;
     const text = root.innerText.replace(/\r/g, '');
-    restoreOffsetRef.current = selectionOffset(root);
+    // Changing the parent value can synchronously redraw this contenteditable
+    // surface. Read the caret before that redraw so an @ just typed still
+    // opens its candidate menu at the original location.
+    const cursor = selectionOffset(root);
+    const rect = selectionRect(root);
+    restoreOffsetRef.current = cursor;
     onChange?.(text);
-    emitQuery(text);
-  }, [emitQuery, onChange]);
+    onQueryChange?.({ text, cursor, rect });
+  }, [onChange, onQueryChange]);
 
   const handlePaste = useCallback(event => {
     event.preventDefault();
@@ -138,16 +181,5 @@ export default function ScriptMentionEditor({
     onPaste={handlePaste}
     onCompositionStart={() => { composingRef.current = true; }}
     onCompositionEnd={() => { composingRef.current = false; emitTextChange(); }}
-  >
-    {segments.map((segment, index) => segment.type === 'mention' ? <span
-      key={`${segment.value}-${index}`}
-      className="script-mention-chip"
-      contentEditable={false}
-      data-mention-name={segment.name}
-      data-mention-value={segment.value}
-    >
-      {segment.imageUrl ? <img src={segment.imageUrl} alt="" loading="lazy" /> : <span className="script-mention-chip-placeholder" aria-hidden="true">{segment.kind === 'scene' ? '景' : '人'}</span>}
-      <span>@{segment.name}</span>
-    </span> : <span key={`text-${index}`}>{segment.value}</span>)}
-  </div>;
+  />;
 }

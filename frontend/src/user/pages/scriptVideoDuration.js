@@ -13,7 +13,7 @@ function parseDuration(value) {
   return match ? Number(match[1]) : Number.NaN;
 }
 
-export function resolveShotVideoDuration({ shotText, fallbackDuration }) {
+export function resolveShotVideoDuration({ shotText, fallbackDuration, minDuration = 1, maxDuration = 15, modelLabel = 'H3' }) {
   const hasShotDurationMarker = SHOT_DURATION_MARKER_PATTERN.test(String(shotText ?? ''));
   const shotDuration = extractShotDurationSeconds(shotText);
   const source = hasShotDurationMarker ? 'shot' : 'fallback';
@@ -22,14 +22,14 @@ export function resolveShotVideoDuration({ shotText, fallbackDuration }) {
   if (!Number.isFinite(duration)) {
     return { ok: false, error: '时长必须是有效数字' };
   }
-  if (duration > 15) {
-    return { ok: false, error: '超过 H3 单次 15 秒上限' };
+  if (duration > maxDuration) {
+    return { ok: false, error: `超过 ${modelLabel} 单次 ${maxDuration} 秒上限` };
   }
   if (!Number.isInteger(duration)) {
     return { ok: false, error: '时长必须是整数' };
   }
-  if (duration < 1) {
-    return { ok: false, error: '时长至少 1 秒' };
+  if (duration < minDuration) {
+    return { ok: false, error: minDuration === 1 ? '时长至少 1 秒' : `${modelLabel} 单次时长最短为 ${minDuration} 秒` };
   }
 
   return { ok: true, duration, source };

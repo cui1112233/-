@@ -30,11 +30,13 @@ services:
       PORT: "8787"
       QIANTIE_121_WORKER_SECRET: ${QIANTIE_121_WORKER_SECRET}
       QIANTIE_121_SESSION_DIR: /data/sessions
+      QIANTIE_121_LEGACY_SESSION_DIR: /data/legacy-sessions
       QIANTIE_121_HEADED_ENABLED: "1"
       QIANTIE_121_VERIFY_TIMEOUT_MS: ${QIANTIE_121_VERIFY_TIMEOUT_MS:-30000}
       QIANTIE_121_LOGIN_TIMEOUT_MS: ${QIANTIE_121_LOGIN_TIMEOUT_MS:-55000}
     volumes:
       - browser_sessions:/data/sessions
+      - novel-fetch-121-data:/data/legacy-sessions:ro
     expose:
       - "8787"
     networks:
@@ -74,13 +76,17 @@ services:
       QIANTIE_121_CREDENTIAL_SECRET: ${QIANTIE_121_CREDENTIAL_SECRET}
       QIANTIE_121_CLIENT_LOGIN_TIMEOUT_MS: ${QIANTIE_121_CLIENT_LOGIN_TIMEOUT_MS:-60000}
       QIANTIE_REFERENCE_ASSET_PUBLIC_BASE_URL: ${QIANTIE_REFERENCE_ASSET_PUBLIC_BASE_URL:?required}
+      QIANTIE_REFERENCE_ASSET_ALLOW_HTTP: ${QIANTIE_REFERENCE_ASSET_ALLOW_HTTP:-false}
       QIANTIE_REFERENCE_ASSET_SIGNING_SECRET: ${QIANTIE_REFERENCE_ASSET_SIGNING_SECRET:?required}
       QIANTIE_REFERENCE_ASSET_TOS_ENDPOINT: ${QIANTIE_REFERENCE_ASSET_TOS_ENDPOINT:-}
       QIANTIE_REFERENCE_ASSET_TOS_REGION: ${QIANTIE_REFERENCE_ASSET_TOS_REGION:-}
       QIANTIE_REFERENCE_ASSET_TOS_BUCKET: ${QIANTIE_REFERENCE_ASSET_TOS_BUCKET:-}
       QIANTIE_REFERENCE_ASSET_TOS_ACCESS_KEY: ${QIANTIE_REFERENCE_ASSET_TOS_ACCESS_KEY:-}
       QIANTIE_REFERENCE_ASSET_TOS_SECRET_KEY: ${QIANTIE_REFERENCE_ASSET_TOS_SECRET_KEY:-}
-      QIANTIE_RELEASE_SHA: ${QIANTIE_NODE_RELEASE_SHA:-${QIANTIE_RELEASE_SHA}}
+      # Compose does not recursively expand the fallback expression inside a
+      # variable default. Keep the Node release identity explicit so the
+      # running build-info always reports the exact Node image SHA.
+      QIANTIE_RELEASE_SHA: ${QIANTIE_NODE_RELEASE_SHA}
     volumes:
       - v88_data:/app/data
       - v88_outputs:/app/outputs
@@ -118,6 +124,9 @@ volumes:
   browser_sessions:
     external: true
     name: v88-public_browser_sessions
+  novel-fetch-121-data:
+    external: true
+    name: v88-public_novel-fetch-121-data
   v88_data:
     external: true
     name: v88-public_v88_data

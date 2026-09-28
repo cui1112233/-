@@ -122,7 +122,7 @@ export function collectShotReferenceImages(options) {
   return collectShotReferenceDescriptors(options).map(reference => reference.url);
 }
 
-export function buildScriptVideoPayload({ prompt, modelKey, duration, resolution, imageUrls } = {}) {
+export function buildScriptVideoPayload({ prompt, modelKey, duration, resolution, aspectRatio, imageUrls } = {}) {
   const payload = { prompt, modelKey };
   const references = Array.isArray(imageUrls) ? imageUrls.slice(0, MAX_H3_REFERENCE_IMAGES) : [];
   if (modelKey === 'seedance-2-0-official') {
@@ -130,6 +130,7 @@ export function buildScriptVideoPayload({ prompt, modelKey, duration, resolution
       ...payload,
       duration,
       resolution,
+      ...(aspectRatio ? { aspectRatio } : {}),
       ...(references.length ? { imageUrls: references } : {})
     };
   }
@@ -140,6 +141,7 @@ export function buildScriptVideoPayload({ prompt, modelKey, duration, resolution
     ...payload,
     duration,
     resolution,
+    ...(aspectRatio ? { aspectRatio } : {}),
     imageUrls: references
   };
 }

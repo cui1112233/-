@@ -45,6 +45,13 @@ test('accepts an explicit 15-second duration from the shot', () => {
   );
 });
 
+test('rejects a two-second storyboard for Seedance instead of falling back to ten seconds', () => {
+  assert.deepEqual(
+    resolveShotVideoDuration({ shotText: '总时长：2s', fallbackDuration: 10, minDuration: 4, modelLabel: 'Seedance' }),
+    { ok: false, error: 'Seedance 单次时长最短为 4 秒' },
+  );
+});
+
 test('gives explicit shot duration precedence over an invalid fallback', () => {
   assert.deepEqual(
     resolveShotVideoDuration({ shotText: '总时长：15s', fallbackDuration: 0 }),

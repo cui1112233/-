@@ -83,8 +83,8 @@ func (a *YadiVideoAdapter) Submit(ctx context.Context, model FrozenVideoModel, p
 	if duration <= 0 {
 		return ProviderTaskRef{}, fmt.Errorf("video duration is required")
 	}
-	aspectRatio := rawString(values, "aspectRatio", "9:16")
-	resolution := rawString(values, "resolution", "720p")
+	aspectRatio := EffectiveVideoAspectRatio(values)
+	resolution := EffectiveVideoResolution(values)
 	imageURLs := []string{defaultYadiFirstFrameURL}
 	if len(prompt.ReferenceImageURLs) > 0 {
 		if len(prompt.ReferenceImageURLs) > 3 {

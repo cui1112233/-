@@ -35,6 +35,7 @@ function compileItemVideos(presetStore, batch, item) {
       compiledSections: payload.compiledSections,
       duration: payload.duration,
       aspectRatio: payload.aspect_ratio,
+      resolution: payload.resolution,
       settingSource: Object.keys(videoOverrides).length ? 'video' : Object.keys(item.settingOverrides || {}).length ? 'book' : 'batch'
     };
   });
@@ -112,6 +113,7 @@ async function submitItemProduction({ presetStore, batch, item, modelId, usernam
       compiledSections: video.compiledSections,
       duration: video.duration,
       aspectRatio: video.aspectRatio,
+      resolution: video.resolution,
       submittedAt: production.submittedAt
     })),
     project: upstream.payload?.project || null,

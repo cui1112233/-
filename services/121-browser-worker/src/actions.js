@@ -8,6 +8,7 @@ function buildActionRequest(baseUrl, action, payload = {}) {
   const origin = targetOrigin(baseUrl);
   if (action === 'dashboard') return { method: 'GET', url: `${origin}/tttadmin/zidingyi.php`, headers: {} };
   if (action === 'config_list') return { method: 'GET', url: `${origin}/tttadmin/api/zdy_config.php?action=list`, headers: {} };
+  if (action === 'organization_list') return { method: 'GET', url: `${origin}/tttadmin/api/organization.php`, headers: {} };
   if (action === 'book_list') {
     const bookId = String(payload.bookId || '').trim();
     if (!/^\d{1,20}$/.test(bookId)) throw new Error('invalid bookId');
@@ -23,6 +24,16 @@ function buildActionRequest(baseUrl, action, payload = {}) {
       method: 'POST',
       url: `${origin}/tttadmin/api/zbooklist_upload.php`,
       headers: { 'content-type': contentType },
+      data: Buffer.from(bodyBase64, 'base64')
+    };
+  }
+  if (action === 'asset_presign') {
+    const bodyBase64 = String(payload.bodyBase64 || '');
+    if (!bodyBase64) throw new Error('asset presign body is required');
+    return {
+      method: 'POST',
+      url: `${origin}/tttadmin/api/music_put_url.php`,
+      headers: { 'content-type': 'application/json' },
       data: Buffer.from(bodyBase64, 'base64')
     };
   }
@@ -89,7 +100,10 @@ function createActionRunner({ playwright, perform = performAuthenticatedAction, 
     else {
       active -= 1;
       if (active === 0 && browser) {
-        idleTimer = setTimeout(() => { close().catch(() => {}); }, idleTimeout);
+        idleTimer = setTimeout(() => {
+          idleTimer = null;
+          if (active === 0 && waiting.length === 0) close().catch(() => {});
+        }, idleTimeout);
       }
     }
   };
@@ -104,8 +118,9 @@ function createActionRunner({ playwright, perform = performAuthenticatedAction, 
     }
     return launching;
   };
-  const close = async () => {
+  const close = async ({ force = false } = {}) => {
     if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
+    if (!force && (active > 0 || waiting.length > 0)) return;
     const activeBrowser = browser;
     browser = null;
     if (activeBrowser && typeof activeBrowser.close === 'function') await activeBrowser.close();
@@ -115,13 +130,13 @@ function createActionRunner({ playwright, perform = performAuthenticatedAction, 
     try {
       return await perform({ ...options, browser: await getBrowser() });
     } catch (error) {
-      if (error?.code === 'SESSION_EXPIRED') await close();
+      if (error?.code === 'SESSION_EXPIRED') await close({ force: true });
       throw error;
     } finally {
       release();
     }
   };
-  run.close = close;
+  run.close = () => close({ force: true });
   return run;
 }
 

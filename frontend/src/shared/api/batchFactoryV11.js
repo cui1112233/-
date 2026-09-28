@@ -124,8 +124,22 @@ export function fetchBookOriginal(batchId, bookId) {
   return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/fetch-original`), { method: 'POST', body: body({}) });
 }
 
+// Runs after a manual batch has been created.  The API isolates failures per
+// book, so classification is useful metadata rather than a creation gate.
+export function classifyFetchedBatchMetadata(batchId) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/classify-fetched-metadata`), { method: 'POST', body: body({}) });
+}
+
 export function getBatch(batchId) {
   return apiRequest(bf11Path(`batches/${id(batchId)}`));
+}
+
+export function deleteBatchFactoryBook(batchId, bookId) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}`), { method: 'DELETE' });
+}
+
+export function deleteBatchFactoryProject(batchId) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}`), { method: 'DELETE' });
 }
 
 export function updateBookSource(batchId, bookId, input) {
@@ -298,6 +312,10 @@ export function retryBookStage(batchId, bookId, payload = {}) {
   return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/stages/retry`), { method: 'POST', body: body(payload) });
 }
 
+export function refreshBookSmartUnified(batchId, bookId, payload = {}) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/smart-unified/refresh`), { method: 'POST', body: body(payload) });
+}
+
 export function runBatchDirector(batchId, payload = {}) {
   return apiRequest(bf11Path(`batches/${id(batchId)}/director`), { method: 'POST', body: body(payload) });
 }
@@ -430,8 +448,8 @@ export function getBookMergeStatus(batchId, bookId, requestId) {
   return apiRequest(`${bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/merge-status`)}${query({ requestId })}`);
 }
 
-export function getMergeStatus(batchId) {
-  return apiRequest(bf11Path(`batches/${id(batchId)}/merge-status`));
+export function getMergeStatus(batchId, options = {}) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/merge-status`), options);
 }
 
 export function getPublishCredential(provider) {

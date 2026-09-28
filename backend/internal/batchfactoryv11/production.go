@@ -184,6 +184,23 @@ func (s *ProductionService) resolveProvider(ctx context.Context, owner, provider
 		}
 		return adapter, model, nil
 	}
+	if provider == VideoProviderYFAISeedance {
+		if s.ProviderRegistry == nil {
+			return nil, FrozenVideoModel{}, fmt.Errorf("%w: YFAI Seedance provider registry is unavailable", ErrUnavailable)
+		}
+		cfg, err := s.ProviderRegistry.Resolve(ctx, owner, provider)
+		if err != nil {
+			return nil, FrozenVideoModel{}, err
+		}
+		model := s.Model
+		model.ID = cfg.Model
+		model.MaxDuration = 15
+		adapter := &YFAISeedanceAdapter{BaseURL: cfg.CreateURL, APIKey: cfg.APIKey, Model: cfg.Model}
+		if err := adapter.Validate(); err != nil {
+			return nil, FrozenVideoModel{}, err
+		}
+		return adapter, model, nil
+	}
 	if provider != VideoProviderPersonalAPI {
 		return nil, FrozenVideoModel{}, fmt.Errorf("%w: unsupported video provider", ErrInvalid)
 	}
@@ -397,8 +414,8 @@ func (s *ProductionService) SubmitBookProductionWithOptions(ctx context.Context,
 				BatchID:      batchID, BookID: bookID, VideoID: task.VideoID,
 				Model: model.ID, Prompt: prompt.CompiledPrompt,
 				Duration:           prompt.DurationSeconds,
-				AspectRatio:        rawString(prompt.EffectiveSettings.Values, "aspectRatio", "9:16"),
-				Resolution:         rawString(prompt.EffectiveSettings.Values, "resolution", "720p"),
+				AspectRatio:        EffectiveVideoAspectRatio(prompt.EffectiveSettings.Values),
+				Resolution:         EffectiveVideoResolution(prompt.EffectiveSettings.Values),
 				ReferenceImageURLs: append([]string(nil), prompt.ReferenceImageURLs...),
 			})
 		} else {

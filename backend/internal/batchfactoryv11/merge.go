@@ -148,6 +148,50 @@ func (s *MergeService) SubmitBookMerge(ctx context.Context, owner, batchID, book
 	return s.submitMerge(ctx, owner, batchID, strings.TrimSpace(bookID), requestID, options)
 }
 
+func sameMergeVersion(left, right MergeJob) bool {
+	if left.BookID != right.BookID {
+		return false
+	}
+	return left.Speed-right.Speed < 0.000001 && right.Speed-left.Speed < 0.000001
+}
+
+func (s *MergeService) mergeVersion(ctx context.Context, repository MergeRepository, owner, batchID string, candidate MergeJob) (MergeJob, bool, error) {
+	jobs, err := repository.ListMergeJobs(ctx, owner, batchID)
+	if err != nil {
+		return MergeJob{}, false, err
+	}
+	var failed MergeJob
+	for _, job := range jobs {
+		if !sameMergeVersion(job, candidate) {
+			continue
+		}
+		if job.Status == MergeSucceeded || job.Status == MergeQueued || job.Status == MergeRunning {
+			return job, true, nil
+		}
+		if job.Status == MergeFailed {
+			failed = job
+		}
+	}
+	if failed.ID == "" {
+		return MergeJob{}, false, nil
+	}
+	failed.TimingMode = candidate.TimingMode
+	failed.Speed = candidate.Speed
+	failed.ProviderTaskID = ""
+	failed.Status = MergeQueued
+	failed.ProgressPhase = "queued"
+	failed.ProgressCurrent = 0
+	failed.ProgressTotal = candidate.ProgressTotal
+	failed.Sources = candidate.Sources
+	failed.OutputURL = ""
+	failed.ErrorMessage = ""
+	overwritten, err := repository.UpdateMergeJob(ctx, owner, failed.ID, failed)
+	if err != nil {
+		return MergeJob{}, false, err
+	}
+	return overwritten, true, nil
+}
+
 func (s *MergeService) submitMerge(ctx context.Context, owner, batchID, onlyBookID, requestID string, options MergeOptions) (MergeJob, error) {
 	if s == nil || !s.Enabled {
 		return MergeJob{}, fmt.Errorf("%w: merge is not enabled", ErrUnavailable)
@@ -254,14 +298,22 @@ func (s *MergeService) submitMerge(ctx context.Context, owner, batchID, onlyBook
 			return MergeJob{}, fmt.Errorf("%w: follow-audio speed %.3f is outside 0.5-4", ErrInvalid, options.Speed)
 		}
 	}
-	providerSources := append([]MergeMedia(nil), sources...)
 	now := time.Now().UTC()
-	job := MergeJob{Owner: owner, BatchID: batchID, BookID: onlyBookID, RequestID: requestID, TimingMode: options.TimingMode, Speed: options.Speed, Status: MergeQueued, ProgressPhase: "queued", ProgressTotal: len(sources), Sources: sources, CreatedAt: now, UpdatedAt: now}
-	job, err = repository.CreateMergeJob(ctx, job)
+	candidate := MergeJob{Owner: owner, BatchID: batchID, BookID: onlyBookID, RequestID: requestID, TimingMode: options.TimingMode, Speed: options.Speed, Status: MergeQueued, ProgressPhase: "queued", ProgressTotal: len(sources), Sources: sources, CreatedAt: now, UpdatedAt: now}
+	job, reused, err := s.mergeVersion(ctx, repository, owner, batchID, candidate)
 	if err != nil {
 		return MergeJob{}, err
 	}
-	result, submitErr := s.Adapter.Submit(ctx, batchID, providerSources, options)
+	if reused && job.Status != MergeQueued {
+		return job, nil
+	}
+	if !reused {
+		job, err = repository.CreateMergeJob(ctx, candidate)
+		if err != nil {
+			return MergeJob{}, err
+		}
+	}
+	result, submitErr := s.Adapter.Submit(ctx, batchID, append([]MergeMedia(nil), sources...), options)
 	updated := job
 	applyMergeResult(&updated, result)
 	if submitErr != nil {

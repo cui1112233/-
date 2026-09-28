@@ -714,6 +714,101 @@ func (s *MemoryStore) GetBatch(_ context.Context, owner, id string) (Batch, erro
 	}
 	return hydrateMemoryBatchSettingsState(v.Value, s.patches, s.hooks, s.directors, s.bookAssets), nil
 }
+
+func (s *MemoryStore) DeleteBook(_ context.Context, owner, batchID, bookID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	owned, ok := s.batches[batchID]
+	if !ok || owned.Owner != owner {
+		return ErrNotFound
+	}
+	batch := owned.Value
+	found := false
+	books := make([]Book, 0, len(batch.Books))
+	for _, book := range batch.Books {
+		if book.ID == bookID {
+			found = true
+			continue
+		}
+		books = append(books, book)
+	}
+	if !found {
+		return ErrNotFound
+	}
+	batch.Books = books
+	batch.Revision++
+	batch.UpdatedAt = time.Now().UTC()
+	s.batches[batchID] = memoryOwned[Batch]{Owner: owner, Value: batch}
+	s.deleteMemoryBookData(owner, batchID, bookID)
+	return nil
+}
+
+func (s *MemoryStore) DeleteBatch(_ context.Context, owner, batchID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	owned, ok := s.batches[batchID]
+	if !ok || owned.Owner != owner {
+		return ErrNotFound
+	}
+	for _, book := range owned.Value.Books {
+		s.deleteMemoryBookData(owner, batchID, book.ID)
+	}
+	delete(s.batches, batchID)
+	for key := range s.patches {
+		if strings.Contains(key, ":"+batchID+":") {
+			delete(s.patches, key)
+		}
+	}
+	for key, draft := range s.drafts {
+		if draft.Scope == batchID {
+			delete(s.drafts, key)
+		}
+	}
+	for id, job := range s.mergeJobs {
+		if job.Owner == owner && job.Value.BatchID == batchID {
+			delete(s.mergeJobs, id)
+		}
+	}
+	return nil
+}
+
+func (s *MemoryStore) deleteMemoryBookData(owner, batchID, bookID string) {
+	for key := range s.patches {
+		if strings.Contains(key, ":"+batchID+":"+bookID+":") {
+			delete(s.patches, key)
+		}
+	}
+	for key, assets := range s.bookAssets {
+		if assets.Owner == owner && assets.Value.BatchID == batchID && assets.Value.BookID == bookID {
+			delete(s.bookAssets, key)
+		}
+	}
+	for key, hooks := range s.hooks {
+		if len(hooks) > 0 && hooks[0].BatchID == batchID && hooks[0].BookID == bookID {
+			delete(s.hooks, key)
+		}
+	}
+	for key, directors := range s.directors {
+		if len(directors) > 0 && directors[0].BatchID == batchID && directors[0].BookID == bookID {
+			delete(s.directors, key)
+		}
+	}
+	for id, job := range s.productionJobs {
+		if job.Owner == owner && job.Value.BatchID == batchID && job.Value.BookID == bookID {
+			delete(s.productionJobs, id)
+		}
+	}
+	for key := range s.productionRequests {
+		if strings.Contains(key, ":"+batchID+":"+bookID+":") {
+			delete(s.productionRequests, key)
+		}
+	}
+	for id, run := range s.bookStageRuns {
+		if run.Owner == owner && run.Value.BatchID == batchID && run.Value.BookID == bookID {
+			delete(s.bookStageRuns, id)
+		}
+	}
+}
 func (s *MemoryStore) SaveSettings(_ context.Context, owner string, ref ScopeRef, update SettingsUpdate) (SettingsResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

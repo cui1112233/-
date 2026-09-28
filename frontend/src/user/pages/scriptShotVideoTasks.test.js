@@ -28,3 +28,16 @@ test('does not archive the same video task more than once', async () => {
 
   assert.deepEqual(twice[0], [previous]);
 });
+
+test('refreshes an archived task from its final server state while retaining its prompt', async () => {
+  const { mergeShotVideoTaskHistoryTask } = await import('./scriptShotVideoTasks.js');
+  const archived = { taskId: 'video-1', status: 'processing', prompt: '### 分镜一\n@妻子走进客厅' };
+  const fresh = { taskId: 'video-1', status: 'failed', error: '参考素材无法访问' };
+
+  assert.deepEqual(mergeShotVideoTaskHistoryTask(archived, fresh), {
+    taskId: 'video-1',
+    status: 'failed',
+    prompt: '### 分镜一\n@妻子走进客厅',
+    error: '参考素材无法访问'
+  });
+});

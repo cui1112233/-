@@ -7,10 +7,10 @@ import { fileURLToPath } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const app = fs.readFileSync(path.join(here, 'App.jsx'), 'utf8');
 
-test('routes both Batch Factory entries to the canonical workbench', () => {
+test('routes the Shuihuo entry to the shared work library while retaining the Batch Factory entry', () => {
   assert.match(app, /const BatchFactoryWorkbenchPage = lazy\(\(\) => import\('\.\/pages\/BatchFactoryWorkbenchPage'\)\)/);
   assert.match(app, /'\/batch-factory': BatchFactoryWorkbenchPage/);
-  assert.match(app, /'\/shuihuo-production': BatchFactoryWorkbenchPage/);
-  assert.match(app, /'\/shuihuo-production\/creative': ShuihuoProductionPage/);
+  assert.match(app, /'\/shuihuo-production': ShuihuoProductionPage/);
+  assert.doesNotMatch(app, /'\/shuihuo-production': BatchFactoryWorkbenchPage/);
   assert.doesNotMatch(app, /BatchFactoryFromShuihuoPage/);
 });

@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { measureH3VideoLines } from './h3LineAudio.js';
 
 test('H3 sends each frozen source line once and never uses browser duration', async () => {
@@ -23,4 +24,26 @@ test('H3 reuses measured audio only for identical source and TTS config', async 
  assert.equal(again.audio_asset_id,'a');
  await measureH3VideoLines({...options,tts:{voice:'changed'},previous:first.audio_measurement.measurement});
  assert.equal(count,2);
+});
+
+test('H3 fingerprints TTS settings when insecure HTTP has no crypto.subtle', async () => {
+ const cryptoDescriptor=Object.getOwnPropertyDescriptor(globalThis,'crypto');
+ Object.defineProperty(globalThis,'crypto',{configurable:true,value:{}});
+ try {
+  const tts={voice:'zh-CN-XiaoxiaoNeural',style:'general',speed:1.8,pitch:10};
+  const serialized=JSON.stringify(Object.keys(tts).sort().map(key=>[key,tts[key]]));
+  const expected=createHash('sha256').update(serialized).digest('hex');
+  const result=await measureH3VideoLines({
+   directorId:'d',
+   document:{video_source_hash:'h',video_source_revision:'r',director_cards:[{source_key:'a',source_text:'甲'}]},
+   tts,
+   synthesize:async()=>new Uint8Array([1]),
+   encode:async()=> 'AQ==',
+   measure:async body=>body,
+  });
+  assert.equal(result.tts_fingerprint,expected);
+ } finally {
+  if (cryptoDescriptor) Object.defineProperty(globalThis,'crypto',cryptoDescriptor);
+  else delete globalThis.crypto;
+ }
 });

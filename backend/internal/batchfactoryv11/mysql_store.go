@@ -447,6 +447,141 @@ func (s *MySQLStore) GetBatch(ctx context.Context, owner, id string) (Batch, err
 	return loadBatch(ctx, s.db, owner, id)
 }
 
+func (s *MySQLStore) DeleteBook(ctx context.Context, owner, batchID, bookID string) error {
+	if strings.TrimSpace(owner) == "" || strings.TrimSpace(batchID) == "" || strings.TrimSpace(bookID) == "" {
+		return ErrInvalid
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var one int
+	if err = tx.QueryRowContext(ctx, `SELECT 1 FROM batch_factory_v11_books WHERE id=? AND batch_id=? AND owner_username=? FOR UPDATE`, bookID, batchID, owner).Scan(&one); errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	} else if err != nil {
+		return err
+	}
+	if err = deleteBookTx(ctx, tx, owner, batchID, bookID); err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `UPDATE batch_factory_v11_batches SET revision=revision+1,updated_at=CURRENT_TIMESTAMP(6) WHERE id=? AND owner_username=?`, batchID, owner)
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *MySQLStore) DeleteBatch(ctx context.Context, owner, batchID string) error {
+	if strings.TrimSpace(owner) == "" || strings.TrimSpace(batchID) == "" {
+		return ErrInvalid
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var one int
+	if err = tx.QueryRowContext(ctx, `SELECT 1 FROM batch_factory_v11_batches WHERE id=? AND owner_username=? FOR UPDATE`, batchID, owner).Scan(&one); errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	} else if err != nil {
+		return err
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT id FROM batch_factory_v11_books WHERE batch_id=? AND owner_username=? FOR UPDATE`, batchID, owner)
+	if err != nil {
+		return err
+	}
+	var bookIDs []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		bookIDs = append(bookIDs, id)
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, bookID := range bookIDs {
+		if err := deleteBookTx(ctx, tx, owner, batchID, bookID); err != nil {
+			return err
+		}
+	}
+	for _, stmt := range []string{
+		`DELETE a FROM batch_factory_v11_external_audits a JOIN batch_factory_v11_external_intents i ON i.id=a.intent_id WHERE i.owner_username=? AND i.batch_id=?`,
+		`DELETE FROM batch_factory_v11_external_intents WHERE owner_username=? AND batch_id=?`,
+		`DELETE FROM batch_factory_v11_merge_sources WHERE owner_username=? AND job_id IN (SELECT id FROM batch_factory_v11_merge_jobs WHERE owner_username=? AND batch_id=?)`,
+		`DELETE FROM batch_factory_v11_merge_jobs WHERE owner_username=? AND batch_id=?`,
+		`DELETE FROM batch_factory_v11_settings_patches WHERE owner_username=? AND batch_id=?`,
+		`DELETE FROM batch_factory_v11_config_snapshots WHERE owner_username=? AND batch_id=?`,
+		`DELETE FROM batch_factory_v11_drafts WHERE owner_username=? AND scope=?`,
+		`DELETE FROM batch_factory_v11_batch_records WHERE batch_id=?`,
+		`DELETE FROM batch_factory_v11_batches WHERE id=? AND owner_username=?`,
+	} {
+		if err := execDeleteBatchStmt(ctx, tx, stmt, owner, batchID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func execDeleteBatchStmt(ctx context.Context, tx *sql.Tx, stmt, owner, batchID string) error {
+	args := []any{owner, batchID}
+	if strings.Contains(stmt, "merge_sources") {
+		args = []any{owner, owner, batchID}
+	}
+	if strings.Contains(stmt, "batch_records") {
+		args = []any{batchID}
+	}
+	if strings.Contains(stmt, "batches WHERE") {
+		args = []any{batchID, owner}
+	}
+	_, err := tx.ExecContext(ctx, stmt, args...)
+	return err
+}
+
+func deleteBookTx(ctx context.Context, tx *sql.Tx, owner, batchID, bookID string) error {
+	stmts := []string{
+		`DELETE a FROM batch_factory_v11_external_audits a JOIN batch_factory_v11_external_intents i ON i.id=a.intent_id WHERE i.owner_username=? AND i.batch_id=? AND i.book_id=?`,
+		`DELETE FROM batch_factory_v11_external_intents WHERE owner_username=? AND batch_id=? AND book_id=?`,
+		`DELETE FROM batch_factory_v11_hidden_production_tasks WHERE owner_username=? AND batch_id=? AND book_id=?`,
+		`DELETE e FROM batch_factory_v11_production_events e JOIN batch_factory_v11_production_jobs j ON j.id=e.job_id WHERE j.owner_username=? AND j.batch_id=? AND j.book_id=?`,
+		`DELETE t FROM batch_factory_v11_production_tasks t JOIN batch_factory_v11_production_jobs j ON j.id=t.job_id WHERE j.owner_username=? AND j.batch_id=? AND j.book_id=?`,
+		`DELETE FROM batch_factory_v11_production_jobs WHERE owner_username=? AND batch_id=? AND book_id=?`,
+		`DELETE FROM batch_factory_v11_book_stage_runs WHERE owner_username=? AND batch_id=? AND book_id=?`,
+		`DELETE FROM batch_factory_v11_settings_patches WHERE owner_username=? AND batch_id=? AND book_id=?`,
+		`DELETE o FROM batch_factory_v11_orphaned_overrides o JOIN batch_factory_v11_director_revisions d ON d.id=o.director_revision_id WHERE d.owner_username=? AND d.batch_id=? AND d.book_id=?`,
+		`DELETE l FROM batch_factory_v11_director_video_links l JOIN batch_factory_v11_director_revisions d ON d.id=l.director_revision_id WHERE d.owner_username=? AND d.batch_id=? AND d.book_id=?`,
+		`DELETE FROM batch_factory_v11_director_revisions WHERE owner_username=? AND batch_id=? AND book_id=?`,
+		`DELETE FROM batch_factory_v11_hook_revisions WHERE owner_username=? AND batch_id=? AND book_id=?`,
+		`DELETE i FROM batch_factory_v11_book_asset_images i JOIN batch_factory_v11_book_assets a ON a.id=i.asset_id WHERE a.owner_username=? AND a.batch_id=? AND a.book_id=?`,
+		`DELETE FROM batch_factory_v11_book_assets WHERE owner_username=? AND batch_id=? AND book_id=?`,
+		`DELETE FROM batch_factory_v11_drafts WHERE owner_username=? AND scope=?`,
+		`DELETE FROM batch_factory_v11_config_snapshots WHERE owner_username=? AND batch_id=? AND book_id=?`,
+		`DELETE FROM batch_factory_v11_video_records WHERE video_id IN (SELECT id FROM batch_factory_v11_videos WHERE owner_username=? AND batch_id=? AND book_id=?)`,
+		`DELETE FROM batch_factory_v11_videos WHERE owner_username=? AND batch_id=? AND book_id=?`,
+		`DELETE FROM batch_factory_v11_book_records WHERE book_id=?`,
+		`DELETE FROM batch_factory_v11_books WHERE id=? AND batch_id=? AND owner_username=?`,
+	}
+	for _, stmt := range stmts {
+		args := []any{owner, batchID, bookID}
+		if strings.Contains(stmt, "drafts") {
+			args = []any{owner, "working-front:" + bookID, batchID}
+		}
+		if strings.Contains(stmt, "book_records") {
+			args = []any{bookID}
+		}
+		if strings.Contains(stmt, "books WHERE") {
+			args = []any{bookID, batchID, owner}
+		}
+		if _, err := tx.ExecContext(ctx, stmt, args...); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 type batchQueryer interface {
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
 	QueryRowContext(context.Context, string, ...any) *sql.Row

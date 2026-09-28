@@ -298,6 +298,8 @@ type Store interface {
 	CreateBatch(context.Context, string, CreateBatchInput) (Batch, error)
 	ListBatches(context.Context, string) ([]Batch, error)
 	GetBatch(context.Context, string, string) (Batch, error)
+	DeleteBook(context.Context, string, string, string) error
+	DeleteBatch(context.Context, string, string) error
 	UpdateBookMetadata(context.Context, string, string, string, UpdateBookMetadataInput) (Book, error)
 	CaptureBookSource(context.Context, string, string, string, CaptureBookSourceInput) (Book, error)
 	SaveSettings(context.Context, string, ScopeRef, SettingsUpdate) (SettingsResult, error)

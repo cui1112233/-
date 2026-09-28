@@ -11,6 +11,7 @@ const (
 	VideoProviderPersonalAPI      = "personal_api"
 	VideoProviderDoubaoLocal      = "doubao_local_executor"
 	VideoProviderAutoDLH3         = "autodl_comfyui"
+	VideoProviderYFAISeedance     = "yfai_seedance"
 	PersonalVideoProviderID       = "yd_video"
 	DefaultPersonalVideoModel     = "yd2.0-mini"
 	DefaultPersonalVideoCreateURL = "https://ydapi.yadiai.cn/openapi/v1/video/create"
@@ -96,6 +97,18 @@ func (r *MemoryVideoProviderRegistry) Put(_ context.Context, owner string, cfg V
 		if strings.TrimSpace(cfg.TasksURL) == "" {
 			cfg.TasksURL = DefaultAutoDLH3TasksURL
 		}
+	case VideoProviderYFAISeedance:
+		cfg.APIKey = strings.TrimSpace(cfg.APIKey)
+		if cfg.APIKey == "" {
+			return fmt.Errorf("%w: YFAI Seedance API key is required", ErrInvalid)
+		}
+		cfg.Model = strings.TrimSpace(cfg.Model)
+		if cfg.Model == "" {
+			cfg.Model = "seedance-2-0-official"
+		}
+		if strings.TrimSpace(cfg.CreateURL) == "" {
+			cfg.CreateURL = "https://yf.token6688.com"
+		}
 	default:
 		return fmt.Errorf("%w: unsupported video provider", ErrInvalid)
 	}
@@ -142,6 +155,8 @@ func normalizeVideoProvider(provider string) string {
 		return VideoProviderDoubaoLocal
 	case "h3", "minimax_h3", "autodl", "autodl_comfyui", "autodl_comfyui_video", "minimax-h3-video":
 		return VideoProviderAutoDLH3
+	case "yfai", "yfai_seedance", "seedance-2-0-official":
+		return VideoProviderYFAISeedance
 	default:
 		return strings.ToLower(strings.TrimSpace(provider))
 	}
@@ -157,6 +172,8 @@ func VideoProviderForModel(modelID, fallback string) string {
 		return VideoProviderAutoDLH3
 	case "yd2-mini-video", "yd2.0-mini":
 		return VideoProviderPersonalAPI
+	case "seedance-2-0-official":
+		return VideoProviderYFAISeedance
 	case "local-doubao-executor-video", "doubao-seedance":
 		return VideoProviderDoubaoLocal
 	default:

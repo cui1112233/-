@@ -3,10 +3,11 @@ import { Modal, Spin, message } from 'antd';
 import { CommentaryWorkbench } from './shuihuo/CommentaryWorkbench';
 import { BatchFactoryNovelList } from './shuihuo/BatchFactoryNovelList';
 import { batchFactoryBatchFromResponse, batchFactoryCoverFrom, batchFactoryProjectsFrom, isBatchFactoryV11Project } from './shuihuo/batchFactoryProjects';
+import { batchFactoryMergeCoverFrom } from './shuihuo/batchFactoryMergeCover';
 import { ProjectsView } from './shuihuo/ProjectsView';
 import { AssetsView } from './shuihuo/AssetsView';
 import { confirmSegmentation, createProject, deleteProject, getProductionHealth, getProject, listModels, listProjects, paragraphSegmentation, replaceProjectSource, smartSegmentation } from '../../shared/api/shuihuoProduction';
-import { appendNovelFetchIntake, createBatchFromIntake, createManualIntake, getBatch, getIntake, getProductionStatus, listBatches, listBookAssetImages, listBookAssets, startBatchAutomation } from '../../shared/api/batchFactoryV11';
+import { appendNovelFetchIntake, classifyFetchedBatchMetadata, createBatchFromIntake, createManualIntake, deleteBatchFactoryProject, getBatch, getIntake, getMergeStatus, getProductionStatus, listBatches, startBatchAutomation } from '../../shared/api/batchFactoryV11';
 import { BATCH_FACTORY_ACTIVE_BATCH_STORAGE_KEY, novelFetchIntakeBooks, pendingNovelFetchIntakeId } from './shuihuo/batchFactoryNovelFetchHandoff';
 import './shuihuo-production.css';
 
@@ -97,21 +98,13 @@ export function ShuihuoProductionPage({ openBatchOnLoad = false }) {
 
       setProjects([...waterProjects, ...batchProjects]);
       const coveredProjects = await Promise.all(batchProjects.map(async project => {
-        const firstBook = project.batch?.books?.[0];
-        const [productionStatus, imageURL] = await Promise.all([
+        const [productionStatus, mergeStatus] = await Promise.all([
           getProductionStatus(project.batchId, { silent: true }).catch(() => null),
-          (async () => {
-            if (!firstBook?.id) return '';
-            const assetResult = await listBookAssets(project.batchId, firstBook.id, { silent: true }).catch(() => null);
-            for (const asset of assetResult?.assets || []) {
-              const imageResult = await listBookAssetImages(project.batchId, firstBook.id, asset.id, { silent: true }).catch(() => null);
-              const image = (imageResult?.images || []).find(item => item?.isPrimary && item?.url) || (imageResult?.images || []).find(item => item?.url);
-              if (image?.url) return image.url;
-            }
-            return '';
-          })()
+          getMergeStatus(project.batchId, { silent: true }).catch(() => null)
         ]);
-        return { ...project, coverMedia: batchFactoryCoverFrom(project.batch, productionStatus, imageURL) };
+        const productionCover = batchFactoryCoverFrom(project.batch, productionStatus);
+        const mergeCover = batchFactoryMergeCoverFrom(project.batch, mergeStatus);
+        return { ...project, coverMedia: productionCover || mergeCover };
       }));
       if (mountedRef.current) setProjects([...waterProjects, ...coveredProjects]);
     } catch (error) { message.error(error.message || '读取项目库失败'); } finally { setLoading(false); }
@@ -190,13 +183,29 @@ export function ShuihuoProductionPage({ openBatchOnLoad = false }) {
     setActiveBatchProject(batch);
     setView('batch-novels');
     await refreshProjects();
+    if (batch?.id) {
+      try {
+        const result = await classifyFetchedBatchMetadata(batch.id);
+        const rows = Array.isArray(result?.results) ? result.results : [];
+        const classified = rows.filter(item => item?.status === 'classified').length;
+        const failed = rows.filter(item => item?.status === 'failed').length;
+        if (classified) message.success(`已识别 ${classified} 本小说的男女频与风格`);
+        if (failed) message.warning(`${failed} 本小说的男女频与风格暂未识别，可在单书中重试；不影响生产。`);
+        const refreshed = batchFactoryBatchFromResponse(await getBatch(batch.id));
+        if (mountedRef.current) setActiveBatchProject(current => String(current?.id) === String(batch.id) ? refreshed : current);
+        await refreshProjects();
+      } catch (error) {
+        if (mountedRef.current) message.warning(`男女频与风格暂未识别：${error?.message || '可在单书中重试；不影响生产。'}`);
+      }
+    }
     if (input?.automationEnabled === true && batch?.id) {
       try {
         await startBatchAutomation(batch.id, {
           scheduledAt: input.scheduledAt || '',
           presetId: input.presetId || '',
           runMode: input.runMode || (input.autoPublishEnabled === true ? 'full_submit' : 'video_no_submit'),
-          autoPublish: input.autoPublishEnabled === true
+          autoPublish: input.autoPublishEnabled === true,
+          concurrency: input.automationConcurrency
         });
         message.success(input.scheduledAt ? `批量工程已创建，自动生产将在设定时间启动${input.autoPublishEnabled ? '，并自动上传视频管理系统' : ''}。` : `批量工程已创建并启动自动生产${input.autoPublishEnabled ? '，完成后将自动上传视频管理系统' : ''}。`);
       } catch (error) {
@@ -280,7 +289,8 @@ export function ShuihuoProductionPage({ openBatchOnLoad = false }) {
     // A delayed project read must not restore an item after it has been deleted.
     projectRequestRef.current += 1;
     try {
-      await deleteProject(project.id);
+      if (isBatchFactoryV11Project(project)) await deleteBatchFactoryProject(project.batchId);
+      else await deleteProject(project.id);
       if (activeProject?.project?.id === project.id) { setActiveProject(null); setView('projects'); }
       await refreshProjects();
       message.success('项目已删除');

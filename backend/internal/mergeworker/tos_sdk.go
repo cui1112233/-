@@ -3,6 +3,7 @@ package mergeworker
 import (
 	"context"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/volcengine/ve-tos-golang-sdk/v2/tos"
@@ -24,7 +25,7 @@ func NewTOSObjectStore(config TOSConfig) (*TOSObjectStore, error) {
 	config.AccessKey = strings.TrimSpace(config.AccessKey)
 	config.SecretKey = strings.TrimSpace(config.SecretKey)
 	config.PublicBaseURL = strings.TrimSpace(config.PublicBaseURL)
-	if config.Endpoint == "" || config.Region == "" || config.Bucket == "" || config.AccessKey == "" || config.SecretKey == "" || config.PublicBaseURL == "" {
+	if config.Endpoint == "" || config.Region == "" || config.Bucket == "" || config.AccessKey == "" || config.SecretKey == "" {
 		return nil, fmt.Errorf("TOS merge output configuration is incomplete")
 	}
 	client, err := tos.NewClientV2(
@@ -44,6 +45,13 @@ func NewTOSObjectStore(config TOSConfig) (*TOSObjectStore, error) {
 				FilePath:            filePath,
 			})
 			return err
+		},
+		OpenFile: func(ctx context.Context, key string) (io.ReadCloser, error) {
+			result, err := client.GetObjectV2(ctx, &tos.GetObjectV2Input{Bucket: config.Bucket, Key: key})
+			if err != nil {
+				return nil, err
+			}
+			return result.Content, nil
 		},
 	}, nil
 }

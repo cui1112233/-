@@ -1558,6 +1558,14 @@ function renderAiConfig(appCfg) {
   void loadTextModels(selectedId);
 }
 
+function renderTextModelReadOnly(modelId) {
+  const output = $("textModelReadOnly");
+  if (!output) return;
+  const id = String(modelId || "").trim();
+  const model = (state.textModels || []).find(item => String(item.id || item.modelId || "") === id);
+  output.textContent = model?.displayName || model?.name || model?.modelId || model?.id || id || "暂未选择";
+}
+
 async function persistSelectedTextModel(modelId) {
   const id = String(modelId || "").trim();
   if (!id || !state.config?.app_config) return null;
@@ -1570,6 +1578,7 @@ async function persistSelectedTextModel(modelId) {
     body: JSON.stringify({ app_config: { text_model_id: id } }),
   }).then(result => {
     if (result?.config) mergeConfigResponse({ ...state.config, ...result.config });
+    renderTextModelReadOnly(id);
     return result;
   }).catch(error => {
     if (state.config?.app_config?.text_model_id === id) state.config.app_config.text_model_id = "";
@@ -1594,6 +1603,7 @@ async function loadTextModels(selectedId = "") {
       select.innerHTML = '<option value="">暂无可用文本模型，请先在 API 配置中启用</option>';
       select.value = "";
       if (status) status.textContent = "暂无已启用的文本模型";
+      renderTextModelReadOnly("");
       return;
     }
     for (const model of models) {
@@ -1606,6 +1616,7 @@ async function loadTextModels(selectedId = "") {
       ? String(selectedId)
       : String(models[0].id || models[0].modelId || "");
     select.value = value;
+    renderTextModelReadOnly(value);
     if (value && String(selectedId || "") !== value) {
       void persistSelectedTextModel(value).catch(error => {
         if (status) status.textContent = `保存文本模型失败：${error.message || "请稍后重试"}`;
@@ -1615,6 +1626,7 @@ async function loadTextModels(selectedId = "") {
   } catch (error) {
     select.innerHTML = `<option value="">读取文本模型失败</option>`;
     if (status) status.textContent = `读取模型失败：${error.message || "请稍后重试"}`;
+    renderTextModelReadOnly("");
   }
 }
 
@@ -3297,24 +3309,37 @@ async function transferSelectedToBatchFactory() {
     const details = await Promise.all(ids.map(id => api(`/api/tasks/${encodeURIComponent(id)}`)));
     const items = details.flatMap((detail, index) => {
       const meta = detail?.meta || {};
-      const sourceText = String(detail?.original || "").trim();
-      if (!sourceText) return [];
       const sourceTaskId = String(meta.book_id || ids[index]).trim();
       const bookId = String(meta.book_id || ids[index]).trim();
       if (!sourceTaskId || !bookId) return [];
-      return [{
-        sourceTaskId,
-        bookId,
-        title: String(meta.book_name || bookId).trim(),
-        platform: String(meta.platform_name || "").trim(),
-        sourceText,
-        txtText: sourceText,
-        sourceMetadata: meta,
-      }];
+      const baseTitle = String(meta.book_name || bookId).trim();
+      const versions = [{ version: "original", text: detail?.original }]
+        .concat(Array.isArray(detail?.ai_texts) ? detail.ai_texts : []);
+      const seenVersions = new Set();
+      return versions.flatMap(item => {
+        const version = String(item?.version || item?.name || "").trim().toLowerCase();
+        const sourceText = String(item?.text || "").trim();
+        if (!version || !sourceText || seenVersions.has(version)) return [];
+        seenVersions.add(version);
+        return [{
+          sourceTaskId,
+          bookId,
+          title: version === "original" ? baseTitle : `${version.toUpperCase()}·${baseTitle}`,
+          platform: String(meta.platform_name || "").trim(),
+          sourceText,
+          txtText: sourceText,
+          sourceMetadata: { ...meta, sourceContentVersion: version },
+        }];
+      });
     });
-    const skipped = ids.length - items.length;
+    const transferredTaskCount = details.filter(detail => {
+      const hasOriginal = Boolean(String(detail?.original || "").trim());
+      const hasAiVersion = Array.isArray(detail?.ai_texts) && detail.ai_texts.some(item => String(item?.text || "").trim());
+      return hasOriginal || hasAiVersion;
+    }).length;
+    const skipped = ids.length - transferredTaskCount;
     if (!items.length) throw new Error("选中的任务都没有可用原文，请先完成原文获取");
-    const result = await platformApi("/api/batch-factory/v11/intakes/novel-fetch", {
+    const result = await platformApi("/api/batch-factory/v12/intakes/novel-fetch", {
       method: "POST",
       body: JSON.stringify({
         books: items.map(item => ({
@@ -3336,10 +3361,14 @@ async function transferSelectedToBatchFactory() {
       }),
     });
     const intakeId = String(result?.intake?.id || "").trim();
-    const redirectTo = result.redirectTo || (intakeId ? `/batch-factory?intake=${encodeURIComponent(intakeId)}` : "");
-    if (!redirectTo) throw new Error("V11 Intake 创建成功但未返回跳转地址");
+    const redirectTo = intakeId ? `/shuihuo-production?intake=${encodeURIComponent(intakeId)}` : "";
+    if (!redirectTo) throw new Error("小说获取交接创建成功但未返回交接编号");
     setBatchStatus(`已转入 ${items.length} 本${skipped ? `, 跳过 ${skipped} 本未完成任务` : ""}`);
-    window.parent.postMessage({ type: "qiantie:batch-factory-intake", redirectTo }, window.location.origin);
+    if (window.parent !== window) {
+      window.parent.postMessage({ type: "qiantie:batch-factory-intake", intakeId, redirectTo }, window.location.origin);
+    } else {
+      window.location.assign(redirectTo);
+    }
   } catch (error) {
     setBatchStatus(error.message || "转入批量工厂失败");
   } finally {

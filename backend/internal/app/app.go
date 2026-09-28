@@ -10,6 +10,7 @@ import (
 	"qiantie/backend/internal/httpapi"
 	"qiantie/backend/internal/localartifact"
 	"qiantie/backend/internal/localexecutor"
+	"qiantie/backend/internal/mergeworker"
 	"qiantie/backend/internal/novelfetchworkshop"
 	"qiantie/backend/internal/storage"
 	"strings"
@@ -67,9 +68,18 @@ func Build(ctx context.Context, cfg config.Config, db *sql.DB, register func(*ht
 		}
 	}
 	var merge *batchfactoryv11.MergeService
+	var mergeOutput *mergeworker.TOSObjectStore
 	if cfg.Slice >= 5 {
 		if cfg.LocalMergeEnabled {
 			adapter := batchfactoryv11.NewLocalMergeAdapter(artifactStore)
+			if strings.TrimSpace(cfg.MergeTOSEndpoint) != "" || strings.TrimSpace(cfg.MergeTOSBucket) != "" {
+				var err error
+				mergeOutput, err = mergeworker.NewTOSObjectStore(mergeworker.TOSConfig{Endpoint: cfg.MergeTOSEndpoint, Region: cfg.MergeTOSRegion, Bucket: cfg.MergeTOSBucket, AccessKey: cfg.MergeTOSAccessKey, SecretKey: cfg.MergeTOSSecretKey, PublicBaseURL: cfg.MergeTOSPublicBaseURL})
+				if err != nil {
+					return nil, err
+				}
+				adapter.Output = mergeOutput
+			}
 			merge = &batchfactoryv11.MergeService{Store: store, Adapter: adapter, Poller: adapter, DurationProbe: batchfactoryv11.HTTPVideoDurationProbe{}, Enabled: true}
 		} else {
 			adapter := &batchfactoryv11.HTTPMergeAdapter{Endpoint: cfg.MergeEndpoint, PollEndpoint: cfg.MergePollEndpoint, APIKey: cfg.MergeAPIKey}
@@ -107,5 +117,5 @@ func Build(ctx context.Context, cfg config.Config, db *sql.DB, register func(*ht
 			Key:     cfg.ExternalCredentialsKey,
 		}
 	}
-	return httpapi.NewRouter(httpapi.RouterOptions{BridgeSecret: cfg.BridgeSecret, ReleaseSHA: cfg.ReleaseSHA, Users: storage.BridgeUsers{DB: db}, Slice: cfg.Slice, Store: store, Director: director, Compiler: compiler, Production: production, Merge: merge, External: externalPublish, NovelFetchStore: novelFetchStore, LocalExecutors: localExecutorService, LocalArtifacts: artifactStore, RegisterV11: register}), nil
+	return httpapi.NewRouter(httpapi.RouterOptions{BridgeSecret: cfg.BridgeSecret, ReleaseSHA: cfg.ReleaseSHA, Users: storage.BridgeUsers{DB: db}, Slice: cfg.Slice, Store: store, Director: director, Compiler: compiler, Production: production, Merge: merge, MergeOutput: mergeOutput, External: externalPublish, NovelFetchStore: novelFetchStore, LocalExecutors: localExecutorService, LocalArtifacts: artifactStore, RegisterV11: register}), nil
 }

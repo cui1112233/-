@@ -77,6 +77,23 @@ function normalizeAvatar(value, fallback = null) {
   return emoji && background ? { emoji, background } : fallback;
 }
 
+function normalizeScriptDefaults(value, fallback = {}) {
+  const imageAspectRatio = ['16:9', '9:16', '1:1'].includes(value?.imageAspectRatio)
+    ? value.imageAspectRatio : (['16:9', '9:16', '1:1'].includes(fallback?.imageAspectRatio) ? fallback.imageAspectRatio : '9:16');
+  const videoAspectRatio = ['16:9', '9:16'].includes(value?.videoAspectRatio)
+    ? value.videoAspectRatio : (['16:9', '9:16'].includes(fallback?.videoAspectRatio) ? fallback.videoAspectRatio : '9:16');
+  const videoResolution = ['480p', '720p', '1080p'].includes(value?.videoResolution)
+    ? value.videoResolution : (['480p', '720p', '1080p'].includes(fallback?.videoResolution) ? fallback.videoResolution : '720p');
+  return {
+    textModelId: typeof value?.textModelId === 'string' ? value.textModelId.trim() : String(fallback?.textModelId || ''),
+    imageModelId: typeof value?.imageModelId === 'string' ? value.imageModelId.trim() : String(fallback?.imageModelId || ''),
+    videoModelKey: typeof value?.videoModelKey === 'string' ? value.videoModelKey.trim() : String(fallback?.videoModelKey || ''),
+    imageAspectRatio,
+    videoAspectRatio,
+    videoResolution
+  };
+}
+
 function apiManagementState(req, memberStore, accountStore) {
   const member = memberStore?.getMember?.(req.username);
   const owner = req.auth?.account?.isOwner === true
@@ -271,6 +288,7 @@ function createConfigRouter({
     config.tts = normalizeTtsConfig(config.tts);
     config.notifications = normalizeNotifications(config.notifications);
     config.avatar = normalizeAvatar(config.avatar);
+    config.scriptDefaults = normalizeScriptDefaults(config.scriptDefaults);
     config.productionRetentionDays = normalizeProductionRetentionDays(config.productionRetentionDays);
     const { member, canManageApi } = apiManagementState(req, memberStore, accountStore);
     if (!canManageApi) return res.json(managedPublicConfig(config, member));
@@ -298,7 +316,8 @@ function createConfigRouter({
         pet: normalizePetConfig(body.pet, oldConfig.pet),
         tts: normalizeTtsConfig(body.tts, oldConfig.tts),
         notifications: normalizeNotifications(body.notifications, oldConfig.notifications),
-        avatar: normalizeAvatar(body.avatar, oldConfig.avatar)
+        avatar: normalizeAvatar(body.avatar, oldConfig.avatar),
+        scriptDefaults: normalizeScriptDefaults(body.scriptDefaults, oldConfig.scriptDefaults)
       };
       configWriter(req.username, nextConfig);
       return res.json(managedPublicConfig(nextConfig, member));
@@ -315,7 +334,8 @@ function createConfigRouter({
       pet: normalizePetConfig(body.pet, oldConfig.pet),
       tts: normalizeTtsConfig(body.tts, oldConfig.tts),
       notifications: normalizeNotifications(body.notifications, oldConfig.notifications),
-      avatar: normalizeAvatar(body.avatar, oldConfig.avatar)
+      avatar: normalizeAvatar(body.avatar, oldConfig.avatar),
+      scriptDefaults: normalizeScriptDefaults(body.scriptDefaults, oldConfig.scriptDefaults)
     };
     if (shuihuoGateway) {
       try {
@@ -336,4 +356,4 @@ function createConfigRouter({
   return router;
 }
 
-module.exports = { createConfigRouter, normalizePetConfig, normalizeTtsConfig, normalizeNotifications, normalizeAvatar, managedPublicConfig, defaultExecutorPairingStatus };
+module.exports = { createConfigRouter, normalizePetConfig, normalizeTtsConfig, normalizeNotifications, normalizeAvatar, normalizeScriptDefaults, managedPublicConfig, defaultExecutorPairingStatus };

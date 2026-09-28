@@ -42,6 +42,14 @@ func NewStore(root string, maxBytes int64) *Store {
 	return &Store{root: filepath.Clean(root), maxBytes: maxBytes}
 }
 
+// Root returns the private directory that is mounted for local artifacts.
+func (s *Store) Root() string {
+	if s == nil {
+		return ""
+	}
+	return s.root
+}
+
 func (s *Store) SaveMP4(id string, src io.Reader) (artifact Artifact, err error) {
 	if s == nil || !safeArtifactID.MatchString(id) || src == nil {
 		return Artifact{}, ErrInvalidID
@@ -231,4 +239,18 @@ func (s *Store) Open(storageRef string) (*os.File, error) {
 		return nil, ErrInvalidID
 	}
 	return os.Open(filepath.Join(s.root, storageRef))
+}
+
+// Path returns a verified, root-confined artifact path for an uploader. It
+// never accepts traversal or a missing object, so callers cannot upload an
+// arbitrary server file by crafting a storage reference.
+func (s *Store) Path(storageRef string) (string, error) {
+	if s == nil || filepath.Base(storageRef) != storageRef {
+		return "", ErrInvalidID
+	}
+	path := filepath.Join(s.root, storageRef)
+	if _, err := os.Stat(path); err != nil {
+		return "", err
+	}
+	return path, nil
 }

@@ -9,6 +9,8 @@ const read = file => fs.readFileSync(path.join(root, file), 'utf8');
 test('V2 page injects a shared runtime before feature scripts', () => {
   const fs = require('node:fs');
   const page = read('lib/novel-fetch-workshop/v2-page.js');
+  assert.match(page, /'frontend', 'public', 'batch-rewrite', 'index\.html'/);
+  assert.match(page, /fs\.existsSync\(trackedIndexPath\) \? trackedIndexPath : distIndexPath/);
   assert.match(page, /v78-novel-fetch-v2-runtime\.js/);
   assert.match(page, /qiantie-novel-fetch-runtime/);
   assert.match(page, /APP_SCRIPT_TAG_RE/);
@@ -19,7 +21,8 @@ test('V2 page injects a shared runtime before feature scripts', () => {
   assert.ok(injected.indexOf('v78-novel-fetch-v2-runtime.js') < injected.indexOf('app.js?v='));
   assert.ok(injected.indexOf('app.js?v=20260922-retry-progress-r1') < injected.indexOf('v78-novel-fetch-v2.js'));
   assert.match(injected, /app\.js\?v=20260922-retry-progress-r1/);
-  assert.match(injected, /v78-novel-fetch-v2\.js\?v=20260922-retry-progress-r1/);
+  assert.match(injected, /v78-novel-fetch-v2\.js\?v=20260925-processing-flow-r1/);
+  assert.match(injected, /v78-novel-fetch-v2-run-controls\.js\?v=20260925-text-model-layout-r2/);
 });
 
 test('runtime provides single-flight requests and activity-aware polling', () => {
@@ -149,6 +152,55 @@ test('V2 parsed-book selections synchronize with the network-submit task selecti
   assert.match(app, /state\.selectedIds = new Set/);
   assert.match(app, /qiantieSubmitSelectedTasks = ids => void submitWebSubmit\("selected", ids\)/);
   assert.match(app, /webSubmitRequestPayload\(mode, force = false, explicitIds = null/);
+});
+
+test('manual start is captured by the V2 workflow so the legacy handler cannot append work to the queue tail', () => {
+  const client = read('public/batch-rewrite/v78-novel-fetch-v2.js');
+  assert.match(client, /function bindV2ProcessButton\(button\)/);
+  assert.match(client, /button\.addEventListener\('click',\s*event\s*=>\s*\{/);
+  assert.match(client, /event\.stopImmediatePropagation\(\)/);
+  assert.match(client, /void startSelectedProcessing\(\)/);
+});
+
+test('processing controls mount the saved text-model selector beside platform input', () => {
+  const client = read('public/batch-rewrite/v78-novel-fetch-v2.js');
+  const controls = read('public/batch-rewrite/v78-novel-fetch-v2-run-controls.js');
+  const html = read('frontend/public/batch-rewrite/index.html');
+  assert.match(controls, /v78RunTextModel/);
+  assert.match(controls, /window\.persistSelectedTextModel/);
+  assert.match(html, /id="v78BatchInputControls"/);
+  assert.match(controls, /v78BatchInputControls/);
+  assert.match(controls, /controls\.appendChild\(label\)/);
+  assert.match(client, /text_model_id:\s*\(byId\('v78RunTextModel'\)\?\.value \|\| byId\('v78ProcessingTextModel'\)/);
+});
+
+test('AI interface configuration mirrors the selected model without a second editable selector', () => {
+  const html = read('frontend/public/batch-rewrite/index.html');
+  const app = read('frontend/public/batch-rewrite/app.js');
+  assert.match(html, /id="textModelReadOnly"/);
+  assert.match(html, /请在处理页顶部切换/);
+  assert.match(html, /id="textModelSelect"[^>]*class="hidden"/);
+  assert.match(app, /renderTextModelReadOnly/);
+});
+
+test('V2 serves tracked custom controls before stale frontend build artifacts', () => {
+  const app = read('app.js');
+  const customStatic = "app.use('/batch-rewrite', express.static(path.join(PUBLIC_DIR, 'batch-rewrite')";
+  const frontendPublicStatic = "app.use('/batch-rewrite', express.static(path.join(__dirname, 'frontend', 'public', 'batch-rewrite')";
+  const distStatic = "app.use('/batch-rewrite', express.static(path.join(frontendDist, 'batch-rewrite')";
+  assert.ok(app.indexOf(customStatic) >= 0, 'tracked batch-rewrite assets need a dedicated static mount');
+  assert.ok(app.indexOf(frontendPublicStatic) >= 0, 'tracked frontend page assets need a dedicated static mount');
+  assert.ok(app.indexOf(distStatic) >= 0, 'frontend build remains the fallback asset mount');
+  assert.ok(app.indexOf(customStatic) < app.indexOf(distStatic), 'tracked custom assets must win over stale frontend dist copies');
+  assert.ok(app.indexOf(frontendPublicStatic) < app.indexOf(distStatic), 'tracked frontend assets must win over stale frontend dist copies');
+});
+
+test('task page exposes queue summary scopes and current-job progress', () => {
+  const client = read('public/batch-rewrite/v78-novel-fetch-v2.js');
+  assert.match(client, /v78QueueSummary/);
+  assert.match(client, /当前批次/);
+  assert.match(client, /历史未完成/);
+  assert.match(client, /seenProgressKeys/);
 });
 
 test('network submit rejects an empty selected-task request instead of reporting zero groups complete', () => {

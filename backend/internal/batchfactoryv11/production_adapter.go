@@ -87,12 +87,12 @@ func (a *HTTPVideoAdapter) Submit(ctx context.Context, model FrozenVideoModel, p
 		"model":       a.Model,
 		"prompt":      prompt.CompiledPrompt,
 		"duration":    duration,
-		"aspectRatio": rawString(values, "aspectRatio", "9:16"),
+		"aspectRatio": EffectiveVideoAspectRatio(values),
 	}
 	if len(prompt.ReferenceImageURLs) > 0 {
 		payload["referenceImageUrls"] = prompt.ReferenceImageURLs
 	}
-	if resolution := rawString(values, "resolution", ""); resolution != "" {
+	if resolution := EffectiveVideoResolution(values); resolution != "" {
 		payload["resolution"] = resolution
 	}
 	body, err := json.Marshal(payload)

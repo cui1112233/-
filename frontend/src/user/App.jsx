@@ -47,7 +47,7 @@ function getPage(pathname) {
     '/history': HistoryPage,
     '/novel-panel': NovelPanelPage,
     '/agent': AgentPage,
-    '/shuihuo-production': BatchFactoryWorkbenchPage,
+    '/shuihuo-production': ShuihuoProductionPage,
     '/shuihuo-production/creative': ShuihuoProductionPage,
     '/tts': TtsPage,
     '/settings': SettingsPage,

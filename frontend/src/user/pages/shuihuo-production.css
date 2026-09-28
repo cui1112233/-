@@ -546,6 +546,19 @@ body.batch-factory-column-resizing, body.batch-factory-column-resizing * { curso
 .batch-factory-create-toolbar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:12px 0; }
 .batch-factory-create-toolbar .ant-btn { min-width:84px; }
 .shuihuo-create-project-modal .batch-factory-create-toolbar + .ant-alert { margin-top:0; }
+/* 书城分组标签：暗色主题下的高对比配色，沿用站点既有标签色板 */
+.batch-factory-platform-groups { display:flex; flex-wrap:wrap; gap:8px; margin:10px 0 4px; }
+.batch-factory-platform-groups .platform-group-tag.ant-tag { margin-inline-end:0; padding:3px 10px; font-size:13px; line-height:20px; color:#82e4c6; border-color:#3b7167; border-radius:6px; background:#183a39; user-select:none; }
+.batch-factory-platform-groups .platform-group-tag.ant-tag:hover { color:#a8f0d8; border-color:#4d968a; }
+.batch-factory-platform-groups .platform-group-tag .ant-tag-close-icon { color:#82e4c6; }
+.batch-factory-platform-groups .platform-group-tag .ant-tag-close-icon:hover { color:#d7fff0; }
+/* 编辑中的标签用琥珀色高亮，和普通标签明显区分 */
+.batch-factory-platform-groups .platform-group-tag.is-editing.ant-tag { color:#ffd666; border-color:#8a6d3b; background:#3a2f14; }
+.batch-factory-platform-groups .platform-group-tag.is-editing .ant-tag-close-icon { color:#ffd666; }
+[data-theme='light'] .batch-factory-platform-groups .platform-group-tag.ant-tag { color:#0f6b54; border-color:#7cc3b2; background:#d9efe9; }
+[data-theme='light'] .batch-factory-platform-groups .platform-group-tag .ant-tag-close-icon { color:#0f6b54; }
+[data-theme='light'] .batch-factory-platform-groups .platform-group-tag.is-editing.ant-tag { color:#8a5a00; border-color:#caa14f; background:#f7ecd0; }
+[data-theme='light'] .batch-factory-platform-groups .platform-group-tag.is-editing .ant-tag-close-icon { color:#8a5a00; }
 .batch-factory-log-list { display:grid; gap:10px; margin-top:14px; max-height:500px; overflow:auto; }
 .batch-factory-log-list section { display:grid; gap:4px; padding:12px; border:1px solid var(--sh-line); border-radius:8px; color:var(--sh-muted); }
 .batch-factory-log-list strong { color:var(--sh-text); }
@@ -2065,6 +2078,9 @@ body.batch-factory-column-resizing, body.batch-factory-column-resizing * { curso
   transition:transform .38s cubic-bezier(.18,.82,.18,1.04);
   will-change:transform;
 }
+.batch-factory-media-bottom-sheet.is-precompiled-collapsed {
+  height:56px;
+}
 [data-theme='light'] .batch-factory-media-bottom-sheet {
   box-shadow:0 -18px 42px rgba(38,54,75,.16);
 }
@@ -3330,3 +3346,21 @@ body.shuihuo-reference-shell
 }
 
 /* BF_ASSET_VERTICAL_ALIGN_AND_WORKBENCH_FILL_END */
+
+/* 上传确认弹窗的会话状态必须在深色工作台中保持可读。 */
+.batch-factory-publish-session-tag.ant-tag {
+  margin: 0;
+  font-weight: 700;
+}
+
+.batch-factory-publish-session-tag.is-unverified {
+  color: #ffd4cf !important;
+  border-color: #a94035 !important;
+  background: #4a1718 !important;
+}
+
+.batch-factory-publish-session-tag.is-ready {
+  color: #82e4c6 !important;
+  border-color: #3b7167 !important;
+  background: #183a39 !important;
+}

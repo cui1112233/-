@@ -10,6 +10,7 @@ const {
   directorVisualBaselineRequired,
   styleSystemBookPath,
   analyzeBatchFactorySmartUnifiedStyle,
+  acquireBatchFactorySmartUnifiedBaseline,
   needsPersonalConfigSync,
   needsH3ConfigSync,
   redactBatchFactorySystemPromptBodies,
@@ -17,9 +18,13 @@ const {
   batchFactory121PublishPath,
   batchFactory121OrganizationsPath,
   organizationOptions,
+  resolveBatchFactory121Session,
+  mpegAudioDurationSeconds,
   automationPublishSettings,
   submitBatchFactoryBookTo121,
   classifyBatchFactoryBookFor121,
+  resolveBatchFactoryBookClassificationTextProvider,
+  classificationFailureMetadata,
   parseBatchBookClassification,
   ensureBatchFactory121ResubmissionAllowed,
   persisted121PublicationMetadata,
@@ -27,6 +32,95 @@ const {
   safeAutomationStatus,
   splitVideoPresetBody
 } = require('./batch-factory-v11');
+
+test('keeps a V12 book submission on the Node-owned 121 publisher', () => {
+  assert.deepEqual(
+    batchFactory121PublishPath('/api/batch-factory/v12/batches/batch-1/books/book-1/publish-121'),
+    { batchId: 'batch-1', bookId: 'book-1' }
+  );
+});
+
+test('uses the first enabled text model to classify a newly imported book without batch settings', () => {
+  const provider = resolveBatchFactoryBookClassificationTextProvider(
+    { username: 'alice', body: {} },
+    { settingsState: { patch: {} } },
+    { settingsState: { patch: {} } },
+    {
+      memberStore: { getMember: username => ({ username, active: true, role: 'manager' }) },
+      configReader: () => ({ modelCatalog: [{ id: 'text-auto', kind: 'text', enabled: true, baseUrl: 'https://text.example/v1', modelId: 'gpt-classifier', credential: 'classify-key', displayName: '自动分类模型' }] })
+    }
+  );
+  assert.deepEqual(provider, {
+    endpoint: 'https://text.example/v1/chat/completions',
+    apiKey: 'classify-key',
+    model: 'gpt-classifier',
+    displayName: '自动分类模型'
+  });
+});
+
+test('keeps existing publication fields while persisting a visible classification failure', () => {
+  const metadata = classificationFailureMetadata({
+    gender: '女频', style: '现代甜文', tags: '追妻', classifyStatus: 'classified'
+  }, new Error('请先在单书配置或引擎配置中选择已启用的文本模型'), () => new Date('2026-09-25T10:00:00.000Z'));
+
+  assert.deepEqual(metadata, {
+    gender: '女频',
+    style: '现代甜文',
+    tags: '追妻',
+    classifyStatus: 'failed',
+    classifyError: '请先在单书配置或引擎配置中选择已启用的文本模型',
+    classifyAt: '2026-09-25T10:00:00.000Z'
+  });
+});
+
+test('resolves the selected Seedance model instead of reusing the YD credential', () => {
+  const { resolveBatchVideoProviderConfig } = require('./batch-factory-v11');
+  const config = resolveBatchVideoProviderConfig('owner', 'seedance-2-0-official', {
+    accountStore: { getInternalAccount: () => ({ isOwner: true }) },
+    configReader: () => ({ modelCatalog: [
+      { id: 'yd2-mini-video', kind: 'video', enabled: true, adapterKind: 'openai_video', credential: 'yd-key' },
+      { id: 'seedance-2-0-official', kind: 'video', enabled: true, adapterKind: 'yfai_seedance', baseUrl: 'https://yf.token6688.com', modelId: 'seedance-2-0-official', credential: 'seedance-key' }
+    ] })
+  });
+  assert.deepEqual(config, { provider: 'yfai_seedance', model: 'seedance-2-0-official', apiKey: 'seedance-key', baseUrl: 'https://yf.token6688.com' });
+});
+
+test('uses the bound manager video credential for an authorized member on the legacy personal provider', () => {
+  const { resolveBatchVideoProviderConfig } = require('./batch-factory-v11');
+  const config = resolveBatchVideoProviderConfig('member', 'yd2-mini-video', {
+    memberStore: {
+      getMember(username) {
+        return username === 'member'
+          ? { username, active: true, role: 'member', boundTo: 'manager' }
+          : { username, active: true, role: 'manager' };
+      },
+      canUseApi: () => true
+    },
+    accountStore: { getInternalAccount: () => ({ isOwner: false }) },
+    configReader: username => username === 'manager'
+      ? { modelCatalog: [{ id: 'yd2-mini-video', kind: 'video', enabled: true, adapterKind: 'openai_video', credential: 'manager-video-key' }] }
+      : { modelCatalog: [] }
+  });
+  assert.deepEqual(config, { provider: 'personal_api', model: 'yd2.0-mini', apiKey: 'manager-video-key' });
+});
+
+test('reads the real duration from MPEG audio frames used by automatic planning', () => {
+  const frameLength = Math.floor((144000 * 128) / 44100);
+  const frame = Buffer.alloc(frameLength);
+  frame.writeUInt32BE(0xfffb9000, 0);
+  const seconds = mpegAudioDurationSeconds(Buffer.concat(Array.from({ length: 10 }, () => frame)));
+  assert.ok(Math.abs(seconds - ((10 * 1152) / 44100)) < 0.002);
+});
+
+test('Batch Factory 121 session auto-recovers through the shared durable login service', async () => {
+  const calls = [];
+  const session = await resolveBatchFactory121Session('alice', {
+    sessionStore: { getSession: () => null, getBrowserSession: () => null },
+    webSubmit: { async ensureSession(owner) { calls.push(owner); return { request: { sessionKey: 'PHPSESSID=renewed' } }; } }
+  });
+  assert.deepEqual(calls, ['alice']);
+  assert.equal(session.cookie, 'PHPSESSID=renewed');
+});
 
 test('style.system runs during asset extraction but never when a director stage is requested', () => {
   const assetPath = '/api/batch-factory/v11/batches/batch-1/books/book-1/stages/assets';
@@ -220,7 +314,7 @@ test('uses the runtime fetch when V11 helper receives no injected fetch', async 
   }
 });
 
-test('asset preparation analyses style.system even when smart-unified display is off', async () => {
+test('asset preparation skips style.system when smart-unified is disabled', async () => {
   const calls = [];
   const fields = {
     imageMedium: '真人数字电影短剧', captureProcess: '数字电影摄影', grainTexture: '细腻胶片颗粒',
@@ -228,9 +322,9 @@ test('asset preparation analyses style.system even when smart-unified display is
     contrast: '中等对比', saturation: '低饱和', lightingHierarchy: '层次化侧逆光',
     narrativeComposition: '人物关系优先', atmosphere: '克制悬疑'
   };
-  const style = await analyzeBatchFactorySmartUnifiedStyle({
+  const style = await acquireBatchFactorySmartUnifiedBaseline({
     username: 'alice', batchId: 'batch-1', bookId: 'book-1', goBaseUrl: 'http://go.local', bridgeSecret: 'secret',
-    textProvider: { endpoint: 'http://text.local/v1/chat/completions', apiKey: 'key', model: 'text-model' },
+    textProviders: [{ id: 'text-model', endpoint: 'http://text.local/v1/chat/completions', apiKey: 'key', model: 'text-model' }],
     fetchImpl: async (url, init = {}) => {
       calls.push({ url, init });
       if (init.method === 'GET') {
@@ -250,8 +344,47 @@ test('asset preparation analyses style.system even when smart-unified display is
       return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(fields) } }] }), { status: 200 });
     }
   });
-  assert.equal(calls.length, 2);
-  assert.match(style, /影像媒介：真人数字电影短剧/);
+  assert.equal(calls.length, 1);
+  assert.equal(style.style, '');
+  assert.equal(style.skipped, true);
+});
+
+test('smart-unified falls back to another enabled text model after an upstream failure', async () => {
+  const fields = { final_genre: '现代都市短剧', genre: '现代都市短剧', trailer_style: '高级电影感', story_era: '当代都市', negative_prompt: '无畸形', picture_limit_prompt: '无字幕', quality_constraint_prompt: '画面稳定' };
+  const calls = [];
+  const result = await acquireBatchFactorySmartUnifiedBaseline({
+    username: 'alice', batchId: 'batch-1', bookId: 'book-1', goBaseUrl: 'http://go.local', bridgeSecret: 'secret', force: true,
+    textProviders: [
+      { id: 'primary', endpoint: 'http://primary.local/v1/chat/completions', apiKey: 'one', model: 'primary', displayName: '主模型' },
+      { id: 'backup', endpoint: 'http://backup.local/v1/chat/completions', apiKey: 'two', model: 'backup', displayName: '备用模型' }
+    ],
+    fetchImpl: async (url, init = {}) => {
+      calls.push(url);
+      if (init.method === 'GET') return new Response(JSON.stringify({ batch: { id: 'batch-1', settingsState: { patch: { aiPromptConfig: { constraints: { selections: [{ presetId: 'script-constraint-prefix-smart-unified', constraintCategory: 'prefix' }] } } } }, books: [{ id: 'book-1', sourceText: '完整原文', settingsState: { patch: {} }, assetRecords: [] }] } }), { status: 200 });
+      if (url.startsWith('http://primary.local')) return new Response(JSON.stringify({ error: { message: 'temporary unavailable' } }), { status: 502 });
+      if (url.startsWith('http://backup.local')) return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(fields) } }] }), { status: 200 });
+      if (init.method === 'PUT') return new Response(JSON.stringify({ book: { id: 'book-1', revision: 2 } }), { status: 200 });
+      throw new Error(`unexpected ${url}`);
+    }
+  });
+  assert.equal(result.provider.id, 'backup');
+  assert.match(result.style, /现代都市短剧/);
+  assert.deepEqual(result.attempts.map(item => item.status), ['failed', 'succeeded']);
+});
+
+test('smart-unified failure is non-blocking after every enabled model fails', async () => {
+  const result = await acquireBatchFactorySmartUnifiedBaseline({
+    username: 'alice', batchId: 'batch-1', bookId: 'book-1', goBaseUrl: 'http://go.local', bridgeSecret: 'secret', force: true,
+    textProviders: [{ id: 'primary', endpoint: 'http://primary.local/v1/chat/completions', apiKey: 'one', model: 'primary' }],
+    fetchImpl: async (_url, init = {}) => {
+      if (init.method === 'GET') return new Response(JSON.stringify({ batch: { id: 'batch-1', settingsState: { patch: { aiPromptConfig: { constraints: { selections: [{ presetId: 'script-constraint-prefix-smart-unified', constraintCategory: 'prefix' }] } } } }, books: [{ id: 'book-1', sourceText: '完整原文', settingsState: { patch: {} }, assetRecords: [] }] } }), { status: 200 });
+      return new Response(JSON.stringify({ error: { message: 'temporary unavailable' } }), { status: 502 });
+    }
+  });
+  assert.equal(result.style, '');
+  assert.equal(result.nonBlocking, true);
+  assert.equal(result.attempts.length, 1);
+  assert.match(result.attempts[0].message, /temporary unavailable/);
 });
 
 test('asset preparation accepts style.system JSON wrapped in a model explanation', async () => {
@@ -328,6 +461,30 @@ test('asset preparation requests a JSON object from compatible style.system prov
   });
   assert.deepEqual(modelRequest.response_format, { type: 'json_object' });
   assert.equal(modelRequest.messages.some(message => /json/i.test(String(message.content || ''))), true);
+});
+
+test('style.system analyzes only the configured production lines', async () => {
+  const requests = [];
+  const fields = {
+    final_genre: '现代都市短剧', genre: '现代都市短剧', trailer_style: '高级电影感', story_era: '当代都市',
+    negative_prompt: '无畸形', picture_limit_prompt: '无字幕', quality_constraint_prompt: '画面稳定'
+  };
+  await analyzeBatchFactorySmartUnifiedStyle({
+    username: 'alice', batchId: 'batch-1', bookId: 'book-1', goBaseUrl: 'http://go.local', bridgeSecret: 'secret',
+    textProvider: { endpoint: 'http://text.local/v1/chat/completions', apiKey: 'key', model: 'text-model' },
+    fetchImpl: async (_url, init = {}) => {
+      if (init.method === 'GET') return new Response(JSON.stringify({
+        batch: { id: 'batch-1', settingsState: { patch: {} }, books: [{
+          id: 'book-1', sourceText: '一\n\n二\n三\n四\n五\n六', sourceMetadata: { contentRangeLines: 5 }, settingsState: { patch: {} }, assetRecords: []
+        }] }
+      }), { status: 200 });
+      requests.push(JSON.parse(init.body));
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(fields) } }] }), { status: 200 });
+    }
+  });
+  const prompt = requests[0].messages.map(message => String(message.content || '')).join('\n');
+  assert.match(prompt, /一\n二\n三\n四\n五/);
+  assert.doesNotMatch(prompt, /六/);
 });
 
 test('asset preparation freezes the style.system result on the book for later director use', async () => {
@@ -547,6 +704,12 @@ test('retrying a non-video stage never requires a video provider sync', () => {
   const retryPath = '/api/batch-factory/v11/batches/batch-1/books/book-1/stages/retry';
   assert.equal(needsPersonalConfigSync(request, retryPath), false);
   assert.equal(needsH3ConfigSync(request, retryPath), false);
+});
+
+test('automatic video retry uses the VIDEO synchronization path', () => {
+  const request = { method: 'POST' };
+  const videoPath = '/api/batch-factory/v11/batches/batch-1/books/book-1/stages/video';
+  assert.equal(needsPersonalConfigSync(request, videoPath), true);
 });
 
 test('enrichment snapshots the only combined script extraction preset and strips browser supplied bodies', () => {

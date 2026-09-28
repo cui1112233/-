@@ -156,6 +156,47 @@ func TestNovelFetchIntakeKeepsDistinctContentVersionsForTheSameSourceBook(t *tes
 	}
 }
 
+func TestNovelFetchIntakeKeepsSameBookIDAcrossPlatforms(t *testing.T) {
+	ctx := context.Background()
+	s := NewMemoryStore()
+	intake, err := s.CreateIntake(ctx, "alice", NovelFetchIntakeInput{Books: []CreateBookInput{
+		{ID: "737092", Title: "甲", Platform: "3"},
+		{ID: "737092", Title: "乙", Platform: "15"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got NovelFetchIntakeInput
+	if err := json.Unmarshal(intake.Payload, &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Books) != 2 {
+		t.Fatalf("cross-platform same ID must keep both books, got %d: %+v", len(got.Books), got.Books)
+	}
+	if got.Books[0].Platform != "3" || got.Books[1].Platform != "15" || got.Books[0].Title != "甲" || got.Books[1].Title != "乙" {
+		t.Fatalf("books=%+v", got.Books)
+	}
+}
+
+func TestNovelFetchIntakeDeduplicatesSameBookIDWithinPlatform(t *testing.T) {
+	ctx := context.Background()
+	s := NewMemoryStore()
+	intake, err := s.CreateIntake(ctx, "alice", NovelFetchIntakeInput{Books: []CreateBookInput{
+		{ID: "737092", Title: "甲", Platform: "3"},
+		{ID: "737092", Title: "甲重复行", Platform: "3"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got NovelFetchIntakeInput
+	if err := json.Unmarshal(intake.Payload, &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Books) != 1 || got.Books[0].Title != "甲" {
+		t.Fatalf("same-platform duplicate must collapse to the first row, got %+v", got.Books)
+	}
+}
+
 func TestPromptAndDraftAreOwnerScopedAndDraftRecovers(t *testing.T) {
 	ctx := context.Background()
 	s := NewMemoryStore()

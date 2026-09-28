@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -210,6 +211,141 @@ type H3DirectorDocument struct {
 	DirectorCards                []H3DirectorCard `json:"director_cards"`
 }
 
+// normalizeH3DirectorActionFields accepts the structured action beats that
+// some director presets naturally emit, while persisting the canonical H3
+// action string consumed by the timeline and final VIDEO compiler. It is
+// deliberately limited to action fields: other H3 objects stay strict.
+func normalizeH3DirectorActionFields(raw json.RawMessage) (json.RawMessage, error) {
+	var document map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &document); err != nil {
+		return nil, fmt.Errorf("%w: decode H3 director document: %v", ErrInvalid, err)
+	}
+	cardsRaw, exists := document["director_cards"]
+	if !exists || !jsonArray(cardsRaw) {
+		return raw, nil
+	}
+	var cards []json.RawMessage
+	if err := json.Unmarshal(cardsRaw, &cards); err != nil {
+		return raw, nil
+	}
+	for index, rawCard := range cards {
+		if !jsonObject(rawCard) {
+			return raw, nil
+		}
+		card, err := h3RawObject(rawCard, fmt.Sprintf("director_cards[%d]", index))
+		if err != nil {
+			return nil, err
+		}
+		if err := normalizeH3ActionField(card, "action", fmt.Sprintf("director_cards[%d].action", index)); err != nil {
+			return nil, err
+		}
+		microShotsRaw, hasMicroShots := card["micro_shots"]
+		if !hasMicroShots || !jsonArray(microShotsRaw) {
+			encoded, err := json.Marshal(card)
+			if err != nil {
+				return nil, fmt.Errorf("%w: encode director_cards[%d]: %v", ErrInvalid, index, err)
+			}
+			cards[index] = encoded
+			continue
+		}
+		var microShots []json.RawMessage
+		if err := json.Unmarshal(microShotsRaw, &microShots); err != nil {
+			return raw, nil
+		}
+		for shotIndex, rawShot := range microShots {
+			if !jsonObject(rawShot) {
+				return raw, nil
+			}
+			shot, err := h3RawObject(rawShot, fmt.Sprintf("director_cards[%d].micro_shots[%d]", index, shotIndex))
+			if err != nil {
+				return nil, err
+			}
+			if err := normalizeH3ActionField(shot, "action", fmt.Sprintf("director_cards[%d].micro_shots[%d].action", index, shotIndex)); err != nil {
+				return nil, err
+			}
+			encoded, err := json.Marshal(shot)
+			if err != nil {
+				return nil, fmt.Errorf("%w: encode director_cards[%d].micro_shots[%d]: %v", ErrInvalid, index, shotIndex, err)
+			}
+			microShots[shotIndex] = encoded
+		}
+		if encoded, err := json.Marshal(microShots); err != nil {
+			return nil, fmt.Errorf("%w: encode director_cards[%d].micro_shots: %v", ErrInvalid, index, err)
+		} else {
+			card["micro_shots"] = encoded
+		}
+		encoded, err := json.Marshal(card)
+		if err != nil {
+			return nil, fmt.Errorf("%w: encode director_cards[%d]: %v", ErrInvalid, index, err)
+		}
+		cards[index] = encoded
+	}
+	encodedCards, err := json.Marshal(cards)
+	if err != nil {
+		return nil, fmt.Errorf("%w: encode H3 director_cards: %v", ErrInvalid, err)
+	}
+	document["director_cards"] = encodedCards
+	encoded, err := json.Marshal(document)
+	if err != nil {
+		return nil, fmt.Errorf("%w: encode H3 director document: %v", ErrInvalid, err)
+	}
+	return encoded, nil
+}
+
+func jsonObject(raw json.RawMessage) bool {
+	return len(bytes.TrimSpace(raw)) > 0 && bytes.TrimSpace(raw)[0] == '{'
+}
+func jsonArray(raw json.RawMessage) bool {
+	return len(bytes.TrimSpace(raw)) > 0 && bytes.TrimSpace(raw)[0] == '['
+}
+
+func normalizeH3ActionField(object map[string]json.RawMessage, field, path string) error {
+	raw, exists := object[field]
+	if !exists || len(raw) == 0 || raw[0] != '{' {
+		return nil
+	}
+	var beats map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &beats); err != nil {
+		return fmt.Errorf("%w: decode %s: %v", ErrInvalid, path, err)
+	}
+	preferred := []string{"initial", "onset", "development", "reaction", "result"}
+	keys := make([]string, 0, len(beats))
+	seen := make(map[string]struct{}, len(beats))
+	for _, key := range preferred {
+		if _, exists := beats[key]; exists {
+			keys = append(keys, key)
+			seen[key] = struct{}{}
+		}
+	}
+	tail := make([]string, 0, len(beats))
+	for key := range beats {
+		if _, exists := seen[key]; !exists {
+			tail = append(tail, key)
+		}
+	}
+	sort.Strings(tail)
+	keys = append(keys, tail...)
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		var value string
+		if err := json.Unmarshal(beats[key], &value); err != nil {
+			return fmt.Errorf("%w: %s.%s must be text", ErrInvalid, path, key)
+		}
+		if value = strings.TrimSpace(value); value != "" {
+			parts = append(parts, value)
+		}
+	}
+	if len(parts) == 0 {
+		return fmt.Errorf("%w: %s must contain text", ErrInvalid, path)
+	}
+	encoded, err := json.Marshal(strings.Join(parts, "；"))
+	if err != nil {
+		return fmt.Errorf("%w: encode %s: %v", ErrInvalid, path, err)
+	}
+	object[field] = encoded
+	return nil
+}
+
 func h3VisualBaselineText(value any) string {
 	switch typed := value.(type) {
 	case string:
@@ -229,6 +365,11 @@ func ParseH3DirectorDocument(raw json.RawMessage, source H3VideoSource) (H3Direc
 	var document H3DirectorDocument
 	if len(raw) == 0 {
 		return document, fmt.Errorf("%w: H3 director document is empty", ErrInvalid)
+	}
+	var err error
+	raw, err = normalizeH3DirectorActionFields(raw)
+	if err != nil {
+		return document, err
 	}
 	if err := json.Unmarshal(raw, &document); err != nil {
 		return document, fmt.Errorf("%w: decode H3 director document: %v", ErrInvalid, err)

@@ -43,9 +43,20 @@ func registerSliceOneRoutes(mux *http.ServeMux, store batchfactoryv11.Store) {
 			}
 			queueStatus = "scheduled_waiting"
 		}
-		books, err := batchfactoryv11.ParseManualBookList(input)
+		grouped := len(input.Groups) > 0
+		var books []batchfactoryv11.CreateBookInput
+		var err error
+		if grouped {
+			books, err = batchfactoryv11.ParseGroupedManualBookLists(input)
+		} else {
+			books, err = batchfactoryv11.ParseManualBookList(input)
+		}
 		if err != nil {
 			writeStoreError(w, err)
+			return
+		}
+		if len(books) > 50 {
+			writeStoreError(w, batchfactoryv11.ErrInvalid)
 			return
 		}
 		for index := range books {
@@ -56,7 +67,9 @@ func registerSliceOneRoutes(mux *http.ServeMux, store batchfactoryv11.Store) {
 			books[index].SourceMetadata["contentCaptureCharacters"] = input.ContentCaptureCharacters
 			books[index].SourceMetadata["scheduledAt"] = strings.TrimSpace(input.ScheduledAt)
 			books[index].SourceMetadata["queueStatus"] = queueStatus
-			books[index].SourceMetadata["platformName"] = strings.TrimSpace(input.PlatformName)
+			if !grouped {
+				books[index].SourceMetadata["platformName"] = strings.TrimSpace(input.PlatformName)
+			}
 		}
 		intake, err := store.CreateIntake(r.Context(), owner, batchfactoryv11.NovelFetchIntakeInput{
 			Books: books,
@@ -64,6 +77,7 @@ func registerSliceOneRoutes(mux *http.ServeMux, store batchfactoryv11.Store) {
 				"sourceMode": "manual_original", "platformId": input.PlatformID, "platformName": strings.TrimSpace(input.PlatformName), "parseMode": input.ParseMode,
 				"columnPresetId": input.ColumnPresetID, "columnOrder": input.ColumnOrder, "inputText": input.InputText,
 				"contentRangeLines": input.ContentRangeLines, "contentCaptureCharacters": input.ContentCaptureCharacters, "scheduledAt": strings.TrimSpace(input.ScheduledAt), "queueStatus": queueStatus,
+				"groupCount": len(input.Groups),
 			},
 		})
 		if err != nil {
@@ -185,6 +199,30 @@ func registerSliceOneRoutes(mux *http.ServeMux, store batchfactoryv11.Store) {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"batch": batch})
+	})
+	mux.HandleFunc("DELETE /api/batch-factory/v11/batches/{batchId}/books/{bookId}", func(w http.ResponseWriter, r *http.Request) {
+		owner, ok := bridgeOwner(r)
+		if !ok {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			return
+		}
+		if err := store.DeleteBook(r.Context(), owner, r.PathValue("batchId"), r.PathValue("bookId")); err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("DELETE /api/batch-factory/v11/batches/{batchId}", func(w http.ResponseWriter, r *http.Request) {
+		owner, ok := bridgeOwner(r)
+		if !ok {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			return
+		}
+		if err := store.DeleteBatch(r.Context(), owner, r.PathValue("batchId")); err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("PUT /api/batch-factory/v11/batches/{batchId}/settings", settingsHandler(store, batchfactoryv11.ScopeBatch))
 	mux.HandleFunc("PUT /api/batch-factory/v11/batches/{batchId}/books/{bookId}/metadata", func(w http.ResponseWriter, r *http.Request) {

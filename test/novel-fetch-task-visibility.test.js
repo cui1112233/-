@@ -60,6 +60,18 @@ test('日期筛选以中国业务日历归档 UTC 深夜创建的任务', () => 
   assert.deepEqual(visible.map(task => task.bookId), ['book-china-day']);
 });
 
+test('任务范围可明确选择当前批次、历史未完成或全部', () => {
+  const tasks = [
+    { bookId: 'current', createdAt: '2026-09-18T00:00:00.000Z', status: 'done' },
+    { bookId: 'unfinished', createdAt: '2026-09-18T00:00:00.000Z', status: 'failed' },
+    { bookId: 'completed', createdAt: '2026-09-18T00:00:00.000Z', status: 'done' }
+  ];
+  const now = new Date('2026-09-25T12:00:00+08:00');
+  assert.deepEqual(filterTaskList(tasks, { scope: 'current' }, now, { currentBatchIds: ['current'] }).map(task => task.bookId), ['current']);
+  assert.deepEqual(filterTaskList(tasks, { scope: 'unfinished' }, now).map(task => task.bookId), ['unfinished']);
+  assert.deepEqual(filterTaskList(tasks, { scope: 'all' }, now).map(task => task.bookId), ['current', 'unfinished', 'completed']);
+});
+
 test('日期控件按日历日翻页并将选择日期传给任务接口', () => {
   const source = fs.readFileSync(path.join(__dirname, '../frontend/public/batch-rewrite/app.js'), 'utf8');
   const deployedSource = fs.readFileSync(path.join(__dirname, '../frontend/dist/batch-rewrite/app.js'), 'utf8');

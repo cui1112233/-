@@ -1,5 +1,11 @@
 const express = require('express');
-const { createBatchFactoryV11Router, v11JSONRequest } = require('./batch-factory-v11');
+const {
+  createBatchFactoryV11Router,
+  normalizedBookGender,
+  normalizedBookStyle,
+  prepareBatchFactoryBookClassification,
+  v11JSONRequest
+} = require('./batch-factory-v11');
 const { createMySQLWorkshopStore } = require('../lib/novel-fetch-workshop/mysql-store');
 
 const V12_BASE = '/api/batch-factory/v12';
@@ -34,6 +40,11 @@ function rejectLegacyV11Mutations(req, res, next) {
 	});
 }
 
+function isV12DeletionPath(value) {
+  const parsed = new URL(String(value || ''), 'http://qiantie.local');
+  return /^\/api\/batch-factory\/v12\/batches\/[^/]+(?:\/books\/[^/]+)?$/.test(parsed.pathname);
+}
+
 async function fetchBatchFactoryOriginals(payload, fetchDirectOriginal) {
   const numericPlatform = Number(payload?.platform);
   if (!Number.isInteger(numericPlatform) || numericPlatform <= 0) throw new Error('无效的平台 ID');
@@ -62,6 +73,46 @@ async function fetchBatchFactoryOriginals(payload, fetchDirectOriginal) {
     }
   }));
   return { results };
+}
+
+// Classification is an enhancement of a successfully captured source, never a
+// prerequisite for creating or producing a batch.  Keep every result isolated
+// so an unavailable text model cannot strand the remaining books.
+async function classifyBatchFactoryBooks({ books, classifyBook } = {}) {
+  const items = Array.isArray(books) ? books : [];
+  const results = [];
+  for (const book of items) {
+    const bookId = String(book?.id || '').trim();
+    if (!bookId) continue;
+    const metadata = book?.sourceMetadata && typeof book.sourceMetadata === 'object' ? book.sourceMetadata : {};
+    const gender = normalizedBookGender(metadata.gender);
+    const style = normalizedBookStyle(metadata.style);
+    if (gender && style) {
+      results.push({
+        bookId,
+        status: 'reused',
+        classification: { gender, style, tags: String(metadata.tags || '').trim(), reason: String(metadata.classifyReason || '').trim() },
+        reused: true
+      });
+      continue;
+    }
+    if (!String(book?.sourceText || '').trim()) {
+      results.push({ bookId, status: 'skipped', reason: 'SOURCE_TEXT_REQUIRED' });
+      continue;
+    }
+    try {
+      const result = await classifyBook(book);
+      results.push({
+        bookId,
+        status: result?.reused ? 'reused' : 'classified',
+        classification: result?.classification || {},
+        reused: result?.reused === true
+      });
+    } catch (error) {
+      results.push({ bookId, status: 'failed', error: String(error?.message || '男女频和风格识别失败') });
+    }
+  }
+  return results;
 }
 
 // Repairs only legacy/manual intake records where the source was never saved.
@@ -129,11 +180,58 @@ function createBatchFactoryV12Router(options = {}) {
         fetchDirectOriginal: input => store.fetchDirectOriginal(input),
         captureSource: payload => v11JSONRequest({ ...account, method: 'PUT', pathname: `${V11_BASE}/batches/${batchID}/books/${bookID}/source`, payload, ...goOptions })
       });
-      return res.json(result);
+      let classification;
+      try {
+        const classified = await prepareBatchFactoryBookClassification(req, { batchId: String(req.params.batchId), bookId: String(req.params.bookId) }, options);
+        classification = { status: classified?.reused ? 'reused' : 'classified', classification: classified?.classification || {} };
+      } catch (classificationError) {
+        classification = { status: 'failed', error: String(classificationError?.message || '男女频和风格识别失败') };
+      }
+      return res.json({ ...result, classification });
     } catch (error) {
       return res.status(Number(error?.status) || 400).json({ error: error?.message || '获取正文失败' });
     }
   });
+  router.post('/batches/:batchId/classify-fetched-metadata', async (req, res) => {
+    try {
+      const account = { username: req.username, isOwner: req.auth?.account?.isOwner === true };
+      const batchId = String(req.params.batchId || '').trim();
+      const goOptions = { goBaseUrl: options.goBaseUrl, bridgeSecret: options.bridgeSecret, fetchImpl: options.fetchImpl, now: options.now };
+      const loaded = await v11JSONRequest({
+        ...account,
+        method: 'GET',
+        pathname: `${V11_BASE}/batches/${encodeURIComponent(batchId)}`,
+        ...goOptions
+      });
+      const batch = loaded?.batch || loaded;
+      if (!batch?.id) return res.status(404).json({ error: '批量工程不存在' });
+      const results = await classifyBatchFactoryBooks({
+        books: batch.books,
+        classifyBook: book => prepareBatchFactoryBookClassification(req, { batchId, bookId: String(book.id) }, options)
+      });
+      return res.json({ results });
+    } catch (error) {
+      return res.status(Number(error?.status) || 400).json({ error: error?.message || '识别男女频和风格失败' });
+    }
+  });
+	// Deletion is intentionally the only V12 mutation delegated to Go.  It is
+	// owner-scoped and removes only local records; no 121 or provider call runs.
+	router.delete('/batches/:batchId/books/:bookId', async (req, res) => {
+		try {
+		const account = { username: req.username, isOwner: req.auth?.account?.isOwner === true };
+			await v11JSONRequest({ ...account, method: 'DELETE', pathname: `${V11_BASE}/batches/${encodeURIComponent(req.params.batchId)}/books/${encodeURIComponent(req.params.bookId)}`, goBaseUrl: options.goBaseUrl, bridgeSecret: options.bridgeSecret, fetchImpl: options.fetchImpl });
+			await legacy.automationController?.removeBook({ owner: account.username, batchId: String(req.params.batchId), bookId: String(req.params.bookId) });
+			return res.status(204).end();
+		} catch (error) { return res.status(Number(error?.status) || 400).json({ error: error?.message || '删除小说失败' }); }
+	});
+	router.delete('/batches/:batchId', async (req, res) => {
+		try {
+			const account = { username: req.username, isOwner: req.auth?.account?.isOwner === true };
+			await v11JSONRequest({ ...account, method: 'DELETE', pathname: `${V11_BASE}/batches/${encodeURIComponent(req.params.batchId)}`, goBaseUrl: options.goBaseUrl, bridgeSecret: options.bridgeSecret, fetchImpl: options.fetchImpl });
+			await legacy.automationController?.removeBatch({ owner: account.username, batchId: String(req.params.batchId) });
+			return res.status(204).end();
+		} catch (error) { return res.status(Number(error?.status) || 400).json({ error: error?.message || '删除批量项目失败' }); }
+	});
   router.use((req, res, next) => {
     const originalURL = req.originalUrl;
     const rewritten = routeV12UpstreamPath(originalURL);
@@ -150,9 +248,11 @@ function createBatchFactoryV12Router(options = {}) {
 
 module.exports = {
   V12_BASE,
+  classifyBatchFactoryBooks,
   fetchBatchFactoryOriginals,
   refillMissingBatchFactoryBookSource,
   isNativeV12H3Path,
+	  isV12DeletionPath,
   routeV12UpstreamPath,
   rewriteV12PathForLegacyRead,
   rejectLegacyV11Mutations,

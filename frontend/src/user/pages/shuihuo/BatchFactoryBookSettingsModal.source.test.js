@@ -12,8 +12,8 @@ test('single-book configuration compares inherited settings and only saves chang
   assert.match(source, /buildBookRegionUpdate/);
   assert.match(source, /saveBookOverride/);
   assert.match(source, /expectedRevision/);
-  assert.match(source, /覆盖当前书/);
-  assert.match(source, /继承当前批量作品配置/);
+  assert.match(source, /当前书覆盖/);
+  assert.match(source, /当前批量作品配置/);
 });
 
 test('single-book configuration selects enabled text, image and video models', () => {
@@ -58,7 +58,7 @@ test('single-book configuration opens and saves one explicit region at a time', 
   assert.match(source, /AI_REGION_KEYS/);
   assert.match(source, /onOpenBookAssets/);
   assert.match(source, /维护当前书人物场景预设/);
-  assert.match(source, /恢复作品配置/);
+  assert.match(source, /restoreCurrentRegion/);
 });
 
 test('single-book assets expose script-compatible starred-character focus without treating it as VIDEO exclusion', () => {
@@ -94,12 +94,19 @@ test('keeps derived-opening presets out of single-book video settings', () => {
 
 test('single-book settings keep publish mappings inside engine configuration without replacing inherited fields', () => {
   assert.match(source, /audioMergeEnabled/);
-  assert.match(source, /ConfigCard title="发布统一"/);
+  assert.match(source, /label: '发布统一'/);
   assert.match(source, /mergePublishSettings/);
   assert.match(source, /网站配置档/);
   assert.match(source, /素材使用/);
   assert.match(source, /水平翻转/);
   assert.doesNotMatch(source, /region === 'publish'/);
+});
+
+test('lets a book override only the inherited publish organization', () => {
+  assert.match(source, /get121OrganizationOptions/);
+  assert.match(source, /组织归属（当前书覆盖）/);
+  assert.match(source, /继承批量组织归属/);
+  assert.match(source, /publishSettings: \{ \.\.\.publish, organization/);
 });
 
 test('uses one fixed-opening switch for the current book engine configuration', () => {
@@ -115,7 +122,7 @@ test('uses the current Personal Center TTS defaults for each book and persists o
   assert.match(source, /import \{ getConfig \} from '\.\.\/\.\.\/\.\.\/shared\/api\/config'/);
   assert.match(source, /'tts'/);
   assert.match(source, /const config = await getConfig\(\)/);
-  assert.match(source, /textToSpeech\(\{ input, \.\.\.tts \}\)/);
-  assert.match(source, /当前个人中心 TTS 配置/);
-  assert.match(source, /恢复当前 TTS 配置/);
+  assert.match(source, /textToSpeech\(\{ input, \.\.\.nextTts \}\)/);
+  assert.match(source, /const nextTts = \{ \.\.\.DEFAULT_TTS, \.\.\.\(config\?\.tts \|\| \{\}\), \.\.\.\(form\.tts \|\| \{\}\) \}/);
+  assert.match(source, /当前书 TTS/);
 });

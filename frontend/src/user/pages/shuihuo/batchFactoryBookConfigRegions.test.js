@@ -30,3 +30,8 @@ test('reports a nested publish mapping as an engine override', () => {
     { label: '已单书覆盖', tone: 'overridden' }
   );
 });
+
+test('recognizes independent book media overrides as engine settings', () => {
+  assert.equal(bookConfigRegionStatus({ settingsState: { patch: { imageAspectRatio: '1:1' } } }, 'engine').tone, 'overridden');
+  assert.equal(bookConfigRegionStatus({ settingsState: { patch: { videoAspectRatio: '16:9', videoResolution: '1080p' } } }, 'engine').tone, 'overridden');
+});

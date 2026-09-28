@@ -1,5 +1,16 @@
 function taskState(task) { return String(task?.status || '').trim().toLowerCase(); }
 
+// Provider responses are retained by the server for diagnosis, but raw HTTP
+// responses are not useful instructions for a production user.
+export function batchFactoryVisibleError(error) {
+  const raw = String(error || '').trim();
+  if (!raw) return '';
+  if (/\b402\b|insufficient[_\s-]?funds|payment required/i.test(raw)) {
+    return '当前视频模型的账户额度或权限不足，请更换视频模型，或检查该模型账户的额度与权限。';
+  }
+  return raw;
+}
+
 function bookTasks(book, productionStatus) {
   const jobs = (Array.isArray(productionStatus?.jobs) ? productionStatus.jobs : []).filter(job => job?.bookId === book?.id);
   const directorRevisionID = String(book?.directorRevision?.id || book?.directorRevisionId || '').trim();
@@ -34,7 +45,7 @@ export function batchFactoryVideoProgress(book, productionStatus) {
     let message = '';
     if (status === 'running') message = `正在生成${storyboardLabel}…`;
     else if (status === 'queued') message = `${storyboardLabel} 已排队，等待生成…`;
-    else if (status === 'failed') message = `${storyboardLabel} 生成失败${task?.errorMessage ? `：${task.errorMessage}` : ''}`;
+    else if (status === 'failed') message = `${storyboardLabel} 生成失败${batchFactoryVisibleError(task?.errorMessage) ? `：${batchFactoryVisibleError(task?.errorMessage)}` : ''}`;
     else if (status === 'succeeded') message = `${storyboardLabel} 已生成`;
     const row = { videoID, index, task, status, storyboardLabel, message };
     byVideo.set(videoID, row);
@@ -102,14 +113,14 @@ export function batchFactoryBookTimeline(book, { productionStatus, mergeStatus, 
   const merged = mergeStatusValue === 'succeeded' && String(merge?.outputUrl || '').trim();
   const mergeFailed = mergeStatusValue === 'failed';
   const mergeRunning = ['queued', 'running'].includes(mergeStatusValue);
-  const uploadDetail = upload === 'running' ? '正在上传网络' : upload === 'completed' ? '上传成功' : upload === 'failed' ? (book?.sourceMetadata?.publishError || '上传失败') : merged ? '等待上传网络' : '完成合成后可上传';
+  const uploadDetail = upload === 'running' ? '正在上传网络' : upload === 'completed' ? '上传成功' : upload === 'failed' ? (batchFactoryVisibleError(book?.sourceMetadata?.publishError) || '上传失败') : merged ? '等待上传网络' : '完成合成后可上传';
   return [
     { key: 'source', label: '原文已就绪', status: sourceReady ? 'completed' : 'pending', detail: sourceReady ? '原文已保存' : '等待原文' },
-    { key: 'assets', label: '资产（人物/场景/图片）已就绪', status: assetsReady, detail: assets?.errorMessage || (assetsReady === 'completed' ? '资产已生成或已维护' : '等待资产处理') },
-    { key: 'director', label: '文本提示词已就绪', status: promptReady, detail: director?.errorMessage || (promptReady === 'completed' ? '分镜与提示词已生成' : '等待生成文本提示词') },
-    { key: 'video', label: '视频生成', status: videoStatus, detail: failedVideo?.errorMessage || videoProgress.summary || videoRun?.errorMessage || (videoStatus === 'completed' ? 'VIDEO 已生成' : '等待生成视频') },
+    { key: 'assets', label: '资产（人物/场景/图片）已就绪', status: assetsReady, detail: batchFactoryVisibleError(assets?.errorMessage) || (assetsReady === 'completed' ? '资产已生成或已维护' : '等待资产处理') },
+    { key: 'director', label: '文本提示词已就绪', status: promptReady, detail: batchFactoryVisibleError(director?.errorMessage) || (promptReady === 'completed' ? '分镜与提示词已生成' : '等待生成文本提示词') },
+    { key: 'video', label: '视频生成', status: videoStatus, detail: batchFactoryVisibleError(failedVideo?.errorMessage) || videoProgress.summary || batchFactoryVisibleError(videoRun?.errorMessage) || (videoStatus === 'completed' ? 'VIDEO 已生成' : '等待生成视频') },
     { key: 'upload', label: upload === 'running' ? '正在上传网络' : upload === 'completed' ? '上传成功' : '上传网络', status: upload, detail: uploadDetail },
-    { key: 'complete', label: '完成', status: upload === 'completed' ? 'completed' : (mergeFailed ? 'failed' : mergeRunning ? 'running' : 'pending'), detail: merge?.errorMessage || (upload === 'completed' ? '本书生产与上传均已完成' : mergeRunning ? '正在合成最终视频' : merged ? '等待上传成功回执' : '等待最终视频合成') }
+    { key: 'complete', label: '完成', status: upload === 'completed' ? 'completed' : (mergeFailed ? 'failed' : mergeRunning ? 'running' : 'pending'), detail: batchFactoryVisibleError(merge?.errorMessage) || (upload === 'completed' ? '本书生产与上传均已完成' : mergeRunning ? '正在合成最终视频' : merged ? '等待上传成功回执' : '等待最终视频合成') }
   ];
 }
 
@@ -134,7 +145,7 @@ export function batchFactoryBookState(book, { productionStatus, mergeStatus, sta
   const merges = (Array.isArray(mergeStatus?.jobs) ? mergeStatus.jobs : [])
     .filter(job => job?.bookId === book?.id);
   const failedMerge = merges.find(job => taskState(job) === 'failed');
-  if (failedMerge) return { label: '异常', detail: `合并失败${failedMerge.errorMessage ? `：${failedMerge.errorMessage}` : ''}`, tone: 'red', manual };
+  if (failedMerge) return { label: '异常', detail: `合并失败${batchFactoryVisibleError(failedMerge.errorMessage) ? `：${batchFactoryVisibleError(failedMerge.errorMessage)}` : ''}`, tone: 'red', manual };
   if (merges.some(job => ['queued', 'running'].includes(taskState(job)))) return { label: '处理中', detail: '合并中', tone: 'blue', manual };
   if (merges.some(job => taskState(job) === 'succeeded' && String(job?.outputUrl || '').trim())) return { label: '待上传', detail: '视频已合并，等待 121 提交', tone: 'cyan', manual };
   if (timeline.find(item => item.key === 'video')?.status === 'completed') return { label: '待合成', detail: '所有分镜视频已生成，等待合成', tone: 'cyan', manual };

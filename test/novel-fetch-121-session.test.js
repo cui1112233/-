@@ -70,6 +70,17 @@ test('121 会话缺失时使用已加密保存的凭据直连恢复并再次验�
   assert.equal(browserSession.get('owner-1').targetUsername, '121-user');
 });
 
+test('121 已保存会话在配置档缺少账号时仍显示为当前登录账号', async () => {
+  const { service } = createHarness({
+    initialSession: { targetUsername: '121-user', sessionKey: 'session-1', status: 'ready' }
+  });
+
+  const result = await service.getConfig('owner-1');
+
+  assert.equal(result.settings.username, '121-user');
+  assert.equal(result.settings.password_masked, true);
+});
+
 test('121 已有会话校验后把 Cookie 继续传给同步动作', async () => {
   const calls = [];
   const browserSession = new Map([['owner-1', { targetUsername: '121-user', sessionKey: 'session-1', status: 'ready' }]]);

@@ -23,23 +23,71 @@ test('keeps people and scene presets inside each book row instead of the global 
 	assert.match(source, /管理当前书资产/);
 });
 
-test('starts scheduled automation from an existing preset without editing it in the dialog', () => {
-  const scheduleDialog = source.match(/<Modal title="开始定时"[\s\S]*?<\/Modal>/)?.[0] || '';
+test('offers existing batches explicit immediate and Beijing-time automation actions', () => {
+  const scheduleDialog = source.match(/<Modal title="自动生产"[\s\S]*?<\/Modal>/)?.[0] || '';
   assert.match(scheduleDialog, /<b>自动化预设<\/b>/);
   assert.match(scheduleDialog, /<b>执行模式<\/b>/);
-  assert.match(scheduleDialog, /<b>执行时间<\/b>/);
+  assert.match(scheduleDialog, /<b>自动启动时间（北京时间 UTC\+8）<\/b>/);
+  assert.match(scheduleDialog, />立即执行<\/Button>/);
+  assert.match(scheduleDialog, />保存定时任务<\/Button>/);
+  assert.match(scheduleDialog, /同时处理书籍/);
+  assert.match(scheduleDialog, /全自动生成并提交（成片完成后上传）/);
   assert.doesNotMatch(scheduleDialog, /预设名称/);
   assert.doesNotMatch(scheduleDialog, /saveCurrentAutomationPreset/);
   assert.match(source, /请先选择自动化预设/);
+  assert.match(source, /parseBeijingDatetimeLocal/);
+  assert.match(source, /下次重试：北京时间/);
 });
 
-test('uses one unified configuration entry without clearing single-book overrides', () => {
+test('keeps H3 director cards in the workbench until final VIDEO compilation', () => {
+  assert.match(source, /resolvePrecompiledVideoWorkspace/);
+  assert.match(source, /resolvePrecompiledStoryboardFrame/);
+  assert.match(source, /batchFactoryPrecompiledStoryboard/);
+  assert.match(source, /待编译的 H3 分镜视频/);
+});
+
+test('turns a director compile click without an H3 card into first-time generation', () => {
+  const action = source.match(/async function runBookStageAction\([\s\S]*?\n  async function retryLastFailedStage/)?.[0] || '';
+  assert.match(action, /const requestedMode = stage === 'director' && mode === 'compile' \? 'missing' : mode;/);
+  assert.match(action, /mode: requestedMode,/);
+});
+
+test('renders an uncompiled H3 card as readable storyboard text with a complete action bar', () => {
+  const start = source.indexOf('if (!selectedVideo && selectedPrecompiledFrame) {');
+  const end = source.indexOf('\n  }\n  return <div className="batch-factory-prompt-modal-stack">', start);
+  const precompiled = start >= 0 && end > start ? source.slice(start, end) : '';
+  assert.match(source, /function formatH3DirectorCardPrompt/);
+  assert.match(precompiled, /value=\{formatH3DirectorCardPrompt\(/);
+  assert.doesNotMatch(precompiled, /JSON\.stringify\(card, null, 2\)/);
+  assert.match(precompiled, />保存<\/Button>/);
+  assert.match(precompiled, />编译最终提示词<\/Button>/);
+  assert.match(precompiled, />编辑<\/Button>/);
+  assert.match(precompiled, />生成视频<\/Button>/);
+  assert.match(precompiled, />查看候选版本<\/Button>/);
+  assert.match(precompiled, />查看 H3 Trace<\/Button>/);
+  assert.match(precompiled, />重试<\/Button>/);
+});
+
+test('keeps an H3 final-template compile request valid without leaking fallback prose into the template', () => {
+  assert.match(source, /output_constraints: videoPromptTemplate \? '按冻结导演数据和所选最终模板生成当前 VIDEO 提示词。' :/);
+});
+
+test('makes a saved unified configuration authoritative for every book', () => {
   const toolbar = source.match(/<div className="shuihuo-workbench-toolbar"[\s\S]*?<\/div>\n      <div className="shuihuo-workbench-export">/)?.[0] || '';
   assert.match(toolbar, />统一配置<\/Button>/);
   assert.doesNotMatch(toolbar, />引擎配置<\/Button>/);
   assert.doesNotMatch(toolbar, />AI 推理<\/Button>/);
   assert.match(source, /BatchFactoryUnifiedSettingsModal/);
-  assert.doesNotMatch(source, /restoreKeys: UNIFIED_BOOK_SETTING_KEYS/);
+  assert.match(source, /const UNIFIED_CONFIGURATION_KEYS = \[/);
+  assert.match(source, /async function syncUnifiedSettingsToBooks\(currentBatch\)/);
+  assert.match(source, /restoreKeys: UNIFIED_CONFIGURATION_KEYS/);
+  assert.match(source, /await syncUnifiedSettingsToBooks\(savedBatch\)/);
+});
+
+test('recompiles existing H3 VIDEO prompts after a unified configuration save without regenerating director cards', () => {
+  assert.match(source, /async function recompileUnifiedH3Prompts\(currentBatch\)/);
+  assert.match(source, /await recompileUnifiedH3Prompts\(syncedBatch\)/);
+  assert.match(source, /compileBookH3Videos\(book, \{ interactive: false, allowAudioSynthesis: true \}\)/);
 });
 
 test('lets a book review a viral candidate before replacing working content', () => {
@@ -58,10 +106,11 @@ test('treats a missing saved viral candidate as an empty review state', () => {
   assert.match(source, /getDraft\([\s\S]*suppressGlobalError: true/);
 });
 
-test('does not silently use an old video prompt while smart unified analysis is pending', () => {
+test('keeps existing video prompts usable while smart unified analysis is pending', () => {
   assert.match(source, /smartUnifiedPending/);
   assert.match(source, /智能统一待分析/);
-  assert.match(source, /重新生成文案/);
+  assert.match(source, /资产提取时与资产同次获取/);
+  assert.match(source, /不影响本分镜的提示词使用/);
 });
 
 test('exposes an explicit regenerate-copy action once a book already has director output', () => {
@@ -100,6 +149,15 @@ test('uses a centered card modal with a 10s default storyboard duration switch',
 	assert.match(stylesheet, /batch-factory-audio-option/);
 });
 
+test('anchors the media bottom sheet against its visible workspace when dragging', () => {
+  assert.match(source, /function sheetGeometry\(\)/);
+  assert.match(source, /parent\.getBoundingClientRect\(\)\.bottom/);
+  assert.match(source, /rawTop: rect\.top - styleOffset/);
+  assert.match(source, /visibleHeightForSheetAnchor/);
+  assert.match(source, /sheetGeometry\(\)\?\.appliedOffset/);
+  assert.match(source, /drag\.lastOffset/);
+});
+
 test('keeps the engine modal render-safe when another workbench control opens', () => {
 	assert.match(engineSource, /import \{ Alert, Button, Input, Modal,/);
 });
@@ -111,6 +169,20 @@ test('stores 121 material reuse and horizontal flip in publish settings and show
   assert.match(engineSource, /不翻转/);
   assert.match(source, /本次素材使用：/);
   assert.match(source, /本次水平翻转：/);
+});
+
+test('keeps an unverified video management system session readable in the upload dialog', () => {
+  assert.match(source, /className={`batch-factory-publish-session-tag \${publishSessionReady \? 'is-ready' : 'is-unverified'}`}/);
+  assert.match(source, /121 后台账号尚未登录或未验证/);
+  assert.match(stylesheet, /\.batch-factory-publish-session-tag\.is-unverified/);
+  assert.match(stylesheet, /background:\s*#4a1718\s*!important/);
+});
+
+test('prefills upload organization from effective settings without saving a dialog override', () => {
+  assert.match(source, /const defaultOrganizationID =/);
+  assert.match(source, /setOrganizationID\(defaultOrganizationID\)/);
+  assert.match(source, /organization: organizationID/);
+  assert.doesNotMatch(source, /saveBatchSettings\(.*organizationID/);
 });
 
 test('selects Batch Factory image, text and video models from enabled Personal Center models', () => {
@@ -178,9 +250,9 @@ test('refreshes the open book asset modal after an override save so consecutive 
   assert.match(source, /\[batch\?\.id, assetBook\?\.id, books\]/);
 });
 
-test('uses the engine aspect ratio for asset images instead of saving a second value', () => {
-  assert.match(source, /engineSettings\?\.aspectRatio/);
-  assert.match(source, /aspectRatio: aspectRatio \|\| '9:16'/);
+test('uses the engine image aspect ratio for asset images independently from video settings', () => {
+  assert.match(source, /engineSettings\?\.imageAspectRatio \|\| engineSettings\?\.aspectRatio/);
+  assert.match(source, /imageAspectRatio: imageAspectRatio \|\| '9:16'/);
   assert.doesNotMatch(source, /aria-label="当前书画幅"/);
 });
 
@@ -329,6 +401,16 @@ test('renders saved book-city and novel-fetch metadata without exposing internal
   assert.match(source, /function bookVideoReady/);
   assert.match(source, /视频已准备好/);
   assert.match(source, /label="书城">\{bookPlatformName\(viewingBook, platformNames\)\}/);
+});
+
+test('keeps an optional platform-label lookup from surfacing a global API failure', () => {
+  assert.match(source, /getWorkshopPlatforms\(\{ suppressGlobalError: true \}\)/);
+});
+
+test('keeps persisted production and merge status readable when new work is disabled', () => {
+  assert.match(source, /const \[production, merge\] = await Promise\.all\(\[\s*getProductionStatus\(batch\.id\),\s*getMergeStatus\(batch\.id\)\s*\]\)/);
+  assert.doesNotMatch(source, /productionEnabled \? getProductionStatus/);
+  assert.doesNotMatch(source, /mergeEnabled \? getMergeStatus/);
 });
 
 test('persists named AI reasoning presets through the V11 backend and lets users rename and load them', () => {
@@ -667,6 +749,7 @@ test('validates the exact 121 tttadmin session before the publish mapping is usa
 test('accepts the shared 121 session-check name returned by the verification API', () => {
   assert.match(engineSource, /SESSION_CHECK_NAMES\s*=\s*\[\s*'视频管理系统登录会话',\s*'121 后台登录会话'\s*\]/);
   assert.match(engineSource, /SESSION_CHECK_NAMES\.includes\(check\.name\)/);
+  assert.match(source, /'目标站登录会话'/);
 });
 
 test('shares the 121 account session while retaining upload mappings inside the current batch', () => {
@@ -719,6 +802,25 @@ test('lets each book measure temporary TTS audio for storyboard planning without
   assert.match(settingsSource, /音频不会保存或加入最终合并/);
 });
 
+test('prepares only temporary audio duration when unified audio planning is enabled', () => {
+  const start = source.indexOf('async function prepareAudioPlanningForBatch(currentBatch)');
+  const end = source.indexOf('async function compileBookH3Videos(book,', start);
+  const preparation = start >= 0 && end > start ? source.slice(start, end) : '';
+  assert.match(source, /const audioPlanningWasEnabled = batch\?\.settingsState\?\.patch\?\.audioPlanningEnabled === true;/);
+  assert.match(source, /audioPlanningWasEnabled === false && normalized\.audioPlanningEnabled === true/);
+  assert.match(source, /await prepareAudioPlanningForBatch\(refreshedBatch\)/);
+  assert.match(preparation, /await ensureBookAudioDuration\(book, \{ force: true, quiet: true, batchSnapshot: currentBatch \}\)/);
+  assert.doesNotMatch(preparation, /runBookStage|runBatchDirector|submitBatchProduction|runProduction/);
+});
+
+test('keeps a saved audio duration usable when its fingerprint is stale and refresh fails', () => {
+  const start = source.indexOf('async function ensureBookAudioDuration(book');
+  const end = source.indexOf('async function prepareAudioPlanningForBatch', start);
+  const ensureDuration = start >= 0 && end > start ? source.slice(start, end) : '';
+  assert.match(ensureDuration, /catch \(error\) \{[\s\S]*?currentSeconds > 0[\s\S]*?return currentSeconds;/);
+  assert.match(ensureDuration, /继续使用已保存的配音时长/);
+});
+
 test('offers image generation inside the asset edit dialog after saving the current prompt', () => {
   const editor = source.match(/function AssetEditor[\s\S]*?function storyboardAssetDefaults/)?.[0] || '';
   assert.match(editor, /async function generateEditedAssetImage/);
@@ -745,6 +847,13 @@ test('derives each 121 platform from its book and classifies remaining metadata 
   assert.match(source, /sourcePlatformIdForUpload\(book\)/);
   assert.match(source, /const missingPublishMapping = targetBooks\.filter/);
   assert.match(source, /单书发布覆盖优先、批量统一设置兜底/);
+});
+
+test('keeps AI publication classification progress and failures visible in the book detail modal', () => {
+  assert.match(source, /function classificationDetail\(metadata = \{\}\)/);
+  assert.match(source, /正在识别男女频、风格和标签/);
+  assert.match(source, /AI 判断未完成/);
+  assert.match(source, /classifyError/);
 });
 
 test('uses grouped cards for the unified Batch Factory engine settings', () => {
@@ -858,9 +967,14 @@ test('initializes the selected primary video before an autoplay effect reads it'
   assert.ok(autoplayEffectIndex > primaryIndex, 'autoplay must not read primary before it is initialized');
 });
 
-test('keeps visual extraction separate from director video extraction', () => {
+test('compiles existing H3 director cards instead of regenerating them from video extraction', () => {
   assert.match(source, /画面获取[\s\S]{0,500}runBookStageAction\(book, 'visual', 'force'\)/);
-  assert.match(source, /视频获取[\s\S]{0,500}runBookStageAction\(book, 'director', 'force'\)/);
+  const start = source.indexOf('async function runBookStageAction(book, stage');
+  const end = source.indexOf('async function retryLastFailedStage', start);
+  const action = start >= 0 && end > start ? source.slice(start, end) : '';
+  assert.match(source, /视频获取[\s\S]{0,500}runBookStageAction\(book, 'director', 'compile'\)/);
+  assert.match(action, /if \(stage === 'director' && mode === 'compile' && h3DirectorCards\(book\)\.length\) \{[\s\S]*?await compileBookH3Videos\(book\);[\s\S]*?return;/);
+  assert.match(action, /await runBookStage\(batch\.id, book\.id, stage/);
   assert.match(source, /onRegenerateVisual=\{\(\) => runBookStageAction\(promptBook, 'visual', 'force'\)\}/);
 });
 
@@ -883,6 +997,31 @@ test('shows persisted H3 director cards before final VIDEO compilation instead o
   assert.match(source, /h3Card\.source_text/);
 });
 
+test('uses the same media-library structure for an H3 director card before VIDEO compilation', () => {
+  const start = source.indexOf('function MediaVersionPanel(');
+  const end = source.indexOf('export function BatchFactoryNovelList(', start);
+  const panel = start >= 0 && end > start ? source.slice(start, end) : '';
+  assert.match(panel, /batch-factory-media-pickstation-workspace/);
+  assert.match(panel, /当前分镜暂不可播放视频/);
+  assert.match(panel, /precompiledWorkspace\.frames\.map/);
+  assert.match(panel, /打开分镜提示词/);
+  assert.match(panel, /查看导演提示词/);
+});
+
+test('closes the media library before opening its director prompt', () => {
+  assert.match(source, /const \[pendingMediaPrompt, setPendingMediaPrompt\] = useState\(null\);/);
+  assert.match(source, /if \(!pendingMediaPrompt \|\| mediaBook\) return;/);
+  assert.match(source, /setPromptVideoId\(pendingMediaPrompt\.frameKey \|\| ''\);/);
+  assert.match(source, /setPromptBook\(nextBook\);/);
+  assert.match(source, /setPendingMediaPrompt\(null\);/);
+  assert.match(source, /onOpenDirector=\{frameKey => \{ setPendingMediaPrompt\(\{ bookId: mediaBook\.id, frameKey: frameKey \|\| '' \}\); setMediaBook\(null\); \}\}/);
+});
+
+test('keeps the awaiting-H3 media rail above its collapsed control bar', () => {
+  assert.match(source, /batch-factory-media-bottom-sheet is-precompiled-collapsed/);
+  assert.match(stylesheet, /\.batch-factory-media-bottom-sheet\.is-precompiled-collapsed\s*\{\s*height:56px;/);
+});
+
 test('compiles a successful H3 director run from real TTS audio before exposing editable VIDEO cards', () => {
   assert.match(source, /measureH3Audio/);
   assert.match(source, /compileH3Video/);
@@ -890,6 +1029,14 @@ test('compiles a successful H3 director run from real TTS audio before exposing 
   assert.match(source, /await compileBookH3Videos\(book\)/);
   assert.match(source, /audio_measurement/);
   assert.match(source, /director_revision_id/);
+});
+
+test('uses semantic 10 or 15 second compilation without TTS when follow-audio is disabled', () => {
+  const start = source.indexOf('async function compileBookH3Videos(book,');
+  const end = source.indexOf('async function refreshAfterBookSettingsSaved()', start);
+  const compile = start >= 0 && end > start ? source.slice(start, end) : '';
+  assert.match(compile, /if \(settings\.audioPlanningEnabled === true\)\s*\{[\s\S]*?measureH3VideoLines/);
+  assert.match(compile, /allow_semantic_timeline:\s*settings\.audioPlanningEnabled !== true/);
 });
 
 test('returns only a persisted line measurement identity for subsequent H3 compilation', async () => {
@@ -913,8 +1060,14 @@ test('recompiles existing H3 director data after constraint or VIDEO preset sett
 });
 
 test('maps the selected smart-unified prefix to baseline injection', () => {
-	assert.match(source, /smart_unified: \(constraints\.selections \|\| \[\]\)\.some/);
+	assert.match(source, /buildBatchFactoryH3Constraints\(constraints\)/);
 	assert.match(bookSettingsSource, /智能统一/);
+});
+
+test('passes only the selected V11 final template and its H3 protocol key to compilation', () => {
+  assert.match(source, /function finalVideoPromptTemplate\(body\)/);
+  assert.match(source, /const videoPromptTemplate = finalVideoPromptTemplate\(videoPresetBody\);/);
+  assert.match(source, /key: String\(videoPreset\.presetKey \|\| videoPreset\.presetId \|\| videoPreset\.id \|\| 'h3-video-normal'\)/);
 });
 
 
@@ -930,4 +1083,8 @@ test('shows live provider task progress on the matching storyboard card and keep
 test('loads protected local merge files through the authenticated media boundary', () => {
   assert.match(source, /import \{ ProductionMediaBoundary \} from '\.\.\/batch-factory-v11\/ProductionMediaBoundary';/);
   assert.match(source, /<ProductionMediaBoundary showDownload=\{false\}>/);
+});
+
+test('keeps production polling failures inside the task panel', () => {
+  assert.match(source, /getProductionStatus\(batch\.id, \{ suppressGlobalError: true \}\)/);
 });

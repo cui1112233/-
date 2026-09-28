@@ -38,6 +38,9 @@
       #v78RunMethodGrid label{display:grid;gap:6px;min-width:0;font-size:11px;color:var(--muted)}
       #v78RunMethodGrid select{width:100%;min-height:34px;padding:6px 8px;border-radius:6px}
       #v78RunMethodGrid select:disabled{opacity:.48;cursor:not-allowed}
+      #v78BatchInputControls .v78-run-text-model{display:grid;gap:4px;min-width:0;font-size:12px;color:var(--muted)}
+      #v78BatchInputControls .v78-run-text-model select{width:100%;min-height:34px;min-width:0;padding:6px 8px;border-radius:6px}
+      #v78BatchInputControls .v78-run-text-model small{min-height:14px;font-size:11px;line-height:14px}
       #v78ScheduleBtn,#v78ScheduleManagerBtn,#v78SensitiveRepairBtn{min-height:37px}
       #v78ScheduleDialog,#v78ScheduleListDialog{border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--text);padding:0;box-shadow:0 24px 80px rgba(0,0,0,.5)}
       #v78ScheduleDialog{width:min(420px,calc(100vw - 32px))}
@@ -125,12 +128,67 @@
       column_order: $('columnOrderInput')?.value || '书籍ID,书名,推荐理由,男女频,标签,评级',
       input_text: $('inputText')?.value || '',
       max_txt: Number($('v78RunMaxTxt')?.value || $('fetchMaxTxt')?.value || 4000) || 4000,
+      text_model_id: $('v78RunTextModel')?.value || '',
       target_versions: targets,
       targetVersions: targets,
       ai_slot_methods_snapshot: collectRunMethods(),
       task_ids: selectedPreviewIds(),
       sensitive_ai_enabled: $('sensitiveAiProcessEnabled')?.checked === true
     };
+  }
+
+  async function loadRunTextModels(select, status) {
+    try {
+      const response = await fetch('/api/models?kind=text', { headers: headers() });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
+      const models = Array.isArray(body.models) ? body.models : [];
+      select.innerHTML = '';
+      if (!models.length) {
+        select.innerHTML = '<option value="">暂无可用文本模型</option>';
+        status.textContent = '请先在 API 配置中启用文本模型';
+        return;
+      }
+      for (const model of models) {
+        const option = document.createElement('option');
+        option.value = model.id || model.modelId || '';
+        option.textContent = model.displayName || model.name || model.modelId || model.id;
+        select.appendChild(option);
+      }
+      const saved = text(state?.config?.app_config?.text_model_id || state?.config?.text_model_id || '');
+      select.value = models.some(model => text(model.id || model.modelId) === saved) ? saved : select.options[0].value;
+      status.textContent = '执行时使用此模型；修改后将作为后续批次默认值';
+    } catch (error) {
+      select.innerHTML = '<option value="">读取文本模型失败</option>';
+      status.textContent = `读取文本模型失败：${error.message || '请稍后重试'}`;
+    }
+  }
+
+  function mountTextModelSelector() {
+    const controls = $('v78BatchInputControls');
+    if (!controls) return false;
+    if ($('v78RunTextModel')) return true;
+    const label = document.createElement('label');
+    label.className = 'v78-run-text-model';
+    label.textContent = '文本模型';
+    const select = document.createElement('select');
+    select.id = 'v78RunTextModel';
+    select.innerHTML = '<option value="">正在读取模型...</option>';
+    const status = document.createElement('small');
+    status.id = 'v78RunTextModelStatus';
+    label.append(select, status);
+    controls.appendChild(label);
+    select.addEventListener('change', async () => {
+      try {
+        if (typeof window.persistSelectedTextModel !== 'function') throw new Error('文本模型保存功能尚未就绪');
+        await window.persistSelectedTextModel(select.value);
+        status.textContent = '已保存为后续批次默认文本模型';
+      } catch (error) {
+        status.textContent = `保存文本模型失败：${error.message || '请稍后重试'}`;
+      }
+    });
+    void loadRunTextModels(select, status);
+    return true;
   }
 
   function syncMethodAvailability() {
@@ -477,9 +535,10 @@
   function mount() {
     installStyles();
     patchProcessRequests();
+    const textModelReady = mountTextModelSelector();
     const methodsReady = mountMethodSelectors();
     const actionsReady = mountActionButtons();
-    mounted = methodsReady && actionsReady;
+    mounted = textModelReady && methodsReady && actionsReady;
     return mounted;
   }
 

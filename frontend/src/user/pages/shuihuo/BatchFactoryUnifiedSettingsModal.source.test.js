@@ -17,6 +17,16 @@ test('unified configuration owns models, AI reasoning and publication in one edi
   assert.match(source, /onSaved\(draftPatch\)/);
 });
 
+test('keeps image and video media settings independent in unified configuration', () => {
+  assert.match(source, /图片画幅/);
+  assert.match(source, /视频画幅/);
+  assert.match(source, /视频分辨率/);
+  assert.match(source, /imageAspectRatio/);
+  assert.match(source, /videoAspectRatio/);
+  assert.match(source, /videoResolution/);
+  assert.match(source, /视频不会跟随参考图画幅/);
+});
+
 test('keeps the full video management publication controls inside unified configuration', () => {
   assert.match(source, /function BatchFactoryPublishSettingsForm/);
   assert.match(source, /视频管理系统/);
@@ -27,6 +37,13 @@ test('keeps the full video management publication controls inside unified config
   assert.match(source, /连接与环境状态/);
 });
 
+test('stores a unified organization selection independently from AI classification fields', () => {
+  assert.match(source, /get121OrganizationOptions/);
+  assert.match(source, /<b>组织归属<\/b>/);
+  assert.match(source, /publishSettings: \{ \.\.\.publish, organization/);
+  assert.doesNotMatch(source, /<b>男女频 \/ 风格 \/ 标签<\/b>/);
+});
+
 test('saves the unified configuration as one settings patch instead of nesting patch.patch', () => {
   assert.doesNotMatch(source, /onSaved\(\{ patch: draftPatch, expectedRevision:/);
   assert.match(source, /onSaved\(draftPatch\)/);
@@ -35,6 +52,12 @@ test('saves the unified configuration as one settings patch instead of nesting p
 test('opens legacy nested unified settings as the original editable configuration', () => {
   assert.match(source, /const normalizeLegacyPatch = value =>/);
   assert.match(source, /setDraftPatch\(normalizeLegacyPatch\(batch\?\.settingsState\?\.patch\)\)/);
+});
+
+test('does not discard an open unified-configuration draft when the batch refreshes', () => {
+  const resetEffect = source.match(/useEffect\(\(\) => \{\n    if \(open\) setDraftPatch\(normalizeLegacyPatch\(batch\?\.settingsState\?\.patch\)\);\n  \}, \[[^\]]+\]\);/)?.[0] || '';
+  assert.doesNotMatch(resetEffect, /batch\?\.settingsState\?\.revision/);
+  assert.match(resetEffect, /\[open, batch\?\.id\]/);
 });
 
 test('unified configuration makes an unavailable model directory actionable instead of rendering empty selectors', () => {
@@ -59,4 +82,25 @@ test('automation preset manager changes the unified draft only after confirmatio
   assert.match(source, /确认载入此预设/);
   assert.match(source, /setDraftPatch\(clonePresetConfig/);
   assert.doesNotMatch(source, /setDraftPatch\(.*saveBatchSettings/);
+});
+
+test('shows the precise 121 session failure and never reports a failed verification as a completed login', () => {
+  assert.doesNotMatch(source, /Boolean\(result\?\.ok && \(result\?\.checks \|\| \[\]\)\.some/);
+  assert.match(source, /const hasSession = result => Boolean\(\(result\?\.checks \|\| \[\]\)\.some/);
+  assert.match(source, /const sessionDetail = result =>/);
+  assert.match(source, /SESSION_CHECK_NAMES\.includes\(check\.name\)/);
+  assert.match(source, /sessionDetail\(environment\?\.environment\)/);
+  assert.match(source, /const checked = await selfCheck\(\);/);
+  assert.match(source, /if \(!checked\?\.session \|\| !checked\.visible\?\.ok\)/);
+});
+
+test('marks the video-management session stale and refreshes organizations after login', () => {
+  assert.match(source, /const markPublishSessionExpired = error =>/);
+  assert.match(source, /session: false, visible: \{ ok: false, error: detail \}/);
+  assert.match(source, /const refreshOrganizations = async \(\) =>/);
+  assert.match(source, /const organizations = session && visible\?\.ok \? await refreshOrganizations\(\) : null;/);
+});
+
+test('treats the legacy novel-fetch browser session as the same shared 121 login', () => {
+  assert.match(source, /SESSION_CHECK_NAMES\s*=\s*\[\s*'视频管理系统登录会话',\s*'121 后台登录会话',\s*'目标站登录会话'\s*\]/);
 });

@@ -1,13 +1,15 @@
 const express = require('express');
 const crypto = require('crypto');
+const path = require('path');
 const { getVideoApiKey, readConfig } = require('../lib/shared');
 const { proxyV11Request, createSignedBridgeHeaders } = require('../lib/batch-factory-v11/go-proxy');
 const { BATCH_FACTORY_PRESET_REQUIREMENTS, isPublishedPresetAllowed, resolveSystemPresetBody } = require('../lib/system-preset-catalog');
-const { resolveRuntimeModel } = require('../lib/model-catalog-runtime');
+const { listVisibleModels, resolveRuntimeModel } = require('../lib/model-catalog-runtime');
 const { buildSmartUnifiedStyleMessages } = require('../lib/script-smart-unified-route');
 const { parseSmartUnifiedVisualStyle, SMART_UNIFIED_PREFIX_PRESET_ID } = require('../lib/script-generation-rules');
 const { createBatchFactory121Publisher } = require('../lib/batch-factory-v11/121-publisher');
-const { create121DirectClient } = require('../lib/novel-fetch-workshop/121-direct-client');
+const { create121DirectClient, sessionExpiredError } = require('../lib/novel-fetch-workshop/121-direct-client');
+const { create121CredentialStore } = require('../lib/novel-fetch-workshop/121-credential-store');
 const targetUpload = require('../lib/target-upload');
 const { createBatchFactoryAutomationController } = require('../lib/batch-factory-v11/automation-orchestrator');
 const { createAutomationPresetStore } = require('../lib/batch-factory-v11/automation-presets');
@@ -15,6 +17,7 @@ const { createAutomationPresetStore } = require('../lib/batch-factory-v11/automa
 const PERSONAL_PROVIDER = 'personal_api';
 const LOCAL_PROVIDER = 'doubao_local_executor';
 const H3_PROVIDER = 'autodl_comfyui';
+const YFAI_PROVIDER = 'yfai_seedance';
 const PERSONAL_MODEL = 'yd2.0-mini';
 const H3_MODEL = 'minimax-h3-video';
 const H3_CREATE_URL = 'https://autodl.art/api/v1/comfyui/comfyui_workflow/{workflow}';
@@ -119,6 +122,12 @@ function styleSystemBookPath(pathname) {
   return match ? { batchId: decodeURIComponent(match[1]), bookId: decodeURIComponent(match[2]) } : null;
 }
 
+function batchFactorySmartUnifiedRefreshPath(pathname) {
+  const match = String(pathname || '').match(/^\/api\/batch-factory\/v11\/batches\/([^/]+)\/books\/([^/]+)\/smart-unified\/refresh$/);
+  if (!match) return null;
+  try { return { batchId: decodeURIComponent(match[1]), bookId: decodeURIComponent(match[2]) }; } catch (_) { return null; }
+}
+
 function batchFactoryBookClassificationPath(pathname) {
   const match = String(pathname || '').match(/^\/api\/batch-factory\/v11\/batches\/([^/]+)\/books\/([^/]+)\/classify-publish-metadata$/);
   if (!match) return null;
@@ -127,7 +136,7 @@ function batchFactoryBookClassificationPath(pathname) {
 }
 
 function batchFactory121PublishPath(pathname) {
-  const match = String(pathname || '').match(/^\/api\/batch-factory\/v11\/batches\/([^/]+)\/books\/([^/]+)\/publish-121$/);
+  const match = String(pathname || '').match(/^\/api\/batch-factory\/v1[12]\/batches\/([^/]+)\/books\/([^/]+)\/publish-121$/);
   if (!match) return null;
   try { return { batchId: decodeURIComponent(match[1]), bookId: decodeURIComponent(match[2]) }; }
   catch (_) { return null; }
@@ -155,8 +164,20 @@ function organizationOptions(payload) {
 async function listBatchFactory121Organizations(req, options = {}) {
   const sessionStore = options.novelFetchStore || req.app?.locals?.novelFetchStore;
   if (!sessionStore?.getSession) throw requestError('121 登录会话存储未启用', 503, 'PUBLISH_121_SESSION_UNAVAILABLE');
+  const webSubmit = options.webSubmit || req.app?.locals?.novelFetchV2WebSubmit;
+  if (typeof webSubmit?.workerAction === 'function') {
+    const response = await webSubmit.workerAction(req.username, 'organization_list');
+    let payload = {};
+    try { payload = JSON.parse(String(response?.body || '{}')); }
+    catch (_) { throw requestError('121 组织目录返回了非 JSON 数据', 502, 'PUBLISH_121_ORGANIZATION_UNAVAILABLE'); }
+    if (payload?.success === false) throw requestError(String(payload?.message || payload?.msg || '121 组织目录读取失败'), 502, 'PUBLISH_121_ORGANIZATION_UNAVAILABLE');
+    return { organizations: organizationOptions(payload) };
+  }
   const client = options.directClient || create121DirectClient();
-  const session = sessionStore.getSession(req.username);
+  const session = await resolveBatchFactory121Session(req.username, {
+    sessionStore,
+    webSubmit
+  });
   await client.verify({ cookie: session?.cookie });
   const response = await client.action({ cookie: session?.cookie, method: 'GET', path: '/tttadmin/api/organization.php' });
   let payload = {};
@@ -164,6 +185,21 @@ async function listBatchFactory121Organizations(req, options = {}) {
   catch (_) { throw requestError('121 组织目录返回了非 JSON 数据', 502, 'PUBLISH_121_ORGANIZATION_UNAVAILABLE'); }
   if (payload?.success === false) throw requestError(String(payload?.message || payload?.msg || '121 组织目录读取失败'), 502, 'PUBLISH_121_ORGANIZATION_UNAVAILABLE');
   return { organizations: organizationOptions(payload) };
+}
+
+async function resolveBatchFactory121Session(owner, { sessionStore, webSubmit } = {}) {
+  // 优先使用已保存的真实 HTTP cookie（直接客户端需要），避免被浏览器 sessionKey 覆盖
+  const directSession = sessionStore?.getSession?.(owner);
+  const realCookie = String(directSession?.cookie || '').trim();
+  if (realCookie) return { ...(directSession || {}), cookie: realCookie };
+  if (webSubmit?.ensureSession) {
+    const ready = await webSubmit.ensureSession(owner);
+    const cookie = String(ready?.request?.sessionKey || ready?.result?.sessionKey || '').trim();
+    if (cookie) return { ...(sessionStore?.getSession?.(owner) || {}), cookie };
+  }
+  const browser = sessionStore?.getBrowserSession?.(owner);
+  const cookie = String(browser?.sessionKey || sessionStore?.getSession?.(owner)?.cookie || '').trim();
+  return cookie ? { ...(browser || {}), cookie } : null;
 }
 
 async function fetchBatchFactory121Media({ username, isOwner = false, mediaURL, goBaseUrl, bridgeSecret, fetchImpl = globalThis.fetch, now = Date.now } = {}) {
@@ -320,6 +356,29 @@ function batchBookTextModelId(batch, book, requestBody = {}) {
   ).trim();
 }
 
+// A manually imported batch has no engine settings yet.  Classification is
+// part of that import flow, so use the account's first usable text model when
+// neither the request nor the new batch selected one explicitly.
+function resolveBatchFactoryBookClassificationTextProvider(req, batch, book, options = {}) {
+  const selectedModelID = batchBookTextModelId(batch, book, req.body);
+  if (selectedModelID) return requestTextProvider(req, options, selectedModelID);
+  const candidates = listVisibleModels({
+    username: req.username,
+    kind: 'text',
+    memberStore: options.memberStore,
+    accountStore: options.accountStore,
+    account: { isOwner: req.auth?.account?.isOwner === true },
+    configReader: options.configReader || readConfig
+  });
+  let lastError;
+  for (const candidate of candidates) {
+    try { return requestTextProvider(req, options, String(candidate?.id || '').trim()); }
+    catch (error) { lastError = error; }
+  }
+  if (lastError) throw lastError;
+  return requestTextProvider(req, options, '');
+}
+
 function normalizedBookGender(value) {
   const input = String(value || '').trim();
   if (input === '男' || input === '男频') return '男频';
@@ -365,6 +424,31 @@ function batchBookClassificationMessages(book) {
       content: `书名：${String(book?.title || '').trim()}\n原始书城：${String(book?.platform || book?.sourceMetadata?.platformName || '').trim()}\n小说正文：\n${source}`
     }
   ];
+}
+
+function classificationFailureMetadata(metadata, error, now = Date.now) {
+  return {
+    ...object(metadata),
+    classifyStatus: 'failed',
+    classifyError: String(error?.message || '男女频和风格识别失败'),
+    classifyAt: new Date(now()).toISOString()
+  };
+}
+
+async function persistBatchFactoryBookClassificationFailure({ username, isOwner = false, batchId, bookId, error, goBaseUrl, bridgeSecret, fetchImpl = globalThis.fetch, now = Date.now } = {}) {
+  const basePath = `/api/batch-factory/v11/batches/${encodeURIComponent(batchId)}`;
+  const loaded = await v11JSONRequest({ username, isOwner, method: 'GET', pathname: basePath, goBaseUrl, bridgeSecret, fetchImpl, now });
+  const batch = loaded?.batch;
+  const book = (batch?.books || []).find(item => String(item?.id) === String(bookId));
+  if (!batch || !book) throw requestError('批量作品或单本书不存在', 404, 'BATCH_BOOK_NOT_FOUND');
+  const metadata = classificationFailureMetadata(book.sourceMetadata, error, now);
+  const saved = await v11JSONRequest({
+    username, isOwner, method: 'PUT',
+    pathname: `${basePath}/books/${encodeURIComponent(book.id)}/metadata`,
+    payload: { metadata, expectedRevision: Number(book.revision || 0) },
+    goBaseUrl, bridgeSecret, fetchImpl, now
+  });
+  return saved?.book || { ...book, sourceMetadata: metadata };
 }
 
 async function classifyBatchFactoryBookFor121({ username, isOwner = false, batchId, bookId, textProvider, force = false, goBaseUrl, bridgeSecret, fetchImpl = globalThis.fetch, now = Date.now } = {}) {
@@ -431,11 +515,28 @@ async function prepareBatchFactoryBookClassification(req, route, options = {}) {
   if (!force && gender && style) {
     return { book, classification: { gender, style, tags: String(metadata.tags || '').trim(), reason: String(metadata.classifyReason || '').trim() }, reused: true };
   }
-  const textProvider = requestTextProvider(req, options, batchBookTextModelId(batch, book, req.body));
-  return classifyBatchFactoryBookFor121({
-    username: req.username, isOwner: req.auth?.account?.isOwner === true, batchId: route.batchId, bookId: route.bookId,
-    textProvider, force, ...goOptions
-  });
+  try {
+    const textProvider = resolveBatchFactoryBookClassificationTextProvider(req, batch, book, options);
+    return await classifyBatchFactoryBookFor121({
+      username: req.username, isOwner: req.auth?.account?.isOwner === true, batchId: route.batchId, bookId: route.bookId,
+      textProvider, force, ...goOptions
+    });
+  } catch (error) {
+    // The result must remain visible on the book even when no model is
+    // configured or the provider rejects the call.  Failing to write this
+    // diagnostic must not hide the original, actionable classification error.
+    try {
+      await persistBatchFactoryBookClassificationFailure({
+        username: req.username,
+        isOwner: req.auth?.account?.isOwner === true,
+        batchId: route.batchId,
+        bookId: route.bookId,
+        error,
+        ...goOptions
+      });
+    } catch (_) { /* preserve the original classification error */ }
+    throw error;
+  }
 }
 
 async function submitBatchFactoryBookTo121(req, route, options = {}) {
@@ -448,13 +549,32 @@ async function submitBatchFactoryBookTo121(req, route, options = {}) {
   if (!initialBook) throw requestError('批量作品或单本书不存在', 404, 'BATCH_BOOK_NOT_FOUND');
   ensureBatchFactory121ResubmissionAllowed(initialBook, req.body);
   const reportProgress = progress => persistBatchFactory121Progress(req, route, progress, goOptions);
+  const webSubmit = options.webSubmit || req.app?.locals?.novelFetchV2WebSubmit;
+  const directClient = options.directClient || create121DirectClient();
+  const relogin121 = async owner => {
+    // 凭据文件固定在 <数据目录>/users/{owner}/novel-fetch-workshop/121-credentials.json
+    const credentialStore = create121CredentialStore({
+      usersDir: path.join(__dirname, '..', 'data', 'users'),
+      secret: process.env.QIANTIE_121_CREDENTIAL_SECRET || process.env.QIANTIE_BRIDGE_SECRET || 'dev-bridge-secret-change-me'
+    });
+    const credential = credentialStore.get(owner);
+    if (!credential) throw sessionExpiredError();
+    const login = await directClient.login({ username: credential.targetUsername, password: credential.password });
+    sessionStore.setSession(owner, login.cookie, { targetUsername: credential.targetUsername, baseUrl: credential.baseUrl, status: 'ready' });
+    return sessionStore.getSession(owner);
+  };
   const publisher = createBatchFactory121Publisher({
     loadBatch: async (owner, batchId) => v11JSONRequest({ username: owner, isOwner: req.auth?.account?.isOwner === true, method: 'GET', pathname: `/api/batch-factory/v11/batches/${encodeURIComponent(batchId)}`, ...goOptions }),
     loadMergeStatus: async (owner, batchId) => v11JSONRequest({ username: owner, isOwner: req.auth?.account?.isOwner === true, method: 'GET', pathname: `/api/batch-factory/v11/batches/${encodeURIComponent(batchId)}/merge-status`, ...goOptions }),
     loadProductionStatus: async (owner, batchId) => v11JSONRequest({ username: owner, isOwner: req.auth?.account?.isOwner === true, method: 'GET', pathname: `/api/batch-factory/v11/batches/${encodeURIComponent(batchId)}/status`, ...goOptions }),
     fetchMedia: (owner, mediaURL) => fetchBatchFactory121Media({ username: owner, isOwner: req.auth?.account?.isOwner === true, mediaURL, ...goOptions }),
-    getSession: owner => sessionStore.getSession(owner),
-    directClient: options.directClient || create121DirectClient(),
+    getSession: owner => resolveBatchFactory121Session(owner, {
+      sessionStore,
+      webSubmit
+    }),
+    directClient,
+    relogin: relogin121,
+    workerAction: typeof webSubmit?.workerAction === 'function' ? (owner, action, payload) => webSubmit.workerAction(owner, action, payload) : undefined,
     onProgress: reportProgress,
     now: options.clock || (() => new Date())
   });
@@ -504,9 +624,10 @@ function h3VideoSelected(batch, book) {
 }
 
 function directorVisualBaselineRequired(batch, book) {
-  // style.system is a production-stage baseline, not a display switch. Every
-  // book with video-source text obtains and saves it before asset extraction;
-  // “智能统一” only controls whether the frozen result is surfaced/injected.
+  // This legacy/director guard intentionally stays independent of whether the
+  // baseline is rendered in the editable prompt. The new production refresh
+  // path below is opt-in and non-blocking; historical H3 analyses remain
+  // readable and testable for existing books.
   return Boolean(String(book?.sourceText || '').trim());
 }
 
@@ -552,12 +673,13 @@ function savedSmartUnifiedStyleAnalysis(book, sourceText, preset) {
   }
 }
 
-async function freezeSmartUnifiedStyleAnalysis({ username, isOwner, batchId, book, sourceText, preset, analysis, goBaseUrl, bridgeSecret, fetchImpl, now }) {
+async function freezeSmartUnifiedStyleAnalysis({ username, isOwner, batchId, book, sourceText, preset, analysis, runtime, goBaseUrl, bridgeSecret, fetchImpl, now }) {
   const patch = {
     ...object(book?.settingsState?.patch),
     h3StyleAnalysis: analysis,
     h3StyleSourceHash: styleSystemSourceHash(sourceText),
-    h3StylePresetVersion: Number(preset?.version || 0)
+    h3StylePresetVersion: Number(preset?.version || 0),
+    ...(runtime ? { h3SmartUnifiedRuntime: runtime } : {})
   };
   await v11JSONRequest({
     username, isOwner, method: 'PUT',
@@ -618,20 +740,20 @@ function responseMessageText(content) {
   }).join('\n').trim();
 }
 
-async function analyzeBatchFactorySmartUnifiedStyle({ username, isOwner = false, batchId, bookId, textProvider, presetStore, goBaseUrl, bridgeSecret, fetchImpl = globalThis.fetch, now = Date.now, persist = false } = {}) {
+async function analyzeBatchFactorySmartUnifiedStyle({ username, isOwner = false, batchId, bookId, textProvider, presetStore, goBaseUrl, bridgeSecret, fetchImpl = globalThis.fetch, now = Date.now, persist = false, force = false, loadedBatch = null, runtime = null } = {}) {
   if (!fetchImpl || !textProvider?.endpoint || !textProvider?.apiKey || !textProvider?.model) throw requestError('智能统一需要当前书可用的文本模型', 422, 'TEXT_MODEL_REQUIRED');
   const basePath = `/api/batch-factory/v11/batches/${encodeURIComponent(batchId)}`;
-  const loaded = await v11JSONRequest({ username, isOwner, method: 'GET', pathname: basePath, goBaseUrl, bridgeSecret, fetchImpl, now });
+  const loaded = loadedBatch || await v11JSONRequest({ username, isOwner, method: 'GET', pathname: basePath, goBaseUrl, bridgeSecret, fetchImpl, now });
   const batch = loaded?.batch;
   const book = (batch?.books || []).find(item => String(item?.id) === String(bookId));
   if (!batch || !book) throw requestError('批量作品或小说不存在', 404, 'BATCH_BOOK_NOT_FOUND');
   // This endpoint is also used by the direct director route, so keep the H3
   // / smart-unified eligibility guard here as well as in batch/retry runs.
   if (!directorVisualBaselineRequired(batch, book)) return '';
-  const sourceText = String(book?.sourceText || '').trim();
+  const sourceText = batchFactoryProductionText(book);
   if (!sourceText) throw requestError('智能统一需要当前书完整原文', 422, 'SOURCE_TEXT_REQUIRED');
   const stylePreset = smartUnifiedStyleSystemPreset(batch, book, presetStore);
-  const cached = savedSmartUnifiedStyleAnalysis(book, sourceText, stylePreset);
+  const cached = force ? '' : savedSmartUnifiedStyleAnalysis(book, sourceText, stylePreset);
   if (cached) return cached;
   const assets = Array.isArray(book?.assetRecords) ? book.assetRecords : [];
   const messages = buildSmartUnifiedStyleMessages({
@@ -665,9 +787,105 @@ async function analyzeBatchFactorySmartUnifiedStyle({ username, isOwner = false,
   if (!content) throw requestError('智能统一视觉分析模型没有返回内容', 502, 'SMART_UNIFIED_PROVIDER_INVALID_RESPONSE');
   try {
     const analysis = serializeSmartUnifiedStyleAnalysis(parseSmartUnifiedVisualStyle(unwrapH3StyleSystemFields(content)), stylePreset);
-    if (persist) await freezeSmartUnifiedStyleAnalysis({ username, isOwner, batchId, book, sourceText, preset: stylePreset, analysis, goBaseUrl, bridgeSecret, fetchImpl, now });
+    if (persist) await freezeSmartUnifiedStyleAnalysis({ username, isOwner, batchId, book, sourceText, preset: stylePreset, analysis, runtime, goBaseUrl, bridgeSecret, fetchImpl, now });
     return analysis;
   } catch (error) { throw requestError(error?.message || '智能统一视觉分析结果无效', 422, 'SMART_UNIFIED_INVALID_RESPONSE'); }
+}
+
+// Smart-unified is a visual baseline enhancement. It must be refreshed before
+// asset work and retries, but upstream instability must never stop production.
+// The caller supplies the enabled candidates in user-visible priority order.
+async function persistSmartUnifiedRuntime({ username, isOwner, batchId, book, runtime, goBaseUrl, bridgeSecret, fetchImpl, now }) {
+  return v11JSONRequest({
+    username, isOwner, method: 'PUT',
+    pathname: `/api/batch-factory/v11/batches/${encodeURIComponent(batchId)}/books/${encodeURIComponent(book.id)}/override`,
+    payload: { patch: { ...object(book?.settingsState?.patch), h3SmartUnifiedRuntime: runtime }, expectedRevision: Number(book?.revision || 0) },
+    goBaseUrl, bridgeSecret, fetchImpl, now
+  });
+}
+
+async function acquireBatchFactorySmartUnifiedBaseline({ username, isOwner = false, batchId, bookId, textProviders = [], presetStore, goBaseUrl, bridgeSecret, fetchImpl = globalThis.fetch, now = Date.now, force = true, persist = false } = {}) {
+  const basePath = `/api/batch-factory/v11/batches/${encodeURIComponent(batchId)}`;
+  const loaded = await v11JSONRequest({ username, isOwner, method: 'GET', pathname: basePath, goBaseUrl, bridgeSecret, fetchImpl, now });
+  const batch = loaded?.batch;
+  const book = (batch?.books || []).find(item => String(item?.id) === String(bookId));
+  if (!batch || !book) throw requestError('批量作品或小说不存在', 404, 'BATCH_BOOK_NOT_FOUND');
+  if (!smartUnifiedSelected(batch, book)) return { style: '', attempts: [], skipped: true, nonBlocking: true, reason: '智能统一未开启' };
+
+  const attempts = [];
+  for (const provider of textProviders) {
+    if (!provider?.endpoint || !provider?.apiKey || !provider?.model) continue;
+    try {
+      const runtime = { status: 'succeeded', attempts: [...attempts, { id: String(provider.id || provider.model), name: String(provider.displayName || provider.model), status: 'succeeded' }], modelId: String(provider.id || provider.model), modelName: String(provider.displayName || provider.model), updatedAt: new Date(now()).toISOString() };
+      const style = await analyzeBatchFactorySmartUnifiedStyle({
+        username, isOwner, batchId, bookId, textProvider: provider, presetStore,
+        goBaseUrl, bridgeSecret, fetchImpl, now, force, persist, loadedBatch: loaded, runtime
+      });
+      attempts.push({ id: String(provider.id || provider.model), name: String(provider.displayName || provider.model), status: 'succeeded' });
+      return { style, provider, attempts, skipped: false, nonBlocking: true };
+    } catch (error) {
+      attempts.push({ id: String(provider.id || provider.model), name: String(provider.displayName || provider.model), status: 'failed', message: String(error?.message || '智能统一请求失败'), code: String(error?.code || '') });
+    }
+  }
+  const reason = attempts.length ? '所有已启用文本模型均未完成智能统一分析' : '没有可用于智能统一的文本模型';
+  if (persist) {
+    try {
+      await persistSmartUnifiedRuntime({ username, isOwner, batchId, book, runtime: { status: 'failed', attempts, updatedAt: new Date(now()).toISOString(), reason }, goBaseUrl, bridgeSecret, fetchImpl, now });
+    } catch (_) {
+      // A status write must not turn an optional visual baseline into a blocker.
+    }
+  }
+  return { style: '', attempts, skipped: false, nonBlocking: true, reason };
+}
+
+function smartUnifiedTextProviders({ username, isOwner = false, textModelId, textProvider = null, memberStore, accountStore, configReader } = {}) {
+  const preferred = textProvider?.endpoint && textProvider?.apiKey && textProvider?.model
+    ? [{ id: String(textModelId || textProvider.model || '').trim(), ...textProvider }]
+    : [];
+  const ids = [String(textModelId || '').trim()];
+  try {
+    for (const model of listVisibleModels({ username, kind: 'text', memberStore, accountStore, account: { isOwner }, configReader })) ids.push(String(model?.id || '').trim());
+  } catch (_) {
+    // The selected model remains the primary candidate if the catalog cannot
+    // be listed; stage execution will still report a normal model error.
+  }
+  const unique = [...new Set(ids.filter(Boolean))];
+  const resolved = unique.map(id => {
+    try { return { id, ...requestTextProvider({ username, body: { textModelId: id } }, { memberStore, accountStore, configReader }, id) }; } catch (_) { return null; }
+  }).filter(Boolean);
+  const seen = new Set();
+  return [...preferred, ...resolved].filter(provider => {
+    const key = String(provider?.id || provider?.model || '');
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+async function refreshSmartUnifiedNonBlocking({ username, isOwner = false, batchId, bookId, textModelId, textProvider = null, presetStore, goBaseUrl, bridgeSecret, fetchImpl, now, memberStore, accountStore, configReader, persist = true } = {}) {
+  try {
+    return await acquireBatchFactorySmartUnifiedBaseline({
+      username, isOwner, batchId, bookId,
+      textProviders: smartUnifiedTextProviders({ username, isOwner, textModelId, textProvider, memberStore, accountStore, configReader }),
+      presetStore, goBaseUrl, bridgeSecret, fetchImpl, now, force: true, persist
+    });
+  } catch (error) {
+    return { style: '', attempts: [{ id: String(textModelId || ''), name: '当前文本模型', status: 'failed', message: String(error?.message || '智能统一请求失败'), code: String(error?.code || '') }], skipped: false, nonBlocking: true, reason: '智能统一暂不可用，已跳过，不影响当前步骤' };
+  }
+}
+
+function batchFactoryProductionText(book) {
+  const source = String(book?.workingFrontContent || book?.sourceText || '');
+  const configured = Number(book?.sourceMetadata?.contentRangeLines);
+  const limit = Number.isInteger(configured) && configured > 0 ? Math.min(configured, 500) : 5;
+  const lines = [];
+  for (const line of source.split(/\r?\n/)) {
+    const value = line.trim();
+    if (!value) continue;
+    lines.push(value);
+    if (lines.length >= limit) break;
+  }
+  return lines.join('\n');
 }
 
 function imageSizeForAspectRatio(aspectRatio) {
@@ -768,6 +986,7 @@ function normalizedProvider(value) {
   if (!provider || ['personal', 'personal_api', 'yd_video', 'yadi'].includes(provider)) return PERSONAL_PROVIDER;
   if (['doubao', 'doubao_local', 'doubao_local_executor'].includes(provider)) return LOCAL_PROVIDER;
   if (['h3', 'minimax_h3', 'minimax-h3-video', 'autodl', 'autodl_comfyui', 'autodl_comfyui_video'].includes(provider)) return H3_PROVIDER;
+  if (['yfai', 'yfai_seedance', 'seedance-2-0-official'].includes(provider)) return YFAI_PROVIDER;
   return provider;
 }
 
@@ -1054,13 +1273,40 @@ function personalApiKeyForUser(req) {
   return getVideoApiKey(config, 'yd');
 }
 
+function resolveBatchVideoProviderConfig(username, modelId, options = {}) {
+  const selected = String(modelId || '').trim();
+  const catalogModelId = selected || 'yd2-mini-video';
+  let model = null;
+  try {
+    model = resolveRuntimeModel({
+      username,
+      kind: 'video',
+      modelId: catalogModelId,
+      memberStore: options.memberStore,
+      accountStore: options.accountStore,
+      configReader: options.configReader || readConfig
+    });
+  } catch (_) {
+    // Keep the legacy owner-only YD configuration working while old batches
+    // migrate to the model catalog.
+  }
+  if (selected === 'seedance-2-0-official') {
+    if (!model?.credential) return null;
+    return { provider: YFAI_PROVIDER, model: model.modelId || selected, apiKey: model.credential, baseUrl: model.baseUrl || 'https://yf.token6688.com' };
+  }
+  if (model?.credential) return { provider: PERSONAL_PROVIDER, model: PERSONAL_MODEL, apiKey: model.credential };
+  const apiKey = getVideoApiKey((options.configReader || readConfig)(username), 'yd');
+  return apiKey ? { provider: PERSONAL_PROVIDER, model: PERSONAL_MODEL, apiKey } : null;
+}
+
 async function syncPersonalProviderConfig(req, options, { allowMissing = false } = {}) {
   const fetchImpl = options.fetchImpl || globalThis.fetch;
   if (!fetchImpl) throw new Error('fetch implementation is required');
   const base = String(options.goBaseUrl || resolveV11GoBaseUrl()).replace(/\/$/, '');
   const secret = options.bridgeSecret || process.env.QIANTIE_BRIDGE_SECRET || '';
-  const apiKey = personalApiKeyForUser(req);
-  if (!apiKey) {
+  const selectedModel = String(req.body?.modelId || req.body?.videoModelId || '').trim();
+  const providerConfig = resolveBatchVideoProviderConfig(req.username, selectedModel, options);
+  if (!providerConfig) {
     if (allowMissing) return false;
     const error = new Error('请先在个人中心配置视频 API Key');
     error.status = 400;
@@ -1082,9 +1328,10 @@ async function syncPersonalProviderConfig(req, options, { allowMissing = false }
     method: 'PUT',
     headers,
     body: JSON.stringify({
-      provider: PERSONAL_PROVIDER,
-      model: PERSONAL_MODEL,
-      apiKey
+      provider: providerConfig.provider,
+      model: providerConfig.model,
+      apiKey: providerConfig.apiKey,
+      ...(providerConfig.baseUrl ? { createUrl: providerConfig.baseUrl } : {})
     }),
     redirect: 'manual'
   });
@@ -1194,6 +1441,7 @@ function automationVideoProvider(settings = {}) {
   const model = String(settings.videoModelId || '').trim().toLowerCase();
   if (model.includes('h3') || model.includes('minimax-h3') || model.includes('autodl')) return H3_PROVIDER;
   if (model.includes('doubao') || model.includes('local-executor')) return LOCAL_PROVIDER;
+  if (model === 'seedance-2-0-official') return YFAI_PROVIDER;
   return normalizedProvider(settings.videoProvider);
 }
 
@@ -1249,7 +1497,7 @@ function automationTTSFingerprint(tts = {}) {
   return crypto.createHash('sha256').update(JSON.stringify(normalized)).digest('hex');
 }
 
-async function synthesizeAutomationTTS(input, tts = {}, fetchImpl = globalThis.fetch) {
+async function synthesizeAutomationTTSBytes(input, tts = {}, fetchImpl = globalThis.fetch) {
   const response = await fetchImpl('http://tts3.121w.com/v1/audio/speech', {
     method: 'POST', headers: { 'content-type': 'application/json', accept: '*/*' },
     body: JSON.stringify({ input, voice: tts.voice || 'zh-CN-XiaoxiaoNeural', speed: Number(tts.speed || 1.8), pitch: String(tts.pitch ?? 10), style: tts.style || 'general' })
@@ -1257,7 +1505,43 @@ async function synthesizeAutomationTTS(input, tts = {}, fetchImpl = globalThis.f
   if (!response?.ok) throw requestError(`配音实测失败（${Number(response?.status || 502)}）`, 502, 'AUTOMATION_TTS_FAILED');
   const bytes = Buffer.from(await response.arrayBuffer());
   if (!bytes.length) throw requestError('配音实测返回空音频', 502, 'AUTOMATION_TTS_FAILED');
-  return bytes.toString('base64');
+  return bytes;
+}
+
+async function synthesizeAutomationTTS(input, tts = {}, fetchImpl = globalThis.fetch) {
+  return (await synthesizeAutomationTTSBytes(input, tts, fetchImpl)).toString('base64');
+}
+
+function mpegAudioDurationSeconds(bytes) {
+  const data = Buffer.from(bytes || []);
+  const bitrateV1L3 = [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320];
+  const bitrateV2L3 = [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160];
+  const sampleRates = { 3: [44100, 48000, 32000], 2: [22050, 24000, 16000], 0: [11025, 12000, 8000] };
+  let offset = data.subarray(0, 3).toString('ascii') === 'ID3' && data.length >= 10
+    ? 10 + (((data[6] & 0x7f) << 21) | ((data[7] & 0x7f) << 14) | ((data[8] & 0x7f) << 7) | (data[9] & 0x7f))
+    : 0;
+  let seconds = 0;
+  let frames = 0;
+  while (offset + 4 <= data.length) {
+    const header = data.readUInt32BE(offset);
+    if (((header & 0xffe00000) >>> 0) !== 0xffe00000) { offset += 1; continue; }
+    const version = (header >>> 19) & 3;
+    const layer = (header >>> 17) & 3;
+    const bitrateIndex = (header >>> 12) & 15;
+    const sampleRateIndex = (header >>> 10) & 3;
+    const padding = (header >>> 9) & 1;
+    const sampleRate = sampleRates[version]?.[sampleRateIndex];
+    const bitrate = (version === 3 ? bitrateV1L3 : bitrateV2L3)[bitrateIndex];
+    if (layer !== 1 || !sampleRate || !bitrate) { offset += 1; continue; }
+    const samples = version === 3 ? 1152 : 576;
+    const frameLength = Math.floor(((version === 3 ? 144000 : 72000) * bitrate) / sampleRate) + padding;
+    if (frameLength < 4 || offset + frameLength > data.length) break;
+    seconds += samples / sampleRate;
+    frames += 1;
+    offset += frameLength;
+  }
+  if (!frames || !Number.isFinite(seconds) || seconds <= 0) throw requestError('无法读取配音真实时长', 502, 'AUTOMATION_TTS_DURATION_INVALID');
+  return Number(seconds.toFixed(3));
 }
 
 function splitVideoPresetBody(body) {
@@ -1279,7 +1563,18 @@ function automationCompilePayload(book, settings, audioAssetID = '', semantic = 
   const video = object(promptConfig.video);
   const constraints = object(promptConfig.constraints);
   const selections = Array.isArray(constraints.selections) ? constraints.selections : [];
-  const restriction = selections.find(item => item?.constraintCategory === 'restriction' && item?.presetId === 'script-constraint-restriction-h3-visual-policy');
+  const enabled = constraints.enabled !== false;
+  const enabledCategories = Array.isArray(constraints.enabledCategories)
+    ? new Set(constraints.enabledCategories.map(String))
+    : new Set(['prefix', 'quality', 'restriction', 'negative']);
+  const layer = category => enabled && enabledCategories.has(category)
+    ? selections.find(item => item?.constraintCategory === category) || null
+    : null;
+  const prefix = layer('prefix');
+  const quality = layer('quality');
+  const restriction = layer('restriction');
+  const negative = layer('negative');
+  const smartUnified = prefix?.presetId === SMART_UNIFIED_PREFIX_PRESET_ID;
   const presetBody = splitVideoPresetBody(video.body);
   const template = presetBody.finalTemplate.includes('{{storyboard}}') ? presetBody.finalTemplate : '';
   return {
@@ -1287,7 +1582,7 @@ function automationCompilePayload(book, settings, audioAssetID = '', semantic = 
     audio_asset_id: audioAssetID,
     allow_semantic_timeline: semantic,
     preset: {
-      key: String(video.presetId || video.id || 'h3-video-normal'),
+      key: String(video.presetKey || video.presetId || video.id || 'h3-video-normal'),
       revision: Math.max(1, Number(video.presetVersion || video.version || 1)),
       format: 'h3-structured-v1',
       max_segment_ms: Number(settings.storyboardDurationLimit) === 15 ? 15000 : 10000,
@@ -1297,11 +1592,17 @@ function automationCompilePayload(book, settings, audioAssetID = '', semantic = 
         ? '按冻结导演数据和所选最终模板生成当前 VIDEO 提示词。'
         : (presetBody.directorRules || '按结构化时间线输出当前 VIDEO，保持人物、动作、机位和场景连续性。')
     },
+    prefix_text: smartUnified ? '' : String(prefix?.body || ''),
+    quality_text: String(quality?.body || ''),
     visual_restriction_text: String(restriction?.body || ''),
+    negative_text: String(negative?.body || ''),
     switches: {
-      smart_unified: selections.some(item => item?.constraintCategory === 'prefix' && item?.presetId === SMART_UNIFIED_PREFIX_PRESET_ID),
-      base_setup: constraints.baseSetup?.enabled === true,
-      visual_restriction: Boolean(restriction)
+      smart_unified: smartUnified,
+      base_setup: enabled && constraints.baseSetup?.enabled !== false,
+      prefix: Boolean(prefix && !smartUnified && String(prefix.body || '').trim()),
+      quality: Boolean(quality && String(quality.body || '').trim()),
+      visual_restriction: Boolean(restriction && String(restriction.body || '').trim()),
+      negative: Boolean(negative && String(negative.body || '').trim())
     }
   };
 }
@@ -1309,7 +1610,7 @@ function automationCompilePayload(book, settings, audioAssetID = '', semantic = 
 function createBatchFactoryV11Router(options = {}) {
   const upstreamOptions = { ...options, goBaseUrl: options.goBaseUrl || resolveV11GoBaseUrl() };
   const automationPresets = options.automationPresetStore || createAutomationPresetStore({ statePath: options.automationPresetStatePath });
-  const automation = createBatchFactoryAutomationController({
+  const automation = options.automationController || createBatchFactoryAutomationController({
     statePath: options.automationStatePath,
     pollMs: options.automationPollMs,
     logger: options.logger || console,
@@ -1365,14 +1666,6 @@ function createBatchFactoryV11Router(options = {}) {
         if (['assets', 'director', 'visual'].includes(stage)) {
           const textModelId = String(settings.textModelId || '').trim();
           payload.textProvider = requestTextProvider({ username, body: { textModelId } }, upstreamOptions, textModelId);
-          if (['assets', 'director'].includes(stage) && directorVisualBaselineRequired(batch, book)) {
-            payload.smartUnifiedStyle = await analyzeBatchFactorySmartUnifiedStyle({
-              username, isOwner, batchId, bookId, textProvider: payload.textProvider,
-              presetStore: upstreamOptions.presetStore,
-              goBaseUrl: upstreamOptions.goBaseUrl, bridgeSecret: upstreamOptions.bridgeSecret,
-              fetchImpl: upstreamOptions.fetchImpl, now: upstreamOptions.now, persist: true
-            });
-          }
         }
         if (stage === 'video') {
           const provider = automationVideoProvider(settings);
@@ -1381,7 +1674,7 @@ function createBatchFactoryV11Router(options = {}) {
             username,
             auth: { account: { isOwner } },
             method: 'POST',
-            body: { provider },
+            body: { provider, videoModelId: settings.videoModelId },
             originalUrl: pathname,
             url: pathname
           };
@@ -1389,6 +1682,24 @@ function createBatchFactoryV11Router(options = {}) {
         }
         return v11JSONRequest({
           username, isOwner, method: 'POST', pathname, payload,
+          goBaseUrl: upstreamOptions.goBaseUrl, bridgeSecret: upstreamOptions.bridgeSecret,
+          fetchImpl: upstreamOptions.fetchImpl, now: upstreamOptions.now
+        });
+      },
+      prepareAudioPlanning: async ({ owner: username, isOwner, batch, book, settings }) => {
+        const input = batchFactoryProductionText(book);
+        if (!input) throw requestError('当前书没有可用于配音的生产内容', 422, 'AUTOMATION_TTS_SOURCE_REQUIRED');
+        const tts = { voice: 'zh-CN-XiaoxiaoNeural', style: 'general', speed: 1.8, pitch: 10, ...object(settings.tts) };
+        const bytes = await synthesizeAutomationTTSBytes(input, tts, upstreamOptions.fetchImpl || globalThis.fetch);
+        const patch = {
+          audioDurationSeconds: mpegAudioDurationSeconds(bytes),
+          audioDurationFingerprint: `server-a1-${crypto.createHash('sha256').update(input).update(JSON.stringify(tts)).digest('hex')}`,
+          audioDurationManual: false
+        };
+        const pathname = `/api/batch-factory/v11/batches/${encodeURIComponent(batch.id)}/books/${encodeURIComponent(book.id)}/override`;
+        return v11JSONRequest({
+          username, isOwner, method: 'PUT', pathname,
+          payload: { patch, expectedRevision: Number(book.revision || 0) },
           goBaseUrl: upstreamOptions.goBaseUrl, bridgeSecret: upstreamOptions.bridgeSecret,
           fetchImpl: upstreamOptions.fetchImpl, now: upstreamOptions.now
         });
@@ -1409,25 +1720,33 @@ function createBatchFactoryV11Router(options = {}) {
           requestId,
           textProvider: requestTextProvider({ username, body: { textModelId } }, upstreamOptions, textModelId)
         };
-		if (['assets', 'director'].includes(stage) && directorVisualBaselineRequired(batch, book)) {
-          payload.smartUnifiedStyle = await analyzeBatchFactorySmartUnifiedStyle({
-            username, isOwner, batchId, bookId, textProvider: payload.textProvider,
-            presetStore: upstreamOptions.presetStore,
-            goBaseUrl: upstreamOptions.goBaseUrl, bridgeSecret: upstreamOptions.bridgeSecret,
-            fetchImpl: upstreamOptions.fetchImpl, now: upstreamOptions.now, persist: true
+        // An asset retry obtains its baseline inside that one combined asset
+        // request. Other retries retain the explicit non-blocking refresh.
+        if (stage !== 'assets') {
+          const smartUnified = await refreshSmartUnifiedNonBlocking({
+              username, isOwner, batchId, bookId, textModelId, textProvider: payload.textProvider,
+              presetStore: upstreamOptions.presetStore,
+              goBaseUrl: upstreamOptions.goBaseUrl, bridgeSecret: upstreamOptions.bridgeSecret,
+              fetchImpl: upstreamOptions.fetchImpl, now: upstreamOptions.now,
+              memberStore: upstreamOptions.memberStore, accountStore: upstreamOptions.accountStore,
+              configReader: upstreamOptions.configReader || readConfig, persist: true
           });
+          if (smartUnified.style) payload.smartUnifiedStyle = smartUnified.style;
         }
         if (stage === 'video') {
           const provider = automationVideoProvider(settings);
+          payload.provider = provider;
           const syntheticRequest = {
             username,
             auth: { account: { isOwner } },
             method: 'POST',
-            body: { provider },
+            body: { provider, videoModelId: settings.videoModelId },
             originalUrl: pathname,
             url: pathname
           };
-          await prepareProviderRequest(syntheticRequest, upstreamOptions, pathname);
+          // The public retry endpoint is intentionally generic, but provider
+          // credentials must be synchronized exactly as for a VIDEO stage.
+          await prepareProviderRequest(syntheticRequest, upstreamOptions, `/api/batch-factory/v11/batches/${encodeURIComponent(batchId)}/books/${encodeURIComponent(bookId)}/stages/video`);
         }
         return v11JSONRequest({
           username, isOwner, method: 'POST', pathname, payload,
@@ -1585,7 +1904,8 @@ function createBatchFactoryV11Router(options = {}) {
       const batch = current?.batch || current;
       const result = await automation.start({
         ...automationContext(req), scheduledAt: req.body?.scheduledAt,
-        runMode: req.body?.runMode, preset: preset ? { id: preset.id, name: preset.name, version: preset.version } : {},
+        runMode: req.body?.runMode, concurrency: req.body?.concurrency,
+        preset: preset ? { id: preset.id, name: preset.name, version: preset.version } : {},
         configSnapshot: preset?.config || object(batch?.settingsState?.patch)
       });
       return res.status(201).json({ automation: result });
@@ -1620,7 +1940,7 @@ function createBatchFactoryV11Router(options = {}) {
           bookId: imageGeneration.bookId,
           assetIds: req.body?.assetIds,
           modelId: req.body?.modelId,
-          aspectRatio: req.body?.aspectRatio,
+          aspectRatio: req.body?.imageAspectRatio || req.body?.aspectRatio,
           goBaseUrl: upstreamOptions.goBaseUrl,
           bridgeSecret: upstreamOptions.bridgeSecret,
           resolveImageModel: modelId => resolveRuntimeModel({
@@ -1637,6 +1957,29 @@ function createBatchFactoryV11Router(options = {}) {
       if (req.method === 'POST' && classification) {
         const result = await prepareBatchFactoryBookClassification(req, classification, upstreamOptions);
         return res.json(result);
+      }
+      const smartUnifiedRefresh = batchFactorySmartUnifiedRefreshPath(parsed.pathname);
+      if (req.method === 'POST' && smartUnifiedRefresh) {
+        const smartUnified = await refreshSmartUnifiedNonBlocking({
+          username: req.username,
+          isOwner: req.auth?.account?.isOwner === true,
+          ...smartUnifiedRefresh,
+          textModelId: String(req.body?.textModelId || '').trim(),
+          presetStore: upstreamOptions.presetStore,
+          goBaseUrl: upstreamOptions.goBaseUrl,
+          bridgeSecret: upstreamOptions.bridgeSecret,
+          fetchImpl: upstreamOptions.fetchImpl,
+          now: upstreamOptions.now,
+          memberStore: upstreamOptions.memberStore,
+          accountStore: upstreamOptions.accountStore,
+          configReader: upstreamOptions.configReader || readConfig,
+          persist: true
+        });
+        return res.json({ smartUnified: {
+          available: Boolean(smartUnified.style), skipped: Boolean(smartUnified.skipped),
+          reason: smartUnified.reason || '', attempts: smartUnified.attempts || [],
+          provider: smartUnified.provider ? { id: smartUnified.provider.id || smartUnified.provider.model, name: smartUnified.provider.displayName || smartUnified.provider.model } : null
+        } });
       }
       const publish121 = batchFactory121PublishPath(parsed.pathname);
       if (req.method === 'POST' && publish121) {
@@ -1661,22 +2004,6 @@ function createBatchFactoryV11Router(options = {}) {
       if (execution) {
         await refreshBatchFactoryPresetSnapshot({ username: req.username, isOwner: req.auth?.account?.isOwner === true, ...execution, goBaseUrl: upstreamOptions.goBaseUrl, bridgeSecret: upstreamOptions.bridgeSecret, presetStore: upstreamOptions.presetStore, fetchImpl: upstreamOptions.fetchImpl, now: upstreamOptions.now });
       }
-      const styleSystemBook = styleSystemBookPath(parsed.pathname);
-      if (styleSystemBook) {
-        const smartUnifiedStyle = await analyzeBatchFactorySmartUnifiedStyle({
-          username: req.username,
-          isOwner: req.auth?.account?.isOwner === true,
-          ...styleSystemBook,
-          textProvider: req.body?.textProvider,
-          presetStore: upstreamOptions.presetStore,
-          goBaseUrl: upstreamOptions.goBaseUrl,
-          bridgeSecret: upstreamOptions.bridgeSecret,
-          fetchImpl: upstreamOptions.fetchImpl,
-          now: upstreamOptions.now,
-          persist: true
-        });
-        if (smartUnifiedStyle) req.body = { ...(req.body || {}), smartUnifiedStyle };
-      }
       return await proxyV11Request(req, res, {
         ...upstreamOptions,
         transformJSONResponse: redactBatchFactorySystemPromptBodies
@@ -1697,6 +2024,7 @@ function createBatchFactoryV11Router(options = {}) {
       return res.status(status).json({ error: message, code });
     }
   });
+  router.automationController = automation;
   return router;
 }
 
@@ -1704,6 +2032,8 @@ module.exports = {
   H3_PROVIDER,
   PERSONAL_PROVIDER,
   LOCAL_PROVIDER,
+  YFAI_PROVIDER,
+  resolveBatchVideoProviderConfig,
   h3ApiKeyForRequest,
   normalizedProvider,
   needsH3ConfigSync,
@@ -1725,15 +2055,21 @@ module.exports = {
   batchFactoryBookClassificationPath,
   batchFactory121OrganizationsPath,
   organizationOptions,
+  resolveBatchFactory121Session,
+  mpegAudioDurationSeconds,
   automationPublishSettings,
+  automationCompilePayload,
   safeAutomationStatus,
   splitVideoPresetBody,
   listBatchFactory121Organizations,
   fetchBatchFactory121Media,
   submitBatchFactoryBookTo121,
   batchBookTextModelId,
+  resolveBatchFactoryBookClassificationTextProvider,
   normalizedBookGender,
   normalizedBookStyle,
+  classificationFailureMetadata,
+  persistBatchFactoryBookClassificationFailure,
   parseBatchBookClassification,
   classifyBatchFactoryBookFor121,
   prepareBatchFactoryBookClassification,
@@ -1744,6 +2080,7 @@ module.exports = {
   smartUnifiedSelected,
   directorVisualBaselineRequired,
   analyzeBatchFactorySmartUnifiedStyle,
+  acquireBatchFactorySmartUnifiedBaseline,
   upstreamErrorMessage,
   createBatchFactoryV11Router
 };

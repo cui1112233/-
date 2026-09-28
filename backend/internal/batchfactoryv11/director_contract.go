@@ -310,6 +310,21 @@ func BuildAssetExtractionContract(book Book, snapshot DirectorSnapshot) (PromptC
 {"characters":[{"name":"人物名","prompt":"外形、服装、年龄感、气质等可见特征"}],"scenes":[{"name":"场景名","prompt":"空间、时段、陈设、氛围等可见特征"}],"props":[{"name":"道具名","prompt":"材质、外观、状态等可见特征"}]}
 每个数组可以为空；每个元素必须同时有非空 name 与 prompt。`)
 	config := aiReasoningPromptConfig(snapshot.Effective)
+	smartUnifiedSelected := smartUnifiedSelectedForRevision(book, config)
+	if smartUnifiedSelected {
+		system += `
+
+【智能统一与资产同次返回】
+除 characters、scenes、props 外，顶层还必须返回 smart_unified_analysis。它是本书后续 VIDEO 的视觉基线，格式严格为：
+"smart_unified_analysis":{"schema_version":"h3-style-system/v1","prompt":"可直接注入 VIDEO 的中文视觉基线","fields":{"final_genre":"题材","trailer_style":"影像风格","story_era":"时代背景"},"preset":{"id":"script-constraint-prefix-smart-unified","name":"智能统一","version":1}}
+不得单独解释或要求再次调用；四个字段都必须在这一次 JSON 返回中。`
+		for _, selection := range config.Constraints.Selections {
+			if selection.ID == smartUnifiedPrefixPresetID && constraintCategory(selection) == "prefix" && strings.TrimSpace(selection.Body) != "" {
+				system += "\n\n当前智能统一规则：\n" + strings.TrimSpace(selection.Body)
+				break
+			}
+		}
+	}
 	h3AssetSelected := config.Assets.appliesTo(book, config.Assets.Extraction) && usesH3AssetRenderer(config.Assets.Extraction)
 	h3CharacterSelected := config.Assets.appliesTo(book, config.Assets.Character) && usesH3CharacterRenderer(config.Assets.Character)
 	h3Selected := h3AssetSelected || h3CharacterSelected

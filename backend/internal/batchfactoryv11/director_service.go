@@ -129,10 +129,7 @@ func snapshotForBookWithAudioRequirement(batch Batch, book Book, requireMeasured
 	if requireMeasuredAudio && audioPlanning && audioTargetSeconds(effective) == 0 {
 		return DirectorSnapshot{}, fmt.Errorf("%w: 音频规划已开启，请先生成配音并读取真实时长", ErrConflict)
 	}
-	aspect := rawString(effective, "aspectRatio", "9:16")
-	if aspect != "9:16" && aspect != "16:9" {
-		return DirectorSnapshot{}, fmt.Errorf("%w: unsupported aspect ratio", ErrInvalid)
-	}
+	aspect := EffectiveVideoAspectRatio(effective)
 	if mode != "original" && mode != "viral" {
 		return DirectorSnapshot{}, fmt.Errorf("%w: unsupported director mode", ErrInvalid)
 	}
@@ -385,6 +382,9 @@ func (s *DirectorService) RunAssetExtraction(ctx context.Context, owner, batchID
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
+	// The visual baseline is deliberately optional. Asset extraction remains
+	// productive even if a model omitted or malformed the extra analysis field.
+	smartUnifiedAnalysis, _ := SmartUnifiedAnalysisFromAssetExtractionOutput(raw)
 	// The selected full H3 assets preset already returns detailed appearances
 	// together with characters/scenes/props. Other renderer selections retain
 	// their historical post-extraction compilation behavior.
@@ -395,5 +395,33 @@ func (s *DirectorService) RunAssetExtraction(ctx context.Context, owner, batchID
 			return nil, err
 		}
 	}
-	return s.Store.PersistExtractedBookAssets(ctx, owner, book, snapshot, assets)
+	persisted, err := s.Store.PersistExtractedBookAssets(ctx, owner, book, snapshot, assets)
+	if err != nil {
+		return nil, err
+	}
+	if smartUnifiedAnalysis == nil {
+		return persisted, nil
+	}
+	analysisJSON, err := json.Marshal(smartUnifiedAnalysis)
+	if err != nil {
+		return persisted, nil
+	}
+	analysisSetting, err := json.Marshal(string(analysisJSON))
+	if err != nil {
+		return persisted, nil
+	}
+	// Persist after assets so a style write conflict can never roll back a
+	// successful extraction. A later explicit refresh can repair such a race.
+	latest, err := s.Store.GetBatch(ctx, owner, batchID)
+	if err != nil {
+		return persisted, nil
+	}
+	latestBook, err := bookFromBatch(latest, bookID)
+	if err != nil {
+		return persisted, nil
+	}
+	_, _ = s.Store.SaveSettings(ctx, owner, ScopeRef{Kind: ScopeBook, BatchID: batchID, BookID: bookID}, SettingsUpdate{
+		Patch: SettingsPatch{"h3StyleAnalysis": analysisSetting}, ExpectedRevision: latestBook.Revision,
+	})
+	return persisted, nil
 }

@@ -33,8 +33,32 @@ const DEFAULT_FIRST_FRAME_URL = 'https://tvmao-public.tos-cn-beijing.volces.com/
 const MAX_PROMPT_LENGTH = 12000;
 const MAX_OPTIONAL_IMAGES = 3;
 const MAX_H3_PROMPT_LENGTH = 10000;
+const REFERENCE_TOS_SYNC_TIMEOUT_MS = 3000;
 const H3_TASK_PREFIX = 'h3:';
 const YFAI_TASK_PREFIX = 'yfai:';
+const YD_MODEL_KEY = 'yd2-mini-video';
+
+function acceptsScriptImages(modelKey) {
+  return [YD_MODEL_KEY, H3_MODEL_KEY, YFAI_SEEDANCE_MODEL].includes(String(modelKey || '').trim());
+}
+
+async function providerAccessibleImageUrls(req, value) {
+  const requestedImages = Array.isArray(value) ? value : [];
+  const assetStore = req.app?.locals?.novelPanelPremiumStore;
+  return Promise.all(requestedImages.map(async imageURL => {
+    let tosUrl = null;
+    try {
+      const sync = assetStore?.syncReferenceAssetUrlToTos?.(req.username, imageURL);
+      tosUrl = sync ? await Promise.race([
+        Promise.resolve(sync).catch(() => null),
+        new Promise(resolve => setTimeout(() => resolve(null), REFERENCE_TOS_SYNC_TIMEOUT_MS))
+      ]) : null;
+    } catch (_) {
+      // A configured-but-unreachable TOS endpoint must not prevent the signed public-link fallback.
+    }
+    return tosUrl || h3ReferenceUrl(imageURL, req.username);
+  }));
+}
 
 function readTaskID(payload) {
   const candidates = [payload?.task_id, payload?.taskId, payload?.id, payload?.data?.task_id, payload?.data?.taskId, payload?.data?.id, payload?.result?.task_id, payload?.result?.taskId];
@@ -107,6 +131,22 @@ function h3Resolution(value) {
   const resolution = String(value || '480p竖').trim();
   if (!['480p竖', '768p竖', '480p横', '768p横'].includes(resolution)) throw new Error('H3 分辨率不受支持');
   return resolution;
+}
+
+function resolveH3VideoMedia({ aspectRatio, resolution } = {}) {
+  const legacyResolution = String(resolution || '').trim();
+  if (['480p竖', '768p竖', '480p横', '768p横'].includes(legacyResolution)) {
+    return {
+      aspectRatio: legacyResolution.endsWith('横') ? '16:9' : '9:16',
+      resolution: legacyResolution
+    };
+  }
+  const normalizedAspectRatio = String(aspectRatio || '').trim() === '16:9' ? '16:9' : '9:16';
+  const resolutionTier = String(resolution || '').trim() === '480p' ? '480p' : '768p';
+  return {
+    aspectRatio: normalizedAspectRatio,
+    resolution: `${resolutionTier}${normalizedAspectRatio === '16:9' ? '横' : '竖'}`
+  };
 }
 
 function defaultSubmit({ apiKey, payload }) {
@@ -228,7 +268,7 @@ function createScriptVideoRouter({
     const requestedReferenceImages = Array.isArray(req.body?.imageUrls)
       ? req.body.imageUrls.filter(item => String(item || '').trim())
       : [];
-    if (requestedReferenceImages.length && req.body?.modelKey !== H3_MODEL_KEY) {
+    if (requestedReferenceImages.length && !acceptsScriptImages(req.body?.modelKey)) {
       return res.status(409).json({
         ok: false,
         status: 'unsupported_reference_images',
@@ -284,16 +324,13 @@ function createScriptVideoRouter({
       let resolution;
       try {
         const requestedImages = req.body?.referenceImages ?? req.body?.imageUrls;
-        const assetStore = req.app?.locals?.novelPanelPremiumStore;
-        const normalizedReferences = Array.isArray(requestedImages)
-          ? await Promise.all(requestedImages.map(async imageURL => {
-            const tosUrl = await assetStore?.syncReferenceAssetUrlToTos?.(req.username, imageURL);
-            return tosUrl || h3ReferenceUrl(imageURL, req.username);
-          }))
-          : requestedImages;
+        const normalizedReferences = await providerAccessibleImageUrls(req, requestedImages);
         referenceImages = validH3ReferenceImageURLs(normalizedReferences);
         duration = h3Duration(req.body?.duration);
-        resolution = h3Resolution(req.body?.resolution);
+        resolution = h3Resolution(resolveH3VideoMedia({
+          aspectRatio: req.body?.aspectRatio || req.body?.aspect_ratio,
+          resolution: req.body?.resolution
+        }).resolution);
       } catch (error) {
         return res.status(400).json({ error: error.message || 'H3 参数不正确' });
       }
@@ -324,13 +361,14 @@ function createScriptVideoRouter({
       }
       let payload;
       try {
+        const imageUrls = await providerAccessibleImageUrls(req, req.body?.imageUrls);
         payload = buildYfaiSeedancePayload({
           prompt,
           duration: req.body?.duration,
           resolution: req.body?.resolution,
           aspectRatio: req.body?.aspectRatio || req.body?.aspect_ratio,
           quality: req.body?.quality,
-          imageUrls: req.body?.imageUrls
+          imageUrls
         });
       } catch (error) {
         return res.status(400).json({ error: error.message || 'Seedance 参数不正确' });
@@ -345,11 +383,15 @@ function createScriptVideoRouter({
       }
     }
     let imageUrls;
-    try { imageUrls = validOptionalImageURLs(req.body?.imageUrls); } catch (error) { return res.status(400).json({ error: error.message || '可选图片参数不正确' }); }
+    try { imageUrls = validOptionalImageURLs(await providerAccessibleImageUrls(req, req.body?.imageUrls)); } catch (error) { return res.status(400).json({ error: error.message || '可选图片参数不正确' }); }
     const apiKey = getVideoApiKey(configReader(req.username), 'yd');
     if (!apiKey) return res.status(400).json({ error: '请先在设置中保存视频生成 API Key' });
     try {
-      const upstream = await submit({ apiKey, payload: { model: 'yd2.0-mini', prompt, image_urls: [DEFAULT_FIRST_FRAME_URL, ...imageUrls], duration: '1', aspect_ratio: '9:16', resolution: '720p' } });
+      const aspectRatio = ['16:9', '9:16'].includes(String(req.body?.aspectRatio || req.body?.aspect_ratio || ''))
+        ? String(req.body?.aspectRatio || req.body?.aspect_ratio) : '9:16';
+      const resolution = ['480p', '720p', '1080p'].includes(String(req.body?.resolution || ''))
+        ? String(req.body?.resolution) : '720p';
+      const upstream = await submit({ apiKey, payload: { model: 'yd2.0-mini', prompt, image_urls: [DEFAULT_FIRST_FRAME_URL, ...imageUrls], duration: '1', aspect_ratio: aspectRatio, resolution } });
       if (upstream.statusCode < 200 || upstream.statusCode >= 300) return res.status(502).json({ error: `视频服务请求失败（HTTP ${upstream.statusCode}）` });
       let body;
       try { body = JSON.parse(upstream.text); } catch { return res.status(502).json({ error: '视频服务返回了无法识别的响应' }); }
@@ -454,6 +496,7 @@ module.exports = {
   h3ApiKeyFromEnvironment,
   h3Duration,
   h3Resolution,
+  resolveH3VideoMedia,
   h3WorkflowForRequest,
   publicH3TaskID,
   publicYfaiTaskID,

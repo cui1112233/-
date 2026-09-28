@@ -70,6 +70,11 @@ function headerStatusTone(value, suggested = 'info') {
   return suggested;
 }
 
+function expiringHeaderStatus(text, tone = 'info', durationMs) {
+  const duration = Number(durationMs) || (tone === 'error' ? 8000 : tone === 'working' ? 20000 : 4500);
+  return { text: compactHeaderStatus(text), tone, expiresAt: Date.now() + duration };
+}
+
 export function UserLayout({ children }) {
   const [username, setUsername] = useState(getCurrentUsername());
   const [account, setAccount] = useState(null);
@@ -82,12 +87,11 @@ export function UserLayout({ children }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [theme, setTheme] = useState(initialTheme);
   const [petVisible, setPetVisible] = useState(true);
-  const [globalStatus, setGlobalStatus] = useState({ text: '', tone: 'idle' });
+  const [globalStatus, setGlobalStatus] = useState({ text: '', tone: 'idle', expiresAt: 0 });
   const [avatar, setAvatar] = useState(null);
   const accountSessionGenerationRef = useRef(0);
   const loginCardRef = useRef(null);
   const accountCenterReturnPathRef = useRef(null);
-  const novelFetchStatusTimerRef = useRef(null);
   const pathname = window.location.pathname;
   const isAccountCenterRoute = ACCOUNT_CENTER_ROUTES.includes(pathname);
   const isLoggedIn = Boolean(username);
@@ -137,7 +141,7 @@ export function UserLayout({ children }) {
     const appendTaskNotification = event => {
       const notification = normalizeGlobalTaskNotification(event.detail || {});
       const notificationText = `${notification.title}${notification.detail ? `：${notification.detail}` : ''}`;
-      setGlobalStatus({ text: compactHeaderStatus(notificationText), tone: headerStatusTone(notificationText, notification.status === 'error' ? 'error' : notification.status === 'working' ? 'working' : 'success') });
+      setGlobalStatus(expiringHeaderStatus(notificationText, headerStatusTone(notificationText, notification.status === 'error' ? 'error' : notification.status === 'working' ? 'working' : 'success')));
       if (notification.status === 'working') return;
       const kind = notification.status === 'error' ? 'error' : 'success';
       const targetPath = notification.pagePath && notification.pagePath !== window.location.pathname ? notification.pagePath : '';
@@ -166,7 +170,7 @@ export function UserLayout({ children }) {
   useEffect(() => {
     const receive = event => {
       const detail = event.detail || {};
-      if (detail.text) setGlobalStatus({ text: String(detail.text), tone: detail.tone || 'info' });
+      if (detail.text) setGlobalStatus(expiringHeaderStatus(detail.text, detail.tone || 'info', detail.durationMs));
     };
     window.addEventListener(GLOBAL_STATUS_EVENT, receive);
     return () => window.removeEventListener(GLOBAL_STATUS_EVENT, receive);
@@ -184,22 +188,22 @@ export function UserLayout({ children }) {
       const allowedTones = new Set(['info', 'working', 'success', 'warning', 'error']);
       const statusText = compactHeaderStatus(text);
       const tone = headerStatusTone(text, allowedTones.has(event.data.tone) ? event.data.tone : 'info');
-      if (novelFetchStatusTimerRef.current) window.clearTimeout(novelFetchStatusTimerRef.current);
-      setGlobalStatus({ text: statusText, tone });
-      if (tone !== 'working') {
-        novelFetchStatusTimerRef.current = window.setTimeout(() => {
-          setGlobalStatus(current => current.text === statusText ? { text: '', tone: 'idle' } : current);
-          novelFetchStatusTimerRef.current = null;
-        }, tone === 'error' ? 8000 : 4500);
-      }
+      setGlobalStatus(expiringHeaderStatus(statusText, tone));
     };
     window.addEventListener('message', receiveNovelFetchStatus);
     return () => {
       window.removeEventListener('message', receiveNovelFetchStatus);
-      if (novelFetchStatusTimerRef.current) window.clearTimeout(novelFetchStatusTimerRef.current);
-      novelFetchStatusTimerRef.current = null;
     };
   }, [pathname]);
+
+  useEffect(() => {
+    const expiresAt = Number(globalStatus.expiresAt || 0);
+    if (!globalStatus.text || !expiresAt) return undefined;
+    const timer = window.setTimeout(() => {
+      setGlobalStatus(current => current.expiresAt === expiresAt ? { text: '', tone: 'idle', expiresAt: 0 } : current);
+    }, Math.max(0, expiresAt - Date.now()));
+    return () => window.clearTimeout(timer);
+  }, [globalStatus]);
 
   useEffect(() => {
     document.body.classList.add('user-theme-active');
@@ -239,7 +243,7 @@ export function UserLayout({ children }) {
       dialogOpen = true;
       const { source, method, status, message: detail, sessionAuthFailure } = event.detail || {};
       if (shouldPromptLoginForApiFailure({ status, sessionAuthFailure })) {
-        setGlobalStatus({ text: '登录已失效，请重新登录后继续使用', tone: 'error' });
+        setGlobalStatus(expiringHeaderStatus('登录已失效，请重新登录后继续使用', 'error'));
         setUsername('');
         setAccount(null);
         setLoginDialogOpen(true);
@@ -255,7 +259,7 @@ export function UserLayout({ children }) {
       }
       const sourceLabel = source ? `${method || 'GET'} ${source}` : '服务请求';
       const statusLabel = status ? `（${status}）` : '';
-      setGlobalStatus({ text: `${sourceLabel}${statusLabel}：${detail || '请求失败，请稍后重试。'}`, tone: 'error' });
+      setGlobalStatus(expiringHeaderStatus(`${sourceLabel}${statusLabel}：${detail || '请求失败，请稍后重试。'}`, 'error'));
       dialogOpen = false;
     }
     window.addEventListener('qiantie:api-error', showApiFailure);

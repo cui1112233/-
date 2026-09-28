@@ -43,3 +43,14 @@ test('different owners never read each others state', () => {
   store.save(identity, { cookies: [{ name: 'alice', value: '1' }] });
   assert.equal(store.load({ ...identity, owner: 'bob' }), null);
 });
+
+test('moves a matching legacy worker session into the current durable store', () => {
+  const currentRoot = tempRoot();
+  const legacyRoot = tempRoot();
+  const state = { cookies: [{ name: 'PHPSESSID', value: 'still-valid' }], origins: [] };
+  createSessionStore({ rootDir: legacyRoot }).save(identity, state);
+
+  const store = createSessionStore({ rootDir: currentRoot, legacyRootDir: legacyRoot });
+  assert.deepEqual(store.load(identity), state);
+  assert.deepEqual(createSessionStore({ rootDir: currentRoot }).load(identity), state);
+});

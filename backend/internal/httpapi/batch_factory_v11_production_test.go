@@ -3,13 +3,23 @@ package httpapi
 import (
 	"context"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"qiantie/backend/internal/batchfactoryv11"
 	"qiantie/backend/internal/localartifact"
+	"qiantie/backend/internal/mergeworker"
 )
+
+type mergeOutputFunc func(context.Context, string, string) (string, error)
+
+func (fn mergeOutputFunc) PutMerged(ctx context.Context, taskID, path string) (string, error) {
+	return fn(ctx, taskID, path)
+}
+
+var _ mergeworker.ObjectStore = mergeOutputFunc(nil)
 
 type productionHTTPAdapter struct{ calls int }
 
@@ -132,5 +142,52 @@ func TestSliceFiveServesOnlyTheOwnersLocalMergedArtifact(t *testing.T) {
 	other := signedJSONRequest(t, api, now, "bob", http.MethodGet, path, nil)
 	if other.Code != http.StatusNotFound {
 		t.Fatalf("other status=%d body=%s", other.Code, other.Body.String())
+	}
+}
+
+func TestSliceFiveMigratesLocalMergeOnlyAfterRemoteStoreAcceptsIt(t *testing.T) {
+	now := time.Unix(1700000000, 0)
+	store := batchfactoryv11.NewMemoryStore()
+	batch, err := store.CreateBatch(context.Background(), "alice", batchfactoryv11.CreateBatchInput{Title: "b", Books: []batchfactoryv11.CreateBookInput{{Title: "k", SourceText: "正文"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := localartifact.NewStore(t.TempDir(), 1<<20)
+	artifactID := "merge_local_media_2"
+	if _, err := files.SaveMP4(artifactID, strings.NewReader("0000ftypisom-local-merged-video")); err != nil {
+		t.Fatal(err)
+	}
+	output := "/api/batch-factory/v11/batches/" + batch.ID + "/merge-media/" + artifactID
+	job, err := store.CreateMergeJob(context.Background(), batchfactoryv11.MergeJob{Owner: "alice", BatchID: batch.ID, RequestID: "local-media-migrate", Status: batchfactoryv11.MergeSucceeded, OutputURL: output, CreatedAt: now, UpdatedAt: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	uploaded := false
+	remote := mergeOutputFunc(func(_ context.Context, taskID, path string) (string, error) {
+		if taskID != job.ID {
+			t.Fatalf("task=%q want=%q", taskID, job.ID)
+		}
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("source artifact missing before upload: %v", err)
+		}
+		uploaded = true
+		return "tos://bucket-a/batch-merged/" + taskID + ".mp4", nil
+	})
+	merge := &batchfactoryv11.MergeService{Store: store, Enabled: true}
+	api := NewRouter(RouterOptions{BridgeSecret: "secret", Now: func() time.Time { return now }, Slice: 5, Store: store, Merge: merge, LocalArtifacts: files, MergeOutput: remote})
+	path := "/api/batch-factory/v11/batches/" + batch.ID + "/merge-artifacts/migrate-to-tos"
+	rec := signedJSONRequest(t, api, now, "alice", http.MethodPost, path, nil)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"migrated":1`) || !uploaded {
+		t.Fatalf("status=%d body=%s uploaded=%v", rec.Code, rec.Body.String(), uploaded)
+	}
+	if _, err := files.Open(artifactID + ".mp4"); !os.IsNotExist(err) {
+		t.Fatalf("local artifact should be deleted only after upload, err=%v", err)
+	}
+	jobs, err := store.ListMergeJobs(context.Background(), "alice", batch.ID)
+	if err != nil || len(jobs) != 1 {
+		t.Fatalf("jobs=%v err=%v", jobs, err)
+	}
+	if got, want := jobs[0].OutputURL, "/api/batch-factory/v11/batches/"+batch.ID+"/merge-media/"+job.ID; got != want {
+		t.Fatalf("output=%q want=%q", got, want)
 	}
 }

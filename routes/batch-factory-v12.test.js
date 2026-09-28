@@ -2,12 +2,39 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
+  classifyBatchFactoryBooks,
   fetchBatchFactoryOriginals,
   refillMissingBatchFactoryBookSource,
   routeV12UpstreamPath,
   rewriteV12PathForLegacyRead,
   rejectLegacyV11Mutations
 } = require('./batch-factory-v12');
+
+test('classifies every fetched book independently without letting one failure block the others', async () => {
+  const calls = [];
+  const result = await classifyBatchFactoryBooks({
+    books: [
+      { id: 'book-1', sourceText: '正文一', sourceMetadata: {} },
+      { id: 'book-2', sourceText: '正文二', sourceMetadata: { gender: '女频', style: '现代甜文' } },
+      { id: 'book-3', sourceText: '', sourceMetadata: {} },
+      { id: 'book-4', sourceText: '正文四', sourceMetadata: {} }
+    ],
+    classifyBook: async book => {
+      calls.push(book.id);
+      if (book.id === 'book-4') throw new Error('文本模型暂不可用');
+      return { classification: { gender: '男频', style: '男频都市' }, reused: false };
+    }
+  });
+
+  assert.deepEqual(calls, ['book-1', 'book-4']);
+  assert.deepEqual(result, [
+    { bookId: 'book-1', status: 'classified', classification: { gender: '男频', style: '男频都市' }, reused: false },
+    { bookId: 'book-2', status: 'reused', classification: { gender: '女频', style: '现代甜文', tags: '', reason: '' }, reused: true },
+    { bookId: 'book-3', status: 'skipped', reason: 'SOURCE_TEXT_REQUIRED' },
+    { bookId: 'book-4', status: 'failed', error: '文本模型暂不可用' }
+  ]);
+});
+const { automationCompilePayload } = require('./batch-factory-v11');
 
 test('batch factory direct fetch returns per-book results without creating Novel Fetch tasks', async () => {
   const calls = [];
@@ -100,6 +127,32 @@ test('keeps native H3 director, audio, compile and trace requests in the V12 nam
     routeV12UpstreamPath('/api/batch-factory/v12/batches/batch-1/books/book-1/stages/director'),
     '/api/batch-factory/v11/batches/batch-1/books/book-1/stages/director'
   );
+});
+
+test('maps all enabled script constraint layers into automated H3 compilation', () => {
+  const payload = automationCompilePayload({ directorRevision: { id: 'director-1' } }, {
+    storyboardDurationLimit: 10,
+    aiPromptConfig: {
+      video: { presetKey: 'v11-director-normal', presetVersion: 1, body: '【批量工厂最终 Prompt 模板】\n{{storyboard}}' },
+      constraints: {
+        enabled: true,
+        baseSetup: { enabled: true },
+        enabledCategories: ['prefix', 'quality', 'restriction', 'negative'],
+        selections: [
+          { constraintCategory: 'prefix', presetId: 'script-constraint-prefix-live-action', body: 'PREFIX' },
+          { constraintCategory: 'quality', presetId: 'script-constraint-quality-4k', body: 'QUALITY' },
+          { constraintCategory: 'restriction', presetId: 'script-constraint-restriction-no-overlay', body: 'RESTRICTION' },
+          { constraintCategory: 'negative', presetId: 'script-constraint-negative-general', body: 'NEGATIVE' }
+        ]
+      }
+    }
+  });
+  assert.deepEqual(payload.switches, { smart_unified: false, base_setup: true, prefix: true, quality: true, visual_restriction: true, negative: true });
+  assert.equal(payload.prefix_text, 'PREFIX');
+  assert.equal(payload.quality_text, 'QUALITY');
+  assert.equal(payload.visual_restriction_text, 'RESTRICTION');
+  assert.equal(payload.negative_text, 'NEGATIVE');
+  assert.equal(payload.preset.key, 'v11-director-normal');
 });
 
 test('keeps the public V11 namespace read-only after V12 becomes the production entry', () => {

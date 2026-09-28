@@ -102,9 +102,8 @@ test('novel fetch status messages are bridged to the centered parent header', ()
 
 test('novel fetch clears finished header status after a short display window', () => {
   const layout = read('../../../../src/shared/layouts/UserLayout.jsx');
-  assert.match(layout, /novelFetchStatusTimerRef/);
-  assert.match(layout, /setGlobalStatus\(current => current\.text === statusText/);
-  assert.match(layout, /tone !== 'working'/);
+  assert.match(layout, /expiringHeaderStatus\(statusText, tone\)/);
+  assert.match(layout, /current\.expiresAt === expiresAt/);
 });
 
 test('novel fetch scheduling uses Chinese progress states and supports deleting records', () => {

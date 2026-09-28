@@ -1,6 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { batchFactoryBatchProgress, batchFactoryBookState, batchFactoryBookTimeline, batchFactoryNovelTableRow, batchFactoryVideoProgress } from './batchFactoryBookState.js';
+import { batchFactoryBatchProgress, batchFactoryBookState, batchFactoryBookTimeline, batchFactoryNovelTableRow, batchFactoryVideoProgress, batchFactoryVisibleError } from './batchFactoryBookState.js';
+
+test('translates provider payment failures into an actionable status without exposing HTTP codes', () => {
+  const message = batchFactoryVisibleError('YFAI Seedance returned HTTP 402');
+  assert.equal(message, '当前视频模型的账户额度或权限不足，请更换视频模型，或检查该模型账户的额度与权限。');
+  assert.doesNotMatch(message, /402|YFAI|Seedance/i);
+});
 
 test('a failed VIDEO overrides manual changes with an exception state', () => {
   const state = batchFactoryBookState({ id: 'book-1', sourceText: '正文', settingsState: { patch: { textModelId: 'text-a' } } }, {

@@ -142,7 +142,8 @@ function directorUserPrompt(batch, item) {
     max_video_duration: settings.maxVideoDuration,
     fixed_single_video: settings.fixedSingleVideo,
     exact_duration: settings.exactDuration,
-    aspect_ratio: settings.aspectRatio
+    aspect_ratio: settings.videoAspectRatio || settings.aspectRatio,
+    resolution: settings.videoResolution || '720p'
   }, null, 2);
 }
 
@@ -151,7 +152,8 @@ function directorSettings(batch) {
     maxVideoDuration: batch.settings.maxVideoDuration,
     fixedSingleVideo: batch.settings.fixedSingleVideo,
     exactDuration: batch.settings.exactDuration,
-    aspectRatio: batch.settings.aspectRatio,
+    aspectRatio: batch.settings.videoAspectRatio || batch.settings.aspectRatio,
+    resolution: batch.settings.videoResolution || '720p',
     allowedPrefixKeys: Object.keys(PREFIX_PRESETS)
   };
 }
