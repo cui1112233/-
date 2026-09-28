@@ -541,41 +541,53 @@ func execDeleteBatchStmt(ctx context.Context, tx *sql.Tx, stmt, owner, batchID s
 	return err
 }
 
+type deleteBookStmt struct {
+	query string
+	args  func(owner, batchID, bookID string) []any
+}
+
+func deleteBookDefaultArgs(owner, batchID, bookID string) []any {
+	return []any{owner, batchID, bookID}
+}
+
+// deleteBookStmts pairs each DELETE statement with exactly the arguments it
+// needs. Keep them next to each other so the number of placeholders can never
+// drift away from the number of arguments again.
+var deleteBookStmts = []deleteBookStmt{
+	{query: `DELETE a FROM batch_factory_v11_external_audits a JOIN batch_factory_v11_external_intents i ON i.id=a.intent_id WHERE i.owner_username=? AND i.batch_id=? AND i.book_id=?`, args: deleteBookDefaultArgs},
+	{query: `DELETE FROM batch_factory_v11_external_intents WHERE owner_username=? AND batch_id=? AND book_id=?`, args: deleteBookDefaultArgs},
+	{query: `DELETE FROM batch_factory_v11_hidden_production_tasks WHERE owner_username=? AND batch_id=? AND book_id=?`, args: deleteBookDefaultArgs},
+	{query: `DELETE e FROM batch_factory_v11_production_events e JOIN batch_factory_v11_production_jobs j ON j.id=e.job_id WHERE j.owner_username=? AND j.batch_id=? AND j.book_id=?`, args: deleteBookDefaultArgs},
+	{query: `DELETE t FROM batch_factory_v11_production_tasks t JOIN batch_factory_v11_production_jobs j ON j.id=t.job_id WHERE j.owner_username=? AND j.batch_id=? AND j.book_id=?`, args: deleteBookDefaultArgs},
+	{query: `DELETE FROM batch_factory_v11_production_jobs WHERE owner_username=? AND batch_id=? AND book_id=?`, args: deleteBookDefaultArgs},
+	{query: `DELETE FROM batch_factory_v11_book_stage_runs WHERE owner_username=? AND batch_id=? AND book_id=?`, args: deleteBookDefaultArgs},
+	{query: `DELETE FROM batch_factory_v11_settings_patches WHERE owner_username=? AND batch_id=? AND book_id=?`, args: deleteBookDefaultArgs},
+	{query: `DELETE o FROM batch_factory_v11_orphaned_overrides o JOIN batch_factory_v11_director_revisions d ON d.id=o.director_revision_id WHERE d.owner_username=? AND d.batch_id=? AND d.book_id=?`, args: deleteBookDefaultArgs},
+	{query: `DELETE l FROM batch_factory_v11_director_video_links l JOIN batch_factory_v11_director_revisions d ON d.id=l.director_revision_id WHERE d.owner_username=? AND d.batch_id=? AND d.book_id=?`, args: deleteBookDefaultArgs},
+	{query: `DELETE FROM batch_factory_v11_director_revisions WHERE owner_username=? AND batch_id=? AND book_id=?`, args: deleteBookDefaultArgs},
+	{query: `DELETE FROM batch_factory_v11_hook_revisions WHERE owner_username=? AND batch_id=? AND book_id=?`, args: deleteBookDefaultArgs},
+	{query: `DELETE i FROM batch_factory_v11_book_asset_images i JOIN batch_factory_v11_book_assets a ON a.id=i.asset_id WHERE a.owner_username=? AND a.batch_id=? AND a.book_id=?`, args: deleteBookDefaultArgs},
+	{query: `DELETE FROM batch_factory_v11_book_assets WHERE owner_username=? AND batch_id=? AND book_id=?`, args: deleteBookDefaultArgs},
+	{
+		query: `DELETE FROM batch_factory_v11_drafts WHERE owner_username=? AND draft_key=? AND scope=?`,
+		args:  func(owner, batchID, bookID string) []any { return []any{owner, "working-front:" + bookID, batchID} },
+	},
+	{query: `DELETE FROM batch_factory_v11_config_snapshots WHERE owner_username=? AND batch_id=? AND book_id=?`, args: deleteBookDefaultArgs},
+	{query: `DELETE FROM batch_factory_v11_video_records WHERE video_id IN (SELECT id FROM batch_factory_v11_videos WHERE owner_username=? AND batch_id=? AND book_id=?)`, args: deleteBookDefaultArgs},
+	{query: `DELETE FROM batch_factory_v11_videos WHERE owner_username=? AND batch_id=? AND book_id=?`, args: deleteBookDefaultArgs},
+	{
+		query: `DELETE FROM batch_factory_v11_book_records WHERE book_id=?`,
+		args:  func(_, _, bookID string) []any { return []any{bookID} },
+	},
+	{
+		query: `DELETE FROM batch_factory_v11_books WHERE id=? AND batch_id=? AND owner_username=?`,
+		args:  func(owner, batchID, bookID string) []any { return []any{bookID, batchID, owner} },
+	},
+}
+
 func deleteBookTx(ctx context.Context, tx *sql.Tx, owner, batchID, bookID string) error {
-	stmts := []string{
-		`DELETE a FROM batch_factory_v11_external_audits a JOIN batch_factory_v11_external_intents i ON i.id=a.intent_id WHERE i.owner_username=? AND i.batch_id=? AND i.book_id=?`,
-		`DELETE FROM batch_factory_v11_external_intents WHERE owner_username=? AND batch_id=? AND book_id=?`,
-		`DELETE FROM batch_factory_v11_hidden_production_tasks WHERE owner_username=? AND batch_id=? AND book_id=?`,
-		`DELETE e FROM batch_factory_v11_production_events e JOIN batch_factory_v11_production_jobs j ON j.id=e.job_id WHERE j.owner_username=? AND j.batch_id=? AND j.book_id=?`,
-		`DELETE t FROM batch_factory_v11_production_tasks t JOIN batch_factory_v11_production_jobs j ON j.id=t.job_id WHERE j.owner_username=? AND j.batch_id=? AND j.book_id=?`,
-		`DELETE FROM batch_factory_v11_production_jobs WHERE owner_username=? AND batch_id=? AND book_id=?`,
-		`DELETE FROM batch_factory_v11_book_stage_runs WHERE owner_username=? AND batch_id=? AND book_id=?`,
-		`DELETE FROM batch_factory_v11_settings_patches WHERE owner_username=? AND batch_id=? AND book_id=?`,
-		`DELETE o FROM batch_factory_v11_orphaned_overrides o JOIN batch_factory_v11_director_revisions d ON d.id=o.director_revision_id WHERE d.owner_username=? AND d.batch_id=? AND d.book_id=?`,
-		`DELETE l FROM batch_factory_v11_director_video_links l JOIN batch_factory_v11_director_revisions d ON d.id=l.director_revision_id WHERE d.owner_username=? AND d.batch_id=? AND d.book_id=?`,
-		`DELETE FROM batch_factory_v11_director_revisions WHERE owner_username=? AND batch_id=? AND book_id=?`,
-		`DELETE FROM batch_factory_v11_hook_revisions WHERE owner_username=? AND batch_id=? AND book_id=?`,
-		`DELETE i FROM batch_factory_v11_book_asset_images i JOIN batch_factory_v11_book_assets a ON a.id=i.asset_id WHERE a.owner_username=? AND a.batch_id=? AND a.book_id=?`,
-		`DELETE FROM batch_factory_v11_book_assets WHERE owner_username=? AND batch_id=? AND book_id=?`,
-		`DELETE FROM batch_factory_v11_drafts WHERE owner_username=? AND scope=?`,
-		`DELETE FROM batch_factory_v11_config_snapshots WHERE owner_username=? AND batch_id=? AND book_id=?`,
-		`DELETE FROM batch_factory_v11_video_records WHERE video_id IN (SELECT id FROM batch_factory_v11_videos WHERE owner_username=? AND batch_id=? AND book_id=?)`,
-		`DELETE FROM batch_factory_v11_videos WHERE owner_username=? AND batch_id=? AND book_id=?`,
-		`DELETE FROM batch_factory_v11_book_records WHERE book_id=?`,
-		`DELETE FROM batch_factory_v11_books WHERE id=? AND batch_id=? AND owner_username=?`,
-	}
-	for _, stmt := range stmts {
-		args := []any{owner, batchID, bookID}
-		if strings.Contains(stmt, "drafts") {
-			args = []any{owner, "working-front:" + bookID, batchID}
-		}
-		if strings.Contains(stmt, "book_records") {
-			args = []any{bookID}
-		}
-		if strings.Contains(stmt, "books WHERE") {
-			args = []any{bookID, batchID, owner}
-		}
-		if _, err := tx.ExecContext(ctx, stmt, args...); err != nil {
+	for _, stmt := range deleteBookStmts {
+		if _, err := tx.ExecContext(ctx, stmt.query, stmt.args(owner, batchID, bookID)...); err != nil {
 			return err
 		}
 	}
