@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { EMPTY_MATERIAL, normalizeGiantMaterialId } from './giantMaterialTest.js';
 import { readGiantMaterialContent } from './giantMaterialExtractionClient.js';
+import GiantMaterialStatusCard from './GiantMaterialStatusCard.jsx';
 import './giant-material-test.css';
 
 const SAMPLE_ID = '7689285397448523826';
@@ -46,6 +47,7 @@ export default function GiantMaterialTestPage() {
   const [resolved, setResolved] = useState(false);
   const [progress, setProgress] = useState(null);
   const [result, setResult] = useState(null);
+  const [ocrPhase, setOcrPhase] = useState('idle');
   const [copyMessage, setCopyMessage] = useState('');
   const currentTask = useRef(null);
 
@@ -65,13 +67,6 @@ export default function GiantMaterialTestPage() {
     : errorCode
       ? { tone: 'error', label: '失败', detail: errorCode }
       : { tone: 'muted', label: '待执行', detail: '等待素材解析' };
-  const ocrStatus = result
-    ? { tone: 'success', label: '已完成', detail: `已识别 ${result.frames} 帧，去重后 ${result.characters} 字符。` }
-    : busy && resolved
-      ? { tone: 'loading', label: '识别中', detail: progress?.frames ? `已处理 ${progress.frames} 帧 · 视频 ${Math.round(progress.seconds)} / ${Math.round(progress.durationSeconds)} 秒 · ${progress.characters} 字符` : '正在启动 Mac 本地 OCR，无需付费模型 API…' }
-      : errorCode && resolved
-        ? { tone: 'error', label: errorCode === 'OCR_CANCELLED' ? '已取消' : '未完成', detail: ERROR_MESSAGES[errorCode] || errorCode }
-        : { tone: 'muted', label: '待执行', detail: '素材返回后自动识别滚屏文字' };
   const bodyStatus = result
     ? { tone: 'warning', label: '待校对', detail: `已获取 ${result.characters} 字符。仅为视频展示的文字，不等于平台小说全文。` }
     : { tone: 'muted', label: '待执行', detail: busy ? '识别完成后自动显示正文' : '尚未取得正文' };
@@ -85,18 +80,23 @@ export default function GiantMaterialTestPage() {
     setMaterial(EMPTY_MATERIAL);
     setProgress(null);
     setResult(null);
+    setOcrPhase('resolving');
     setCopyMessage('');
     const controller = new AbortController();
     currentTask.current = controller;
     try {
       const extracted = await readGiantMaterialContent(normalizedId, {
         signal: controller.signal,
-        onResolved: value => { setMaterial(value || EMPTY_MATERIAL); setResolved(true); },
-        onProgress: setProgress
+        onResolved: value => { setMaterial(value || EMPTY_MATERIAL); setResolved(true); setOcrPhase('reading'); },
+        onProgress: value => { setProgress(value); setOcrPhase('ocr'); },
+        onComplete: () => setOcrPhase('cleaning')
       });
       setResult(extracted);
+      setOcrPhase('success');
     } catch (error) {
-      setErrorCode(controller.signal.aborted ? 'OCR_CANCELLED' : String(error?.message || 'GIANT_MATERIAL_TEST_FAILED'));
+      const code = controller.signal.aborted ? 'OCR_CANCELLED' : String(error?.message || 'GIANT_MATERIAL_TEST_FAILED');
+      setErrorCode(code);
+      setOcrPhase(controller.signal.aborted ? 'cancelled' : 'error');
     } finally {
       currentTask.current = null;
       setBusy(false);
@@ -136,12 +136,17 @@ export default function GiantMaterialTestPage() {
         </> : <dl><div><dt>平台书名</dt><dd>{material.title || '未返回'}</dd></div><div><dt>平台 Book ID</dt><dd>{material.platformBookId || '未返回'}</dd></div><div><dt>书城</dt><dd>{material.platformName || '未返回'}</dd></div></dl>}
       </> : null}</Stage>
       <Stage title="视频读取" status={videoStatus}>{resolved ? <dl><div><dt>视频地址</dt><dd>{safeVideoPath(material.videoUrl) || '未返回'}</dd></div><div><dt>规格</dt><dd>{material.width && material.height ? `${material.width} × ${material.height}` : '未返回'}{material.durationSeconds ? ` · ${material.durationSeconds}s` : ''}</dd></div></dl> : null}</Stage>
-      <Stage title="滚屏 OCR" status={ocrStatus}>
-        {busy && resolved ? <progress aria-label="滚屏识别进度" max={progress?.durationSeconds || material.durationSeconds || 1} value={progress?.seconds || 0} /> : null}
+      <GiantMaterialStatusCard
+          title="滚屏 OCR"
+          phase={ocrPhase}
+          detail={ocrPhase === 'resolving' ? '正在请求青语素材接口…' : ocrPhase === 'reading' ? '正在读取视频，准备启动 Mac 本地 OCR…' : ocrPhase === 'ocr' ? '正在启动 Mac 本地 OCR，无需付费模型 API…' : ocrPhase === 'cleaning' ? '正在整理正文…' : result ? `已识别 ${result.frames} 帧，去重后 ${result.characters} 字符。` : errorCode ? ERROR_MESSAGES[errorCode] || errorCode : '素材返回后自动识别滚屏文字'}
+          progress={busy && resolved ? { value: progress?.seconds, max: progress?.durationSeconds || material.durationSeconds, indeterminate: !progress?.durationSeconds && !material.durationSeconds } : null}
+          stats={progress?.frames ? [`已处理 ${progress.frames} 帧`, `视频 ${Math.round(progress.seconds || 0)} / ${Math.round(progress.durationSeconds || material.durationSeconds || 0)} 秒`, `${progress.characters || 0} 字`] : result ? [`${result.frames} 帧`, `${result.characters} 字`] : []}
+        >
         {result ? <><p>未对齐片段：{result.issues.length} · 读取失败帧：{result.frameReadFailures.length} · 无正文帧：{result.emptyBodyFrames?.length || 0}。OCR 可能有错字，请校对。</p>
           {result.emptyBodyFrames?.length ? <p>无正文画面位于 {result.emptyBodyFrames.join('、')} 秒，可能是广告、空白或未识别到文字，不能据此确认原文完整。</p> : null}</> : null}
         <p className="giant-material-test-muted">使用 Mac 本地文字识别，不调用付费大模型；不保存完整视频或抽帧文件。其他视频排版可能需要调整文字区域。</p>
-      </Stage>
+      </GiantMaterialStatusCard>
       <Stage title="小说正文" status={bodyStatus}>{result ? <>
         <textarea aria-label="识别出的小说正文" className="giant-material-test-body" readOnly value={result.text} />
         <div className="giant-material-test-actions"><button type="button" onClick={copyText}>复制正文</button><button type="button" onClick={downloadText}>下载 TXT</button><span role="status">{copyMessage}</span></div>

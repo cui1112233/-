@@ -18,3 +18,11 @@ test('test route is rendered before the authenticated application shell', () => 
   assert.match(app, /GiantMaterialTestPage/);
   assert.match(app, /pathname === '\/giant-material-test'/);
 });
+
+test('uses the shared status card and exposes Qingyu auth states', () => {
+  assert.match(page, /GiantMaterialStatusCard/);
+  assert.match(page, /正在请求青语素材接口/);
+  assert.match(page, /QINGYU_AUTH_NOT_CONFIGURED/);
+  assert.match(page, /QINGYU_AUTH_FAILED/);
+  assert.match(page, /正在整理正文/);
+});
