@@ -62,7 +62,7 @@ assert.equal(JSON.parse(response.body).code, 'MATERIAL_RESOLVE_REQUIRED');
 - [x] Display progress, character count, readable textarea, copy and TXT download. Explain video-only scope and OCR proofreading. Do not add batch registration.
 - [x] Run targeted tests and build to a temporary directory outside tracked `frontend/dist`.
 - [x] Use the real webpage to submit `7689285397448523826`; wait for nonempty正文, verify opening/ending and both book records. Save a screenshot of the actual result. Do not read a pre-generated TXT as a replacement for live OCR.
-- [ ] Commit and fast-forward into local `v88`, preserving prior generated artifacts and unrelated changes. No push or public deployment.
+- [x] Commit and fast-forward into local `v88`, preserving prior generated artifacts and unrelated changes. No push or public deployment.
 
 ## Verification evidence
 
@@ -74,3 +74,5 @@ assert.equal(JSON.parse(response.body).code, 'MATERIAL_RESOLVE_REQUIRED');
 - Browser automation did not return a Blob-download event, including Chrome. The real Chrome click nevertheless saved `/Users/ming/Downloads/7689285397448523826-OCR.txt` (13,002 bytes); filesystem comparison confirmed it equals the verified OCR text. This is download evidence, not merely an implemented button.
 - Chrome copy button displayed `已复制正文`, with no console errors.
 - Independent read-only review identified an unknown-coverage gap for empty/cropped OCR frames. A first-failing regression now verifies `emptyBodyFrames` timestamps and count; UI explains possible blank/advertisement/unrecognized text separately from frame failures. Follow-up review found no remaining Critical or Important issue within the Mac prototype scope.
+- Final live IAB rerun again returned 141 frames / 4,220 characters, with one no-body frame at 280 seconds explicitly surfaced. Opening and ending remain verified; final screenshot shows the coverage caveat.
+- Feature commits `9fafaccd` and `8577c305` were fast-forwarded into local `v88`. No formal batch data, public service or credentials were written.
