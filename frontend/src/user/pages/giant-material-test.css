@@ -44,26 +44,4 @@
 .giant-material-test-actions span { color: #a8bbc8; font-size: 13px; }
 .giant-material-test-input-row .giant-material-test-cancel { background: #273947; color: #c8d9e4; }
 .giant-material-test-stage.is-loading { border-color: #46a78c; }
-.giant-material-status-card { max-width: 1080px; margin: 0 auto 16px; padding: 18px 20px; border: 1px solid #24465b; border-radius: 16px; background: rgba(13, 31, 45, .9); box-shadow: 0 16px 48px rgba(0, 0, 0, .18); }
-.giant-material-status-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.giant-material-status-heading strong { color: #e8f0f7; font-size: 16px; }
-.giant-material-status-heading span { padding: 4px 9px; color: #a9bfcc; border-radius: 999px; background: #1b3548; font-size: 12px; }
-.giant-material-status-card p { margin: 10px 0 0; color: #a8bbc8; line-height: 1.55; }
-.giant-material-status-card progress { display: block; width: 100%; height: 7px; margin-top: 16px; accent-color: #73e2be; }
-.giant-material-status-card progress:indeterminate { accent-color: #73e2be; }
-.giant-material-status-stats { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 10px; color: #8fa8b9; font-size: 12px; }
-.giant-material-status-card.is-loading { border-color: #46a78c; }
-.giant-material-status-card.is-loading .giant-material-status-heading span { color: #a9f0d9; background: #16483e; }
-.giant-material-status-card.is-success { border-color: #26725d; }
-.giant-material-status-card.is-success .giant-material-status-heading span { color: #8de0c5; background: #164f41; }
-.giant-material-status-card.is-error { border-color: #764648; }
-.giant-material-status-card.is-error .giant-material-status-heading span { color: #ffb4b5; background: #5b2c34; }
-.giant-material-status-card.is-warning { border-color: #79633b; }
-.giant-material-status-card.is-warning .giant-material-status-heading span { color: #ffda87; background: #59451f; }
-.giant-material-status-card.is-compact { margin: 12px 0; padding: 13px 15px; border-radius: 10px; box-shadow: none; }
-.giant-material-status-card.is-compact .giant-material-status-heading strong { font-size: 13px; }
-.giant-material-status-card.is-compact .giant-material-status-heading span { padding: 3px 8px; font-size: 11px; }
-.giant-material-status-card.is-compact p { margin-top: 7px; font-size: 12px; }
-.giant-material-status-card.is-compact progress { margin-top: 10px; }
-@media (max-width: 640px) { .giant-material-status-heading { align-items: flex-start; flex-direction: column; } .giant-material-status-heading span { align-self: flex-start; } }
 @media (max-width: 640px) { .giant-material-test-header { display: block; } .giant-material-test-safety { display: inline-block; margin-top: 16px; } .giant-material-test-input-row { display: block; } .giant-material-test-input-row button { width: 100%; min-height: 44px; margin-top: 10px; } .giant-material-test-stage dl { grid-template-columns: 1fr; } }

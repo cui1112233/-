@@ -1,3 +1,5 @@
+import './GiantMaterialStatusCard.css';
+
 const PHASES = {
   idle: { label: '待执行', tone: 'muted' },
   resolving: { label: '连接中', tone: 'loading' },
@@ -23,7 +25,8 @@ export function GiantMaterialStatusCard({
   progress = null,
   stats = [],
   compact = false,
-  error = ''
+  error = '',
+  children = null
 }) {
   const meta = PHASES[phase] || PHASES.idle;
   const safeProgress = boundedProgress(progress);
@@ -39,6 +42,7 @@ export function GiantMaterialStatusCard({
       value={safeProgress.indeterminate ? undefined : safeProgress.value}
     /> : null}
     {safeStats.length ? <div className="giant-material-status-stats">{safeStats.map((item, index) => <span key={`${item}-${index}`}>{item}</span>)}</div> : null}
+    {children}
   </section>;
 }
 
