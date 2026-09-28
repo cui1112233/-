@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { UserLayout } from '../shared/layouts/UserLayout';
 import { HomeRoute } from './pages/HomeRoute';
+import GiantMaterialTestPage from './pages/GiantMaterialTestPage';
 
 const ScriptPage = lazy(() => import('./pages/ScriptPage'));
 const HistoryPage = lazy(() => import('./pages/HistoryPage'));
@@ -84,6 +85,7 @@ export function UserApp() {
     return () => { window.removeEventListener('error', recoverChunk); window.removeEventListener('unhandledrejection', recoverChunk); };
   }, []);
   const pathname = usePathname();
+  if (pathname === '/giant-material-test') return <GiantMaterialTestPage />;
   if (/^\/invite\/[^/]+$/.test(pathname)) {
     return <Suspense fallback={<div className="route-loading" role="status">正在加载团队邀请</div>}><InviteAcceptPage /></Suspense>;
   }
