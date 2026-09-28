@@ -96,6 +96,8 @@ export function UserLayout({ children }) {
   const isAccountCenterRoute = ACCOUNT_CENTER_ROUTES.includes(pathname);
   const isLoggedIn = Boolean(username);
   const isHome = pathname === '/';
+  const isAgentRoute = pathname === '/agent' || pathname === '/agent/canvas';
+  const isAgentCanvasRoute = pathname === '/agent/canvas';
   const routeAccess = getRouteAccessState({ pathname, isLoggedIn });
   const displayAvatar = avatarDisplay(avatar, username);
   const accountSessionKey = username || 'anonymous';
@@ -534,12 +536,12 @@ export function UserLayout({ children }) {
       </aside> : null}
       <Fragment key={accountSessionKey}>
         <main className="legacy-main">
-          <header className="legacy-topbar">
+          {!isAgentCanvasRoute ? <header className="legacy-topbar">
             <span className="legacy-page-title">{pageTitle(pathname)}</span>
             <div className={`legacy-global-status legacy-global-status--${globalStatus.tone}`} role="status" aria-live="polite">{globalStatus.text}</div>
             <div className="legacy-userbar" aria-hidden="true" />
-          </header>
-          <section className={`legacy-content${pathname === '/agent' ? ' legacy-content--agent' : ''}`}>{pageContent}</section>
+          </header> : null}
+          <section className={`legacy-content${isAgentRoute ? ' legacy-content--agent' : ''}${isAgentCanvasRoute ? ' legacy-content--agent-canvas' : ''}`}>{pageContent}</section>
         </main>
         {isLoggedIn && pathname !== '/' && petVisible ? <CmPenguinCompanion username={username} accountSessionKey={accountSessionKey} /> : null}
       </Fragment>

@@ -469,6 +469,7 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
     ...shuihuoGateway,
     presetStore: resolvedPresetStore,
     memberStore: resolvedMemberStore,
+    accountStore: authRuntime.accountStore,
     configReader: resolvedConfigReader,
     novelFetchStore: resolvedNovelFetchStore,
     goBaseUrl: process.env.QIANTIE_GO_BASE_URL,

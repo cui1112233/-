@@ -120,6 +120,7 @@ function normalizePageContext(context) {
     summary: cleanText(safeRead(context, 'summary'), MAX_PAGE_SUMMARY_CHARS),
     entities: normalizedStableValue(safeRead(context, 'entities')),
     actions: pageActions(safeRead(context, 'actions')),
+    selectedNodes: normalizeSelectedNodes(safeRead(context, 'selectedNodes')),
     mode: cleanText(safeRead(context, 'mode'), MAX_PAGE_MODE_CHARS),
     expert: cleanText(safeRead(context, 'expert'), MAX_PAGE_EXPERT_CHARS),
     attachment: {
@@ -155,6 +156,7 @@ function buildPageContext(context) {
     normalized.summary ? `页面摘要：${normalized.summary}` : '',
     entities ? `页面实体：${entities}` : '',
     normalized.actions.length ? `可执行建议：${normalized.actions.join('；')}` : '',
+    normalized.selectedNodes.length ? `当前选中的画布节点：${JSON.stringify(normalized.selectedNodes)}` : '',
     normalized.mode ? `模式：${normalized.mode}` : '',
     normalized.expert ? `专家：${normalized.expert}` : '',
     normalized.attachment.name ? `附件名称：${normalized.attachment.name}` : '',
@@ -198,6 +200,25 @@ function sendTaskNotFound(res) {
   return res.status(404).json({ error: 'Not found' });
 }
 
+function normalizeSelectedNodes(value) {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 8).map(node => {
+    if (!node || typeof node !== 'object' || Array.isArray(node)) return null;
+    const result = {};
+    for (const key of ['id', 'type', 'title', 'summary', 'status', 'assetRef']) {
+      if (key === 'assetRef' && node.assetRef && typeof node.assetRef === 'object' && !Array.isArray(node.assetRef)) {
+        const kind = cleanText(node.assetRef.kind, 32);
+        const id = cleanText(node.assetRef.id, 180);
+        if (kind && id) result.assetRef = { kind, id };
+      } else if (typeof node[key] === 'string') {
+        result[key] = cleanText(node[key], key === 'summary' ? 1600 : 240);
+      }
+    }
+    if (Number.isInteger(node.version) && node.version > 0) result.version = node.version;
+    return result.id && result.type ? result : null;
+  }).filter(Boolean);
+}
+
 function createAgentRouter({
   agentStore = createAgentStore({ usersDir: USERS_DIR }),
   skillStore,
@@ -221,6 +242,34 @@ function createAgentRouter({
   }
 
   router.use(apiAuth);
+
+  router.get('/tasks/:taskId/canvas', (req, res) => {
+    const task = agentStore.getTask(req.username, req.params.taskId);
+    if (!task) return sendTaskNotFound(res);
+    return res.json({ canvas: agentStore.getCanvas(req.username, req.params.taskId) });
+  });
+
+  router.patch('/tasks/:taskId/canvas', async (req, res) => {
+    if (!agentStore.getTask(req.username, req.params.taskId)) return sendTaskNotFound(res);
+    const canvas = req.body?.canvas;
+    const revision = Number(req.body?.revision);
+    if (!Number.isInteger(revision) || !canvas || typeof canvas !== 'object') {
+      return res.status(400).json({ error: '画布版本或内容不合法' });
+    }
+    try {
+      const result = await enqueueTaskOperation(req.username, req.params.taskId, () => agentStore.saveCanvas(req.username, req.params.taskId, canvas, revision));
+      if (!result) return sendTaskNotFound(res);
+      if (result.conflict) return res.status(409).json({ error: 'CANVAS_REVISION_CONFLICT', canvas: result.canvas });
+      return res.json({ canvas: result.canvas });
+    } catch (error) {
+      return res.status(400).json({ error: error.message || '画布保存失败' });
+    }
+  });
+
+  router.get('/tasks/:taskId/executions', (req, res) => {
+    if (!agentStore.getTask(req.username, req.params.taskId)) return sendTaskNotFound(res);
+    return res.json({ executions: agentStore.getExecutions(req.username, req.params.taskId) });
+  });
 
   router.get('/tasks', (req, res) => res.json({ tasks: agentStore.listTasks(req.username) }));
 
@@ -364,6 +413,7 @@ module.exports = {
   createAgentRouter,
   buildAgentMessages,
   normalizePageContext,
+  normalizeSelectedNodes,
   INTERNAL_DISCLOSURE_REPLY,
   MAX_AGENT_MESSAGE_CHARS,
   AGENT_UPSTREAM_TIMEOUT_MS

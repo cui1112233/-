@@ -1,9 +1,10 @@
 import { Button, Form, Input, Modal, Popconfirm, Segmented, Space, Tag, Tooltip, Typography, message } from 'antd';
 import { ChevronDown, ChevronUp, Clock3, FilePenLine, MessageCircle, MessageSquarePlus, MoreHorizontal, Pencil, Pin, RotateCcw, SearchCheck, Send, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { askAgent, clearAgentTask, createAgentTask, createMyAgentSkill, deleteAgentTask, deleteMyAgentSkill, getAgentTask, getMyAgentSkill, listAgentSkills, listAgentTasks, renameAgentTask, updateMyAgentSkill } from '../../shared/api/agent';
+import { askAgent, clearAgentTask, createAgentTask, createMyAgentSkill, deleteAgentTask, deleteMyAgentSkill, getAgentCanvas, getAgentTask, getMyAgentSkill, listAgentExecutions, listAgentSkills, listAgentTasks, renameAgentTask, saveAgentCanvas, updateMyAgentSkill } from '../../shared/api/agent';
 import { dispatchPetContext, dispatchPetSkills, dispatchPetState } from '../../shared/pet/stacky';
 import SuperOpcLiquidMetalLogo from '../../shared/components/SuperOpcLiquidMetalLogo';
+import { AgentCanvas } from '../components/AgentCanvas';
 
 const blankSkill = { name: '', description: '', category: '创作', inputTemplate: '', body: '' };
 function formatTaskTime(value) {
@@ -43,6 +44,8 @@ export function AgentPageV2({ theme }) {
   const [tasks, setTasks] = useState([]);
   const [activeTaskId, setActiveTaskId] = useState(null);
   const [activeTask, setActiveTask] = useState(null);
+  const [invalidCanvasTask, setInvalidCanvasTask] = useState(false);
+  const [isCanvasWorkspace, setIsCanvasWorkspace] = useState(() => window.location.pathname === '/agent/canvas');
   const [skills, setSkills] = useState([]);
   const [selectedSkillIds, setSelectedSkillIds] = useState([]);
   const [source, setSource] = useState('all');
@@ -54,9 +57,12 @@ export function AgentPageV2({ theme }) {
   const [attachedFile, setAttachedFile] = useState(null);
   const [problemSearchMode, setProblemSearchMode] = useState(false);
   const [taskDrawerOpen, setTaskDrawerOpen] = useState(false);
-  const [taskSummaryExpanded, setTaskSummaryExpanded] = useState(false);
+  const [conversationPanelOpen, setConversationPanelOpen] = useState(true);
   const [loading, setLoading] = useState(true);
   const [taskDetailLoading, setTaskDetailLoading] = useState(false);
+  const [canvas, setCanvas] = useState({ version: 1, revision: 0, nodes: [], edges: [] });
+  const [executions, setExecutions] = useState([]);
+  const [selectedCanvasNodes, setSelectedCanvasNodes] = useState([]);
   const [asking, setAsking] = useState(false);
   const [skillEditorOpen, setSkillEditorOpen] = useState(false);
   const [editingSkillId, setEditingSkillId] = useState(null);
@@ -79,10 +85,11 @@ export function AgentPageV2({ theme }) {
   const composerMenuId = 'agent-composer-menu';
 
   function syncTaskUrl(taskId, historyMode = 'replace') {
-    const nextUrl = taskId ? `/agent?task=${encodeURIComponent(taskId)}` : '/agent';
+    const nextUrl = taskId ? `/agent/canvas?taskId=${encodeURIComponent(taskId)}` : '/agent';
     if (historyMode === 'none' || `${window.location.pathname}${window.location.search}` === nextUrl) return;
     if (historyMode === 'push') window.history.pushState({}, '', nextUrl);
     else window.history.replaceState({}, '', nextUrl);
+    window.dispatchEvent(new PopStateEvent('popstate'));
   }
 
   function activateTask(task, { historyMode = 'replace' } = {}) {
@@ -120,10 +127,14 @@ export function AgentPageV2({ theme }) {
     setTaskDetailLoading(true);
     try {
       const result = await getAgentTask(taskId);
-      if (mountedRef.current && taskRequestRef.current === requestId) activateTask(result.task || null, { historyMode: 'none' });
+      if (mountedRef.current && taskRequestRef.current === requestId) {
+        setInvalidCanvasTask(!result.task);
+        activateTask(result.task || null, { historyMode: 'none' });
+      }
     } catch (error) {
       if (!mountedRef.current || taskRequestRef.current !== requestId) return;
-      activateTask(null, { historyMode: 'replace' });
+      setInvalidCanvasTask(isCanvasWorkspace);
+      activateTask(null, { historyMode: isCanvasWorkspace ? 'none' : 'replace' });
       message.error(error.message || '读取任务失败');
       refreshTasks().catch(() => undefined);
     } finally {
@@ -140,6 +151,7 @@ export function AgentPageV2({ theme }) {
       const task = result.task;
       if (!task) throw new Error('未能创建任务');
       if (!mountedRef.current || taskRequestRef.current !== expectedRequestId) return null;
+      setIsCanvasWorkspace(true);
       const requestId = ++taskRequestRef.current;
       taskDetailLoadingRef.current = false;
       setTaskDetailLoading(false);
@@ -171,10 +183,21 @@ export function AgentPageV2({ theme }) {
     Promise.all([refreshTasks(), loadSkills()])
       .then(([nextTasks]) => {
         if (cancelled || initializationRequestRef.current !== initializationRequestId || taskRequestRef.current !== initialTaskRequestId) return undefined;
-        const requestedTaskId = new URLSearchParams(window.location.search).get('task');
+        const params = new URLSearchParams(window.location.search);
+        const legacyTaskId = params.get('task');
+        const requestedTaskId = isCanvasWorkspace ? params.get('taskId') : legacyTaskId;
         const requestedTask = nextTasks.find(task => task.id === requestedTaskId);
         if (requestedTask) return selectTask(requestedTask.id, { historyMode: 'replace' });
-        if (nextTasks[0]) return selectTask(nextTasks[0].id, { historyMode: 'replace' });
+        if (isCanvasWorkspace && requestedTaskId) {
+          setInvalidCanvasTask(true);
+          return undefined;
+        }
+        if (legacyTaskId) {
+          const nextUrl = `/agent/canvas?taskId=${encodeURIComponent(legacyTaskId)}`;
+          window.history.replaceState({}, '', nextUrl);
+          setIsCanvasWorkspace(true);
+          return undefined;
+        }
         syncTaskUrl(null, 'replace');
         return undefined;
       })
@@ -193,12 +216,16 @@ export function AgentPageV2({ theme }) {
   useEffect(() => {
     function selectHistoryTask() {
       if (!mountedRef.current) return;
-      const requestedTaskId = new URLSearchParams(window.location.search).get('task');
+      const nextIsCanvasWorkspace = window.location.pathname === '/agent/canvas';
+      setIsCanvasWorkspace(nextIsCanvasWorkspace);
+      const requestedTaskId = nextIsCanvasWorkspace ? new URLSearchParams(window.location.search).get('taskId') : null;
       const requestedTask = tasksRef.current.find(task => task.id === requestedTaskId);
       if (requestedTask) {
+        setInvalidCanvasTask(false);
         if (activeTaskIdRef.current !== requestedTask.id) selectTask(requestedTask.id, { historyMode: 'none' });
         return;
       }
+      if (nextIsCanvasWorkspace && requestedTaskId) setInvalidCanvasTask(true);
       if (activeTaskIdRef.current !== null || taskDetailLoadingRef.current) {
         taskRequestRef.current += 1;
         taskDetailLoadingRef.current = false;
@@ -230,18 +257,35 @@ export function AgentPageV2({ theme }) {
   }, [activeTask?.id, activeTask?.messages?.length]);
 
   useEffect(() => {
-    if (!activeTask?.id) {
-      setTaskSummaryExpanded(false);
+    let cancelled = false;
+    if (!isCanvasWorkspace || !activeTaskId) {
+      setCanvas({ version: 1, revision: 0, nodes: [], edges: [] });
+      setExecutions([]);
+      setSelectedCanvasNodes([]);
       return undefined;
     }
-    setTaskSummaryExpanded(true);
-    const timer = window.setTimeout(() => setTaskSummaryExpanded(false), 5000);
-    return () => window.clearTimeout(timer);
-  }, [activeTask?.id]);
+    Promise.all([getAgentCanvas(activeTaskId), listAgentExecutions(activeTaskId)])
+      .then(([canvasResult, executionResult]) => {
+        if (cancelled) return;
+        setCanvas(canvasResult.canvas || { version: 1, revision: 0, nodes: [], edges: [] });
+        setExecutions(Array.isArray(executionResult.executions) ? executionResult.executions : []);
+      })
+      .catch(error => { if (!cancelled) message.error(error.message || '读取创作画布失败'); });
+    return () => { cancelled = true; };
+  }, [activeTaskId]);
 
   const visibleSkills = useMemo(() => skills.filter(skill => source === 'all' || skill.source === source), [skills, source]);
   const selectedSkills = skills.filter(skill => selectedSkillIds.includes(skill.id));
   const messages = activeTask?.messages || [];
+  const selectedNodeContext = canvas.nodes.filter(node => selectedCanvasNodes.includes(node.id)).map(node => ({
+    id: node.id,
+    type: node.type,
+    title: node.title,
+    version: node.version,
+    status: node.status,
+    summary: node.summary,
+    ...(node.assetRef ? { assetRef: node.assetRef } : {})
+  }));
   const taskGroups = useMemo(() => tasks.reduce((groups, task) => {
     const key = taskGroup(task.updatedAt);
     groups[key].push(task);
@@ -304,7 +348,6 @@ export function AgentPageV2({ theme }) {
 
     setAsking(true);
     setQuestion('');
-    setTaskSummaryExpanded(false);
     dispatchPetState('working', { title: 'CM 正在处理任务' });
     try {
       const createdTask = activeTask ? { task: activeTask, requestId } : await createTask(requestId);
@@ -321,6 +364,7 @@ export function AgentPageV2({ theme }) {
           expert: selectedExpert,
           intent: problemSearch ? 'find-problems' : 'chat',
           originalInput: problemSearch ? rawPrompt : undefined,
+          selectedNodes: selectedNodeContext,
           attachment: attachedFile ? { name: attachedFile.name, content: attachedFile.content } : undefined
         },
         skillIds: selectedSkillIds
@@ -444,57 +488,55 @@ export function AgentPageV2({ theme }) {
   }
 
   return (
-    <div className={`agent-page utility-workbench agent-workspace-v3${taskDrawerOpen ? '' : ' agent-task-drawer-collapsed'}`}>
-      <section className="agent-task-drawer cm-conversation-frame" aria-label="CM 任务列表">
-        <header className="agent-task-drawer-header">
-          <button className="agent-task-drawer-toggle" type="button" aria-expanded={taskDrawerOpen} aria-controls="agent-task-drawer-body" onClick={() => setTaskDrawerOpen(open => !open)}>
-            <span className="agent-task-drawer-title">任务列表</span><span className="agent-task-count">{tasks.length}</span>
-            {!taskDrawerOpen && activeTask ? <span className="agent-task-current">当前：{activeTask.title}</span> : null}
-            {taskDrawerOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-          </button>
-          <Button className="agent-task-new" icon={<MessageSquarePlus size={15} />} onClick={() => createTask()}>新建任务</Button>
+    <div className={`agent-page utility-workbench agent-workspace-v3${isCanvasWorkspace && !taskDrawerOpen ? ' agent-task-drawer-collapsed' : ''}`}>
+      {isCanvasWorkspace ? <div className={conversationPanelOpen ? 'agent-canvas-workspace' : 'agent-canvas-workspace is-conversation-collapsed'}>
+        <header className="agent-canvas-toolbar">
+          <button className="agent-canvas-toolbar-button" type="button" aria-expanded={taskDrawerOpen} aria-controls="agent-project-drawer" onClick={() => setTaskDrawerOpen(open => !open)}>项目</button>
+          <button className="agent-canvas-project-title" type="button" onClick={openRenameTask}>{activeTask?.title || '未选择项目'}<Pencil size={14} /></button>
+          <span className="agent-canvas-save-status">{asking ? '正在执行…' : '已保存'} · {canvas.nodes.length} 个节点</span>
+          <span className="agent-canvas-view-info">缩放 100% · 聚焦全部</span>
+          <button className="agent-canvas-toolbar-button" type="button" aria-pressed={conversationPanelOpen} onClick={() => setConversationPanelOpen(open => !open)}>{conversationPanelOpen ? '收起对话' : '打开对话'}</button>
         </header>
-        <div id="agent-task-drawer-body" className="agent-task-drawer-body" aria-hidden={!taskDrawerOpen}>
+
+        <aside id="agent-project-drawer" className={`agent-project-drawer${taskDrawerOpen ? ' is-open' : ''}`} aria-hidden={!taskDrawerOpen}>
+          <header><strong>项目</strong><Button className="agent-task-new" icon={<MessageSquarePlus size={15} />} onClick={() => { setTaskDrawerOpen(false); createTask(); }}>新建项目</Button></header>
           <div className="agent-task-list" aria-live="polite">
-            {loading ? <div className="agent-task-loading" role="status">正在读取任务列表...</div> : null}
-            {!loading && tasks.length === 0 ? <div className="agent-task-empty">还没有任务<br />从一段新对话开始。</div> : null}
+            {loading ? <div className="agent-task-loading" role="status">正在读取项目...</div> : null}
+            {!loading && tasks.length === 0 ? <div className="agent-task-empty">还没有项目<br />从一段新对话开始。</div> : null}
             {Object.entries(taskGroups).map(([group, groupTasks]) => groupTasks.length ? <section className="agent-task-group" key={group}><h4>{group}</h4>{groupTasks.map(task => (
-              <button className={`agent-task-row${task.id === activeTaskId ? ' active' : ''}`} type="button" key={task.id} onClick={() => { setTaskDrawerOpen(false); selectTask(task.id, { historyMode: 'push' }); }}>
+              <button className={`agent-task-row${task.id === activeTaskId ? ' active' : ''}`} type="button" key={task.id} onClick={() => { selectTask(task.id, { historyMode: 'push' }); setTaskDrawerOpen(false); }}>
                 <strong>{task.title}</strong><span>{task.preview || '尚未开始对话'}</span>
               </button>
             ))}</section> : null)}
           </div>
-        </div>
-      </section>
+          {activeTask ? <footer><Button type="text" icon={<RotateCcw size={15} />} disabled={messages.length === 0} onClick={clearCurrentTask}>清空对话</Button><Popconfirm title="删除当前项目？" description="删除后无法恢复，不会影响其他项目。" okText="删除" cancelText="取消" okButtonProps={{ danger: true }} onConfirm={deleteCurrentTask}><Button type="text" danger icon={<Trash2 size={15} />}>删除项目</Button></Popconfirm></footer> : null}
+        </aside>
 
-      <section className="agent-workbench cm-conversation-frame" aria-labelledby="agent-workbench-title">
-        <header className="agent-workbench-header">
-          <div className="agent-workbench-brand"><Typography.Title id="agent-workbench-title" level={3}>AGENT 工作区</Typography.Title><Tag>Beta</Tag></div>
-          <div className="agent-workbench-status"><span />{asking ? 'CM 正在分析中…' : 'CM 在线'}</div>
-          {activeTask ? <Space size={2} className="agent-task-actions">
-            <Tooltip title="重命名任务"><Button aria-label="重命名任务" type="text" icon={<Pencil size={17} />} onClick={openRenameTask} /></Tooltip>
-            <Popconfirm title="清空当前任务的全部消息？" description="不会影响其他任务。" okText="清空" cancelText="取消" onConfirm={clearCurrentTask}><Tooltip title="清空当前任务"><Button aria-label="清空当前任务" type="text" icon={<RotateCcw size={17} />} disabled={messages.length === 0} /></Tooltip></Popconfirm>
-            <Popconfirm title="删除当前任务？" description="删除后无法恢复，不会影响其他任务。" okText="删除" cancelText="取消" okButtonProps={{ danger: true }} onConfirm={deleteCurrentTask}><Tooltip title="删除当前任务"><Button aria-label="删除当前任务" danger type="text" icon={<Trash2 size={17} />} /></Tooltip></Popconfirm>
-          </Space> : <span className="agent-workbench-quiet">专注创作与修改</span>}
-        </header>
+        <main className="agent-canvas-main" aria-label="创作画布">
+          <AgentCanvas
+            canvas={canvas}
+            onSelectionChange={setSelectedCanvasNodes}
+            onChange={nextCanvas => {
+              if (!activeTaskId) return;
+              saveAgentCanvas(activeTaskId, nextCanvas, canvas.revision)
+                .then(result => setCanvas(result.canvas))
+                .catch(error => {
+                  if (error.status === 409) getAgentCanvas(activeTaskId).then(result => setCanvas(result.canvas)).catch(() => undefined);
+                  else message.error(error.message || '保存画布失败');
+                });
+            }}
+          />
+        </main>
 
-        <div className="agent-workbench-stage">
-          {activeTask ? taskSummaryExpanded ? <article className="agent-task-summary-card">
-            <header><div><i /><strong>{activeTask.title}</strong></div><span><Tooltip title="置顶任务"><Button type="text" aria-label="置顶任务" icon={<Pin size={15} />} /></Tooltip><Tooltip title="更多任务操作"><Button type="text" aria-label="更多任务操作" icon={<MoreHorizontal size={17} />} /></Tooltip></span></header>
-            <div className="agent-task-summary-meta"><span><Clock3 size={14} />{formatTaskTime(activeTask.updatedAt) || '刚刚'}</span><span><MessageCircle size={14} />共 {messages.length} 条对话</span><Tag>{problemSearchMode ? '找问题' : selectedMode}</Tag></div>
-            <p>{activeTask.preview || messages.at(-1)?.content || '在这里继续和 CM 完成本次创作任务。'}</p>
-            <button className="agent-task-summary-collapse" type="button" onClick={() => setTaskSummaryExpanded(false)}>收起摘要 <ChevronUp size={14} /></button>
-          </article> : <button className="agent-task-summary-strip" type="button" onClick={() => setTaskSummaryExpanded(true)}>
-            <span><i />当前任务：<strong>{activeTask.title}</strong></span><span><Clock3 size={13} />{formatTaskTime(activeTask.updatedAt) || '刚刚'}</span><span><MessageCircle size={13} />共 {messages.length} 条对话</span><Tag>{problemSearchMode ? '找问题' : selectedMode}</Tag><b>展开 <ChevronDown size={14} /></b>
-          </button> : null}
-
+        <aside className="agent-conversation-panel" aria-label="项目对话">
           <div ref={historyRef} className="agent-workbench-history" aria-live="polite">
             {taskDetailLoading ? <div className="agent-workbench-loading" role="status">正在读取任务详情...</div> : null}
-            {!loading && !activeTask ? <div className="agent-workbench-empty"><SuperOpcLiquidMetalLogo theme={theme} className="agent-workbench-logo" /><strong>一战晟铭 / CM</strong><span>你的 AI 创作工作空间</span></div> : null}
+            {!loading && !activeTask ? <div className="agent-workbench-empty">{invalidCanvasTask ? <><strong>找不到这个任务</strong><span>任务可能已删除或链接已失效。<a href="/agent">返回创作首页</a></span></> : <><SuperOpcLiquidMetalLogo theme={theme} className="agent-workbench-logo" /><strong>一战晟铭 / CM</strong><span>你的 AI 创作工作空间</span></>}</div> : null}
             {activeTask && messages.length === 0 ? <div className="agent-workbench-empty"><SuperOpcLiquidMetalLogo theme={theme} className="agent-workbench-logo" /><strong>一战晟铭 / CM</strong><span>输入需求开始对话；也可以直接开启「找问题」。</span></div> : null}
             {messages.map((entry, index) => <article key={`${entry.createdAt || index}-${entry.role}`} className={`agent-workbench-message agent-workbench-message--${entry.role}`}><strong>{entry.role === 'assistant' ? 'CM' : '你'}</strong><span>{entry.content}</span></article>)}
           </div>
-        </div>
+          {executions.length ? <section className="agent-execution-records" aria-label="执行记录"><strong>执行记录</strong>{executions.slice(0, 4).map((execution, index) => <span key={execution.id || index}>{execution.toolName || execution.tool || execution.name || '工具'} · {execution.status || '已完成'}</span>)}</section> : null}
+          {selectedNodeContext.length ? <div className="agent-selected-node-references" aria-label="已选节点引用">{selectedNodeContext.map(node => <Tag key={node.id}>{node.title}</Tag>)}</div> : null}
 
         <div className={`agent-workbench-composer${problemSearchMode ? ' is-problem-search' : ''}`}>
           <input ref={attachmentInputRef} className="agent-attachment-input" type="file" accept=".txt,.md,.csv,.json,text/plain,text/markdown,text/csv,application/json" onChange={readAttachment} />
@@ -583,8 +625,25 @@ export function AgentPageV2({ theme }) {
             </div>
           ) : null}
         </div>
-      </section>
+        </aside>
+      </div>
 
+      : <section className="agent-creation-home" aria-labelledby="agent-creation-home-title">
+        <div className="agent-creation-home-inner">
+          <Typography.Title id="agent-creation-home-title" level={2}>开始创作</Typography.Title>
+          <Typography.Paragraph>告诉 CM 你想完成什么，马上进入专属创作画布。</Typography.Paragraph>
+          <div className={`agent-workbench-composer agent-creation-composer${problemSearchMode ? ' is-problem-search' : ''}`}>
+            <input ref={attachmentInputRef} className="agent-attachment-input" type="file" accept=".txt,.md,.csv,.json,text/plain,text/markdown,text/csv,application/json" onChange={readAttachment} />
+            <div className="agent-selected-skills">{selectedSkills.map(skill => <Tag closable key={skill.id} onClose={() => toggleSkill(skill.id)}>{skill.name}</Tag>)}{attachedFile ? <Tag closable onClose={() => setAttachedFile(null)}>附件：{attachedFile.name}</Tag> : null}</div>
+            <Input.TextArea value={question} autoSize={{ minRows: 4, maxRows: 8 }} placeholder="描述你的创作需求…" onChange={event => setQuestion(event.target.value)} onPressEnter={event => { if (!event.shiftKey) { event.preventDefault(); sendQuestion(); } }} />
+            <div className="agent-composer-actions"><div className="agent-composer-actions-left"><button className="agent-context-chip" type="button" onClick={() => openComposerTool('mode')}>{selectedMode}<ChevronDown size={13} /></button><button className="agent-context-chip" type="button" onClick={() => openComposerTool('expert')}>{selectedExpert}<ChevronDown size={13} /></button><button className="agent-context-chip" type="button" onClick={() => openComposerTool('skill')}>技能{selectedSkillIds.length ? ` ${selectedSkillIds.length}` : ''}<ChevronDown size={13} /></button><button className="agent-context-chip" type="button" onClick={() => openComposerTool('file')}>添加附件</button></div><Button type="primary" icon={<Send size={15} />} loading={asking} disabled={!question.trim()} onClick={() => sendQuestion()}>开始创作</Button></div>
+            {composerPanel === 'mode' ? <div className="agent-composer-context"><strong>模式</strong>{['创作助手', '分析拆解', '修改润色'].map(value => <button type="button" key={value} className={selectedMode === value ? 'active' : ''} onClick={() => { setSelectedMode(value); setComposerPanel(null); }}>{value}</button>)}</div> : null}
+            {composerPanel === 'expert' ? <div className="agent-composer-context"><strong>专家</strong>{['CM 创作顾问', '前贴片广告策划', '短剧编剧'].map(value => <button type="button" key={value} className={selectedExpert === value ? 'active' : ''} onClick={() => { setSelectedExpert(value); setComposerPanel(null); }}>{value}</button>)}</div> : null}
+            {composerPanel === 'skill' ? <div className="agent-skill-panel"><Segmented value={source} onChange={setSource} options={[{ label: '全部', value: 'all' }, { label: '平台自带', value: 'system' }, { label: '我的技能', value: 'user' }]} /><div className="agent-skill-list">{visibleSkills.map(skill => <article className={`agent-skill-card${selectedSkillIds.includes(skill.id) ? ' selected' : ''}`} key={skill.id}><strong>{skill.name}</strong><p>{skill.description || '未填写说明'}</p><Button size="small" type={selectedSkillIds.includes(skill.id) ? 'primary' : 'default'} onClick={() => toggleSkill(skill.id)}>{selectedSkillIds.includes(skill.id) ? '已选用' : '选用'}</Button></article>)}</div></div> : null}
+          </div>
+          <section className="agent-recent-projects" aria-label="最近项目"><h3>最近项目</h3>{loading ? <span>正在读取项目…</span> : tasks.slice(0, 6).map(task => <button type="button" key={task.id} onClick={() => { window.history.pushState({}, '', `/agent/canvas?taskId=${encodeURIComponent(task.id)}`); window.dispatchEvent(new PopStateEvent('popstate')); }}><strong>{task.title}</strong><span>{task.preview || '尚未开始对话'}</span></button>)}</section>
+        </div>
+      </section>}
       <Modal title={editingSkillId ? '编辑我的技能' : '新建我的技能'} open={skillEditorOpen} onCancel={() => setSkillEditorOpen(false)} footer={null} destroyOnClose>
         <Form form={form} layout="vertical" onFinish={saveSkill}>
           <Form.Item label="名称" name="name" rules={[{ required: true }]}><Input /></Form.Item>
