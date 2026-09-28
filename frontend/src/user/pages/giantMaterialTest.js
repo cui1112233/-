@@ -7,7 +7,9 @@ const EMPTY_MATERIAL = {
   videoUrl: '',
   width: null,
   height: null,
-  durationSeconds: null
+  durationSeconds: null,
+  materialTitle: '',
+  books: []
 };
 
 function text(value) {
@@ -25,6 +27,7 @@ export function normalizeGiantMaterialId(value) {
 }
 
 function responseData(payload) {
+  if (Array.isArray(payload?.data?.list)) return payload.data.list.length === 1 ? payload.data.list[0] : {};
   if (payload?.data && typeof payload.data === 'object' && !Array.isArray(payload.data)) return payload.data;
   if (payload && typeof payload === 'object' && !Array.isArray(payload)) return payload;
   return {};
@@ -32,16 +35,29 @@ function responseData(payload) {
 
 export function normalizeGiantMaterialResponse(payload) {
   const source = responseData(payload);
+  const books = [];
+  const seenBooks = new Set();
+  for (const work of Array.isArray(source.works) ? source.works : []) {
+    const platformBookId = text(work.cp_work_id);
+    const platform = text(work.cp_type);
+    const key = `${platform}:${platformBookId}`;
+    if (!platformBookId || seenBooks.has(key)) continue;
+    seenBooks.add(key);
+    books.push({ platformBookId, platformName: platform === 'QM' ? '七猫' : platform, title: text(work.name) });
+  }
+  const platformNames = [...new Set(books.map(book => book.platformName).filter(Boolean))];
   return {
-    materialId: text(source.material_id ?? source.materialId ?? source.id),
+    materialId: text(source.id ?? source.material_id ?? source.materialId),
     giantMaterialId: text(source.giant_material_id ?? source.giantMaterialId ?? source.ocean_material_id),
-    title: text(source.title ?? source.book_title ?? source.bookTitle ?? source.name),
-    platformBookId: text(source.book_id ?? source.bookId ?? source.platform_book_id ?? source.platformBookId),
-    platformName: text(source.platform_name ?? source.platformName ?? source.platform_label ?? source.platformLabel),
-    videoUrl: text(source.video_url ?? source.videoUrl ?? source.url ?? source.play_url ?? source.playUrl),
+    title: books.length ? books.map(book => book.title).join(' / ') : text(source.title ?? source.book_title ?? source.bookTitle ?? source.name),
+    platformBookId: books.length ? (books.length === 1 ? books[0].platformBookId : '') : text(source.book_id ?? source.bookId ?? source.platform_book_id ?? source.platformBookId),
+    platformName: platformNames.length ? platformNames.join(' / ') : text(source.platform_name ?? source.platformName ?? source.platform_label ?? source.platformLabel),
+    videoUrl: text(source.video_url ?? source.videoUrl ?? source.url ?? source.play_url ?? source.playUrl ?? source.path),
     width: numberOrNull(source.width ?? source.video_width ?? source.videoWidth),
     height: numberOrNull(source.height ?? source.video_height ?? source.videoHeight),
-    durationSeconds: numberOrNull(source.duration ?? source.duration_seconds ?? source.durationSeconds)
+    durationSeconds: numberOrNull(source.duration ?? source.duration_seconds ?? source.durationSeconds),
+    materialTitle: Array.isArray(source.works) ? text(source.name) : '',
+    books
   };
 }
 

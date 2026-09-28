@@ -48,8 +48,8 @@ export function createGiantMaterialTestHandler({ fetchImpl = fetch, getToken = (
       try {
         upstream = await fetchImpl(GIANT_MATERIAL_SELECT_URL, {
           method: 'POST',
-          headers: { accept: 'application/json', 'content-type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ ocean_material_ids: giantMaterialId }),
+          headers: { accept: 'application/json', 'content-type': 'application/json', 'N8-Admin-Token': token },
+          body: JSON.stringify({ ocean_material_ids: [giantMaterialId] }),
           signal: controller.signal
         });
       } finally {
@@ -58,8 +58,10 @@ export function createGiantMaterialTestHandler({ fetchImpl = fetch, getToken = (
       if (upstream.status === 401 || upstream.status === 403) return writeJson(res, 401, { ok: false, code: 'QINGYU_AUTH_FAILED' });
       if (!upstream.ok) return writeJson(res, 502, { ok: false, code: 'QINGYU_UPSTREAM_FAILED', status: upstream.status });
       const payload = await upstream.json();
+      if (Object.hasOwn(payload, 'code') && payload.code !== 'SUCCESS') return writeJson(res, 502, { ok: false, code: 'QINGYU_UPSTREAM_FAILED' });
       const material = normalizeGiantMaterialResponse(payload);
       if (!material.materialId || !material.videoUrl) return writeJson(res, 502, { ok: false, code: 'QINGYU_MATERIAL_RESPONSE_INVALID' });
+      material.giantMaterialId ||= giantMaterialId;
       return writeJson(res, 200, { ok: true, stage: 'resolved', observedAt: new Date(now()).toISOString(), material });
     } catch (error) {
       const code = error?.code === 'REQUEST_TOO_LARGE' || error?.code === 'INVALID_JSON' ? error.code : error?.name === 'AbortError' ? 'QINGYU_TIMEOUT' : 'QINGYU_UPSTREAM_ERROR';

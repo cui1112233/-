@@ -85,7 +85,13 @@ export default function GiantMaterialTestPage() {
     </form>
     {errorCode ? <div className="giant-material-test-alert" role="alert"><strong>调用未完成</strong><span>{errorCode === 'QINGYU_AUTH_NOT_CONFIGURED' ? '本机尚未配置青语服务令牌。' : errorCode}</span></div> : null}
     <div className="giant-material-test-stages">
-      <Stage title="素材解析" status={resolveStatus}>{resolved ? <dl><div><dt>平台书名</dt><dd>{material.title || '未返回'}</dd></div><div><dt>平台 Book ID</dt><dd>{material.platformBookId || '未返回'}</dd></div><div><dt>书城</dt><dd>{material.platformName || '未返回'}</dd></div><div><dt>青语素材 ID</dt><dd>{material.materialId || '未返回'}</dd></div></dl> : null}</Stage>
+      <Stage title="素材解析" status={resolveStatus}>{resolved ? <>
+        <dl><div><dt>素材名称</dt><dd>{material.materialTitle || material.title || '未返回'}</dd></div><div><dt>青语素材 ID</dt><dd>{material.materialId || '未返回'}</dd></div></dl>
+        {material.books?.length ? <>
+          {material.books.length > 1 ? <p>此素材关联 {material.books.length} 条平台书籍记录，入库前需要确认书籍。</p> : null}
+          {material.books.map(book => <dl key={`${book.platformName}:${book.platformBookId}`}><div><dt>平台书名</dt><dd>{book.title || '未返回'}</dd></div><div><dt>平台 Book ID · {book.platformName || '书城未返回'}</dt><dd>{book.platformBookId}</dd></div></dl>)}
+        </> : <dl><div><dt>平台书名</dt><dd>{material.title || '未返回'}</dd></div><div><dt>平台 Book ID</dt><dd>{material.platformBookId || '未返回'}</dd></div><div><dt>书城</dt><dd>{material.platformName || '未返回'}</dd></div></dl>}
+      </> : null}</Stage>
       <Stage title="视频读取" status={videoStatus}>{resolved ? <dl><div><dt>视频地址</dt><dd>{safeVideoPath(material.videoUrl) || '未返回'}</dd></div><div><dt>规格</dt><dd>{material.width && material.height ? `${material.width} × ${material.height}` : '未返回'}{material.durationSeconds ? ` · ${material.durationSeconds}s` : ''}</dd></div></dl> : null}</Stage>
       <Stage title="滚屏 OCR" status={ocrStatus}><p className="giant-material-test-muted">阶段二接入 OCR 后，这里显示滚屏进度和去重字数。</p></Stage>
       <Stage title="小说正文" status={bodyStatus}><p className="giant-material-test-muted">当前不会写入或生成正文。</p></Stage>

@@ -34,7 +34,7 @@ test('returns a clear configuration error without making an upstream call', asyn
   assert.equal(calls, 0);
 });
 
-test('sends the material ID upstream with the token only in authorization', async () => {
+test('authenticates the material request with Qingyu N8-Admin-Token', async () => {
   const observed = {};
   const handler = createGiantMaterialTestHandler({
     getToken: () => 'secret-token',
@@ -48,8 +48,9 @@ test('sends the material ID upstream with the token only in authorization', asyn
   await handler(request({ giantMaterialId: '7689285397448523826' }), response);
   assert.equal(response.statusCode, 200);
   assert.equal(observed.url, 'https://n8.hnqingyuwen.top/center-api/material/video/select');
-  assert.equal(JSON.parse(observed.options.body).ocean_material_ids, '7689285397448523826');
-  assert.equal(observed.options.headers.Authorization, 'Bearer secret-token');
+  assert.deepEqual(JSON.parse(observed.options.body).ocean_material_ids, ['7689285397448523826']);
+  assert.equal(observed.options.headers['N8-Admin-Token'], 'secret-token');
+  assert.equal(observed.options.headers.Authorization, undefined);
   assert.doesNotMatch(response.body, /secret-token/);
 });
 
@@ -58,4 +59,16 @@ test('rejects non-loopback callers', async () => {
   const response = responseRecorder();
   await handler(request({ giantMaterialId: '7689285397448523826' }, { remoteAddress: '10.0.0.4' }), response);
   assert.equal(response.statusCode, 403);
+});
+
+test('rejects Qingyu application errors even when HTTP status is 200', async () => {
+  const handler = createGiantMaterialTestHandler({
+    getToken: () => 'secret-token',
+    fetchImpl: async () => new Response(JSON.stringify({ code: 0, message: 'private upstream error', data: { id: 1, path: 'https://material.hnqingyuwen.top/a.mp4' } }))
+  });
+  const response = responseRecorder();
+  await handler(request({ giantMaterialId: '7689285397448523826' }), response);
+  assert.equal(response.statusCode, 502);
+  assert.equal(JSON.parse(response.body).code, 'QINGYU_UPSTREAM_FAILED');
+  assert.doesNotMatch(response.body, /private upstream error|secret-token/);
 });

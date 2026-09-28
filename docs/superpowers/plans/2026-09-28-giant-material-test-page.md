@@ -88,7 +88,7 @@ git commit -m "test(batch): define giant material test contract"
 
 - [ ] **Step 1: Write the failing middleware contract tests**
 
-Test the pure exported handler with injected `fetchImpl`, not a live Qingyu request. Assert request URL is `https://n8.hnqingyuwen.top/center-api/material/video/select`, body contains `ocean_material_ids`, token is only in the authorization header, malformed IDs are 400, and response never contains the token.
+Test the pure exported handler with injected `fetchImpl`, not a live Qingyu request. Assert request URL is `https://n8.hnqingyuwen.top/center-api/material/video/select`, body contains `ocean_material_ids` as an array of string IDs, token is only in the `N8-Admin-Token` header (confirmed from the logged-in browser request), malformed IDs are 400, and response never contains the token. Normalize the real `data.list`, `path`, and `works` fields. Preserve multiple platform book associations for explicit selection before any future registration.
 
 - [ ] **Step 2: Run and verify red**
 
