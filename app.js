@@ -461,7 +461,8 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
     memberStore: resolvedMemberStore,
     accountStore: authRuntime.accountStore,
     presetStore: resolvedPresetStore,
-    configReader: readConfig
+    configReader: readConfig,
+    novelFetchStore: resolvedNovelFetchStore
   }));
   app.use('/api/batch-factory/v11', createBatchFactoryV11ScheduleRouter(resolvedBatchFactoryV11Scheduler));
   const resolvedConfigReader = configReader || readConfig;
