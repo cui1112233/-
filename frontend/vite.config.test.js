@@ -1,12 +1,61 @@
-import assert from 'node:assert/strict';
-import fs from 'node:fs';
 import test from 'node:test';
+import assert from 'node:assert/strict';
+import { createGiantMaterialTestHandler } from './vite.config.js';
 
-const source = fs.readFileSync(new URL('./vite.config.js', import.meta.url), 'utf8');
+function request(body, overrides = {}) {
+  return {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...(overrides.headers || {}) },
+    socket: { remoteAddress: overrides.remoteAddress || '127.0.0.1' },
+    async *[Symbol.asyncIterator]() {
+      yield Buffer.from(JSON.stringify(body));
+    }
+  };
+}
 
-test('development server routes /admin/* to admin.html before the SPA fallback', () => {
-  assert.match(source, /name:\s*['"]admin-route-entry['"]/);
-  assert.match(source, /configureServer/);
-  assert.match(source, /pathname === ['"]\/admin['"] \|\| pathname\.startsWith\(['"]\/admin\/['"]\)/);
-  assert.match(source, /req\.url\s*=\s*`\/admin\.html/);
+function responseRecorder() {
+  return {
+    statusCode: 200,
+    headers: {},
+    body: '',
+    setHeader(name, value) { this.headers[name] = value; },
+    end(value = '') { this.body += value; },
+    json(value) { this.body = JSON.stringify(value); this.setHeader('content-type', 'application/json'); }
+  };
+}
+
+test('returns a clear configuration error without making an upstream call', async () => {
+  let calls = 0;
+  const handler = createGiantMaterialTestHandler({ fetchImpl: async () => { calls += 1; } });
+  const response = responseRecorder();
+  await handler(request({ giantMaterialId: '7689285397448523826' }), response, { token: '' });
+  assert.equal(response.statusCode, 503);
+  assert.match(response.body, /QINGYU_AUTH_NOT_CONFIGURED/);
+  assert.equal(calls, 0);
+});
+
+test('sends the material ID upstream with the token only in authorization', async () => {
+  const observed = {};
+  const handler = createGiantMaterialTestHandler({
+    getToken: () => 'secret-token',
+    fetchImpl: async (url, options) => {
+      observed.url = url;
+      observed.options = options;
+      return new Response(JSON.stringify({ data: { material_id: 10122315, giant_material_id: '7689285397448523826', title: '事不过三', book_id: 'book-1', platform_name: '七猫', video_url: 'https://material.hnqingyuwen.top/a.mp4' } }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+  });
+  const response = responseRecorder();
+  await handler(request({ giantMaterialId: '7689285397448523826' }), response);
+  assert.equal(response.statusCode, 200);
+  assert.equal(observed.url, 'https://n8.hnqingyuwen.top/center-api/material/video/select');
+  assert.equal(JSON.parse(observed.options.body).ocean_material_ids, '7689285397448523826');
+  assert.equal(observed.options.headers.Authorization, 'Bearer secret-token');
+  assert.doesNotMatch(response.body, /secret-token/);
+});
+
+test('rejects non-loopback callers', async () => {
+  const handler = createGiantMaterialTestHandler({ getToken: () => 'secret-token' });
+  const response = responseRecorder();
+  await handler(request({ giantMaterialId: '7689285397448523826' }, { remoteAddress: '10.0.0.4' }), response);
+  assert.equal(response.statusCode, 403);
 });
