@@ -40,3 +40,14 @@ test('does not start OCR after metadata authentication fails', async () => {
   await assert.rejects(() => client.readGiantMaterialContent('7689285397448523826', {}, async () => { calls++; return Response.json({ code: 'QINGYU_AUTH_FAILED' }, { status: 401 }); }), { message: 'QINGYU_AUTH_FAILED' });
   assert.equal(calls, 1);
 });
+
+test('keeps upstream authorization failures as safe stable error codes', async () => {
+  await assert.rejects(
+    () => client.resolveGiantMaterial('7689285397448523826', {}, async () => Response.json({ code: 'QINGYU_AUTH_FAILED', detail: 'N8-Admin-Token=secret-value' }, { status: 401 })),
+    error => error.message === 'QINGYU_AUTH_FAILED' && !error.message.includes('secret-value') && !error.message.includes('N8-Admin-Token')
+  );
+  await assert.rejects(
+    () => client.resolveGiantMaterial('7689285397448523826', {}, async () => Response.json({ code: 'QINGYU_UPSTREAM_FAILED', detail: 'Authorization: Bearer secret-value' }, { status: 503 })),
+    error => error.message === 'QINGYU_UPSTREAM_FAILED' && !error.message.includes('secret-value') && !error.message.includes('Authorization')
+  );
+});
