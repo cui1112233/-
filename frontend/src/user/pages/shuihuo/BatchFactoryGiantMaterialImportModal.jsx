@@ -40,6 +40,10 @@ function errorText(error) {
   return ERROR_MESSAGES[code] || code || '巨量素材登记失败。';
 }
 
+function showExecutorInstallHelp() {
+  message.info('请先安装并启动独立 Windows 巨量素材执行器，再回到此窗口；首次运行会在后台下载 OCR 运行包。');
+}
+
 function queueTag(item) {
   if (item.status === 'success') return { color: 'green', label: '已登记' };
   if (item.status === 'skipped') return { color: 'gold', label: '已跳过' };
@@ -349,7 +353,7 @@ export function BatchFactoryGiantMaterialImportModal({ open, batch, onCancel, on
     width={760}
     footer={<Space wrap><Button onClick={close} disabled={busy}>关闭</Button>{busy ? <Button danger onClick={() => controllerRef.current?.abort()}>取消读取</Button> : null}<Button onClick={retryFailed} disabled={busy || !summary.error}>重试失败项</Button><Button type="primary" onClick={startQueue} loading={busy} disabled={!canStart}>{busy ? '顺序读取中…' : '开始读取并登记'}</Button></Space>}
   >
-    <BatchFactoryGiantMaterialExecutorStatus job={executorJob} onHealthChange={setExecutorHealth} />
+    <BatchFactoryGiantMaterialExecutorStatus job={executorJob} onHealthChange={setExecutorHealth} onInstall={showExecutorInstallHelp} />
     <Alert type="info" showIcon message="支持批量巨量素材 ID" description="每行或用逗号分隔一条 ID。系统会顺序读取，成功后登记到当前批量；重复 ID 自动跳过，不保存 MP4 或抽帧文件。" />
     <label className="shuihuo-form-label" htmlFor="batch-giant-material-id">巨量素材 ID（可多条）</label>
     <Input.TextArea id="batch-giant-material-id" value={giantMaterialInput} disabled={busy} onChange={event => setGiantMaterialInput(event.target.value)} rows={5} placeholder="例如：\n7689285397448523826\n7613606077155459091" />
