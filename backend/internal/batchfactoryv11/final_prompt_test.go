@@ -224,7 +224,7 @@ func TestH3RendererCompilesSubjectRhythmAndAudioFromDirectorOutput(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	prompt := compileH3VideoPrompt(result.Storyboard[0], []compiledAsset{{Name: "林晚", Prompt: "18岁中国女性，黑色长发。"}}, []compiledAsset{{Name: "林家客厅", Prompt: "现代中式客厅。"}}, "")
+	prompt := compileH3VideoPrompt(result.Storyboard[0], []compiledAsset{{Name: "林晚", Prompt: "18岁中国女性，黑色长发。"}}, []compiledAsset{{Name: "林家客厅", Prompt: "现代中式客厅。"}})
 	for _, expected := range []string{
 		"画面：镜头1（节奏：克制推进）：中景；缓慢推轨；林晚<Subject 1>进入客厅",
 		"Audio:",
@@ -248,7 +248,7 @@ func TestH3RendererKeepsPerShotVisualContextAndLighting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	prompt := compileH3VideoPrompt(result.Storyboard[0], []compiledAsset{{Name: "林晚", Prompt: "18岁中国女性，黑色长发。"}}, nil, "")
+	prompt := compileH3VideoPrompt(result.Storyboard[0], []compiledAsset{{Name: "林晚", Prompt: "18岁中国女性，黑色长发。"}}, nil)
 	for _, expected := range []string{
 		"场景：现代中式客厅，落地窗透入阴天冷光，玻璃杯放在茶几边缘",
 		"光影：侧向冷光勾勒人物轮廓，暗部保留木材纹理",

@@ -57,6 +57,7 @@ test('upload sends exact multipart bytes through authenticated context', async (
   assert.equal(request.options.method, 'POST');
   assert.equal(request.options.headers['content-type'], 'multipart/form-data; boundary=abc');
   assert.equal(Buffer.from(request.options.data).toString(), 'payload');
+  assert.equal(request.options.timeout, 180000);
 });
 
 test('asset presign sends its JSON only through the authenticated browser context', async () => {
@@ -66,6 +67,7 @@ test('asset presign sends its JSON only through the authenticated browser contex
   assert.equal(request.options.method, 'POST');
   assert.equal(request.options.headers['content-type'], 'application/json');
   assert.equal(Buffer.from(request.options.data).toString(), '{"files":[]}');
+  assert.equal(request.options.timeout, 120000);
 });
 
 test('action runner reuses one browser and closes it after an expired session', async () => {

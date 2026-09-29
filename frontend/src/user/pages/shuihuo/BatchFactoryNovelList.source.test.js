@@ -1063,7 +1063,7 @@ test('returns only a persisted line measurement identity for subsequent H3 compi
 test('recompiles existing H3 director data after constraint or VIDEO preset settings change', () => {
 	assert.match(source, /async function refreshAfterBookSettingsSaved/);
 	assert.match(source, /\['constraints', 'video', 'media'\]\.includes\(configTarget\?\.region\)/);
-	assert.match(source, /await compileBookH3Videos\(configTarget\.book\)/);
+	assert.match(source, /await runBookStageAction\(configTarget\.book, 'director', 'compile'\)/);
 	assert.match(source, /onSaved=\{refreshAfterBookSettingsSaved\}/);
 });
 
@@ -1097,7 +1097,7 @@ test('keeps production polling failures inside the task panel', () => {
   assert.match(source, /getProductionStatus\(batch\.id, \{ suppressGlobalError: true \}\)/);
 });
 
-test('uses the VIDEO card plus button to upload local MP4 material without removing video regeneration', () => {
+test('uses the VIDEO card plus button only for local MP4 upload', () => {
   const start = source.indexOf('function MediaVersionPanel(');
   const end = source.indexOf('function BatchLogs(', start);
   const mediaPanel = start >= 0 && end > start ? source.slice(start, end) : '';
@@ -1106,7 +1106,7 @@ test('uses the VIDEO card plus button to upload local MP4 material without remov
   assert.match(mediaPanel, /请上传 MP4 视频/);
   assert.match(mediaPanel, /素材已上传，并已设为当前分镜主版本。/);
   assert.match(mediaPanel, /上传素材/);
-  assert.match(mediaPanel, /onRegenerate\?\.\(video\.id\)/);
+  assert.doesNotMatch(mediaPanel, />重新生成视频</);
   const uploadControl = mediaPanel.match(/<span className="batch-factory-media-pickstation-add"[\s\S]*?<\/span>/)?.[0] || '';
   assert.doesNotMatch(uploadControl, /onRegenerate/);
 });

@@ -40,7 +40,16 @@ function buildActionRequest(baseUrl, action, payload = {}) {
   throw new Error('unsupported 121 action');
 }
 
-async function performAuthenticatedAction({ browser, baseUrl, storageState, action, payload = {}, timeoutMs = 15000 } = {}) {
+const ACTION_TIMEOUT_MS = Object.freeze({
+  asset_presign: 120_000,
+  upload: 180_000,
+  book_list: 30_000,
+  dashboard: 30_000,
+  config_list: 30_000,
+  organization_list: 30_000
+});
+
+async function performAuthenticatedAction({ browser, baseUrl, storageState, action, payload = {}, timeoutMs } = {}) {
   if (!browser || typeof browser.newContext !== 'function') throw new Error('browser is required');
   if (!storageState) {
     const error = new Error('121 session state missing');
@@ -50,11 +59,12 @@ async function performAuthenticatedAction({ browser, baseUrl, storageState, acti
   const request = buildActionRequest(baseUrl, action, payload);
   const context = await browser.newContext({ storageState });
   try {
+    const requestedTimeout = Number(timeoutMs) || ACTION_TIMEOUT_MS[action] || 30_000;
     const response = await context.request.fetch(request.url, {
       method: request.method,
       headers: request.headers,
       ...(request.data ? { data: request.data } : {}),
-      timeout: Math.max(1000, Math.min(Number(timeoutMs) || 15000, 60000))
+      timeout: Math.max(1000, Math.min(requestedTimeout, 180_000))
     });
     const body = await response.text();
     if (/管理员登录/.test(body)) {
