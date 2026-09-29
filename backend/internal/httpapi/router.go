@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"time"
@@ -50,6 +51,11 @@ func NewRouter(options RouterOptions) http.Handler {
 	}
 	if options.Production != nil && options.Slice >= 4 {
 		registerProductionRoutes(v11, options.Production)
+		if output, ok := options.MergeOutput.(interface {
+			PutUploadedMP4(context.Context, string, string) (string, error)
+		}); ok {
+			registerVideoUploadRoutes(v11, options.Production, options.LocalArtifacts, output)
+		}
 	}
 	if options.Merge != nil && options.Slice >= 5 {
 		var mergeReader mergeworker.ObjectReader

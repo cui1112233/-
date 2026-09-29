@@ -73,6 +73,7 @@ import {
   updateBookAsset,
   updateBookMetadata,
   uploadBookAssetImage,
+  uploadBookVideoMaterial,
   setPrimaryBookAssetImage,
   saveDraft,
 	  saveVideoOverride,
@@ -1251,6 +1252,7 @@ function MediaVersionPanel({ book, batchId, versionsByVideo, productionStatus, m
   const [sheetDragging, setSheetDragging] = useState(false);
   const sheetRef = useRef(null);
   const sheetDragRef = useRef(null);
+  const uploadInputRefs = useRef({});
 
   const completedMerges = mergeJobs.filter(job => job?.status === 'succeeded' && String(job?.outputUrl || '').trim());
   const mergeJobsNewest = mergeJobs
@@ -1449,6 +1451,28 @@ function MediaVersionPanel({ book, batchId, versionsByVideo, productionStatus, m
         return next;
       });
       message.error(error?.message || '切换分镜主版本失败');
+    } finally {
+      setSavingTaskId('');
+    }
+  }
+
+  async function uploadVideoMaterial(video, event) {
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    if (file.type !== 'video/mp4' && !/\.mp4$/i.test(file.name || '')) {
+      message.error('请上传 MP4 视频');
+      return;
+    }
+    const uploadKey = `upload-material-${video.id}`;
+    setSavingTaskId(uploadKey);
+    try {
+      await uploadBookVideoMaterial(batchId, book.id, video.id, file);
+      await onSaved?.();
+      message.success('素材已上传，并已设为当前分镜主版本。');
+    } catch (error) {
+      message.error(error?.message || '上传视频素材失败');
     } finally {
       setSavingTaskId('');
     }
@@ -1775,8 +1799,14 @@ function MediaVersionPanel({ book, batchId, versionsByVideo, productionStatus, m
             </Popconfirm> : null}
           </span>;
         })}
+        <Tooltip title="上传素材">
+          <span className="batch-factory-media-pickstation-add" title="上传素材">
+            <input ref={element => { uploadInputRefs.current[video.id] = element; }} type="file" accept="video/mp4,.mp4" hidden disabled={savingTaskId === `upload-material-${video.id}`} onChange={event => uploadVideoMaterial(video, event)} />
+            <Button size="small" loading={savingTaskId === `upload-material-${video.id}`} disabled={savingTaskId === `upload-material-${video.id}`} onClick={() => uploadInputRefs.current[video.id]?.click()}>＋</Button>
+          </span>
+        </Tooltip>
         <Tooltip title={productionAvailable ? '为此分镜再生成一个候选版本；当前主版本保持不变。' : productionReason}>
-          <Button size="small" className="batch-factory-media-pickstation-add" loading={regenerating && active} disabled={!productionAvailable || regenerating || state.active} onClick={() => onRegenerate?.(video.id)}>＋</Button>
+          <Button size="small" loading={regenerating && active} disabled={!productionAvailable || regenerating || state.active} onClick={() => onRegenerate?.(video.id)}>重新生成视频</Button>
         </Tooltip>
         {state.failed ? <Tooltip title={productionAvailable ? '重试当前分镜最后失败的视频任务。' : productionReason}><Button size="small" danger disabled={!productionAvailable || regenerating} onClick={() => onRetry?.(video.id)}>重试</Button></Tooltip> : null}
       </div>

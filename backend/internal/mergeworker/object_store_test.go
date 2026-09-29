@@ -64,3 +64,31 @@ func TestTOSObjectStoreReturnsPublicURL(t *testing.T) {
 		t.Fatalf("url=%q", url)
 	}
 }
+
+func TestTOSObjectStoreUploadsVideoUnderDedicatedHTTPSKey(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "uploaded.mp4")
+	store := &TOSObjectStore{
+		Bucket:        "bucket-a",
+		PublicBaseURL: "https://cdn.example.com/media/",
+		PutFile: func(_ context.Context, bucket, key, path, contentType string) error {
+			if bucket != "bucket-a" || key != "batch-uploaded/upload-123.mp4" || path != file || contentType != "video/mp4" {
+				t.Fatalf("upload args bucket=%q key=%q path=%q type=%q", bucket, key, path, contentType)
+			}
+			return nil
+		},
+	}
+	url, err := store.PutUploadedMP4(context.Background(), "upload-123", file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if url != "https://cdn.example.com/media/batch-uploaded/upload-123.mp4" {
+		t.Fatalf("url=%q", url)
+	}
+}
+
+func TestTOSObjectStoreRejectsUploadWithoutHTTPSPublicBaseURL(t *testing.T) {
+	store := &TOSObjectStore{Bucket: "bucket-a", PutFile: func(context.Context, string, string, string, string) error { t.Fatal("must not upload"); return nil }}
+	if _, err := store.PutUploadedMP4(context.Background(), "upload-123", "video.mp4"); err == nil {
+		t.Fatal("expected public URL error")
+	}
+}

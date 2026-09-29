@@ -1096,3 +1096,17 @@ test('loads protected local merge files through the authenticated media boundary
 test('keeps production polling failures inside the task panel', () => {
   assert.match(source, /getProductionStatus\(batch\.id, \{ suppressGlobalError: true \}\)/);
 });
+
+test('uses the VIDEO card plus button to upload local MP4 material without removing video regeneration', () => {
+  const start = source.indexOf('function MediaVersionPanel(');
+  const end = source.indexOf('function BatchLogs(', start);
+  const mediaPanel = start >= 0 && end > start ? source.slice(start, end) : '';
+  assert.match(source, /uploadBookVideoMaterial/);
+  assert.match(mediaPanel, /accept="video\/mp4,\.mp4"/);
+  assert.match(mediaPanel, /请上传 MP4 视频/);
+  assert.match(mediaPanel, /素材已上传，并已设为当前分镜主版本。/);
+  assert.match(mediaPanel, /上传素材/);
+  assert.match(mediaPanel, /onRegenerate\?\.\(video\.id\)/);
+  const uploadControl = mediaPanel.match(/<span className="batch-factory-media-pickstation-add"[\s\S]*?<\/span>/)?.[0] || '';
+  assert.doesNotMatch(uploadControl, /onRegenerate/);
+});

@@ -39,6 +39,35 @@ func MergeObjectKey(taskID string) (string, error) {
 	return "batch-merged/" + taskID + ".mp4", nil
 }
 
+func UploadedObjectKey(uploadID string) (string, error) {
+	uploadID = strings.TrimSpace(uploadID)
+	if !safeTaskID.MatchString(uploadID) {
+		return "", fmt.Errorf("invalid upload id")
+	}
+	return "batch-uploaded/" + uploadID + ".mp4", nil
+}
+
+func (s *TOSObjectStore) PutUploadedMP4(ctx context.Context, uploadID, filePath string) (string, error) {
+	if s == nil || s.PutFile == nil || strings.TrimSpace(s.Bucket) == "" {
+		return "", fmt.Errorf("TOS output store is not configured")
+	}
+	key, err := UploadedObjectKey(uploadID)
+	if err != nil {
+		return "", err
+	}
+	base, err := url.Parse(strings.TrimSpace(s.PublicBaseURL))
+	if strings.TrimSpace(s.PublicBaseURL) == "" || err != nil || base.Scheme != "https" || base.Host == "" {
+		return "", fmt.Errorf("TOS public base URL must be HTTPS for uploaded video")
+	}
+	if err := s.PutFile(ctx, strings.TrimSpace(s.Bucket), key, filePath, "video/mp4"); err != nil {
+		return "", fmt.Errorf("upload video failed")
+	}
+	base.Path = strings.TrimSuffix(base.Path, "/") + "/" + path.Clean(key)
+	base.RawQuery = ""
+	base.Fragment = ""
+	return base.String(), nil
+}
+
 func (s *TOSObjectStore) PutMerged(ctx context.Context, taskID, filePath string) (string, error) {
 	if s == nil || s.PutFile == nil || strings.TrimSpace(s.Bucket) == "" {
 		return "", fmt.Errorf("TOS output store is not configured")
