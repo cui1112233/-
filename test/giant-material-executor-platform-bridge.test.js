@@ -32,3 +32,11 @@ test('device forwarder accepts the giant material prefix and preserves bearer cr
   assert.equal(built.options.headers.Authorization, 'Bearer executor-token');
   assert.equal(JSON.parse(built.body.toString('utf8')).code, 'ABCD1234');
 });
+
+test('production serves the Windows executor ZIP instead of falling through to the 404 handler', () => {
+  const app = fs.readFileSync(path.join(root, 'app.js'), 'utf8');
+  const dockerfile = fs.readFileSync(path.join(root, 'Dockerfile'), 'utf8');
+  assert.match(app, /createGiantMaterialExecutorDownloadsRouter/);
+  assert.match(app, /downloads\/giant-material-executor/);
+  assert.match(dockerfile, /COPY frontend\/public\/downloads\//);
+});

@@ -18,6 +18,9 @@ COPY prompts/ ./prompts/
 COPY public/ ./public/
 COPY routes/ ./routes/
 COPY frontend/dist/ ./frontend/dist/
+# The portable Windows executor is authored with the frontend download assets,
+# but production Express serves downloads from the built frontend directory.
+COPY frontend/public/downloads/ ./frontend/dist/downloads/
 
 # Keep the legacy batch-rewrite workbench safe even when a candidate image is
 # built from a previously generated frontend/dist. The React source also loads

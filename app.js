@@ -60,6 +60,7 @@ const { createLocalExecutorDownloadsRouter } = require('./routes/local-executor-
 const { createLocalExecutorDeviceRouter } = require('./routes/local-executor-device');
 const { createLocalExecutorArtifactRouter } = require('./routes/local-executor-artifact');
 const { createGiantMaterialExecutorBridgeRouter } = require('./routes/giant-material-executor-bridge');
+const { createGiantMaterialExecutorDownloadsRouter } = require('./routes/giant-material-executor-downloads');
 const { createMemberStore } = require('./lib/member-store');
 const { createUsageStore } = require('./lib/usage-store');
 const { createPasskeyStore } = require('./lib/passkey-store');
@@ -407,6 +408,9 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
     }
   }));
 
+  app.use('/downloads/giant-material-executor', createGiantMaterialExecutorDownloadsRouter({
+    downloadsDir: path.join(frontendDist, 'downloads', 'giant-material-executor')
+  }));
   app.use('/downloads/local-executor', createLocalExecutorDownloadsRouter());
 
   // 路由挂载
