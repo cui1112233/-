@@ -89,6 +89,7 @@ var allowedTransitions = map[State]map[State]bool{
 		StatePairing:          true,
 		StateDownloadingModel: true,
 		StateReady:            true,
+		StateRunning:          true,
 		StateStopping:         true,
 	},
 	StateStopping: {},
@@ -129,4 +130,17 @@ func (m *StateMachine) ResetToIdle() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.snapshot = Snapshot{State: StateIdle, WorkerResident: true}
+}
+
+func (m *StateMachine) SetJob(jobID, modelVersion string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.snapshot.JobID = jobID
+	m.snapshot.ModelVersion = modelVersion
+}
+
+func (m *StateMachine) SetProgress(progress Progress) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.snapshot.Progress = progress
 }
