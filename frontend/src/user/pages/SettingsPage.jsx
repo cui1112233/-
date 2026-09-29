@@ -19,6 +19,8 @@ export function SettingsPage() {
   const [fileList, setFileList] = useState(null);
   const [localExecutors, setLocalExecutors] = useState([]);
   const [loadingExecutors, setLoadingExecutors] = useState(false);
+  const [giantMaterialExecutors, setGiantMaterialExecutors] = useState([]);
+  const [loadingGiantMaterialExecutors, setLoadingGiantMaterialExecutors] = useState(false);
   const [pairing, setPairing] = useState(null);
   const [companionActive, setCompanionActive] = useState(() => readCompanionSpeechState(getCurrentUsername()).active);
   const username = getCurrentUsername();
@@ -41,6 +43,18 @@ export function SettingsPage() {
   }
 
   useEffect(() => { loadLocalExecutors(); }, []);
+
+  async function loadGiantMaterialExecutors() {
+    setLoadingGiantMaterialExecutors(true);
+    try {
+      const result = await apiRequest('/api/shuihuo-production/giant-material-executors', { suppressGlobalError: true });
+      setGiantMaterialExecutors(Array.isArray(result.executors) ? result.executors : []);
+    } catch (error) {
+      message.error(error.message || '读取巨量素材执行器失败');
+    } finally { setLoadingGiantMaterialExecutors(false); }
+  }
+
+  useEffect(() => { loadGiantMaterialExecutors(); }, []);
 
   async function createLocalExecutorPairing() {
     try {
@@ -278,6 +292,27 @@ export function SettingsPage() {
               <Button icon={<Download size={16} strokeWidth={1.8} aria-hidden="true" />} disabled>Mac 版暂未发布</Button>
               <Button icon={<Download size={16} strokeWidth={1.8} aria-hidden="true" />} href="/downloads/local-executor/yizhan-local-executor-v88-1.0.3-win-x64.exe">下载 Windows 版 1.0.3</Button>
             </div>
+          </div>
+        </section>
+
+        <section className="settings-section settings-executor-section" aria-labelledby="settings-giant-material-executor-title">
+          <div>
+            <h2 id="settings-giant-material-executor-title">巨量素材执行器</h2>
+            <p>Windows 本地 OCR 执行器。首次绑定一次，之后会在后台自动连接，不需要重复配对。</p>
+          </div>
+          <div className="settings-executor-layout">
+            <div className="settings-executor-status">
+              <div className="settings-executor-icon"><Video size={20} /></div>
+              <div>
+                <strong>巨量素材读取通道</strong>
+                <span>{giantMaterialExecutors.length} 台已绑定 · {giantMaterialExecutors.filter(item => item.online).length} 台在线</span>
+              </div>
+            </div>
+            <div className="settings-executor-actions">
+              <Button icon={<RefreshCw size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={loadGiantMaterialExecutors} loading={loadingGiantMaterialExecutors}>刷新状态</Button>
+              <Button type="primary" icon={<Download size={16} strokeWidth={1.8} aria-hidden="true" />} href="/downloads/giant-material-executor/GiantMaterialExecutor-windows-x64.zip">下载 Windows 执行器</Button>
+            </div>
+            <p className="settings-executor-pairing">下载后解压并启动执行器，再回到批量工厂的“巨量素材获取”完成首次绑定。OCR 模型会在第一次运行时单独下载，不包含在安装包内。</p>
           </div>
         </section>
 

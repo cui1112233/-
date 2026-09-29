@@ -20,6 +20,8 @@ try {
   if ($LASTEXITCODE -ne 0) { throw "go build failed" }
   Copy-Item (Join-Path $moduleRoot 'worker\ocr_worker.py') (Join-Path $stage 'worker\ocr_worker.py')
   Copy-Item (Join-Path $moduleRoot 'worker\requirements-lock.txt') (Join-Path $stage 'worker\requirements-lock.txt')
+  Copy-Item (Join-Path $moduleRoot 'portable\README-Windows.txt') (Join-Path $stage 'README-Windows.txt')
+  Copy-Item (Join-Path $moduleRoot 'portable\start-giant-material-executor.cmd') (Join-Path $stage 'start-giant-material-executor.cmd')
 } finally {
   Pop-Location
 }
@@ -31,6 +33,11 @@ if ($forbidden) {
   $names = ($forbidden | ForEach-Object FullName) -join ", "
   throw "OCR runtime/model files must not be included in the installer stage: $names"
 }
+
+$portableZip = Join-Path $OutputRoot "GiantMaterialExecutor-windows-x64.zip"
+if (Test-Path $portableZip) { Remove-Item -Force $portableZip }
+Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $portableZip -CompressionLevel Optimal
+Write-Output $portableZip
 
 $nsis = Get-Command makensis -ErrorAction SilentlyContinue
 if ($null -eq $nsis) {
