@@ -2379,7 +2379,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
 		if (shouldRecompileH3) {
 			try {
 				message.info('设置已保存，正在复用现有导演数据重新编译最终 VIDEO Prompt…');
-				await compileBookH3Videos(configTarget.book);
+				await runBookStageAction(configTarget.book, 'director', 'compile');
 				message.success('设置已生效，最终 VIDEO Prompt 已重新编译。');
 			} catch (error) {
 				message.error(error?.message ? `设置已保存，但 H3 重编译失败：${error.message}` : '设置已保存，但 H3 重编译失败');

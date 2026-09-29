@@ -685,6 +685,14 @@ test('final-prompt previews never refresh or write preset snapshots', () => {
   assert.equal(result, null);
 });
 
+test('native V12 H3 compilation refreshes the selected prompt preset snapshot', () => {
+  const result = presetDrivenExecutionPath(
+    { method: 'POST' },
+    '/api/batch-factory/v12/batches/batch-1/books/book-1/h3/compile'
+  );
+  assert.deepEqual(result, { batchId: 'batch-1', bookId: 'book-1' });
+});
+
 test('batch status reads never require a personal video provider sync', () => {
   const request = { method: 'GET' };
   const statusPath = '/api/batch-factory/v11/batches/batch-1/status';

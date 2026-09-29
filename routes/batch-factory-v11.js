@@ -1232,8 +1232,8 @@ function presetDrivenExecutionPath(req, pathname) {
   // would turn parallel card reads into concurrent settings writes and cause
   // revision conflicts. Executable stages below still refresh immediately
   // before their own server-side work begins.
-  const match = pathname.match(/^\/api\/batch-factory\/v11\/batches\/([^/]+)(?:\/director|\/books\/([^/]+)\/(?:director|hook|working-front\/viral|production|stages\/(?:assets|director|video|retry)))$/);
-  return match ? { batchId: decodeURIComponent(match[1]), bookId: decodeURIComponent(match[2] || '') } : null;
+  const match = pathname.match(/^\/api\/batch-factory\/(?:v11\/batches\/([^/]+)(?:\/director|\/books\/([^/]+)\/(?:director|hook|working-front\/viral|production|stages\/(?:assets|director|video|retry)))|v12\/batches\/([^/]+)\/books\/([^/]+)\/h3\/compile)$/);
+  return match ? { batchId: decodeURIComponent(match[1] || match[3]), bookId: decodeURIComponent(match[2] || match[4] || '') } : null;
 }
 
 function redactBatchFactorySystemPromptBodies(value, inPromptConfig = false) {

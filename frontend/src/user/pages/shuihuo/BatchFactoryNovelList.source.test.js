@@ -1055,7 +1055,7 @@ test('returns only a persisted line measurement identity for subsequent H3 compi
 test('recompiles existing H3 director data after constraint or VIDEO preset settings change', () => {
 	assert.match(source, /async function refreshAfterBookSettingsSaved/);
 	assert.match(source, /\['constraints', 'video', 'media'\]\.includes\(configTarget\?\.region\)/);
-	assert.match(source, /await compileBookH3Videos\(configTarget\.book\)/);
+	assert.match(source, /await runBookStageAction\(configTarget\.book, 'director', 'compile'\)/);
 	assert.match(source, /onSaved=\{refreshAfterBookSettingsSaved\}/);
 });
 
