@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildManualBatchSubmission, hasFetchedManualSources, manualBookIDsFromInput } from './batchFactoryManualFetch.js';
+import { buildManualBatchSubmission, hasFetchedManualSources, manualBookIDsFromInput, mergeGroupLines, upsertPlatformGroup, replacePlatformGroup, removePlatformGroup, totalGroupBookCount } from './batchFactoryManualFetch.js';
 
 test('collects each numeric Book ID once from a manual novel list', () => {
   assert.deepEqual(manualBookIDsFromInput('100000000001\t书A\n100000000002  书B\n100000000001\t重复'), ['100000000001', '100000000002']);
@@ -37,11 +37,24 @@ test('manual batch submission keeps schedule metadata with automation explicitly
   assert.equal(payload.autoPublishEnabled, false);
 });
 
-test('manual intake treats the leading number of each row as a book ID regardless of length', () => {
+test('manual intake treats the leading 6-25 digit number of each row as a book ID', () => {
   assert.deepEqual(
-    manualBookIDsFromInput('7 短 ID\n748725 事不过三，过三遭殃\n2086529323515883958 长 ID'),
-    ['7', '748725', '2086529323515883958']
+    manualBookIDsFromInput('700000 六位数 ID\n748725 事不过三，过三遭殃\n2086529323515883958 长 ID'),
+    ['700000', '748725', '2086529323515883958']
   );
+});
+
+test('manual intake ignores leading numbers shorter than 6 digits, aligned with the backend rule', () => {
+  assert.deepEqual(manualBookIDsFromInput('73709 五位短号\n567168 六位正常'), ['567168']);
+  assert.deepEqual(manualBookIDsFromInput('7 个位数行'), []);
+  // mergeGroupLines 里的同款正则也必须忽略不足 6 位的行
+  assert.equal(mergeGroupLines('73709 旧短号\n567168 正常书', '73708 新短号'), '567168 正常书');
+});
+
+test('mergeGroupLines deduplicates an ID repeated within the old text itself', () => {
+  const merged = mergeGroupLines('737092 甲\n737092 甲重复', '');
+  assert.equal(merged, '737092 甲重复');
+  assert.equal((merged.match(/737092/g) || []).length, 1);
 });
 
 test('manual intake does not mistake numbers inside a book title for a book ID', () => {
@@ -103,4 +116,34 @@ test('manual batch submission preserves immediate automation and its frozen book
   assert.equal(payload.scheduledAt, '');
   assert.equal(payload.autoPublishEnabled, true);
   assert.equal(payload.automationConcurrency, 4);
+});
+
+test('platform group helpers', () => {
+  // mergeGroupLines
+  assert.equal(mergeGroupLines('737092 甲\n687404 乙', '749269 丙'), '737092 甲\n687404 乙\n749269 丙');
+  const merged = mergeGroupLines('737092 旧标题', '737092 新标题\n749269 丙');
+  assert.match(merged, /^737092 新标题/m);
+  assert.match(merged, /749269 丙/);
+  assert.equal((merged.match(/737092/g) || []).length, 1);
+
+  // upsertPlatformGroup
+  const g1 = upsertPlatformGroup([], { platformId: '3', platformName: '七猫付费', inputText: '737092 甲' });
+  assert.equal(g1.length, 1);
+  const g2 = upsertPlatformGroup(g1, { platformId: '3', platformName: '七猫付费', inputText: '687404 乙' });
+  assert.equal(g2.length, 1);
+  assert.equal(totalGroupBookCount(g2), 2);
+  const g3 = upsertPlatformGroup(g2, { platformId: '15', platformName: '知乎付费', inputText: '567168 丙' });
+  assert.equal(g3.length, 2);
+  assert.equal(totalGroupBookCount(g3), 3);
+
+  // replacePlatformGroup：整体替换；清空则移除
+  const r1 = replacePlatformGroup(g3, '3', '737092 甲\n687404 乙\n711720 丁');
+  assert.equal(totalGroupBookCount(r1), 4);
+  const r2 = replacePlatformGroup(g3, '3', '   ');
+  assert.equal(r2.length, 1);
+  assert.equal(r2[0].platformId, '15');
+
+  // removePlatformGroup
+  assert.equal(removePlatformGroup(g3, '3').length, 1);
+  assert.equal(removePlatformGroup(g3, '99').length, 2);
 });

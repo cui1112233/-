@@ -4,7 +4,7 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
-    "test": "node --test src/shared/api/*.test.js src/shared/layouts/*.test.js",
+    "test": "node --test src/shared/api/*.test.js src/shared/layouts/*.test.js src/user/pages/*.layout.test.js",
     "preview": "vite preview --host 0.0.0.0"
   },
   "dependencies": {
@@ -12,6 +12,7 @@
     "@react-three/drei": "^9.122.0",
     "@react-three/fiber": "^8.18.0",
     "@react-three/rapier": "^1.5.0",
+    "@xyflow/react": "^12.11.6",
     "antd": "^5.21.6",
     "lucide-react": "^1.31.0",
     "meshline": "^3.3.1",

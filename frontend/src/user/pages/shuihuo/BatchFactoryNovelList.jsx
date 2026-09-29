@@ -73,6 +73,7 @@ import {
   updateBookAsset,
   updateBookMetadata,
   uploadBookAssetImage,
+  uploadBookVideoMaterial,
   setPrimaryBookAssetImage,
   saveDraft,
 	  saveVideoOverride,
@@ -293,6 +294,12 @@ function effectiveBookSettings(batch, book) {
   const batchPatch = batch?.settingsState?.patch || {};
   const bookPatch = book?.settingsState?.patch || {};
   return { ...batchPatch, ...bookPatch, publishSettings: { ...(batchPatch.publishSettings || {}), ...(bookPatch.publishSettings || {}) } };
+}
+function usesSelectedH3VideoPreset(settings = {}) {
+  const video = settings?.aiPromptConfig?.video || {};
+  const presetId = String(video.presetId || '').trim();
+  if (presetId) return presetId === 'batch-video-h3-director';
+  return String(video.presetKey || '').trim() === 'h3-video-normal';
 }
 function h3CompilationStatus(settings = {}) {
   if (settings.audioPlanningEnabled === true) return '等待真实配音时长编译最终 VIDEO';
@@ -1245,6 +1252,7 @@ function MediaVersionPanel({ book, batchId, versionsByVideo, productionStatus, m
   const [sheetDragging, setSheetDragging] = useState(false);
   const sheetRef = useRef(null);
   const sheetDragRef = useRef(null);
+  const uploadInputRefs = useRef({});
 
   const completedMerges = mergeJobs.filter(job => job?.status === 'succeeded' && String(job?.outputUrl || '').trim());
   const mergeJobsNewest = mergeJobs
@@ -1443,6 +1451,28 @@ function MediaVersionPanel({ book, batchId, versionsByVideo, productionStatus, m
         return next;
       });
       message.error(error?.message || '切换分镜主版本失败');
+    } finally {
+      setSavingTaskId('');
+    }
+  }
+
+  async function uploadVideoMaterial(video, event) {
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    if (file.type !== 'video/mp4' && !/\.mp4$/i.test(file.name || '')) {
+      message.error('请上传 MP4 视频');
+      return;
+    }
+    const uploadKey = `upload-material-${video.id}`;
+    setSavingTaskId(uploadKey);
+    try {
+      await uploadBookVideoMaterial(batchId, book.id, video.id, file);
+      await onSaved?.();
+      message.success('素材已上传，并已设为当前分镜主版本。');
+    } catch (error) {
+      message.error(error?.message || '上传视频素材失败');
     } finally {
       setSavingTaskId('');
     }
@@ -1769,8 +1799,14 @@ function MediaVersionPanel({ book, batchId, versionsByVideo, productionStatus, m
             </Popconfirm> : null}
           </span>;
         })}
+        <Tooltip title="上传素材">
+          <span className="batch-factory-media-pickstation-add" title="上传素材">
+            <input ref={element => { uploadInputRefs.current[video.id] = element; }} type="file" accept="video/mp4,.mp4" hidden disabled={savingTaskId === `upload-material-${video.id}`} onChange={event => uploadVideoMaterial(video, event)} />
+            <Button size="small" loading={savingTaskId === `upload-material-${video.id}`} disabled={savingTaskId === `upload-material-${video.id}`} onClick={() => uploadInputRefs.current[video.id]?.click()}>＋</Button>
+          </span>
+        </Tooltip>
         <Tooltip title={productionAvailable ? '为此分镜再生成一个候选版本；当前主版本保持不变。' : productionReason}>
-          <Button size="small" className="batch-factory-media-pickstation-add" loading={regenerating && active} disabled={!productionAvailable || regenerating || state.active} onClick={() => onRegenerate?.(video.id)}>＋</Button>
+          <Button size="small" loading={regenerating && active} disabled={!productionAvailable || regenerating || state.active} onClick={() => onRegenerate?.(video.id)}>重新生成视频</Button>
         </Tooltip>
         {state.failed ? <Tooltip title={productionAvailable ? '重试当前分镜最后失败的视频任务。' : productionReason}><Button size="small" danger disabled={!productionAvailable || regenerating} onClick={() => onRetry?.(video.id)}>重试</Button></Tooltip> : null}
       </div>
@@ -2125,7 +2161,23 @@ function UploadNetwork({ batch, books, selectedBookIds, productionStatus, mergeS
       {organizationsError ? <Alert type="warning" showIcon message="121 组织目录读取失败" description={organizationsError} /> : null}
       {organizationSelectionMixed ? <Alert type="warning" showIcon message="所选小说存在不同的单书组织覆盖" description="请为本次上传统一选择一个组织归属；此处改选只作用于本次确认单，不会回写任何统一或单书配置。" /> : null}
       <Select value={organizationID || undefined} placeholder="请选择 121 组织归属" style={{ width: '100%' }} onChange={setOrganizationID} options={organizations.map(item => ({ value: item.id, label: item.level ? `${item.name}（${item.level}）` : item.name }))} disabled={!publishSessionReady || busy} />
-      {!manifest ? <Button type="primary" onClick={prepareUpload} loading={busy} disabled={!targetBooks.length || !publishSessionReady || !uploadMediaReady || missingPublishMapping.length > 0 || missingDecompression.length > 0 || requiresReupload || !organizationID}>生成上传清单</Button> : null}
+      {!manifest ? (() => {
+        const disabledReasons = [];
+        if (!targetBooks.length) disabledReasons.push('本次没有可上传的小说');
+        if (!publishSessionReady) disabledReasons.push('121 后台账号尚未登录或未验证');
+        if (!uploadMediaReady) disabledReasons.push('存在尚未准备好的上传主视频');
+        if (missingPublishMapping.length > 0) disabledReasons.push('存在发布信息没填完整的小说');
+        if (missingDecompression.length > 0) disabledReasons.push('存在解压码数量不足的小说');
+        if (requiresReupload) disabledReasons.push('所选小说已上传过，请从该书“查看资料”里选择重新上传');
+        if (!organizationID) disabledReasons.push('请先选择 121 组织归属');
+        return (
+          <Tooltip title={disabledReasons.length ? `暂时不能生成：${disabledReasons.join('；')}` : ''}>
+            <span>
+              <Button type="primary" onClick={prepareUpload} loading={busy} disabled={disabledReasons.length > 0}>生成上传清单</Button>
+            </span>
+          </Tooltip>
+        );
+      })() : null}
       {manifest ? <><Descriptions size="small" column={1} bordered items={manifest.map(item => ({ key: item.id, label: item.title, children: <span>{item.txt} + {item.mp4}（{item.videoType}，解压 {item.jieyaNum}）</span> }))} /><Alert type="warning" showIcon message={reupload ? '确认后将重新提交到 121' : '确认后将直接提交到 121'} description="提交到接口只表示对方已接收；本页会显示等待 121 后台列表回读，不能替代后台完成状态。" /><Button danger type="primary" onClick={submitTo121} loading={busy}>{reupload ? '确认重新上传到 121' : '确认并上传到 121'}</Button></> : null}
       {liveUploadBook ? <Alert type="info" showIcon message={`${liveUploadBook.title || liveUploadBook.bookId}：${liveUploadProgress?.message || '正在创建上传任务'}`} description={liveUploadProgress?.phase ? `当前阶段：${liveUploadProgress.phase}` : '正在等待服务端返回当前阶段。'} /> : null}
       {results.map(item => <Alert key={item.id} type={item.pending ? 'info' : item.ok ? 'info' : 'error'} showIcon message={`${item.title}：${item.pending ? item.message : item.ok ? (item.result?.status === 'confirmed' ? '已提交，121 已回读' : '已提交，等待 121 回读') : '提交失败'}`} description={item.pending ? '上传过程中的实际阶段会写入当前书状态；完成或失败后自动回读。' : item.ok ? `${item.result?.sourceTextFile || ''} + ${item.result?.aiHeadVideoFile || ''}${item.result?.receipt?.remote_record?.detail ? `；${item.result.receipt.remote_record.detail}` : ''}` : item.error} />)}
@@ -2438,6 +2490,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
     if (!batch?.id) return undefined;
     let active = true;
     let polling = false;
+    let wasRunning = false;
     const poll = async () => {
       if (polling) return;
       polling = true;
@@ -2446,7 +2499,15 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
         if (!active) return;
         const next = resultData(result, 'automation');
         setAutomationStatus(next || { state: 'idle', counts: { total: 0, ready: 0, running: 0, pending: 0, failed: 0, blocked: 0 } });
-        if (next?.state === 'running') await onBatchChanged?.();
+        if (next?.state === 'running') {
+          wasRunning = true;
+          await onBatchChanged?.();
+        } else if (wasRunning) {
+          // 任务刚从“执行中”结束，补刷最后一次，拿到最终书籍状态，
+          // 避免页面停在结束前的旧画面（如 1 成功 5 异常）。
+          wasRunning = false;
+          await onBatchChanged?.();
+        }
       } catch (error) {
         if (active && Number(error?.status || 0) !== 404) console.error('[batch-factory-automation] status read failed', error);
       } finally { polling = false; }
@@ -2565,7 +2626,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
     setActionBusy(stageActionKey(stage, book.id));
     try {
       const settings = effectiveBookSettings(batch, book);
-      if (stage === 'director' && mode === 'compile' && h3DirectorCards(book).length) {
+      if (stage === 'director' && mode === 'compile' && usesSelectedH3VideoPreset(settings) && h3DirectorCards(book).length) {
         await compileBookH3Videos(book);
         await Promise.all([refreshBatch(), loadRuntimeStatus({ quiet: true })]);
         message.success('已复用 H3 导演卡编译最终 VIDEO Prompt。');
@@ -2578,13 +2639,13 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
       }
       await runBookStage(batch.id, book.id, stage, {
         mode: requestedMode,
-		h3: true,
+        ...(usesSelectedH3VideoPreset(settings) ? { h3: true } : {}),
         videoId,
         textModelId: textModelId || settings.textModelId,
         ...(stage === 'video' ? { provider: videoProviderForModel(settings.videoModelId, settings.videoProvider) } : {}),
         requestId: requestID(`bf11-${stage}-${mode}`)
       });
-		if (stage === 'director') await compileBookH3Videos(book);
+      if (stage === 'director' && usesSelectedH3VideoPreset(settings)) await compileBookH3Videos(book);
       await Promise.all([refreshBatch(), loadRuntimeStatus({ quiet: true })]);
       const labels = { assets: mode === 'force' ? '已重新生成资产；分镜和 VIDEO 未改动' : '已生成资产', director: mode === 'force' ? '已重新生成文案' : '已生成文案', image: mode === 'force' ? '已重新生成图片' : '已生成图片', video: mode === 'force' ? '已创建新的视频候选版本' : '已提交视频生成' };
       message.success(labels[stage] || '当前小说阶段已提交。');

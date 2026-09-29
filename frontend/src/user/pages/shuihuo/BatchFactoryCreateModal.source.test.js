@@ -8,9 +8,17 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const source = fs.readFileSync(path.join(here, 'BatchFactoryCreateModal.jsx'), 'utf8');
 
 test('uses a full novel-fetch metadata preset by default', () => {
-  assert.match(source, /value: 'full_metadata'/);
-  assert.match(source, /useState\('full_metadata'\)/);
-  assert.match(source, /书籍ID,书名,男女频,风格,标签,推荐理由,评级/);
+  // 输入格式/列顺序固定为默认值，不再暴露控件（AI 自动分析男女频/风格）
+  assert.match(source, /const DEFAULT_COLUMN_PRESET_ID = 'full_metadata'/);
+  assert.match(source, /const DEFAULT_COLUMN_ORDER = '书籍ID,书名,男女频,风格,标签,推荐理由,评级'/);
+  assert.doesNotMatch(source, /自定义列顺序/);
+  assert.doesNotMatch(source, /列顺序预设/);
+});
+
+test('platform group tags use theme-aware css classes, not antd preset colors', () => {
+  // 暗色主题下 antd color="blue" 对比度太低看不清，改用 CSS 类控制配色
+  assert.match(source, /className=\{editingPlatformId === group\.platformId \? 'platform-group-tag is-editing' : 'platform-group-tag'\}/);
+  assert.doesNotMatch(source, /color=\{editingPlatformId/);
 });
 
 test('offers immediate and Beijing-time automation with a frozen concurrency limit', () => {
@@ -43,4 +51,18 @@ test('offers immediate and Beijing-time automation with a frozen concurrency lim
 test('immediate execution defaults to the end-to-end upload automation mode', () => {
   assert.match(source, /const \[automationRunMode, setAutomationRunMode\] = useState\('full_submit'\)/);
 	assert.match(source, /if \(!scheduled\) setAutomationRunMode\('full_submit'\);/);
+});
+
+test('grouped submit surfaces failed book cities and counts only fetched pending books', () => {
+  // I3：失败书城可见——catch 里记录书城名并 console.warn，最终 warning 带出具体书城
+  assert.match(source, /const failedPlatforms = \[\]/);
+  assert.match(source, /failedPlatforms\.push\(group\.platformName \|\| group\.platformId\)/);
+  assert.match(source, /console\.warn\('分组抓取失败', group\.platformId, error\)/);
+  assert.match(source, /以下书城抓取失败：\$\{failedPlatforms\.join\('、'\)\}/);
+  assert.match(source, /失败的书已在列表中标红，可单独重试/);
+  // 全部成功但有书没正文时，沿用原来的 X/Y 文案
+  assert.match(source, /\} else if \(fetchedCount < totalCount\) \{/);
+  // #6：fetchedCount 只对本组 pending id 中真正拿到非空正文的计数
+  assert.match(source, /let fetchedCount = 0/);
+  assert.match(source, /for \(const bookId of pending\) \{\s*if \(String\(groupSources\[bookId\] \|\| ''\)\.trim\(\)\) fetchedCount \+= 1;/);
 });

@@ -203,14 +203,14 @@ export function buildBookRegionUpdate(inherited, bookPatch, region, edited, engi
     }
     return { patch, restoreKeys };
   }
-  const moduleKey = AI_REGION_KEYS.get(region);
+  const moduleKey = region === 'media' ? 'video' : AI_REGION_KEYS.get(region);
   if (!moduleKey) return { patch, restoreKeys };
   if (region === 'assets') {
     if (!equal(inherited?.starredCharacterNames, edited?.starredCharacterNames)) patch.starredCharacterNames = edited?.starredCharacterNames || [];
     else if (Object.hasOwn(bookPatch || {}, 'starredCharacterNames')) restoreKeys.push('starredCharacterNames');
   }
   const rawBookAI = bookPatch?.aiPromptConfig && typeof bookPatch.aiPromptConfig === 'object' ? { ...bookPatch.aiPromptConfig } : {};
-  const moduleKeys = region === 'video' ? ['video'] : [moduleKey];
+  const moduleKeys = region === 'video' || region === 'media' ? ['video'] : [moduleKey];
   for (const key of moduleKeys) {
     const inheritedModule = inherited?.aiPromptConfig?.[key] || {};
     const editedModule = edited?.aiPromptConfig?.[key] || {};

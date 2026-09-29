@@ -1,5 +1,6 @@
 const express = require('express');
 const crypto = require('crypto');
+const path = require('path');
 const { getVideoApiKey, readConfig } = require('../lib/shared');
 const { proxyV11Request, createSignedBridgeHeaders } = require('../lib/batch-factory-v11/go-proxy');
 const { BATCH_FACTORY_PRESET_REQUIREMENTS, isPublishedPresetAllowed, resolveSystemPresetBody } = require('../lib/system-preset-catalog');
@@ -7,7 +8,8 @@ const { listVisibleModels, resolveRuntimeModel } = require('../lib/model-catalog
 const { buildSmartUnifiedStyleMessages } = require('../lib/script-smart-unified-route');
 const { parseSmartUnifiedVisualStyle, SMART_UNIFIED_PREFIX_PRESET_ID } = require('../lib/script-generation-rules');
 const { createBatchFactory121Publisher } = require('../lib/batch-factory-v11/121-publisher');
-const { create121DirectClient } = require('../lib/novel-fetch-workshop/121-direct-client');
+const { create121DirectClient, sessionExpiredError } = require('../lib/novel-fetch-workshop/121-direct-client');
+const { create121CredentialStore } = require('../lib/novel-fetch-workshop/121-credential-store');
 const targetUpload = require('../lib/target-upload');
 const { createBatchFactoryAutomationController } = require('../lib/batch-factory-v11/automation-orchestrator');
 const { createAutomationPresetStore } = require('../lib/batch-factory-v11/automation-presets');
@@ -186,6 +188,10 @@ async function listBatchFactory121Organizations(req, options = {}) {
 }
 
 async function resolveBatchFactory121Session(owner, { sessionStore, webSubmit } = {}) {
+  // 优先使用已保存的真实 HTTP cookie（直接客户端需要），避免被浏览器 sessionKey 覆盖
+  const directSession = sessionStore?.getSession?.(owner);
+  const realCookie = String(directSession?.cookie || '').trim();
+  if (realCookie) return { ...(directSession || {}), cookie: realCookie };
   if (webSubmit?.ensureSession) {
     const ready = await webSubmit.ensureSession(owner);
     const cookie = String(ready?.request?.sessionKey || ready?.result?.sessionKey || '').trim();
@@ -544,6 +550,19 @@ async function submitBatchFactoryBookTo121(req, route, options = {}) {
   ensureBatchFactory121ResubmissionAllowed(initialBook, req.body);
   const reportProgress = progress => persistBatchFactory121Progress(req, route, progress, goOptions);
   const webSubmit = options.webSubmit || req.app?.locals?.novelFetchV2WebSubmit;
+  const directClient = options.directClient || create121DirectClient();
+  const relogin121 = async owner => {
+    // 凭据文件固定在 <数据目录>/users/{owner}/novel-fetch-workshop/121-credentials.json
+    const credentialStore = create121CredentialStore({
+      usersDir: path.join(__dirname, '..', 'data', 'users'),
+      secret: process.env.QIANTIE_121_CREDENTIAL_SECRET || process.env.QIANTIE_BRIDGE_SECRET || 'dev-bridge-secret-change-me'
+    });
+    const credential = credentialStore.get(owner);
+    if (!credential) throw sessionExpiredError();
+    const login = await directClient.login({ username: credential.targetUsername, password: credential.password });
+    sessionStore.setSession(owner, login.cookie, { targetUsername: credential.targetUsername, baseUrl: credential.baseUrl, status: 'ready' });
+    return sessionStore.getSession(owner);
+  };
   const publisher = createBatchFactory121Publisher({
     loadBatch: async (owner, batchId) => v11JSONRequest({ username: owner, isOwner: req.auth?.account?.isOwner === true, method: 'GET', pathname: `/api/batch-factory/v11/batches/${encodeURIComponent(batchId)}`, ...goOptions }),
     loadMergeStatus: async (owner, batchId) => v11JSONRequest({ username: owner, isOwner: req.auth?.account?.isOwner === true, method: 'GET', pathname: `/api/batch-factory/v11/batches/${encodeURIComponent(batchId)}/merge-status`, ...goOptions }),
@@ -553,7 +572,8 @@ async function submitBatchFactoryBookTo121(req, route, options = {}) {
       sessionStore,
       webSubmit
     }),
-    directClient: options.directClient || create121DirectClient(),
+    directClient,
+    relogin: relogin121,
     workerAction: typeof webSubmit?.workerAction === 'function' ? (owner, action, payload) => webSubmit.workerAction(owner, action, payload) : undefined,
     onProgress: reportProgress,
     now: options.clock || (() => new Date())

@@ -52,6 +52,11 @@ test('single-book constraints support the same system, personal and editable pro
   assert.match(source, /开启后，当前书每个分镜自动带入已提取的人物与场景设定/);
 });
 
+test('single-book media configuration saves the video module instead of dropping the combined region', () => {
+  assert.match(source, /const moduleKey = region === 'media' \? 'video' : AI_REGION_KEYS\.get\(region\)/);
+  assert.match(source, /region === 'media' \? \['video'\] : \[moduleKey\]/);
+});
+
 test('single-book configuration opens and saves one explicit region at a time', () => {
   assert.match(source, /activeRegion/);
   assert.match(source, /buildBookRegionUpdate/);
@@ -84,7 +89,7 @@ test('keeps derived-opening presets out of single-book video settings', () => {
   assert.doesNotMatch(videoRegion, /原文直转导演/);
   assert.doesNotMatch(videoRegion, /爆款开头导演/);
   assert.doesNotMatch(videoRegion, /爆款开头改编/);
-  assert.match(source, /const moduleKeys = region === 'video' \? \['video'\]/);
+  assert.match(source, /const moduleKeys = region === 'video' \|\| region === 'media' \? \['video'\]/);
 	assert.match(videoRegion, /<RuleModule required title="视频提示词"/);
   assert.match(videoRegion, /<PromptSelect required label="视频提示词"/);
 	assert.match(source, /const DEFAULT_VIDEO_PROMPT = \{ presetId: 'batch-video-meta'/);

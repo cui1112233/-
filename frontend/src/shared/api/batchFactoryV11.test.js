@@ -197,3 +197,24 @@ test('H3 audio measurement sends bytes without accepting a client duration', asy
   await batchFactoryV11.measureH3Audio('b','k',lines);
   assert.deepEqual(JSON.parse(calls[1].options.body), lines);
 });
+
+test('uploads a book VIDEO MP4 as authenticated multipart data through V12', async t => {
+  const originalLocalStorage = globalThis.localStorage;
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.localStorage = { getItem() { return 'contract-test-token'; }, setItem() {}, removeItem() {} };
+  globalThis.fetch = async (path, options = {}) => {
+    calls.push({ path, options });
+    return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  t.after(() => { globalThis.localStorage = originalLocalStorage; globalThis.fetch = originalFetch; });
+
+  await batchFactoryV11.uploadBookVideoMaterial('batch 1', 'book/1', 'video?1', new Blob(['mp4'], { type: 'video/mp4' }));
+  assert.equal(calls[0].path, '/api/batch-factory/v12/batches/batch%201/books/book%2F1/videos/video%3F1/upload');
+  assert.equal(calls[0].options.method, 'POST');
+  assert.ok(calls[0].options.body instanceof FormData);
+  assert.equal(calls[0].options.body.get('file').type, 'video/mp4');
+  const headers = new Headers(calls[0].options.headers);
+  assert.match(headers.get('authorization') || '', /^Bearer\s+contract-test-token$/);
+  assert.equal(headers.has('content-type'), false);
+});

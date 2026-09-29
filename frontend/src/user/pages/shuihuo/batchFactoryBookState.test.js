@@ -132,3 +132,34 @@ test('a later successful retry clears an earlier failed task for the same storyb
   assert.equal(video.status, 'completed');
   assert.equal(batchFactoryBookState(book, runtime).label, '待合成');
 });
+
+test('an uploaded book stays completed even when a redundant retry leaves one storyboard failed', () => {
+  const book = {
+    id: 'book-1',
+    sourceText: '正文',
+    directorRevision: { id: 'director-current' },
+    videos: [{ id: 'video-1' }, { id: 'video-2' }, { id: 'video-3' }],
+    sourceMetadata: { websiteSubmitStatus: 'uploaded', publishStatus: 'uploaded' }
+  };
+  const runtime = {
+    productionStatus: {
+      jobs: [
+        { bookId: 'book-1', directorRevisionId: 'director-current', tasks: [
+          { videoId: 'video-1', status: 'succeeded', updatedAt: '2026-09-28T15:04:22Z' },
+          { videoId: 'video-2', status: 'succeeded', updatedAt: '2026-09-28T15:04:32Z' },
+          { videoId: 'video-3', status: 'succeeded', updatedAt: '2026-09-28T15:04:35Z' }
+        ] },
+        { bookId: 'book-1', directorRevisionId: 'director-current', tasks: [
+          { videoId: 'video-1', status: 'failed', updatedAt: '2026-09-28T15:11:01Z', errorMessage: 'redundant retry failed' },
+          { videoId: 'video-2', status: 'succeeded', updatedAt: '2026-09-28T15:04:11Z' },
+          { videoId: 'video-3', status: 'succeeded', updatedAt: '2026-09-28T15:06:23Z' }
+        ] }
+      ]
+    }
+  };
+
+  const state = batchFactoryBookState(book, runtime);
+  assert.equal(state.label, '完成');
+  assert.equal(batchFactoryBatchProgress([book], runtime).failed, 0);
+  assert.equal(batchFactoryBatchProgress([book], runtime).uploaded, 1);
+});

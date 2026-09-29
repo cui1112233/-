@@ -162,6 +162,12 @@ export function saveVideoOverride(batchId, bookId, videoId, input) {
 	return apiRequest(bf11ScopePath({ scope: 'video', batchId, bookId, videoId }), { method: 'PUT', body: body(input) });
 }
 
+export function uploadBookVideoMaterial(batchId, bookId, videoId, file) {
+  const form = new FormData();
+  form.append('file', file);
+  return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/videos/${id(videoId)}/upload`), { method: 'POST', body: form });
+}
+
 export function deleteProductionTask(batchId, bookId, videoId, taskId) {
 	return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/videos/${id(videoId)}/tasks/${id(taskId)}`), { method: 'DELETE' });
 }

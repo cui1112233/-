@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -556,6 +557,64 @@ func isSelectedUploadTask(book Book, videoID, taskID string) bool {
 		return false
 	}
 	return source.Kind == "video" && source.VideoID == videoID && source.TaskID == taskID
+}
+
+// RegisterUploadedVideo records an already uploaded HTTPS MP4 as a successful
+// manual candidate and makes it the selected media for its VIDEO.
+func (s *ProductionService) RegisterUploadedVideo(ctx context.Context, owner, batchID, bookID, videoID, uploadID, mediaURL string) (ProductionTask, error) {
+	if s == nil || s.Store == nil {
+		return ProductionTask{}, ErrUnavailable
+	}
+	if strings.TrimSpace(uploadID) == "" {
+		return ProductionTask{}, fmt.Errorf("%w: upload id is required", ErrInvalid)
+	}
+	parsed, err := url.Parse(strings.TrimSpace(mediaURL))
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" {
+		return ProductionTask{}, fmt.Errorf("%w: uploaded media URL must be HTTPS", ErrInvalid)
+	}
+	repository, err := s.repository()
+	if err != nil {
+		return ProductionTask{}, err
+	}
+	batch, err := s.Store.GetBatch(ctx, owner, batchID)
+	if err != nil {
+		return ProductionTask{}, err
+	}
+	book, err := bookFromBatch(batch, bookID)
+	if err != nil {
+		return ProductionTask{}, err
+	}
+	if book.DirectorRevision == nil || strings.TrimSpace(book.DirectorRevision.ID) == "" {
+		return ProductionTask{}, fmt.Errorf("%w: active Director revision is required", ErrConflict)
+	}
+	var video Video
+	found := false
+	for _, candidate := range book.Videos {
+		if candidate.ID == videoID {
+			video, found = candidate, true
+			break
+		}
+	}
+	if !found {
+		return ProductionTask{}, ErrNotFound
+	}
+	now := time.Now().UTC()
+	job, err := repository.CreateProductionJob(ctx, ProductionJob{Owner: owner, BatchID: batchID, BookID: bookID, RequestID: "manual-upload:" + uploadID, DirectorRevisionID: book.DirectorRevision.ID, Status: ProductionSucceeded, Tasks: []ProductionTask{{VideoID: videoID, Provider: "manual_upload", Status: ProductionSucceeded, Attempt: 1, MediaURL: parsed.String(), CreatedAt: now, UpdatedAt: now}}, CreatedAt: now, UpdatedAt: now})
+	if err != nil {
+		return ProductionTask{}, err
+	}
+	if len(job.Tasks) != 1 || job.Tasks[0].VideoID != videoID {
+		return ProductionTask{}, ErrConflict
+	}
+	task := job.Tasks[0]
+	encoded, err := json.Marshal(task.ID)
+	if err != nil {
+		return ProductionTask{}, err
+	}
+	if _, err := s.Store.SaveSettings(ctx, owner, ScopeRef{Kind: ScopeVideo, BatchID: batchID, BookID: bookID, VideoID: videoID}, SettingsUpdate{Patch: SettingsPatch{"primaryMediaTaskId": encoded}, ExpectedRevision: video.Revision}); err != nil {
+		return ProductionTask{}, err
+	}
+	return task, nil
 }
 
 func (s *ProductionService) GetBatchStatus(ctx context.Context, owner, batchID string) (BatchStatus, error) {

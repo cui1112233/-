@@ -423,6 +423,14 @@ test('persists named AI reasoning presets through the V11 backend and lets users
   assert.match(source, /presetVersions=\{configVersions\}/);
 });
 
+test('routes director regeneration to H3 only when the selected video preset is H3', () => {
+  assert.match(source, /function usesSelectedH3VideoPreset\(settings = \{\}\)/);
+  assert.match(source, /if \(presetId\) return presetId === 'batch-video-h3-director'/);
+  assert.match(source, /\.\.\.\(usesSelectedH3VideoPreset\(settings\) \? \{ h3: true \} : \{\}\)/);
+  assert.match(source, /if \(stage === 'director' && usesSelectedH3VideoPreset\(settings\)\) await compileBookH3Videos\(book\)/);
+  assert.match(source, /if \(stage === 'director' && mode === 'compile' && usesSelectedH3VideoPreset\(settings\) && h3DirectorCards\(book\)\.length\)/);
+});
+
 test('uses the script-generation constraint layers instead of one generic multi-select', () => {
   assert.match(reasoningSource, /基础设定（人物 \/ 场景）/);
   assert.match(reasoningSource, /画面前缀词/);
@@ -1087,4 +1095,18 @@ test('loads protected local merge files through the authenticated media boundary
 
 test('keeps production polling failures inside the task panel', () => {
   assert.match(source, /getProductionStatus\(batch\.id, \{ suppressGlobalError: true \}\)/);
+});
+
+test('uses the VIDEO card plus button to upload local MP4 material without removing video regeneration', () => {
+  const start = source.indexOf('function MediaVersionPanel(');
+  const end = source.indexOf('function BatchLogs(', start);
+  const mediaPanel = start >= 0 && end > start ? source.slice(start, end) : '';
+  assert.match(source, /uploadBookVideoMaterial/);
+  assert.match(mediaPanel, /accept="video\/mp4,\.mp4"/);
+  assert.match(mediaPanel, /请上传 MP4 视频/);
+  assert.match(mediaPanel, /素材已上传，并已设为当前分镜主版本。/);
+  assert.match(mediaPanel, /上传素材/);
+  assert.match(mediaPanel, /onRegenerate\?\.\(video\.id\)/);
+  const uploadControl = mediaPanel.match(/<span className="batch-factory-media-pickstation-add"[\s\S]*?<\/span>/)?.[0] || '';
+  assert.doesNotMatch(uploadControl, /onRegenerate/);
 });

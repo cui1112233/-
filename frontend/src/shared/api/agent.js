@@ -24,6 +24,21 @@ export function deleteAgentTask(id) {
   return apiRequest(`/api/agent/tasks/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
 
+export function getAgentCanvas(taskId) {
+  return apiRequest(`/api/agent/tasks/${encodeURIComponent(taskId)}/canvas`);
+}
+
+export function saveAgentCanvas(taskId, canvas, revision) {
+  return apiRequest(`/api/agent/tasks/${encodeURIComponent(taskId)}/canvas`, {
+    method: 'PATCH',
+    body: JSON.stringify({ canvas, revision })
+  });
+}
+
+export function listAgentExecutions(taskId) {
+  return apiRequest(`/api/agent/tasks/${encodeURIComponent(taskId)}/executions`);
+}
+
 export function listAgentSkills() {
   return apiRequest('/api/agent/skills');
 }

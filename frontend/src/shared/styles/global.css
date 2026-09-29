@@ -834,6 +834,12 @@ select {
   display: flex;
 }
 
+.legacy-content--agent-canvas {
+  height: 100%;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
 .legacy-content--agent > .agent-page {
   flex: 1 1 auto;
 }

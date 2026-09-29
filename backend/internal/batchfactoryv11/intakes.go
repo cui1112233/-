@@ -50,11 +50,14 @@ func normalizeNovelFetchIntake(input NovelFetchIntakeInput) NovelFetchIntakeInpu
 	seen := map[string]struct{}{}
 	for _, book := range input.Books {
 		book = normalizeNovelFetchBook(book)
-		key := sourceBookID(book)
-		if version := sourceContentVersion(book); key != "" && version != "" {
-			key += "\x00" + version
-		}
-		if key != "" {
+		sourceID := book.BookID
+		if sourceID != "" {
+			// 去重键纳入书城：不同书城可能复用同一 Book ID，那是两本书；
+			// 同书城同 ID（含 content version 语义）仍只保留第一行。
+			key := strings.TrimSpace(book.Platform) + "\x00" + sourceID
+			if version := sourceContentVersion(book); version != "" {
+				key += "\x00" + version
+			}
 			if _, exists := seen[key]; exists {
 				continue
 			}

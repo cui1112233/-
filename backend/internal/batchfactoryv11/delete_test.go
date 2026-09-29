@@ -3,6 +3,7 @@ package batchfactoryv11
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -37,5 +38,18 @@ func TestDeleteBatchRejectsOtherOwner(t *testing.T) {
 	}
 	if _, err := store.GetBatch(ctx, "alice", batch.ID); err != nil {
 		t.Fatalf("alice batch unexpectedly changed: %v", err)
+	}
+}
+
+// TestDeleteBookStmtsPlaceholderCountMatchesArgs guards against the bug where
+// the drafts DELETE had 2 placeholders but was handed 3 arguments, which made
+// every book/batch deletion fail with a 500 internal error.
+func TestDeleteBookStmtsPlaceholderCountMatchesArgs(t *testing.T) {
+	for _, stmt := range deleteBookStmts {
+		placeholders := strings.Count(stmt.query, "?")
+		args := stmt.args("owner", "batch", "book")
+		if placeholders != len(args) {
+			t.Errorf("delete statement has %d placeholders but %d args:\n%s", placeholders, len(args), stmt.query)
+		}
 	}
 }

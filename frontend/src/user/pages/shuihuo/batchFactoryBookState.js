@@ -129,11 +129,14 @@ export function batchFactoryBookState(book, { productionStatus, mergeStatus, sta
   const queueStatus = String(book?.sourceMetadata?.queueStatus || '').trim();
   const manual = hasManualAdjustment(book);
   const timeline = batchFactoryBookTimeline(book, { productionStatus, mergeStatus, stageSummary });
+  const completeStep = timeline.find(item => item.key === 'complete');
+  // 已经回读确认上传成功，就以“完成”收口；中间某次重试遗留的分镜失败
+  // 不能把一件已经干完的活重新标红。
+  if (completeStep?.status === 'completed') return { label: '完成', detail: completeStep.detail || '本书生产与上传均已完成', tone: 'green', manual };
   const failedStep = timeline.find(item => item.status === 'failed');
   if (failedStep) return { label: '异常', detail: `${failedStep.label}：${failedStep.detail}`, tone: 'red', manual, failedStep };
   const activeStep = timeline.find(item => item.status === 'running');
   if (activeStep) return { label: '执行中…', detail: `${activeStep.label}：${activeStep.detail}`, tone: 'blue', manual };
-  if (timeline.find(item => item.key === 'complete')?.status === 'completed') return { label: '完成', detail: '本书生产与上传均已完成', tone: 'green', manual };
   const tasks = bookTasks(book, productionStatus);
   const videoProgress = batchFactoryVideoProgress(book, productionStatus);
   const failed = videoProgress.failed[0]?.task;
