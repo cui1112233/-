@@ -73,6 +73,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /setup", s.setupPage)
 	mux.HandleFunc("GET /v1/health", s.health)
 	mux.HandleFunc("GET /v1/capabilities", s.capabilities)
 	mux.HandleFunc("POST /v1/pair", s.pair)
@@ -84,10 +85,15 @@ func (s *Server) Handler() http.Handler {
 
 func (s *Server) guard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		originOK := req.Header.Get("Origin") == s.config.Origin
+		if req.Method == http.MethodGet && req.URL.Path == "/setup" {
+			next.ServeHTTP(w, req)
+			return
+		}
+		originOK := req.Header.Get("Origin") == s.config.Origin || req.Header.Get("Origin") == "http://"+s.config.Addr
 		nonceOK := req.Header.Get("X-Giant-Executor-Nonce") == s.config.Nonce
 		bootstrapPair := req.Method == http.MethodPost && req.URL.Path == "/v1/pair" && strings.TrimSpace(req.Header.Get("X-Giant-Executor-Nonce")) == ""
-		if !originOK || (!nonceOK && !bootstrapPair) {
+		localHealthProbe := req.Method == http.MethodGet && req.URL.Path == "/v1/health" && isLoopbackRemote(req.RemoteAddr)
+		if (!originOK && !localHealthProbe) || (!nonceOK && !bootstrapPair && !localHealthProbe) {
 			writeError(w, http.StatusForbidden, "loopback origin or nonce rejected")
 			return
 		}
@@ -95,6 +101,27 @@ func (s *Server) guard(next http.Handler) http.Handler {
 		w.Header().Set("Vary", "Origin")
 		next.ServeHTTP(w, req)
 	})
+}
+
+func isLoopbackRemote(remoteAddr string) bool {
+	host, _, err := net.SplitHostPort(strings.TrimSpace(remoteAddr))
+	if err != nil {
+		return false
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+func (s *Server) setupPage(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = w.Write([]byte(`<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>巨量素材执行器</title><style>
+:root{color-scheme:dark;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}body{margin:0;background:#08151e;color:#e8f0f6;min-height:100vh;display:grid;place-items:center}.card{width:min(560px,calc(100vw - 40px));padding:32px;border:1px solid #20566d;border-radius:18px;background:#0d2230;box-sizing:border-box}h1{margin:0 0 8px;font-size:28px}.muted{color:#9bb1c0;line-height:1.6}label{display:block;margin-top:22px;font-weight:600}input{display:block;margin-top:8px;width:100%;height:42px;box-sizing:border-box;border:1px solid #326a80;border-radius:9px;background:#071720;color:#f6fbff;padding:0 12px;font-size:15px}button{margin-top:24px;width:100%;height:44px;border:0;border-radius:9px;background:#64dfc0;color:#062119;font-size:16px;font-weight:700;cursor:pointer}button:disabled{opacity:.6;cursor:wait}#status{margin-top:18px;padding:12px;border-radius:8px;background:#102c3b;color:#b7cbd7;white-space:pre-wrap}.error{background:#3b1820!important;color:#ffc1c7!important}.ok{background:#10382d!important;color:#abf4d9!important}</style></head>
+<body><main class="card"><h1>巨量素材执行器</h1><p class="muted">填写平台控制服务地址与网页生成的配对码。绑定完成后，执行器会继续在后台运行。</p>
+<form id="pairForm"><label for="publicURL">控制服务地址</label><input id="publicURL" name="publicURL" autocomplete="url" placeholder="https://你的平台域名" required><label for="code">配对码</label><input id="code" name="code" autocomplete="one-time-code" placeholder="例如 ABCDE-12345" required><button id="submit" type="submit">绑定执行器</button></form><div id="status">正在检查本机执行器状态…</div></main>
+<script>const status=document.getElementById('status'),submit=document.getElementById('submit');function setStatus(message,kind=''){status.textContent=message;status.className=kind}async function health(){try{const r=await fetch('/v1/health');if(!r.ok)throw new Error();const d=await r.json();if(d.bindingState==='online')setStatus('已绑定并在线，执行器正在后台等待任务。','ok');else if(!submit.disabled)setStatus('执行器已启动，请填写地址和配对码。')}catch{if(!submit.disabled)setStatus('执行器已启动；等待绑定。')}}document.getElementById('pairForm').addEventListener('submit',async e=>{e.preventDefault();submit.disabled=true;setStatus('正在绑定，请保持此页面打开…');try{const r=await fetch('/v1/pair',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({publicURL:document.getElementById('publicURL').value.trim(),code:document.getElementById('code').value.trim()})});const d=await r.json();if(!r.ok)throw new Error(d.error||'绑定失败');setStatus('绑定成功，执行器正在连接后台。','ok');document.getElementById('code').value=''}catch(err){setStatus('绑定失败：'+err.message,'error')}finally{submit.disabled=false}});health();setInterval(health,1000);</script></body></html>`))
 }
 
 func (s *Server) health(w http.ResponseWriter, _ *http.Request) {

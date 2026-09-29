@@ -70,3 +70,41 @@ func TestPairingCanBootstrapNonceAndReturnsItToBrowser(t *testing.T) {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestSetupPageIsServedFromLoopback(t *testing.T) {
+	server, err := NewServer(ServerConfig{Addr: "127.0.0.1:17861", Origin: "https://example.com", Nonce: "nonce"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/setup", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{"巨量素材执行器", `id="publicURL"`, `id="code"`, "fetch('/v1/pair'"} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("setup page missing %q", want)
+		}
+	}
+}
+
+func TestLocalSetupOriginCanPair(t *testing.T) {
+	var pairedCode string
+	server, err := NewServer(ServerConfig{Addr: "127.0.0.1:17861", Origin: "https://example.com", Nonce: "nonce", Callbacks: Callbacks{
+		Pair: func(_ context.Context, code string) error {
+			pairedCode = code
+			return nil
+		},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/v1/pair", strings.NewReader(`{"code":"one-time-code"}`))
+	req.Header.Set("Origin", "http://127.0.0.1:17861")
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || pairedCode != "one-time-code" {
+		t.Fatalf("status=%d paired=%q body=%s", rec.Code, pairedCode, rec.Body.String())
+	}
+}
