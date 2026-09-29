@@ -75,6 +75,7 @@ type point struct {
 type nativeMessage struct {
 	hwnd    uintptr
 	message uint32
+	_       uint32 // MSG aligns wParam to 8 bytes on Windows x64.
 	wParam  uintptr
 	lParam  uintptr
 	time    uint32
