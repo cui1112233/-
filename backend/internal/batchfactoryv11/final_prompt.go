@@ -661,7 +661,7 @@ func (s *PromptCompilerService) compile(ctx context.Context, owner, batchID, boo
 		if !baseSetupActive {
 			h3Characters, h3Scenes = nil, nil
 		}
-		videoPrompt = compileH3VideoPrompt(draft, h3Characters, h3Scenes, h3Style)
+		videoPrompt = compileH3VideoPrompt(draft, h3Characters, h3Scenes)
 	}
 	// A video-scope edit is the sole exception: it is an intentional user
 	// replacement for this one card.  Stored pre-fix video_desc summaries are
