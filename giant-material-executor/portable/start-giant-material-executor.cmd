@@ -3,6 +3,12 @@ setlocal
 cd /d "%~dp0"
 set "LOG=%~dp0executor.log"
 echo [%date% %time%] starting GiantMaterialExecutor.exe > "%LOG%"
+set "PAIRING_CODE="
+if not exist "%APPDATA%\YizhanShengming\GiantMaterialExecutor\credential.bin" (
+  echo 首次启动：请先在网页设置中生成巨量素材配对码。
+  set /p "PAIRING_CODE=请输入配对码（直接回车可跳过）： "
+)
+if defined PAIRING_CODE set "GIANT_MATERIAL_EXECUTOR_PAIRING_CODE=%PAIRING_CODE%"
 start "Giant Material Executor" /min cmd /d /c ""%~dp0GiantMaterialExecutor.exe" >> "%LOG%" 2>&1"
 timeout /t 2 /nobreak >nul
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$ok = Test-NetConnection -ComputerName 127.0.0.1 -Port 17861 -InformationLevel Quiet; if (-not $ok) { exit 1 }"

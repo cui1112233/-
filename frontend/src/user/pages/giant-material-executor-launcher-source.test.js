@@ -12,4 +12,6 @@ test('Windows launcher keeps startup failures observable', () => {
   assert.match(launcher, /Test-NetConnection/i);
   assert.match(launcher, /17861/);
   assert.match(launcher, /pause/i);
+  assert.match(launcher, /GIANT_MATERIAL_EXECUTOR_PAIRING_CODE/);
+  assert.match(launcher, /请输入配对码/);
 });

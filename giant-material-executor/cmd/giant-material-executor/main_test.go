@@ -9,6 +9,20 @@ import (
 	"qiantie/giant-material-executor/internal/credential"
 )
 
+func TestConfiguredPairingCodeTrimsEnvironment(t *testing.T) {
+	t.Setenv("GIANT_MATERIAL_EXECUTOR_PAIRING_CODE", "  ABCD-1234  ")
+	if got := configuredPairingCode(); got != "ABCD-1234" {
+		t.Fatalf("pairing code=%q, want trimmed code", got)
+	}
+}
+
+func TestConfiguredPairingCodeIsEmptyWithoutEnvironment(t *testing.T) {
+	t.Setenv("GIANT_MATERIAL_EXECUTOR_PAIRING_CODE", "  ")
+	if got := configuredPairingCode(); got != "" {
+		t.Fatalf("pairing code=%q, want empty", got)
+	}
+}
+
 func TestUnauthorizedRunClearsSavedCredential(t *testing.T) {
 	store := credential.NewFileStore(filepath.Join(t.TempDir(), "executor.credential"))
 	if err := savePairResult(store, agent.PairResult{ExecutorID: "executor-1", Token: "long-lived-token"}); err != nil {

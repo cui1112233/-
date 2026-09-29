@@ -141,12 +141,25 @@ func main() {
 	if err != nil {
 		log.Fatalf("create loopback server: %v", err)
 	}
-	if token := strings.TrimSpace(os.Getenv("GIANT_MATERIAL_EXECUTOR_TOKEN")); token != "" {
-		startAgent(token)
-	} else if record, loadErr := loadExecutorCredential(credentialStore); loadErr == nil {
-		startAgent(record.Token)
-	} else if !errors.Is(loadErr, credential.ErrNotFound) {
-		log.Printf("saved executor credential unavailable; pairing required: %v", loadErr)
+	startupPaired := false
+	if code := configuredPairingCode(); code != "" {
+		pairCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		if pairErr := pair(pairCtx, code); pairErr != nil {
+			log.Printf("startup pairing failed: %v", pairErr)
+		} else {
+			startupPaired = true
+			log.Printf("startup pairing succeeded")
+		}
+		cancel()
+	}
+	if !startupPaired {
+		if token := strings.TrimSpace(os.Getenv("GIANT_MATERIAL_EXECUTOR_TOKEN")); token != "" {
+			startAgent(token)
+		} else if record, loadErr := loadExecutorCredential(credentialStore); loadErr == nil {
+			startAgent(record.Token)
+		} else if !errors.Is(loadErr, credential.ErrNotFound) {
+			log.Printf("saved executor credential unavailable; pairing required: %v", loadErr)
+		}
 	}
 	go func() {
 		if serveErr := server.ListenAndServe(ctx); serveErr != nil && ctx.Err() == nil {
@@ -281,4 +294,8 @@ func envOr(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func configuredPairingCode() string {
+	return strings.TrimSpace(os.Getenv("GIANT_MATERIAL_EXECUTOR_PAIRING_CODE"))
 }

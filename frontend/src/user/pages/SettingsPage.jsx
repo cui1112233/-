@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { getConfig, saveConfig } from '../../shared/api/config';
 import { getCurrentUsername } from '../../shared/api/auth';
 import { apiRequest } from '../../shared/api/client';
+import { createGiantMaterialPairing } from '../../shared/api/giantMaterialExecutorPublic';
 import { PET_COMPANION_SETTINGS_EVENT, readCompanionSpeechState, writeCompanionSpeechState } from '../../shared/pet/companionSpeech';
 import { DEFAULT_PET_ID, dispatchPetSelection, getPetDefinition, getPetOptions, previewPetSelection } from '../../shared/pet/petCatalog';
 
@@ -21,6 +22,8 @@ export function SettingsPage() {
   const [loadingExecutors, setLoadingExecutors] = useState(false);
   const [giantMaterialExecutors, setGiantMaterialExecutors] = useState([]);
   const [loadingGiantMaterialExecutors, setLoadingGiantMaterialExecutors] = useState(false);
+  const [giantPairing, setGiantPairing] = useState(null);
+  const [giantPairingBusy, setGiantPairingBusy] = useState(false);
   const [pairing, setPairing] = useState(null);
   const [companionActive, setCompanionActive] = useState(() => readCompanionSpeechState(getCurrentUsername()).active);
   const username = getCurrentUsername();
@@ -55,6 +58,17 @@ export function SettingsPage() {
   }
 
   useEffect(() => { loadGiantMaterialExecutors(); }, []);
+
+  async function createGiantMaterialExecutorPairing() {
+    setGiantPairingBusy(true);
+    try {
+      const result = await createGiantMaterialPairing();
+      setGiantPairing(result);
+      message.success('巨量素材配对码已生成，请在 Windows 执行器首次启动时输入');
+    } catch (error) {
+      message.error(error.message || '生成巨量素材配对码失败');
+    } finally { setGiantPairingBusy(false); }
+  }
 
   async function createLocalExecutorPairing() {
     try {
@@ -310,9 +324,11 @@ export function SettingsPage() {
             </div>
             <div className="settings-executor-actions">
               <Button icon={<RefreshCw size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={loadGiantMaterialExecutors} loading={loadingGiantMaterialExecutors}>刷新状态</Button>
+              <Button onClick={createGiantMaterialExecutorPairing} loading={giantPairingBusy}>生成配对码</Button>
               <Button type="primary" icon={<Download size={16} strokeWidth={1.8} aria-hidden="true" />} href="/downloads/giant-material-executor/GiantMaterialExecutor-windows-x64.zip">下载 Windows 执行器</Button>
             </div>
-            <p className="settings-executor-pairing">下载后解压并启动执行器，再回到批量工厂的“巨量素材获取”完成首次绑定。OCR 模型会在第一次运行时单独下载，不包含在安装包内。</p>
+            {giantPairing?.code ? <p className="settings-executor-pairing">配对码：<strong>{giantPairing.code}</strong>（10 分钟内有效）。请在 Windows 执行器首次启动窗口中输入；绑定成功后这里会显示在线状态。</p> : null}
+            <p className="settings-executor-pairing">下载后解压并启动执行器，在首次启动窗口输入上面的配对码；也可以在批量工厂的“巨量素材获取”使用同机自动配对。OCR 模型会在第一次运行时单独下载，不包含在安装包内。</p>
           </div>
         </section>
 
