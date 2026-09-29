@@ -5,6 +5,7 @@ package ui
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -112,6 +113,12 @@ type winApp struct {
 var activeWindow *winApp
 
 func Run(ctx context.Context, config Config) error {
+	// Win32 window queues belong to the creating OS thread. Keep the Go
+	// message loop on that thread or clicks can be delivered to a queue that
+	// GetMessage is no longer reading after the scheduler moves the goroutine.
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
 	if err := validateConfig(config); err != nil {
 		return err
 	}
