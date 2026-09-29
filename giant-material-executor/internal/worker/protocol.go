@@ -84,12 +84,13 @@ type Supervisor struct {
 	Dir          string
 	MaxLineBytes int
 
-	mu      sync.Mutex
-	cmd     *exec.Cmd
-	stdin   io.WriteCloser
-	events  chan Event
-	done    chan error
-	started bool
+	mu       sync.Mutex
+	cmd      *exec.Cmd
+	stdin    io.WriteCloser
+	events   chan Event
+	done     chan error
+	readDone chan struct{}
+	started  bool
 }
 
 func (s *Supervisor) Start(ctx context.Context) error {
@@ -120,9 +121,22 @@ func (s *Supervisor) Start(ctx context.Context) error {
 	s.stdin = stdin
 	s.events = make(chan Event, 32)
 	s.done = make(chan error, 1)
+	s.readDone = make(chan struct{})
 	s.started = true
-	go s.readEvents(stdout)
-	go func() { s.done <- command.Wait(); close(s.events) }()
+	readDone := s.readDone
+	go s.readEvents(stdout, readDone)
+	go func() {
+		waitErr := command.Wait()
+		<-readDone
+		s.mu.Lock()
+		if s.events != nil {
+			close(s.events)
+		}
+		s.started = false
+		s.stdin = nil
+		s.mu.Unlock()
+		s.done <- waitErr
+	}()
 	return nil
 }
 
@@ -206,7 +220,8 @@ func (s *Supervisor) write(ctx context.Context, command []byte) error {
 	}
 }
 
-func (s *Supervisor) readEvents(reader io.Reader) {
+func (s *Supervisor) readEvents(reader io.Reader, readDone chan<- struct{}) {
+	defer close(readDone)
 	maxLine := s.MaxLineBytes
 	if maxLine <= 0 {
 		maxLine = maxEventSize

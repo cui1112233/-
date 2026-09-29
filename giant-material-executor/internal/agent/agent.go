@@ -97,6 +97,14 @@ func New(config Config) (*Agent, error) {
 func (a *Agent) Snapshot() Snapshot { return a.state.Snapshot() }
 
 func (a *Agent) Run(ctx context.Context) error {
+	if err := a.config.Supervisor.Start(ctx); err != nil {
+		return err
+	}
+	defer func() {
+		stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = a.config.Supervisor.Stop(stopCtx)
+	}()
 	if err := a.heartbeat(ctx); err != nil {
 		return err
 	}
