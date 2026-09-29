@@ -2595,7 +2595,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
     setActionBusy(stageActionKey(stage, book.id));
     try {
       const settings = effectiveBookSettings(batch, book);
-      if (stage === 'director' && mode === 'compile' && h3DirectorCards(book).length) {
+      if (stage === 'director' && mode === 'compile' && usesSelectedH3VideoPreset(settings) && h3DirectorCards(book).length) {
         await compileBookH3Videos(book);
         await Promise.all([refreshBatch(), loadRuntimeStatus({ quiet: true })]);
         message.success('已复用 H3 导演卡编译最终 VIDEO Prompt。');

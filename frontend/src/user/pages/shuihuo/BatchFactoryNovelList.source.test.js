@@ -427,6 +427,7 @@ test('routes director regeneration to H3 only when the selected video preset is 
   assert.match(source, /function usesSelectedH3VideoPreset\(settings = \{\}\)/);
   assert.match(source, /\.\.\.\(usesSelectedH3VideoPreset\(settings\) \? \{ h3: true \} : \{\}\)/);
   assert.match(source, /if \(stage === 'director' && usesSelectedH3VideoPreset\(settings\)\) await compileBookH3Videos\(book\)/);
+  assert.match(source, /if \(stage === 'director' && mode === 'compile' && usesSelectedH3VideoPreset\(settings\) && h3DirectorCards\(book\)\.length\)/);
 });
 
 test('uses the script-generation constraint layers instead of one generic multi-select', () => {
