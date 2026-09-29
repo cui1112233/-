@@ -1,3 +1,3 @@
-release_sha=a83872322f4007b568ff1ac1f50a73804580eba9
-scope=Batch Factory legacy migration compatibility and authenticated image transfer
-requested_at=2026-09-23T10:46:00+08:00
+release_sha=f8409c2a
+scope=SD video prompt preset refresh before native H3 compilation
+requested_at=2026-09-29T00:00:00+08:00
