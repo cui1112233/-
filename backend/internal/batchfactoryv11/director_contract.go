@@ -28,6 +28,10 @@ type PromptContract struct {
 	Temperature   float64
 	MaxTokens     int
 	Normalization DirectorSettings
+	// SDTextProtocol marks the plain-text output protocol used by the SD video
+	// preset: the model returns one ===VIDEO NN=== section per VIDEO and each
+	// section body is stored verbatim as the card prompt.
+	SDTextProtocol bool
 }
 
 // AIReasoningPromptConfig is saved with the batch. It is intentionally kept
@@ -248,6 +252,10 @@ func selectedNonH3VideoPreset(video AIReasoningPromptModule) bool {
 	return strings.TrimSpace(video.ID) != "" && !selectedH3VideoPreset(video)
 }
 
+func selectedSDVideoPreset(video AIReasoningPromptModule) bool {
+	return strings.TrimSpace(video.ID) == "batch-video-sd"
+}
+
 func appendPublicStoryboardComposition(rules []string, config AIReasoningPromptConfig, snapshot DirectorSnapshot) []string {
 	if selectedNonH3VideoPreset(config.Video) {
 		return rules
@@ -418,6 +426,9 @@ func BuildDirectorContract(book Book, hook HookRevision, snapshot DirectorSnapsh
 		}
 	}
 	config := aiReasoningPromptConfig(snapshot.Effective)
+	if selectedSDVideoPreset(config.Video) {
+		return buildSDDirectorContract(book, hook, snapshot, config)
+	}
 	requireH3Metadata := usesH3VideoRenderer(config.Video)
 	// Video style prefixes are retired. Keep the legacy snapshot field readable
 	// for existing books, but never let it constrain a new director revision.
@@ -519,4 +530,90 @@ shots 必须从 0 秒开始连续、无空白无重叠，最后一个 end_sec �
 			RequireH3Metadata:   requireH3Metadata,
 		},
 	}, nil
+}
+
+// buildSDDirectorContract lets the selected SD video preset drive the director
+// call exactly like public script generation: the preset body is the system
+// prompt and the model answers with plain-text VIDEO cards. No JSON schema is
+// imposed; every ===VIDEO NN=== section is stored verbatim as the card prompt.
+func buildSDDirectorContract(book Book, hook HookRevision, snapshot DirectorSnapshot, config AIReasoningPromptConfig) (PromptContract, error) {
+	system := "你是 Batch Factory 导演。按以下视频提示词规则为整本书规划 VIDEO 分镜。\n\n" + config.Video.body()
+	system += fmt.Sprintf(`
+
+输出协议（最高优先级）：只输出纯文本，不要 JSON、不要 Markdown 代码块。每个 VIDEO 一段：段首一行 ===VIDEO 01===（编号从 01 递增），第二行写 时长：X秒（X 为 1-%d 的整数秒），之后是该 VIDEO 按预设“发给视频生成 AI 的最终 Prompt”模板渲染的完整提示词全文（含统一风格、统一人物、段内执行约束、[场景 N]与总时长、[镜头 N]逐镜描述、【最终导出画质约束】、【最终导出负面提示词】；画质与负面两段逐字使用模板原文）。按原文顺序完整覆盖整本书。预设正文中的 ${...} 占位符是旧多阶段流程的注入点，本次为单次调用，忽略占位符语法，直接使用用户消息中的原文与资产资料。
+画幅：%s`, snapshot.MaxVideoDuration, snapshot.AspectRatio)
+	if snapshot.FixedSingleVideo {
+		system += "\n固定开头已开启：只输出 ===VIDEO 01=== 一段。"
+	}
+	if snapshot.AudioTargetSeconds > 0 {
+		system += fmt.Sprintf("\n分镜规划跟随配音已开启：当前书真实配音约 %.2f 秒，规划整数目标为 %d 秒；至少输出 %d 个 VIDEO 段，全部段的时长之和必须严格等于 %d 秒。按剧情节点、对白/旁白密度和情绪节奏分配各段时长，不要机械平均；不得用重复动作、空镜或静止画面凑时长。", snapshot.AudioDurationSeconds, snapshot.AudioTargetSeconds, audioMinimumVideoCount(snapshot.AudioTargetSeconds, snapshot.MaxVideoDuration), snapshot.AudioTargetSeconds)
+	}
+	payload := map[string]any{
+		"book_id":     book.ID,
+		"title":       book.Title,
+		"mode":        snapshot.Mode,
+		"source_text": book.SourceText,
+	}
+	if assets := sdPayloadAssets(book); len(assets) > 0 {
+		payload["assets"] = assets
+	}
+	if analysis, err := parseSmartUnifiedAnalysis(rawString(snapshot.Effective, "h3StyleAnalysis", "")); err == nil && analysis != nil {
+		payload["style_system_analysis"] = analysis.Prompt
+	}
+	if snapshot.AudioTargetSeconds > 0 {
+		payload["audio_planning"] = map[string]any{
+			"enabled":             true,
+			"measured_seconds":    snapshot.AudioDurationSeconds,
+			"target_seconds":      snapshot.AudioTargetSeconds,
+			"unit_max_seconds":    snapshot.MaxVideoDuration,
+			"minimum_video_count": audioMinimumVideoCount(snapshot.AudioTargetSeconds, snapshot.MaxVideoDuration),
+		}
+	}
+	if snapshot.Mode == "viral" {
+		payload["approved_hook"] = hook.Text
+	}
+	encoded, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return PromptContract{}, err
+	}
+	temperature := 0.35
+	if snapshot.Mode == "viral" {
+		temperature = 0.65
+	}
+	return PromptContract{
+		SystemPrompt:   system,
+		UserPrompt:     string(encoded),
+		Temperature:    temperature,
+		MaxTokens:      audioPlanningDirectorMaxTokens,
+		SDTextProtocol: true,
+		Normalization: DirectorSettings{
+			MaxVideoDuration:   snapshot.MaxVideoDuration,
+			AudioTargetSeconds: snapshot.AudioTargetSeconds,
+			FixedSingleVideo:   snapshot.FixedSingleVideo,
+			AspectRatio:        snapshot.AspectRatio,
+		},
+	}, nil
+}
+
+// sdPayloadAssets flattens the book's extracted asset records (人物/场景/道具)
+// into name+prompt lists so the SD preset anchors its 统一人物 section on the
+// frozen assets instead of re-inventing appearances.
+func sdPayloadAssets(book Book) map[string]any {
+	groups := map[string][]map[string]string{}
+	for _, asset := range book.AssetRecords {
+		kind := strings.TrimSpace(asset.Kind)
+		name := strings.TrimSpace(asset.Name)
+		if kind == "" || name == "" {
+			continue
+		}
+		groups[kind] = append(groups[kind], map[string]string{"name": name, "prompt": strings.TrimSpace(asset.Prompt)})
+	}
+	if len(groups) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(groups))
+	for kind, items := range groups {
+		out[kind] = items
+	}
+	return out
 }

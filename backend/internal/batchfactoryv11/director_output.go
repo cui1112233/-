@@ -49,6 +49,9 @@ type DirectorVideo struct {
 	Shots        []DirectorShot `json:"shots"`
 	VideoDesc    string         `json:"video_desc"`
 	VisualPrompt string         `json:"visual_prompt,omitempty"`
+	// FinalPrompt is the verbatim plain-text card body returned by the SD video
+	// preset. When present it replaces the compact shot-timeline rendering.
+	FinalPrompt string `json:"final_prompt,omitempty"`
 }
 
 type SourceCoverage struct {
@@ -74,6 +77,9 @@ type DirectorResult struct {
 // Keep the summary for search/audit only; never let it replace a card's
 // camera, timing and visible-action instructions.
 func storyboardVideoPrompt(video DirectorVideo) string {
+	if strings.TrimSpace(video.FinalPrompt) != "" {
+		return strings.TrimSpace(video.FinalPrompt)
+	}
 	if len(video.Shots) == 0 {
 		return strings.TrimSpace(video.VideoDesc)
 	}
@@ -91,7 +97,51 @@ func storyboardVideoPrompt(video DirectorVideo) string {
 	return strings.Join(lines, "\n")
 }
 
-var fencedDirectorJSON = regexp.MustCompile("(?is)```(?:json)?\\s*([\\s\\S]*?)```")
+var (
+	fencedDirectorJSON    = regexp.MustCompile("(?is)```(?:json)?\\s*([\\s\\S]*?)```")
+	sdVideoSectionPattern = regexp.MustCompile(`(?m)^===VIDEO\s*(\d+)\s*===\s*$`)
+	sdDurationPattern     = regexp.MustCompile(`^时长[：:]\s*(\d+)\s*秒?$`)
+)
+
+// parseSDDirectorText splits the SD preset's plain-text director output into
+// one DirectorVideo per ===VIDEO NN=== section. Each section keeps its full
+// body verbatim in FinalPrompt; only the 时长：X秒 line is consumed as metadata.
+func parseSDDirectorText(raw string, maxVideoDuration int) (DirectorResult, error) {
+	text := strings.TrimSpace(raw)
+	if text == "" {
+		return DirectorResult{}, fmt.Errorf("导演模型返回为空")
+	}
+	markers := sdVideoSectionPattern.FindAllStringSubmatchIndex(text, -1)
+	if len(markers) == 0 {
+		return DirectorResult{}, fmt.Errorf("未找到 ===VIDEO NN=== 分段标记")
+	}
+	result := DirectorResult{SourceCoverage: SourceCoverage{SourceComplete: true}}
+	for i, marker := range markers {
+		end := len(text)
+		if i+1 < len(markers) {
+			end = markers[i+1][0]
+		}
+		body := strings.TrimSpace(text[marker[1]:end])
+		lines := strings.SplitN(body, "\n", 2)
+		durationMatch := sdDurationPattern.FindStringSubmatch(strings.TrimSpace(lines[0]))
+		if durationMatch == nil {
+			return DirectorResult{}, fmt.Errorf("第 %d 个 VIDEO 段缺少“时长：X秒”行", i+1)
+		}
+		duration, err := strconv.Atoi(durationMatch[1])
+		if err != nil || duration < 1 || duration > maxVideoDuration {
+			return DirectorResult{}, fmt.Errorf("第 %d 个 VIDEO 时长必须在 1-%d 秒之间", i+1, maxVideoDuration)
+		}
+		prompt := ""
+		if len(lines) > 1 {
+			prompt = strings.TrimSpace(lines[1])
+		}
+		if prompt == "" {
+			return DirectorResult{}, fmt.Errorf("第 %d 个 VIDEO 段缺少提示词正文", i+1)
+		}
+		result.Storyboard = append(result.Storyboard, DirectorVideo{DurationSec: duration, FinalPrompt: prompt})
+	}
+	return result, nil
+}
 
 func ParseDirectorJSON(value string) (json.RawMessage, error) {
 	text := strings.TrimSpace(value)

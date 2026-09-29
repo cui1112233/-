@@ -146,7 +146,16 @@ func TestBookStageDirectorUsesStandardDirectorForSelectedSDVideoPreset(t *testin
 	if _, err := store.SaveSettings(context.Background(), "alice", ScopeRef{Kind: ScopeBook, BatchID: batch.ID, BookID: book.ID}, SettingsUpdate{Patch: SettingsPatch{"aiPromptConfig": rawSetting(t, config)}, ExpectedRevision: book.Revision}); err != nil {
 		t.Fatal(err)
 	}
-	provider := &queuedDirectorProvider{values: []string{validDirectorJSON()}}
+	sdResponse := `===VIDEO 01===
+时长：10秒
+统一风格：现代都市。
+统一人物：林晚（28岁，黑色西装）。
+段内执行约束：无台词。
+[场景 1] 总时长：10.000秒
+[镜头 1] 中景，缓慢推轨，林晚推开门。
+【最终导出画质约束】4K级细节。
+【最终导出负面提示词】不要水印。`
+	provider := &queuedDirectorProvider{values: []string{sdResponse}}
 	service := &BookStageService{Store: store, Director: &DirectorService{Store: store, Provider: provider}}
 	if _, err := service.Run(context.Background(), "alice", batch.ID, book.ID, BookStageDirector, StageModeForce, "sd-director-1", ""); err != nil {
 		t.Fatalf("SD director stage failed: %v", err)
@@ -161,6 +170,9 @@ func TestBookStageDirectorUsesStandardDirectorForSelectedSDVideoPreset(t *testin
 	revision := latest.Books[0].DirectorRevision
 	if revision == nil || revision.Output.H3Director != nil || len(revision.Output.Storyboard) != 1 {
 		t.Fatalf("SD preset must persist ordinary storyboard output, got %#v", revision)
+	}
+	if revision.Output.Storyboard[0].FinalPrompt == "" {
+		t.Fatal("SD preset must persist FinalPrompt in storyboard output")
 	}
 }
 

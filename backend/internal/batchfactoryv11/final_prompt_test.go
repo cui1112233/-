@@ -568,6 +568,89 @@ func TestFinalPromptRejectsOrphanedVideoIdentity(t *testing.T) {
 	}
 }
 
+func TestSDDirectorReturnsPlainTextCards(t *testing.T) {
+	store, batch, book := seedDirectorBook(t, "original", false)
+	if _, err := store.SaveSettings(context.Background(), "alice", ScopeRef{Kind: ScopeBatch, BatchID: batch.ID}, SettingsUpdate{
+		Patch: SettingsPatch{"aiPromptConfig": rawSetting(t, map[string]any{
+			"video": map[string]any{
+				"enabled":   true,
+				"scope":     "all",
+				"presetId":  "batch-video-sd",
+				"presetKey": "sd-video-normal",
+				"body":      "SD视频提示词预设正文",
+			},
+		})},
+		ExpectedRevision: batch.Revision,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	batch, _ = store.GetBatch(context.Background(), "alice", batch.ID)
+	book = batch.Books[0]
+
+	sdResponse := `===VIDEO 01===
+时长：10秒
+统一风格：朱红金赤与幽深玄色交织，镜头沉稳克制。
+统一人物：新娘妹妹（22岁，瓜子脸，眉如远山）。
+段内执行约束：全程无台词，仅靠眼神与动作。
+[场景 1] 总时长：10.000秒
+[镜头 1] 中景，缓慢推轨，新娘低头抚平嫁衣袖口。
+【最终导出画质约束】4K级细节，人物面部清晰可读。
+【最终导出负面提示词】不要水印，不要畸形手指。`
+
+	provider := &queuedDirectorProvider{values: []string{sdResponse}}
+	revision, err := (&DirectorService{Store: store, Provider: provider}).RunDirector(context.Background(), "alice", batch.ID, book.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(revision.Output.Storyboard) != 1 {
+		t.Fatalf("storyboard count=%d, want 1", len(revision.Output.Storyboard))
+	}
+	card := revision.Output.Storyboard[0]
+	if card.FinalPrompt == "" {
+		t.Fatal("FinalPrompt must be populated for SD plain-text response")
+	}
+	if !strings.Contains(card.FinalPrompt, "统一风格：朱红金赤与幽深玄色交织") {
+		t.Fatalf("FinalPrompt missing SD content:\n%s", card.FinalPrompt)
+	}
+	if card.DurationSec != 10 {
+		t.Fatalf("duration=%d, want 10", card.DurationSec)
+	}
+
+	batch, _ = store.GetBatch(context.Background(), "alice", batch.ID)
+	book = batch.Books[0]
+	video := book.Videos[0]
+	compiled, err := (&PromptCompilerService{Store: store}).Compile(context.Background(), "alice", batch.ID, book.ID, video.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(compiled.CompiledPrompt, "统一风格：朱红金赤与幽深玄色交织") {
+		t.Fatalf("CompiledPrompt must contain SD full text:\n%s", compiled.CompiledPrompt)
+	}
+	if !strings.Contains(compiled.CompiledPrompt, "【最终导出画质约束】4K级细节") {
+		t.Fatalf("CompiledPrompt must contain SD quality section:\n%s", compiled.CompiledPrompt)
+	}
+	if !strings.Contains(compiled.DisplayPrompt, "统一人物：新娘妹妹") {
+		t.Fatalf("DisplayPrompt must show SD card body:\n%s", compiled.DisplayPrompt)
+	}
+}
+
+func TestNormalDirectorStillUsesJSONContract(t *testing.T) {
+	store, batch, book := seedDirectorBook(t, "original", false)
+	provider := &queuedDirectorProvider{values: []string{validDirectorJSON()}}
+	_, err := (&DirectorService{Store: store, Provider: provider}).RunDirector(context.Background(), "alice", batch.ID, book.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	batch, _ = store.GetBatch(context.Background(), "alice", batch.ID)
+	book = batch.Books[0]
+	if len(book.Videos) == 0 {
+		t.Fatal("normal JSON contract must still produce videos")
+	}
+	if book.Videos[0].VideoPrompt == "" {
+		t.Fatal("normal JSON contract must still produce video prompts")
+	}
+}
+
 func TestCompiledVideoInputUsesAssetImagesBeforeAssetText(t *testing.T) {
 	store, batch, book, video := seedCompiledVideo(t)
 	var character BookAsset

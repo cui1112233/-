@@ -329,13 +329,21 @@ func (s *DirectorService) runDirector(ctx context.Context, owner, batchID, bookI
 	if err != nil {
 		return DirectorRevision{}, err
 	}
-	raw, err := ParseDirectorJSON(completion)
-	if err != nil {
-		return DirectorRevision{}, fmt.Errorf("%w: %v", ErrInvalid, err)
-	}
-	result, err := NormalizeDirectorOutput(raw, contract.Normalization)
-	if err != nil {
-		return DirectorRevision{}, fmt.Errorf("%w: %v", ErrInvalid, err)
+	var result DirectorResult
+	if contract.SDTextProtocol {
+		result, err = parseSDDirectorText(completion, contract.Normalization.MaxVideoDuration)
+		if err != nil {
+			return DirectorRevision{}, fmt.Errorf("%w: %v", ErrInvalid, err)
+		}
+	} else {
+		raw, err := ParseDirectorJSON(completion)
+		if err != nil {
+			return DirectorRevision{}, fmt.Errorf("%w: %v", ErrInvalid, err)
+		}
+		result, err = NormalizeDirectorOutput(raw, contract.Normalization)
+		if err != nil {
+			return DirectorRevision{}, fmt.Errorf("%w: %v", ErrInvalid, err)
+		}
 	}
 	if smartUnifiedAnalysis != nil {
 		result.SmartUnifiedStyle = smartUnifiedAnalysis.Prompt

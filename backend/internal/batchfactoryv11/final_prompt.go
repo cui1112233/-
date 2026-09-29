@@ -599,6 +599,9 @@ func (s *PromptCompilerService) compile(ctx context.Context, owner, batchID, boo
 	// constraint below remains the sole prefix source for VIDEO compilation.
 	config := aiReasoningPromptConfig(values)
 	h3Renderer := usesH3VideoRenderer(config.Video)
+	// SD 直出：分镜卡正文即 AI 按预设模板写好的完整最终提示词，外层开关组件
+	// 不再注入，避免与正文自带的统一风格/画质/负面段落重复。
+	sdDirect := strings.TrimSpace(draft.FinalPrompt) != ""
 	constraintsActive := constraintsApply(values, config, book)
 	constraintBody := func(category, legacyEnabledKey, legacyValueKey string) string {
 		if category == "prefix" && smartUnifiedSelectedForRevision(book, config) {
@@ -624,11 +627,13 @@ func (s *PromptCompilerService) compile(ctx context.Context, owner, batchID, boo
 	// 画面前缀统一由约束开关注入，H3 不再特殊跳过。选“智能统一”时
 	// constraintBody("prefix") 返回该书已保存的视觉基线，作为画面前缀内容；
 	// 未选智能统一则注入用户选中的前缀正文。开关关闭时此项为空、不注入。
-	addComponent(&components, "prefix", "画面前缀", constraintBody("prefix", "prefixEnabled", "prefix"))
+	if !sdDirect {
+		addComponent(&components, "prefix", "画面前缀", constraintBody("prefix", "prefixEnabled", "prefix"))
+	}
 	// Base setup is its own user switch. A batch may choose an H3 VIDEO preset
 	// before opening the constraint editor; that must retain the legacy default
 	// of including asset definitions rather than treating an absent module as off.
-	baseSetupActive := baseSetupEnabled(values) && rawBool(values, "injectBaseSettings", true)
+	baseSetupActive := !sdDirect && baseSetupEnabled(values) && rawBool(values, "injectBaseSettings", true)
 	baseSetupPrompt := ""
 	if baseSetupActive {
 		base := []string{}
@@ -653,43 +658,51 @@ func (s *PromptCompilerService) compile(ctx context.Context, owner, batchID, boo
 			addComponent(&components, "baseSetup", "基础设定", strings.Join(base, "\n"))
 		}
 	}
-	addComponent(&components, "quality", "画面约束提示词", constraintBody("quality", "qualityEnabled", "quality"))
-	displayPrompt := storyboardVideoPrompt(draft)
-	videoPrompt := displayPrompt
-	if h3Renderer {
-		// compileH3VideoPrompt 只产出 H3 骨架（视听呈现+时间轴）；人物定义、画风
-		// 由外层开关统一注入。基础设定开关关闭时不传人物/场景，时间轴里的
-		// <Subject N> 指代也随之取消。H3 编译结果是程序生成的结构化内容，不剥离。
-		h3Characters, h3Scenes := characters, scenes
-		if !baseSetupActive {
-			h3Characters, h3Scenes = nil, nil
-		}
-		videoPrompt = compileH3VideoPrompt(draft, h3Characters, h3Scenes)
-	} else {
-		// 非 H3 正文先剥离模型/粘贴自带的共享设定段，再由开关统一注入，对齐剧本生成。
-		videoPrompt = stripSharedPromptSections(videoPrompt)
+	var displayPrompt, videoPrompt, videoLabel string
+	if sdDirect {
+		videoPrompt = draft.FinalPrompt
 		displayPrompt = videoPrompt
-	}
-	// A video-scope edit is the sole exception: it is an intentional user
-	// replacement for this one card.  Stored pre-fix video_desc summaries are
-	// not overrides and must never win over the director's verified timeline.
-	// 用户手动覆盖的非 H3 文本同样剥离共享段，防止绕过开关与程序注入重复。
-	if override, ok := optionalPromptValue(video.SettingsState.Patch, "videoPrompt"); ok {
-		if !h3Renderer {
-			override = stripSharedPromptSections(override)
+		videoLabel = "视频提示词"
+		addComponent(&components, "video", videoLabel, videoPrompt)
+	} else {
+		addComponent(&components, "quality", "画面约束提示词", constraintBody("quality", "qualityEnabled", "quality"))
+		displayPrompt = storyboardVideoPrompt(draft)
+		videoPrompt = displayPrompt
+		if h3Renderer {
+			// compileH3VideoPrompt 只产出 H3 骨架（视听呈现+时间轴）；人物定义、画风
+			// 由外层开关统一注入。基础设定开关关闭时不传人物/场景，时间轴里的
+			// <Subject N> 指代也随之取消。H3 编译结果是程序生成的结构化内容，不剥离。
+			h3Characters, h3Scenes := characters, scenes
+			if !baseSetupActive {
+				h3Characters, h3Scenes = nil, nil
+			}
+			videoPrompt = compileH3VideoPrompt(draft, h3Characters, h3Scenes)
+		} else {
+			// 非 H3 正文先剥离模型/粘贴自带的共享设定段，再由开关统一注入，对齐剧本生成。
+			videoPrompt = stripSharedPromptSections(videoPrompt)
+			displayPrompt = videoPrompt
 		}
-		videoPrompt = override
-		displayPrompt = override
+		// A video-scope edit is the sole exception: it is an intentional user
+		// replacement for this one card.  Stored pre-fix video_desc summaries are
+		// not overrides and must never win over the director's verified timeline.
+		// 用户手动覆盖的非 H3 文本同样剥离共享段，防止绕过开关与程序注入重复。
+		if override, ok := optionalPromptValue(video.SettingsState.Patch, "videoPrompt"); ok {
+			if !h3Renderer {
+				override = stripSharedPromptSections(override)
+			}
+			videoPrompt = override
+			displayPrompt = override
+		}
+		videoLabel = "视频提示词"
+		if h3Renderer {
+			// H3's canonical output already has a top-level grammar. Adding the V11
+			// card label would make the provider receive a wrapper H3 never used.
+			videoLabel = ""
+		}
+		addComponent(&components, "video", videoLabel, videoPrompt)
+		addComponent(&components, "restriction", "画面限制", constraintBody("restriction", "restrictionEnabled", "restriction"))
+		addComponent(&components, "negative", "负面提示词", constraintBody("negative", "negativeEnabled", "negative"))
 	}
-	videoLabel := "视频提示词"
-	if h3Renderer {
-		// H3's canonical output already has a top-level grammar. Adding the V11
-		// card label would make the provider receive a wrapper H3 never used.
-		videoLabel = ""
-	}
-	addComponent(&components, "video", videoLabel, videoPrompt)
-	addComponent(&components, "restriction", "画面限制", constraintBody("restriction", "restrictionEnabled", "restriction"))
-	addComponent(&components, "negative", "负面提示词", constraintBody("negative", "negativeEnabled", "negative"))
 	duration := rawInt(values, "duration", int(video.DurationSeconds))
 
 	lines := make([]string, 0, len(components))
