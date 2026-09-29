@@ -1,13 +1,13 @@
 const express = require('express');
 const { buildForwardRequest } = require('../lib/local-executor-device-forwarder');
 
-function createLocalExecutorDeviceRouter({ targetBaseUrl } = {}) {
+function createLocalExecutorDeviceRouter({ targetBaseUrl, prefix } = {}) {
   const router = express.Router();
 
   router.use((req, res) => {
     let built;
     try {
-      built = buildForwardRequest(req, targetBaseUrl);
+      built = buildForwardRequest(req, targetBaseUrl, { prefix });
     } catch (error) {
       return res.status(error.status || 400).json({ error: error.message || 'invalid local executor request' });
     }

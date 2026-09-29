@@ -59,6 +59,7 @@ const { createScriptVideoRouter } = require('./routes/script-video');
 const { createLocalExecutorDownloadsRouter } = require('./routes/local-executor-downloads');
 const { createLocalExecutorDeviceRouter } = require('./routes/local-executor-device');
 const { createLocalExecutorArtifactRouter } = require('./routes/local-executor-artifact');
+const { createGiantMaterialExecutorBridgeRouter } = require('./routes/giant-material-executor-bridge');
 const { createMemberStore } = require('./lib/member-store');
 const { createUsageStore } = require('./lib/usage-store');
 const { createPasskeyStore } = require('./lib/passkey-store');
@@ -315,6 +316,13 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
 
   // Forward pairing, heartbeat, claim and lease JSON after parsing.
   app.use('/api/local-executor/v1', createLocalExecutorDeviceRouter({ targetBaseUrl: process.env.QIANTIE_GO_BASE_URL }));
+  // Giant Material uses the same trusted platform-to-Go bridge as Batch
+  // Factory, while its device calls remain bearer-token based and are only
+  // forwarded to the dedicated Go prefix.
+  app.use('/api/giant-material-executor/v1', createLocalExecutorDeviceRouter({
+    targetBaseUrl: process.env.QIANTIE_GO_BASE_URL,
+    prefix: '/api/giant-material-executor/v1/'
+  }));
 
   // V2 小说获取的增强脚本由仓库根目录维护。它们必须优先于前端
   // 构建目录中的历史副本，否则页面会出现“源码已更新、线上仍加载旧脚本”。
@@ -530,6 +538,10 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   // Local executor artifacts are user-owned media, so they are bridged to Go
   // with the normal signed user identity but do not consume AI quota.
   app.use('/api/shuihuo-production/local-executor-artifacts', apiAuth, createLocalExecutorArtifactRouter({
+    goBaseUrl: process.env.QIANTIE_GO_BASE_URL,
+    bridgeSecret: process.env.QIANTIE_BRIDGE_SECRET
+  }));
+  app.use('/api/shuihuo-production', apiAuth, createGiantMaterialExecutorBridgeRouter({
     goBaseUrl: process.env.QIANTIE_GO_BASE_URL,
     bridgeSecret: process.env.QIANTIE_BRIDGE_SECRET
   }));
