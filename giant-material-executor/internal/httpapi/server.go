@@ -84,7 +84,10 @@ func (s *Server) Handler() http.Handler {
 
 func (s *Server) guard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		if req.Header.Get("Origin") != s.config.Origin || req.Header.Get("X-Giant-Executor-Nonce") != s.config.Nonce {
+		originOK := req.Header.Get("Origin") == s.config.Origin
+		nonceOK := req.Header.Get("X-Giant-Executor-Nonce") == s.config.Nonce
+		bootstrapPair := req.Method == http.MethodPost && req.URL.Path == "/v1/pair" && strings.TrimSpace(req.Header.Get("X-Giant-Executor-Nonce")) == ""
+		if !originOK || (!nonceOK && !bootstrapPair) {
 			writeError(w, http.StatusForbidden, "loopback origin or nonce rejected")
 			return
 		}
@@ -128,7 +131,7 @@ func (s *Server) pair(w http.ResponseWriter, req *http.Request) {
 		writeError(w, http.StatusConflict, "pairing failed")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"paired": true})
+	writeJSON(w, http.StatusOK, map[string]any{"paired": true, "nonce": s.config.Nonce})
 }
 
 func (s *Server) startJob(w http.ResponseWriter, req *http.Request) {

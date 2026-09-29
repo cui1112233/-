@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -51,5 +52,21 @@ func TestHealthShowsMissingModelWithoutLeakingCredentials(t *testing.T) {
 	}
 	if strings.Contains(strings.ToLower(body), "token") || strings.Contains(strings.ToLower(body), "cookie") {
 		t.Fatalf("credentials leaked: %s", body)
+	}
+}
+
+func TestPairingCanBootstrapNonceAndReturnsItToBrowser(t *testing.T) {
+	server, err := NewServer(ServerConfig{Addr: "127.0.0.1:17861", Origin: "https://example.com", Nonce: "nonce", Callbacks: Callbacks{
+		Pair: func(context.Context, string) error { return nil },
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/v1/pair", strings.NewReader(`{"code":"one-time-code"}`))
+	req.Header.Set("Origin", "https://example.com")
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"nonce":"nonce"`) {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }

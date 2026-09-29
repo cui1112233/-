@@ -15,4 +15,6 @@ test('status bar polls loopback health and never hides an offline executor', () 
   assert.match(source, /127\.0\.0\.1:17861/);
   assert.match(source, /setInterval|setTimeout/);
   assert.match(source, /modelReady/);
+  assert.match(source, /createGiantMaterialPairing/);
+  assert.match(source, /自动配对/);
 });

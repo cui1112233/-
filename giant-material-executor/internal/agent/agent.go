@@ -34,6 +34,20 @@ type ClaimResult struct {
 	LeaseExpiresAt  time.Time `json:"leaseExpiresAt"`
 }
 
+type PairInput struct {
+	Code       string `json:"code"`
+	DeviceName string `json:"deviceName"`
+	OS         string `json:"os"`
+	Version    string `json:"version"`
+	Platform   string `json:"platform"`
+}
+
+type PairResult struct {
+	ExecutorID               string `json:"executorId"`
+	Token                    string `json:"token"`
+	HeartbeatIntervalSeconds int    `json:"heartbeatIntervalSeconds"`
+}
+
 type LeaseCredential struct {
 	Token      string `json:"leaseToken"`
 	Generation int64  `json:"leaseGeneration"`
@@ -68,6 +82,7 @@ type HeartbeatRequest struct {
 type Config struct {
 	Client         PublicClient
 	Supervisor     *worker.Supervisor
+	PrepareModel   func(context.Context, string) error
 	Token          string
 	DeviceName     string
 	OS             string
@@ -105,6 +120,15 @@ func (a *Agent) Run(ctx context.Context) error {
 		defer cancel()
 		_ = a.config.Supervisor.Stop(stopCtx)
 	}()
+	if a.config.PrepareModel != nil {
+		if err := a.state.Transition(StateDownloadingModel); err != nil {
+			return err
+		}
+		if err := a.config.PrepareModel(ctx, "windows-paddleocr-v1"); err != nil {
+			_ = a.state.Transition(StateFailed)
+			return err
+		}
+	}
 	if err := a.heartbeat(ctx); err != nil {
 		return err
 	}
@@ -224,6 +248,12 @@ func (c *HTTPClient) Heartbeat(ctx context.Context, token string, input Heartbea
 	return c.do(ctx, http.MethodPost, "/api/giant-material-executor/v1/heartbeat", token, map[string]string{"deviceName": input.DeviceName, "os": input.OS, "version": input.Version}, &response)
 }
 
+func (c *HTTPClient) Pair(ctx context.Context, input PairInput) (PairResult, error) {
+	var result PairResult
+	err := c.do(ctx, http.MethodPost, "/api/giant-material-executor/v1/pair", "", input, &result)
+	return result, err
+}
+
 func (c *HTTPClient) Claim(ctx context.Context, token string) (ClaimResult, error) {
 	var result ClaimResult
 	err := c.do(ctx, http.MethodPost, "/api/giant-material-executor/v1/jobs/claim", token, nil, &result)
@@ -266,7 +296,9 @@ func (c *HTTPClient) do(ctx context.Context, method, path, token string, body an
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(token))
+	if strings.TrimSpace(token) != "" {
+		req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(token))
+	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}

@@ -1,6 +1,7 @@
-import { Alert, Button, Progress, Tag } from 'antd';
+import { Alert, Button, Progress, Space, Tag, message } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 import { createGiantMaterialExecutorClient, normalizeGiantMaterialExecutorStatus } from '../../../shared/api/giantMaterialExecutor.js';
+import { createGiantMaterialPairing } from '../../../shared/api/giantMaterialExecutorPublic.js';
 
 const EXECUTOR_BASE_URL = 'http://127.0.0.1:17861';
 const OFFLINE_LABEL = '执行器未安装或未启动';
@@ -17,6 +18,7 @@ function localNonce() {
 
 export function BatchFactoryGiantMaterialExecutorStatus({ job, onHealthChange, onInstall }) {
   const [health, setHealth] = useState(null);
+  const [pairingBusy, setPairingBusy] = useState(false);
   const nonce = localNonce();
   const client = useMemo(() => createGiantMaterialExecutorClient({ baseUrl: EXECUTOR_BASE_URL, nonce }), [nonce]);
   const status = normalizeGiantMaterialExecutorStatus(health);
@@ -50,13 +52,34 @@ export function BatchFactoryGiantMaterialExecutorStatus({ job, onHealthChange, o
           ? '首次使用会下载 OCR 运行包和模型，完成后会自动进入空闲状态。'
           : '执行器在后台工作，浏览器关闭后任务仍可继续。';
 
+  async function pairExecutor() {
+    if (pairingBusy) return;
+    setPairingBusy(true);
+    try {
+      const pairing = await createGiantMaterialPairing();
+      const bootstrapClient = createGiantMaterialExecutorClient({ baseUrl: EXECUTOR_BASE_URL });
+      const paired = await bootstrapClient.pair(pairing?.code);
+      const pairedNonce = String(paired?.nonce || '').trim();
+      if (!pairedNonce) throw new Error('配对未返回本机 nonce');
+      window.localStorage.setItem('giant_material_executor_nonce', pairedNonce);
+      const next = await createGiantMaterialExecutorClient({ baseUrl: EXECUTOR_BASE_URL, nonce: pairedNonce }).health();
+      setHealth(next);
+      onHealthChange?.(next);
+      message.success('Windows 巨量素材执行器已配对。');
+    } catch (error) {
+      message.error(error?.message || '自动配对失败，请确认执行器已启动。');
+    } finally {
+      setPairingBusy(false);
+    }
+  }
+
   return <Alert
     type={failed ? 'error' : completed ? 'success' : status.kind === 'offline' ? 'warning' : 'info'}
     showIcon
     message={<span>{message} <Tag>{health?.version || 'Windows 执行器'}</Tag></span>}
     description={<div>
       <div>{description}</div>
-      {status.kind === 'offline' ? <Button size="small" style={{ marginTop: 8 }} onClick={onInstall}>查看安装与配对说明</Button> : null}
+      {status.kind === 'offline' ? <Space style={{ marginTop: 8 }}><Button size="small" type="primary" loading={pairingBusy} onClick={pairExecutor}>自动配对</Button>{onInstall ? <Button size="small" onClick={onInstall}>查看安装与配对说明</Button> : null}</Space> : null}
       {!completed && !failed && jobState && progress > 0 ? <Progress percent={progress} size="small" status={status.kind === 'running' ? 'active' : 'normal'} /> : null}
     </div>}
   />;
