@@ -2673,13 +2673,13 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
       const settings = effectiveBookSettings(batch, book);
       if (summary.lastFailed?.stage === 'director' && settings.audioPlanningEnabled === true) await ensureBookAudioDuration(book);
       await retryBookStage(batch.id, book.id, {
-		h3: true,
+        ...(usesSelectedH3VideoPreset(settings) ? { h3: true } : {}),
         videoId,
         textModelId: textModelId || settings.textModelId,
         ...(summary.lastFailed?.stage === 'video' ? { provider: videoProviderForModel(settings.videoModelId, settings.videoProvider) } : {}),
         requestId: requestID('bf11-book-retry')
       });
-		if (summary.lastFailed?.stage === 'director') await compileBookH3Videos(book);
+		if (summary.lastFailed?.stage === 'director' && usesSelectedH3VideoPreset(settings)) await compileBookH3Videos(book);
       await Promise.all([refreshBatch(), loadRuntimeStatus({ quiet: true })]);
       message.success('已识别并重跑该书最后失败的步骤。');
     } catch (error) {
