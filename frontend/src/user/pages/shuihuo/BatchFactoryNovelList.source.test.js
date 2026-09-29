@@ -425,6 +425,7 @@ test('persists named AI reasoning presets through the V11 backend and lets users
 
 test('routes director regeneration to H3 only when the selected video preset is H3', () => {
   assert.match(source, /function usesSelectedH3VideoPreset\(settings = \{\}\)/);
+  assert.match(source, /if \(presetId\) return presetId === 'batch-video-h3-director'/);
   assert.match(source, /\.\.\.\(usesSelectedH3VideoPreset\(settings\) \? \{ h3: true \} : \{\}\)/);
   assert.match(source, /if \(stage === 'director' && usesSelectedH3VideoPreset\(settings\)\) await compileBookH3Videos\(book\)/);
   assert.match(source, /if \(stage === 'director' && mode === 'compile' && usesSelectedH3VideoPreset\(settings\) && h3DirectorCards\(book\)\.length\)/);

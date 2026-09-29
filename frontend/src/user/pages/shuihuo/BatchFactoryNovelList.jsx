@@ -296,8 +296,9 @@ function effectiveBookSettings(batch, book) {
 }
 function usesSelectedH3VideoPreset(settings = {}) {
   const video = settings?.aiPromptConfig?.video || {};
-  return String(video.presetId || '') === 'batch-video-h3-director'
-    || String(video.presetKey || '') === 'h3-video-normal';
+  const presetId = String(video.presetId || '').trim();
+  if (presetId) return presetId === 'batch-video-h3-director';
+  return String(video.presetKey || '').trim() === 'h3-video-normal';
 }
 function h3CompilationStatus(settings = {}) {
   if (settings.audioPlanningEnabled === true) return '等待真实配音时长编译最终 VIDEO';
