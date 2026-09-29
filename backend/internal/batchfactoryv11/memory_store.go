@@ -365,6 +365,10 @@ func (s *MemoryStore) CreateMergeJob(_ context.Context, value MergeJob) (MergeJo
 	return cloneMergeJob(value), nil
 }
 
+func (s *MemoryStore) CreateUploadedMergeJob(ctx context.Context, value MergeJob) (MergeJob, error) {
+	return s.CreateMergeJob(ctx, value)
+}
+
 func (s *MemoryStore) UpdateMergeJob(_ context.Context, owner, jobID string, value MergeJob) (MergeJob, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

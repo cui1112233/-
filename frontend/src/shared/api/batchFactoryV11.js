@@ -168,6 +168,12 @@ export function uploadBookVideoMaterial(batchId, bookId, videoId, file) {
   return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/videos/${id(videoId)}/upload`), { method: 'POST', body: form });
 }
 
+export function uploadBookMergeMaterial(batchId, bookId, file) {
+  const form = new FormData();
+  form.append('file', file);
+  return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/merge/upload`), { method: 'POST', body: form });
+}
+
 export function deleteProductionTask(batchId, bookId, videoId, taskId) {
 	return apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/videos/${id(videoId)}/tasks/${id(taskId)}`), { method: 'DELETE' });
 }

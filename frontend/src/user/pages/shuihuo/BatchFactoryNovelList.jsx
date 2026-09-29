@@ -74,6 +74,7 @@ import {
   updateBookMetadata,
   uploadBookAssetImage,
   uploadBookVideoMaterial,
+  uploadBookMergeMaterial,
   setPrimaryBookAssetImage,
   saveDraft,
 	  saveVideoOverride,
@@ -1253,6 +1254,7 @@ function MediaVersionPanel({ book, batchId, versionsByVideo, productionStatus, m
   const sheetRef = useRef(null);
   const sheetDragRef = useRef(null);
   const uploadInputRefs = useRef({});
+  const mergeUploadInputRef = useRef(null);
 
   const completedMerges = mergeJobs.filter(job => job?.status === 'succeeded' && String(job?.outputUrl || '').trim());
   const mergeJobsNewest = mergeJobs
@@ -1473,6 +1475,27 @@ function MediaVersionPanel({ book, batchId, versionsByVideo, productionStatus, m
       message.success('素材已上传，并已设为当前分镜主版本。');
     } catch (error) {
       message.error(error?.message || '上传视频素材失败');
+    } finally {
+      setSavingTaskId('');
+    }
+  }
+
+  async function uploadMergeMaterial(event) {
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    if (file.type !== 'video/mp4' && !/\.mp4$/i.test(file.name || '')) {
+      message.error('请上传 MP4 视频');
+      return;
+    }
+    setSavingTaskId('upload-merge');
+    try {
+      await uploadBookMergeMaterial(batchId, book.id, file);
+      await onSaved?.();
+      message.success('成片已上传，可在合成成片中查看。');
+    } catch (error) {
+      message.error(error?.message || '上传成片失败');
     } finally {
       setSavingTaskId('');
     }
@@ -1753,7 +1776,12 @@ function MediaVersionPanel({ book, batchId, versionsByVideo, productionStatus, m
             <span>{batchFactoryStableMediaLabel('M', job.id)}</span>
           </button>;
         })}
-        <Button size="small" className="batch-factory-media-pickstation-add" onClick={() => { setSheetAnchor('half'); setSheetOffset(null); }} disabled={!mergeReady}>＋</Button>
+        <Tooltip title="上传成片">
+          <span className="batch-factory-media-pickstation-add" title="上传成片">
+            <input ref={el => { mergeUploadInputRef.current = el; }} type="file" accept="video/mp4,.mp4" hidden onChange={uploadMergeMaterial} />
+            <Button size="small" loading={savingTaskId === 'upload-merge'} disabled={savingTaskId === 'upload-merge'} onClick={() => mergeUploadInputRef.current?.click()}>＋</Button>
+          </span>
+        </Tooltip>
       </div>
     </section>;
   }

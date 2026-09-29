@@ -54,7 +54,7 @@ func NewRouter(options RouterOptions) http.Handler {
 		if output, ok := options.MergeOutput.(interface {
 			PutUploadedMP4(context.Context, string, string) (string, error)
 		}); ok {
-			registerVideoUploadRoutes(v11, options.Production, options.LocalArtifacts, output)
+			registerVideoUploadRoutes(v11, options.Production, options.Merge, options.LocalArtifacts, output)
 		}
 	}
 	if options.Merge != nil && options.Slice >= 5 {

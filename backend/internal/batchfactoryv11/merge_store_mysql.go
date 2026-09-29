@@ -113,6 +113,36 @@ func (s *MySQLStore) CreateMergeJob(ctx context.Context, value MergeJob) (MergeJ
 	return loadMergeJob(ctx, s.db, value.Owner, value.ID)
 }
 
+// CreateUploadedMergeJob records a manually uploaded final video that has no
+// storyboard sources. Unlike CreateMergeJob it deliberately skips the
+// sources-are-required contract because the uploaded MP4 is the whole deliverable.
+func (s *MySQLStore) CreateUploadedMergeJob(ctx context.Context, value MergeJob) (MergeJob, error) {
+	if strings.TrimSpace(value.Owner) == "" || strings.TrimSpace(value.BatchID) == "" || strings.TrimSpace(value.RequestID) == "" {
+		return MergeJob{}, ErrInvalid
+	}
+	jobID, err := newID("merge")
+	if err != nil {
+		return MergeJob{}, err
+	}
+	now := time.Now().UTC()
+	value.ID = jobID
+	value.Status = normalizeMergeState(value.Status)
+	if value.CreatedAt.IsZero() {
+		value.CreatedAt = now
+	}
+	if value.UpdatedAt.IsZero() {
+		value.UpdatedAt = now
+	}
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO batch_factory_v11_merge_jobs(id,owner_username,batch_id,book_id,request_id,timing_mode,speed,provider_task_id,status,progress_phase,progress_current,progress_total,output_url,error_message,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, value.ID, value.Owner, value.BatchID, nullableString(value.BookID), value.RequestID, nullableString(value.TimingMode), value.Speed, nullableString(value.ProviderTaskID), value.Status, nullableString(value.ProgressPhase), value.ProgressCurrent, value.ProgressTotal, nullableString(value.OutputURL), nullableString(value.ErrorMessage), value.CreatedAt, value.UpdatedAt); err != nil {
+		var duplicate *mysql.MySQLError
+		if errors.As(err, &duplicate) && duplicate.Number == 1062 {
+			return s.FindMergeJob(ctx, value.Owner, value.BatchID, value.RequestID)
+		}
+		return MergeJob{}, err
+	}
+	return loadMergeJob(ctx, s.db, value.Owner, value.ID)
+}
+
 func (s *MySQLStore) UpdateMergeJob(ctx context.Context, owner, jobID string, value MergeJob) (MergeJob, error) {
 	if strings.TrimSpace(owner) == "" || strings.TrimSpace(jobID) == "" {
 		return MergeJob{}, ErrInvalid

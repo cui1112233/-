@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -76,6 +77,7 @@ type VideoDurationProbe interface {
 type MergeRepository interface {
 	FindMergeJob(context.Context, string, string, string) (MergeJob, error)
 	CreateMergeJob(context.Context, MergeJob) (MergeJob, error)
+	CreateUploadedMergeJob(context.Context, MergeJob) (MergeJob, error)
 	UpdateMergeJob(context.Context, string, string, MergeJob) (MergeJob, error)
 	ListMergeJobs(context.Context, string, string) ([]MergeJob, error)
 }
@@ -146,6 +148,42 @@ func (s *MergeService) SubmitBookMerge(ctx context.Context, owner, batchID, book
 		return MergeJob{}, fmt.Errorf("%w: book id is required", ErrInvalid)
 	}
 	return s.submitMerge(ctx, owner, batchID, strings.TrimSpace(bookID), requestID, options)
+}
+
+// RegisterUploadedMerge records an already uploaded HTTPS MP4 as a finished
+// final-merge candidate for one novel. Unlike storyboard merges it has no
+// VIDEO sources; the uploaded file is the whole deliverable.
+func (s *MergeService) RegisterUploadedMerge(ctx context.Context, owner, batchID, bookID, requestID, mediaURL string) (MergeJob, error) {
+	if s == nil || s.Store == nil {
+		return MergeJob{}, ErrUnavailable
+	}
+	if strings.TrimSpace(requestID) == "" {
+		return MergeJob{}, fmt.Errorf("%w: request id is required", ErrInvalid)
+	}
+	parsed, err := url.Parse(strings.TrimSpace(mediaURL))
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" {
+		return MergeJob{}, fmt.Errorf("%w: uploaded media URL must be HTTPS", ErrInvalid)
+	}
+	repository, err := s.repository()
+	if err != nil {
+		return MergeJob{}, err
+	}
+	batch, err := s.Store.GetBatch(ctx, owner, batchID)
+	if err != nil {
+		return MergeJob{}, err
+	}
+	found := false
+	for _, book := range batch.Books {
+		if book.ID == bookID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return MergeJob{}, ErrNotFound
+	}
+	now := time.Now().UTC()
+	return repository.CreateUploadedMergeJob(ctx, MergeJob{Owner: owner, BatchID: batchID, BookID: bookID, RequestID: requestID, Status: MergeSucceeded, OutputURL: parsed.String(), CreatedAt: now, UpdatedAt: now})
 }
 
 func sameMergeVersion(left, right MergeJob) bool {
