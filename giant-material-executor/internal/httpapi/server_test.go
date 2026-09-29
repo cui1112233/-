@@ -109,6 +109,28 @@ func TestLocalSetupOriginCanPair(t *testing.T) {
 	}
 }
 
+func TestLocalSetupPairAllowsSameLoopbackRequestWithoutOriginHeader(t *testing.T) {
+	var pairedCode string
+	server, err := NewServer(ServerConfig{Addr: "127.0.0.1:17861", Origin: "https://example.com", Nonce: "nonce", Callbacks: Callbacks{
+		Pair: func(_ context.Context, code string) error {
+			pairedCode = code
+			return nil
+		},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:17861/v1/pair", strings.NewReader(`{"code":"same-loopback-code"}`))
+	req.Host = "127.0.0.1:17861"
+	req.RemoteAddr = "127.0.0.1:54321"
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || pairedCode != "same-loopback-code" {
+		t.Fatalf("status=%d paired=%q body=%s", rec.Code, pairedCode, rec.Body.String())
+	}
+}
+
 func TestPairingPersistsBrowserSelectedPublicURLBeforePair(t *testing.T) {
 	var savedURL string
 	var pairedURL string

@@ -94,7 +94,8 @@ func (s *Server) guard(next http.Handler) http.Handler {
 		nonceOK := req.Header.Get("X-Giant-Executor-Nonce") == s.config.Nonce
 		bootstrapPair := req.Method == http.MethodPost && req.URL.Path == "/v1/pair" && strings.TrimSpace(req.Header.Get("X-Giant-Executor-Nonce")) == ""
 		localHealthProbe := req.Method == http.MethodGet && req.URL.Path == "/v1/health" && isLoopbackRemote(req.RemoteAddr)
-		if (!originOK && !localHealthProbe) || (!nonceOK && !bootstrapPair && !localHealthProbe) {
+		localSetupRequest := isLoopbackRemote(req.RemoteAddr) && sameHostPort(req.Host, s.config.Addr) && (req.URL.Path == "/v1/pair" || req.URL.Path == "/v1/health")
+		if (!originOK && !localHealthProbe && !localSetupRequest) || (!nonceOK && !bootstrapPair && !localHealthProbe && !localSetupRequest) {
 			writeError(w, http.StatusForbidden, "loopback origin or nonce rejected")
 			return
 		}
@@ -111,6 +112,12 @@ func isLoopbackRemote(remoteAddr string) bool {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
+}
+
+func sameHostPort(left, right string) bool {
+	leftHost, leftPort, leftErr := net.SplitHostPort(strings.TrimSpace(left))
+	rightHost, rightPort, rightErr := net.SplitHostPort(strings.TrimSpace(right))
+	return leftErr == nil && rightErr == nil && leftHost == rightHost && leftPort == rightPort
 }
 
 func (s *Server) setupPage(w http.ResponseWriter, _ *http.Request) {
