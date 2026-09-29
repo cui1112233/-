@@ -9,7 +9,8 @@
 ----------
 1. 把整个 ZIP 解压到一个固定目录，例如：
    C:\Users\<你的用户名>\AppData\Local\YizhanShengming\GiantMaterialExecutor
-2. 双击 start-giant-material-executor.cmd，或直接运行 GiantMaterialExecutor.exe。
+2. 双击 start-giant-material-executor.cmd，或直接运行 GiantMaterialExecutor.exe。启动脚本会把输出写入
+   同目录的 executor.log，并检查本机 17861 端口；如果启动失败，窗口会停住并显示错误，不会再无提示闪退。
 3. 保持执行器在后台运行。它只监听本机 127.0.0.1:17861，不会暴露公网端口。
 4. 打开本地一战晟铭网页，进入「批量工厂」的「巨量素材获取」状态卡，点击「首次绑定（自动配对）」。
    首次绑定成功后，设备凭证会保存在当前 Windows 用户配置目录，之后重启执行器会自动连接，
