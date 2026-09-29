@@ -109,6 +109,7 @@ type CreateJobInput struct {
 	Title             string     `json:"title"`
 	VideoURL          string     `json:"videoUrl"`
 	VideoExpiresAt    *time.Time `json:"videoExpiresAt,omitempty"`
+	DurationSeconds   float64    `json:"durationSeconds"`
 	ModelVersion      string     `json:"modelVersion"`
 	ContentRangeLines string     `json:"contentRangeLines,omitempty"`
 }
@@ -144,6 +145,7 @@ type JobRecord struct {
 	Title             string
 	VideoURL          string
 	VideoExpiresAt    *time.Time
+	DurationSeconds   float64
 	ModelVersion      string
 	ContentRangeLines string
 	State             JobState
@@ -181,16 +183,30 @@ type JobView struct {
 	UpdatedAt         time.Time     `json:"updatedAt"`
 }
 
+type ExecutorJobView struct {
+	ID                string     `json:"id"`
+	Platform          string     `json:"platform"`
+	MaterialID        string     `json:"materialId"`
+	PlatformBookID    string     `json:"platformBookId"`
+	Title             string     `json:"title"`
+	VideoURL          string     `json:"videoUrl"`
+	VideoExpiresAt    *time.Time `json:"videoExpiresAt,omitempty"`
+	DurationSeconds   float64    `json:"durationSeconds"`
+	ModelVersion      string     `json:"modelVersion"`
+	ContentRangeLines string     `json:"contentRangeLines,omitempty"`
+	State             JobState   `json:"state"`
+}
+
 type LeaseCredential struct {
 	Token      string `json:"leaseToken"`
 	Generation int64  `json:"leaseGeneration"`
 }
 
 type ClaimResult struct {
-	Job             JobView   `json:"job"`
-	LeaseToken      string    `json:"leaseToken"`
-	LeaseGeneration int64     `json:"leaseGeneration"`
-	LeaseExpiresAt  time.Time `json:"leaseExpiresAt"`
+	Job             ExecutorJobView `json:"job"`
+	LeaseToken      string          `json:"leaseToken"`
+	LeaseGeneration int64           `json:"leaseGeneration"`
+	LeaseExpiresAt  time.Time       `json:"leaseExpiresAt"`
 }
 
 type LeaseView struct {
@@ -200,11 +216,12 @@ type LeaseView struct {
 
 func (r JobRecord) MarshalPayload() ([]byte, error) {
 	return json.Marshal(struct {
-		MaterialID     string     `json:"materialId"`
-		PlatformBookID string     `json:"platformBookId"`
-		Title          string     `json:"title"`
-		VideoURL       string     `json:"videoUrl"`
-		VideoExpiresAt *time.Time `json:"videoExpiresAt,omitempty"`
-		ModelVersion   string     `json:"modelVersion"`
-	}{r.MaterialID, r.PlatformBookID, r.Title, r.VideoURL, r.VideoExpiresAt, r.ModelVersion})
+		MaterialID      string     `json:"materialId"`
+		PlatformBookID  string     `json:"platformBookId"`
+		Title           string     `json:"title"`
+		VideoURL        string     `json:"videoUrl"`
+		VideoExpiresAt  *time.Time `json:"videoExpiresAt,omitempty"`
+		DurationSeconds float64    `json:"durationSeconds"`
+		ModelVersion    string     `json:"modelVersion"`
+	}{r.MaterialID, r.PlatformBookID, r.Title, r.VideoURL, r.VideoExpiresAt, r.DurationSeconds, r.ModelVersion})
 }

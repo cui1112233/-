@@ -113,7 +113,7 @@ FROM giant_executors WHERE owner_username = ? ORDER BY updated_at DESC, id ASC`,
 }
 
 const jobSelect = `SELECT j.id, j.owner_username, j.platform, j.material_id, j.platform_book_id, j.title,
- j.video_url, j.video_expires_at, j.model_version, j.content_range_lines, j.state, j.cancel_requested,
+ j.video_url, j.video_expires_at, j.duration_seconds, j.model_version, j.content_range_lines, j.state, j.cancel_requested,
  j.progress_completed, j.progress_total, j.progress_percent, j.lease_executor_id, j.lease_token_hash,
  j.lease_generation, j.lease_expires_at, j.error_code, j.error_message, j.created_at, j.updated_at,
  r.text_body, r.word_count, r.created_at
@@ -129,9 +129,9 @@ func (s *MySQLStore) FindJobByKey(ctx context.Context, owner, key string) (JobRe
 
 func (s *MySQLStore) CreateJob(ctx context.Context, record JobRecord) error {
 	_, err := s.db.ExecContext(ctx, `INSERT INTO giant_executor_jobs
-(id, owner_username, platform, material_id, platform_book_id, title, video_url, video_expires_at, model_version, content_range_lines, state, cancel_requested,
+(id, owner_username, platform, material_id, platform_book_id, title, video_url, video_expires_at, duration_seconds, model_version, content_range_lines, state, cancel_requested,
  progress_completed, progress_total, progress_percent, lease_executor_id, lease_token_hash, lease_generation, lease_expires_at, error_code, error_message, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, FALSE, 0, 0, 0, NULL, NULL, 0, NULL, NULL, NULL, ?, ?)`, record.ID, record.OwnerUsername, record.Platform, record.MaterialID, record.PlatformBookID, record.Title, record.VideoURL, record.VideoExpiresAt, record.ModelVersion, record.ContentRangeLines, record.State, record.CreatedAt, record.UpdatedAt)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, FALSE, 0, 0, 0, NULL, NULL, 0, NULL, NULL, NULL, ?, ?)`, record.ID, record.OwnerUsername, record.Platform, record.MaterialID, record.PlatformBookID, record.Title, record.VideoURL, record.VideoExpiresAt, record.DurationSeconds, record.ModelVersion, record.ContentRangeLines, record.State, record.CreatedAt, record.UpdatedAt)
 	return err
 }
 
@@ -308,7 +308,7 @@ func scanJob(scan scanFunc) (JobRecord, error) {
 	var leaseExecutor, errorCode, errorMessage, resultText sql.NullString
 	var leaseHash []byte
 	var wordCount sql.NullInt64
-	err := scan(&record.ID, &record.OwnerUsername, &record.Platform, &record.MaterialID, &record.PlatformBookID, &record.Title, &record.VideoURL, &videoExpires, &record.ModelVersion, &record.ContentRangeLines, &record.State, &record.CancelRequested, &record.Progress.Completed, &record.Progress.Total, &record.Progress.Percent, &leaseExecutor, &leaseHash, &record.LeaseGeneration, &leaseExpires, &errorCode, &errorMessage, &record.CreatedAt, &record.UpdatedAt, &resultText, &wordCount, &resultCreated)
+	err := scan(&record.ID, &record.OwnerUsername, &record.Platform, &record.MaterialID, &record.PlatformBookID, &record.Title, &record.VideoURL, &videoExpires, &record.DurationSeconds, &record.ModelVersion, &record.ContentRangeLines, &record.State, &record.CancelRequested, &record.Progress.Completed, &record.Progress.Total, &record.Progress.Percent, &leaseExecutor, &leaseHash, &record.LeaseGeneration, &leaseExpires, &errorCode, &errorMessage, &record.CreatedAt, &record.UpdatedAt, &resultText, &wordCount, &resultCreated)
 	if err != nil {
 		return JobRecord{}, err
 	}

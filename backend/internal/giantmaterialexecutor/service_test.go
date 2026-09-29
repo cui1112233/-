@@ -36,10 +36,10 @@ func TestPairingIsOneTimeAndExpiredCodesAreRejected(t *testing.T) {
 
 func TestGiantExecutorRejectsDoubaoJobsAndClaimsOnlyItsPlatform(t *testing.T) {
 	service := NewService(NewMemoryStore(), time.Now)
-	if _, err := service.CreateJob(context.Background(), "alice", CreateJobInput{Platform: "doubao", MaterialID: "doubao-1", PlatformBookID: "book-1", Title: "wrong platform", VideoURL: "https://material.hnqingyuwen.top/video.mp4", ModelVersion: "v1"}); !errors.Is(err, ErrInvalidPlatform) {
+	if _, err := service.CreateJob(context.Background(), "alice", CreateJobInput{Platform: "doubao", MaterialID: "doubao-1", PlatformBookID: "book-1", Title: "wrong platform", VideoURL: "https://material.hnqingyuwen.top/video.mp4", DurationSeconds: 1, ModelVersion: "v1"}); !errors.Is(err, ErrInvalidPlatform) {
 		t.Fatalf("doubao job error=%v", err)
 	}
-	if _, err := service.CreateJob(context.Background(), "alice", CreateJobInput{Platform: PlatformGiantMaterial, MaterialID: "giant-1", PlatformBookID: "book-1", Title: "giant", VideoURL: "https://material.hnqingyuwen.top/video.mp4", ModelVersion: "v1"}); err != nil {
+	if _, err := service.CreateJob(context.Background(), "alice", CreateJobInput{Platform: PlatformGiantMaterial, MaterialID: "giant-1", PlatformBookID: "book-1", Title: "giant", VideoURL: "https://material.hnqingyuwen.top/video.mp4", DurationSeconds: 1, ModelVersion: "v1"}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -155,7 +155,7 @@ func pairTestExecutor(t *testing.T, service *Service, owner string) string {
 }
 
 func testJobInput(materialID, bookID string) CreateJobInput {
-	return CreateJobInput{Platform: PlatformGiantMaterial, MaterialID: materialID, PlatformBookID: bookID, Title: "测试书", VideoURL: "https://material.hnqingyuwen.top/video.mp4", ModelVersion: "v1"}
+	return CreateJobInput{Platform: PlatformGiantMaterial, MaterialID: materialID, PlatformBookID: bookID, Title: "测试书", VideoURL: "https://material.hnqingyuwen.top/video.mp4", DurationSeconds: 1, ModelVersion: "v1"}
 }
 
 type testClock struct{ now time.Time }

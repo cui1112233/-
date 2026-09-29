@@ -95,7 +95,7 @@ func (s *Service) ListExecutors(ctx context.Context, owner string) ([]ExecutorVi
 
 func (s *Service) CreateJob(ctx context.Context, owner string, input CreateJobInput) (JobView, error) {
 	owner = strings.TrimSpace(owner)
-	if owner == "" || strings.TrimSpace(input.MaterialID) == "" || strings.TrimSpace(input.PlatformBookID) == "" || strings.TrimSpace(input.Title) == "" || strings.TrimSpace(input.ModelVersion) == "" {
+	if owner == "" || strings.TrimSpace(input.MaterialID) == "" || strings.TrimSpace(input.PlatformBookID) == "" || strings.TrimSpace(input.Title) == "" || strings.TrimSpace(input.ModelVersion) == "" || input.DurationSeconds <= 0 || input.DurationSeconds > 1800 {
 		return JobView{}, ErrInvalidInput
 	}
 	if strings.ToLower(strings.TrimSpace(input.Platform)) != PlatformGiantMaterial {
@@ -107,7 +107,7 @@ func (s *Service) CreateJob(ctx context.Context, owner string, input CreateJobIn
 	if input.VideoExpiresAt != nil && !input.VideoExpiresAt.After(s.now().UTC()) {
 		return JobView{}, ErrInvalidInput
 	}
-	record := JobRecord{ID: randomID("gme_job_"), OwnerUsername: owner, Platform: PlatformGiantMaterial, MaterialID: strings.TrimSpace(input.MaterialID), PlatformBookID: strings.TrimSpace(input.PlatformBookID), Title: bounded(input.Title, 191), VideoURL: strings.TrimSpace(input.VideoURL), VideoExpiresAt: input.VideoExpiresAt, ModelVersion: bounded(input.ModelVersion, 64), ContentRangeLines: bounded(input.ContentRangeLines, 64), State: JobQueued, CreatedAt: s.now().UTC(), UpdatedAt: s.now().UTC()}
+	record := JobRecord{ID: randomID("gme_job_"), OwnerUsername: owner, Platform: PlatformGiantMaterial, MaterialID: strings.TrimSpace(input.MaterialID), PlatformBookID: strings.TrimSpace(input.PlatformBookID), Title: bounded(input.Title, 191), VideoURL: strings.TrimSpace(input.VideoURL), VideoExpiresAt: input.VideoExpiresAt, DurationSeconds: input.DurationSeconds, ModelVersion: bounded(input.ModelVersion, 64), ContentRangeLines: bounded(input.ContentRangeLines, 64), State: JobQueued, CreatedAt: s.now().UTC(), UpdatedAt: s.now().UTC()}
 	key := jobKey(record)
 	if existing, err := s.store.FindJobByKey(ctx, owner, key); err == nil {
 		return jobView(existing), nil
@@ -156,7 +156,7 @@ func (s *Service) Claim(ctx context.Context, token string) (ClaimResult, error) 
 	if err != nil {
 		return ClaimResult{}, err
 	}
-	return ClaimResult{Job: jobView(record), LeaseToken: leaseToken, LeaseGeneration: record.LeaseGeneration, LeaseExpiresAt: expires}, nil
+	return ClaimResult{Job: executorJobView(record), LeaseToken: leaseToken, LeaseGeneration: record.LeaseGeneration, LeaseExpiresAt: expires}, nil
 }
 
 func (s *Service) Renew(ctx context.Context, token, jobID string, lease LeaseCredential) (LeaseView, error) {
@@ -227,6 +227,10 @@ func (s *Service) executorForToken(ctx context.Context, token string) (ExecutorR
 
 func jobView(record JobRecord) JobView {
 	return JobView{ID: record.ID, Platform: record.Platform, MaterialID: record.MaterialID, PlatformBookID: record.PlatformBookID, Title: record.Title, ModelVersion: record.ModelVersion, ContentRangeLines: record.ContentRangeLines, State: record.State, CancelRequested: record.CancelRequested, LeaseExecutorID: record.LeaseExecutorID, LeaseGeneration: record.LeaseGeneration, LeaseExpiresAt: record.LeaseExpiresAt, Progress: record.Progress, Result: record.Result, ErrorCode: record.ErrorCode, ErrorMessage: record.ErrorMessage, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}
+}
+
+func executorJobView(record JobRecord) ExecutorJobView {
+	return ExecutorJobView{ID: record.ID, Platform: record.Platform, MaterialID: record.MaterialID, PlatformBookID: record.PlatformBookID, Title: record.Title, VideoURL: record.VideoURL, VideoExpiresAt: record.VideoExpiresAt, DurationSeconds: record.DurationSeconds, ModelVersion: record.ModelVersion, ContentRangeLines: record.ContentRangeLines, State: record.State}
 }
 
 func normalizePairingCode(code string) string {

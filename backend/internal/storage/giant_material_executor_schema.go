@@ -36,6 +36,7 @@ func GiantMaterialExecutorStatements() []string {
   title VARCHAR(191) NOT NULL,
   video_url VARCHAR(512) NOT NULL,
   video_expires_at DATETIME(6) NULL,
+  duration_seconds DOUBLE NOT NULL DEFAULT 0,
   model_version VARCHAR(64) NOT NULL,
   content_range_lines VARCHAR(64) NOT NULL DEFAULT '',
   state VARCHAR(32) NOT NULL,

@@ -29,7 +29,7 @@ func TestGiantMaterialExecutorRoutesKeepControlPlaneSeparateAndHideVideoURL(t *t
 	}
 	paired := decodeBody[giantmaterialexecutor.PairResult](t, pairedRequest)
 
-	jobRequest := signedJSONRequest(t, api, now, "alice", http.MethodPost, "/api/shuihuo-production/giant-material-jobs", map[string]any{"platform": giantmaterialexecutor.PlatformGiantMaterial, "materialId": "7689285397448523826", "platformBookId": "book-1", "title": "滚屏测试", "videoUrl": "https://material.hnqingyuwen.top/n8_videos/sample.mp4", "modelVersion": "windows-paddleocr-v1"})
+	jobRequest := signedJSONRequest(t, api, now, "alice", http.MethodPost, "/api/shuihuo-production/giant-material-jobs", map[string]any{"platform": giantmaterialexecutor.PlatformGiantMaterial, "materialId": "7689285397448523826", "platformBookId": "book-1", "title": "滚屏测试", "videoUrl": "https://material.hnqingyuwen.top/n8_videos/sample.mp4", "durationSeconds": 1, "modelVersion": "windows-paddleocr-v1"})
 	if jobRequest.Code != http.StatusCreated {
 		t.Fatalf("job=%d body=%s", jobRequest.Code, jobRequest.Body.String())
 	}
@@ -46,6 +46,9 @@ func TestGiantMaterialExecutorRoutesKeepControlPlaneSeparateAndHideVideoURL(t *t
 		t.Fatalf("claim=%d body=%s", claim.Code, claim.Body.String())
 	}
 	claimValue := decodeBody[giantmaterialexecutor.ClaimResult](t, claim)
+	if claimValue.Job.VideoURL != "https://material.hnqingyuwen.top/n8_videos/sample.mp4" || claimValue.Job.DurationSeconds != 1 {
+		t.Fatalf("executor payload=%+v", claimValue.Job)
+	}
 	progressBody := map[string]any{"leaseToken": claimValue.LeaseToken, "leaseGeneration": claimValue.LeaseGeneration, "state": giantmaterialexecutor.JobRunning, "completed": 1, "total": 1, "percent": 100}
 	if progress := bearerJSONRequest(t, api, paired.Token, http.MethodPost, "/api/giant-material-executor/v1/jobs/"+job.ID+"/progress", progressBody); progress.Code != http.StatusOK {
 		t.Fatalf("progress=%d body=%s", progress.Code, progress.Body.String())
