@@ -10,7 +10,8 @@
 1. 把整个 ZIP 解压到一个固定目录，例如：
    C:\Users\<你的用户名>\AppData\Local\YizhanShengming\GiantMaterialExecutor
 2. 在网页「设置 → 巨量素材执行器」点击「生成配对码」，记下 10 分钟内有效的代码。
-3. 双击 GiantMaterialExecutor.exe，会出现“巨量素材执行器”窗口；把网页上生成的配对码粘贴进去并点击“绑定”。
+3. 双击 GiantMaterialExecutor.exe，会出现“巨量素材执行器”窗口。先确认“控制服务地址”是网页所在服务器的地址；
+   如果网页和执行器不在同一台电脑，不能填写 Windows 自己的 127.0.0.1。再把网页上生成的配对码粘贴进去并点击“绑定”。
    绑定成功后，设备凭证会保存在当前 Windows 用户配置目录，之后重启执行器会自动连接，不需要重复配对。
 4. 保持执行器在后台运行。窗口可以点击“最小化到后台”；它只监听本机 127.0.0.1:17861，不会暴露公网端口。
    运行日志保存在 `%APPDATA%\YizhanShengming\GiantMaterialExecutor\executor.log`。
@@ -30,8 +31,10 @@
 - 这里的 127.0.0.1 永远指安装执行器的这台 Windows 电脑。Mac 上的
   http://127.0.0.1:5173 或 http://127.0.0.1:4000 不会自动被 Windows 访问到。
 - 最简单的首次测试：网页和 Go 控制服务也运行在 Windows 本机。
-- 如果网页运行在公网或另一台电脑，请把 GIANT_MATERIAL_PUBLIC_API_URL 设置成
-  Windows 能访问的控制 API 地址，并让浏览器在同一台 Windows 电脑打开网页完成首次绑定。
+- 如果网页运行在公网或另一台电脑，请在执行器窗口的“控制服务地址”中填写
+  Windows 能访问的控制 API 地址（例如 `https://你的域名`）。绑定成功后地址会保存在
+  `%APPDATA%\YizhanShengming\GiantMaterialExecutor\public-api-url`，下次启动会自动使用。
+  也可以通过 `GIANT_MATERIAL_PUBLIC_API_URL` 预先指定地址；环境变量优先于保存的地址。
   不要把 17861 端口映射到公网。
 
 如果你的本地服务端口不同，可在启动前设置环境变量：

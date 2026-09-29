@@ -37,7 +37,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("load executor nonce: %v", err)
 	}
-	publicURL := envOr("GIANT_MATERIAL_PUBLIC_API_URL", "http://127.0.0.1:4000")
+	publicURL := loadPublicAPIURL()
 	origin := envOr("GIANT_MATERIAL_EXECUTOR_ORIGIN", "http://127.0.0.1:5173")
 	deviceName := envOr("GIANT_MATERIAL_EXECUTOR_DEVICE_NAME", localDeviceName())
 	python := envOr("GIANT_MATERIAL_PYTHON", "python")
@@ -64,7 +64,27 @@ func main() {
 		current.BindingState = bindingState
 		return current
 	}
-	publicClient := agent.NewHTTPClient(publicURL, http.DefaultClient)
+	publicURLMu := sync.RWMutex{}
+	publicClient := agent.NewHTTPClient(publicURL, &http.Client{Timeout: 20 * time.Second})
+	getPublicClient := func() *agent.HTTPClient {
+		publicURLMu.RLock()
+		defer publicURLMu.RUnlock()
+		return publicClient
+	}
+	setPublicURL := func(raw string) error {
+		normalized, normalizeErr := normalizePublicAPIURL(raw)
+		if normalizeErr != nil {
+			return normalizeErr
+		}
+		if saveErr := savePublicAPIURL(normalized); saveErr != nil {
+			return errors.New("无法保存控制服务地址：" + saveErr.Error())
+		}
+		publicURLMu.Lock()
+		publicURL = normalized
+		publicClient = agent.NewHTTPClient(normalized, &http.Client{Timeout: 20 * time.Second})
+		publicURLMu.Unlock()
+		return nil
+	}
 	credentialStore, err := newCredentialStore()
 	if err != nil {
 		log.Fatalf("load executor credential store: %v", err)
@@ -79,8 +99,9 @@ func main() {
 		stateMu.Unlock()
 		go func() {
 			for {
+				client := getPublicClient()
 				next, newErr := agent.New(agent.Config{
-					Client:         publicClient,
+					Client:         client,
 					Supervisor:     supervisor,
 					PrepareModel:   prepareModel,
 					OnBindingState: setBindingState,
@@ -127,7 +148,7 @@ func main() {
 		}()
 	}
 	pair := func(pairCtx context.Context, code string) error {
-		result, pairErr := publicClient.Pair(pairCtx, agent.PairInput{Code: code, DeviceName: deviceName, OS: "windows", Version: version, Platform: "giant_material"})
+		result, pairErr := getPublicClient().Pair(pairCtx, agent.PairInput{Code: code, DeviceName: deviceName, OS: "windows", Version: version, Platform: "giant_material"})
 		if pairErr != nil {
 			return pairErr
 		}
@@ -170,7 +191,7 @@ func main() {
 		}
 	}()
 	go func() {
-		if uiErr := ui.Run(ctx, ui.Config{Pair: pair, Snapshot: snapshot, Shutdown: stop}); uiErr != nil && ctx.Err() == nil {
+		if uiErr := ui.Run(ctx, ui.Config{PublicURL: publicURL, SetPublicURL: setPublicURL, Pair: pair, Snapshot: snapshot, Shutdown: stop}); uiErr != nil && ctx.Err() == nil {
 			log.Printf("executor UI stopped: %v", uiErr)
 		}
 	}()

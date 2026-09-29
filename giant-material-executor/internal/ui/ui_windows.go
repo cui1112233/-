@@ -36,10 +36,11 @@ const (
 	wmPairResult       = wmApp + 1
 	wmTimerStatus      = 1
 
-	controlPairCode = 1001
-	controlPair     = 1002
-	controlMinimize = 1003
-	controlStatus   = 1004
+	controlEndpoint = 1001
+	controlPairCode = 1002
+	controlPair     = 1003
+	controlMinimize = 1004
+	controlStatus   = 1005
 )
 
 var (
@@ -97,6 +98,7 @@ type wndClassEx struct {
 
 type winApp struct {
 	hwnd     uintptr
+	endpoint uintptr
 	edit     uintptr
 	status   uintptr
 	bind     uintptr
@@ -138,8 +140,8 @@ func Run(ctx context.Context, config Config) error {
 		wsOverlappedWindow,
 		cwUseDefault,
 		cwUseDefault,
-		520,
-		260,
+		560,
+		320,
 		0,
 		0,
 		instance,
@@ -187,12 +189,14 @@ func loadArrowCursor() uintptr {
 }
 
 func (app *winApp) createControls() {
-	app.createControl("STATIC", "巨量素材执行器", 24, 20, 460, 28, 0, 0)
-	app.createControl("STATIC", "输入网页设置中生成的配对码，绑定后可长期后台运行。", 24, 52, 460, 22, 0, 0)
-	app.edit = app.createControl("EDIT", "", 24, 86, 300, 30, wsChild|wsVisible|wsBorder|wsTabStop|esAutoHScroll, controlPairCode)
-	app.bind = app.createControl("BUTTON", "绑定", 340, 86, 100, 30, wsChild|wsVisible|wsTabStop, controlPair)
-	app.createControl("BUTTON", "最小化到后台", 24, 130, 130, 30, wsChild|wsVisible|wsTabStop, controlMinimize)
-	app.status = app.createControl("STATIC", "正在启动…", 24, 178, 460, 42, 0, controlStatus)
+	app.createControl("STATIC", "巨量素材执行器", 24, 20, 500, 28, 0, 0)
+	app.createControl("STATIC", "控制服务地址（网页所在服务器）", 24, 54, 500, 22, 0, 0)
+	app.endpoint = app.createControl("EDIT", app.config.PublicURL, 24, 78, 500, 30, wsChild|wsVisible|wsBorder|wsTabStop|esAutoHScroll, controlEndpoint)
+	app.createControl("STATIC", "输入网页设置中生成的配对码，绑定后可长期后台运行。", 24, 116, 500, 22, 0, 0)
+	app.edit = app.createControl("EDIT", "", 24, 148, 350, 30, wsChild|wsVisible|wsBorder|wsTabStop|esAutoHScroll, controlPairCode)
+	app.bind = app.createControl("BUTTON", "绑定", 390, 148, 100, 30, wsChild|wsVisible|wsTabStop, controlPair)
+	app.createControl("BUTTON", "最小化到后台", 24, 192, 130, 30, wsChild|wsVisible|wsTabStop, controlMinimize)
+	app.status = app.createControl("STATIC", "正在启动…", 24, 238, 500, 42, 0, controlStatus)
 }
 
 func (app *winApp) createControl(className, text string, x, y, width, height int, style uint32, id int) uintptr {
@@ -229,6 +233,13 @@ func (app *winApp) startPairing() {
 	if app.pairing {
 		return
 	}
+	endpoint := strings.TrimSpace(app.readControl(app.endpoint))
+	if app.config.SetPublicURL != nil {
+		if err := app.config.SetPublicURL(endpoint); err != nil {
+			app.setStatus("控制服务地址无效：" + err.Error())
+			return
+		}
+	}
 	code := strings.TrimSpace(app.readEdit())
 	if code == "" {
 		app.setStatus("请输入网页设置中生成的配对码。")
@@ -236,7 +247,7 @@ func (app *winApp) startPairing() {
 	}
 	app.pairing = true
 	procEnableWindow.Call(app.bind, 0)
-	app.setStatus("正在绑定，请保持网络连接…")
+	app.setStatus("正在绑定，请保持网络连接…\n地址：" + endpoint)
 	go func() {
 		pairCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		err := app.config.Pair(pairCtx, code)
@@ -275,15 +286,17 @@ func (app *winApp) refreshStatus() {
 	app.setStatus(status)
 }
 
-func (app *winApp) readEdit() string {
-	length, _, _ := procGetWindowTextLengthW.Call(app.edit)
+func (app *winApp) readControl(control uintptr) string {
+	length, _, _ := procGetWindowTextLengthW.Call(control)
 	if length == 0 {
 		return ""
 	}
 	buffer := make([]uint16, int(length)+1)
-	procGetWindowTextW.Call(app.edit, uintptr(unsafe.Pointer(&buffer[0])), uintptr(len(buffer)))
+	procGetWindowTextW.Call(control, uintptr(unsafe.Pointer(&buffer[0])), uintptr(len(buffer)))
 	return windows.UTF16ToString(buffer)
 }
+
+func (app *winApp) readEdit() string { return app.readControl(app.edit) }
 
 func (app *winApp) setEdit(value string) {
 	text, _ := windows.UTF16PtrFromString(value)

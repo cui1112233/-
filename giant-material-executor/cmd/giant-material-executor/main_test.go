@@ -9,6 +9,38 @@ import (
 	"qiantie/giant-material-executor/internal/credential"
 )
 
+func TestNormalizePublicAPIURLRequiresHTTPHost(t *testing.T) {
+	cases := []struct {
+		name    string
+		input   string
+		want    string
+		wantErr bool
+	}{
+		{name: "trims trailing slash", input: " https://factory.example.com/ ", want: "https://factory.example.com"},
+		{name: "allows API path", input: "https://factory.example.com/control/", want: "https://factory.example.com/control"},
+		{name: "rejects missing scheme", input: "factory.example.com", wantErr: true},
+		{name: "rejects unsupported scheme", input: "ftp://factory.example.com", wantErr: true},
+		{name: "rejects missing host", input: "https://", wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := normalizePublicAPIURL(tc.input)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected error for %q", tc.input)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("normalize URL: %v", err)
+			}
+			if got != tc.want {
+				t.Fatalf("normalized URL=%q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestConfiguredPairingCodeTrimsEnvironment(t *testing.T) {
 	t.Setenv("GIANT_MATERIAL_EXECUTOR_PAIRING_CODE", "  ABCD-1234  ")
 	if got := configuredPairingCode(); got != "ABCD-1234" {
