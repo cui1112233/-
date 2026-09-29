@@ -219,10 +219,10 @@ func TestBuildDirectorContractKeepsSelectedVideoPromptWhenLegacySwitchWasOff(t *
 	}
 }
 
-func TestBuildDirectorContractDropsH3PublicRulesForSelectedSDVideoPreset(t *testing.T) {
+func TestBuildDirectorContractUsesOnlySelectedNonH3VideoPresetRules(t *testing.T) {
 	book := Book{ID: "book-1", Title: "测试书", SourceText: "林晚走进客厅。"}
 	config := map[string]any{
-		"video": map[string]any{"presetId": "batch-video-sd", "presetKey": "h3-video-normal", "body": "SD VIDEO RULE"},
+		"video": map[string]any{"presetId": "batch-video-custom", "presetKey": "h3-video-normal", "body": "CUSTOM VIDEO RULE"},
 		"scriptComposition": map[string]any{
 			"general":      map[string]any{"body": "H3 GENERAL RULE"},
 			"cardProtocol": map[string]any{"body": "H3 CARD RULE"},
@@ -238,8 +238,8 @@ func TestBuildDirectorContractDropsH3PublicRulesForSelectedSDVideoPreset(t *test
 			t.Fatalf("SD contract contains H3 rule %q:\n%s", forbidden, contract.SystemPrompt)
 		}
 	}
-	if !strings.Contains(contract.SystemPrompt, "SD VIDEO RULE") {
-		t.Fatal("SD video rule is missing")
+	if !strings.Contains(contract.SystemPrompt, "CUSTOM VIDEO RULE") {
+		t.Fatal("selected non-H3 video rule is missing")
 	}
 }
 
