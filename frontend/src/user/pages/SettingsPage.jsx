@@ -328,7 +328,7 @@ export function SettingsPage() {
               <Button type="primary" icon={<Download size={16} strokeWidth={1.8} aria-hidden="true" />} href="/downloads/giant-material-executor/GiantMaterialExecutor-windows-x64.zip">下载 Windows 执行器</Button>
             </div>
             {giantPairing?.code ? <p className="settings-executor-pairing">配对码：<strong>{giantPairing.code}</strong>（10 分钟内有效）。请在 Windows 执行器首次启动窗口中输入；绑定成功后这里会显示在线状态。</p> : null}
-            <p className="settings-executor-pairing">下载后解压并启动执行器，在首次启动窗口输入上面的配对码；也可以在批量工厂的“巨量素材获取”使用同机自动配对。OCR 模型会在第一次运行时单独下载，不包含在安装包内。</p>
+            <p className="settings-executor-pairing">下载后解压并双击 GiantMaterialExecutor.exe，在首次启动窗口输入上面的配对码；也可以在批量工厂的“巨量素材获取”使用同机自动配对。OCR 模型会在第一次运行时单独下载，不包含在安装包内。</p>
           </div>
         </section>
 

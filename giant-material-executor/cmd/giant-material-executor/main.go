@@ -21,6 +21,7 @@ import (
 	"qiantie/giant-material-executor/internal/credential"
 	"qiantie/giant-material-executor/internal/httpapi"
 	"qiantie/giant-material-executor/internal/modelcache"
+	"qiantie/giant-material-executor/internal/ui"
 	"qiantie/giant-material-executor/internal/worker"
 )
 
@@ -29,6 +30,8 @@ var version = "dev"
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	closeLog := configureLogging()
+	defer closeLog()
 
 	nonce, err := loadOrCreateNonce()
 	if err != nil {
@@ -166,9 +169,34 @@ func main() {
 			log.Printf("loopback server stopped: %v", serveErr)
 		}
 	}()
+	go func() {
+		if uiErr := ui.Run(ctx, ui.Config{Pair: pair, Snapshot: snapshot, Shutdown: stop}); uiErr != nil && ctx.Err() == nil {
+			log.Printf("executor UI stopped: %v", uiErr)
+		}
+	}()
 	log.Printf("giant material executor started version=%s loopback=127.0.0.1:17861 workerResident=true", version)
 	<-ctx.Done()
 	log.Printf("giant material executor stopped")
+}
+
+func configureLogging() func() {
+	root, err := os.UserConfigDir()
+	if err != nil {
+		return func() {}
+	}
+	path := strings.TrimSpace(os.Getenv("GIANT_MATERIAL_EXECUTOR_LOG_PATH"))
+	if path == "" {
+		path = filepath.Join(root, "YizhanShengming", "GiantMaterialExecutor", "executor.log")
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return func() {}
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return func() {}
+	}
+	log.SetOutput(file)
+	return func() { _ = file.Close() }
 }
 
 func newCredentialStore() (credential.Store, error) {

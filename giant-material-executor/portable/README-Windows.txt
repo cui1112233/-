@@ -10,10 +10,11 @@
 1. 把整个 ZIP 解压到一个固定目录，例如：
    C:\Users\<你的用户名>\AppData\Local\YizhanShengming\GiantMaterialExecutor
 2. 在网页「设置 → 巨量素材执行器」点击「生成配对码」，记下 10 分钟内有效的代码。
-3. 双击 start-giant-material-executor.cmd，在启动窗口输入配对码。绑定成功后，设备凭证会保存在当前
-   Windows 用户配置目录，之后重启执行器会自动连接，不需要重复配对。
-4. 保持执行器在后台运行。它只监听本机 127.0.0.1:17861，不会暴露公网端口。启动脚本会把输出写入
-   同目录的 executor.log，并检查本机端口；如果启动失败，窗口会停住并显示错误，不会无提示闪退。
+3. 双击 GiantMaterialExecutor.exe，会出现“巨量素材执行器”窗口；把网页上生成的配对码粘贴进去并点击“绑定”。
+   绑定成功后，设备凭证会保存在当前 Windows 用户配置目录，之后重启执行器会自动连接，不需要重复配对。
+4. 保持执行器在后台运行。窗口可以点击“最小化到后台”；它只监听本机 127.0.0.1:17861，不会暴露公网端口。
+   运行日志保存在 `%APPDATA%\YizhanShengming\GiantMaterialExecutor\executor.log`。
+   如果需要诊断启动问题，可运行同目录的 start-giant-material-executor.cmd；它会检查本机端口并在失败时停住显示日志。
 5. 回到网页设置点击「刷新状态」，应显示已绑定/在线；然后在批量工厂输入巨量素材 ID 开始任务。
 
 本地联调要求
@@ -43,6 +44,6 @@
 --------
 - 不要把 credential.bin、模型缓存或执行器日志上传给别人。
 - 不要把执行器端口映射到 0.0.0.0；执行器只应接受本机网页调用。
-- 关闭窗口会停止执行器；需要后台常驻时使用 start-giant-material-executor.cmd。
+- 关闭窗口会停止执行器；需要继续后台常驻时请最小化窗口。start-giant-material-executor.cmd 仅用于诊断启动。
 
-版本：0.1.0
+版本：0.2.0

@@ -11,6 +11,7 @@ test('settings exposes a separate giant material executor download and status ca
   assert.match(source, /巨量素材执行器/);
   assert.match(source, /giant-material-executors/);
   assert.match(source, /GiantMaterialExecutor-windows-x64\.zip/);
+  assert.match(source, /GiantMaterialExecutor\.exe/);
   assert.match(source, /首次绑定一次/);
   assert.match(source, /生成配对码/);
   assert.match(source, /giantPairing/);
