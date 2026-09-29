@@ -103,6 +103,9 @@ type pairError struct{ message string }
 func (e *pairError) Error() string { return e.message }
 
 func loadOrCreateNonce() (string, error) {
+	if configured := strings.TrimSpace(os.Getenv("GIANT_MATERIAL_EXECUTOR_NONCE")); configured != "" {
+		return configured, nil
+	}
 	root, err := os.UserConfigDir()
 	if err != nil {
 		return "", err
