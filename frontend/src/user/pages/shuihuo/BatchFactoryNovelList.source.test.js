@@ -423,6 +423,12 @@ test('persists named AI reasoning presets through the V11 backend and lets users
   assert.match(source, /presetVersions=\{configVersions\}/);
 });
 
+test('routes director regeneration to H3 only when the selected video preset is H3', () => {
+  assert.match(source, /function usesSelectedH3VideoPreset\(settings = \{\}\)/);
+  assert.match(source, /\.\.\.\(usesSelectedH3VideoPreset\(settings\) \? \{ h3: true \} : \{\}\)/);
+  assert.match(source, /if \(stage === 'director' && usesSelectedH3VideoPreset\(settings\)\) await compileBookH3Videos\(book\)/);
+});
+
 test('uses the script-generation constraint layers instead of one generic multi-select', () => {
   assert.match(reasoningSource, /基础设定（人物 \/ 场景）/);
   assert.match(reasoningSource, /画面前缀词/);

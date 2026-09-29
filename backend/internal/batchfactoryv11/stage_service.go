@@ -240,11 +240,7 @@ func (s *BookStageService) run(ctx context.Context, owner, batchID, bookID strin
 }
 
 func (s *BookStageService) usesUnifiedDirectorFlow(batch Batch, book Book) bool {
-	if s != nil && s.H3Director {
-		return true
-	}
-	effective := ResolveSettings(batch.SettingsState.Patch, book.SettingsState.Patch)
-	return aiReasoningPromptConfig(effective).Video.videoAppliesTo(book)
+	return s != nil && s.H3Director
 }
 
 // RetryLastFailed reruns only the most recently failed stage recorded for this book.

@@ -133,54 +133,34 @@ func TestBookStageDirectorUsesStructuredH3KernelWhenH3VideoPresetIsSelected(t *t
 	}
 }
 
-func TestBookStageDirectorUsesUnifiedStructuredFlowForAnyVideoPreset(t *testing.T) {
-	raw, err := os.ReadFile(filepath.Join("testdata", "h3_v12_complete_director_trace.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+func TestBookStageDirectorUsesStandardDirectorForSelectedSDVideoPreset(t *testing.T) {
 	store := NewMemoryStore()
-	source := "五岁的我刚被认回豪门，爸妈就甩下一百万生活费。\n把我和陆晚晚扔在别墅里大眼瞪小眼。\n三个月后，爸妈提前回国，想给我们一个惊喜。"
-	batch, err := store.CreateBatch(context.Background(), "alice", CreateBatchInput{Title: "batch", Books: []CreateBookInput{{Title: "book", SourceText: source}}})
+	batch, err := store.CreateBatch(context.Background(), "alice", CreateBatchInput{Title: "batch", Books: []CreateBookInput{{Title: "book", SourceText: "林晚推开客厅门，握紧玻璃杯。"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	book := batch.Books[0]
-	normalizedSource := strings.Join(h3NonEmptyVideoSourceLines(source), "\n")
-	hash := sourceDigest(normalizedSource)
-	var fixture map[string]any
-	if err := json.Unmarshal(raw, &fixture); err != nil {
-		t.Fatal(err)
-	}
-	fixture["video_source_revision"] = "video-source-" + hash[:16] + "-r1"
-	fixture["video_source_hash"] = hash
-	fixture["director_preset_key"] = "batch-video-meta"
-	fixture["director_preset_revision"] = float64(7)
-	raw, err = json.Marshal(fixture)
-	if err != nil {
-		t.Fatal(err)
-	}
 	config := map[string]any{
-		"video": map[string]any{"enabled": true, "scope": "all", "presetId": "batch-video-meta", "presetKey": "batch-video-meta", "presetVersion": 7, "body": "CUSTOM VIDEO PRESET RULE"},
+		"video": map[string]any{"enabled": true, "scope": "all", "presetId": "batch-video-sd", "presetVersion": 1, "body": "SD VIDEO RULE"},
 	}
 	if _, err := store.SaveSettings(context.Background(), "alice", ScopeRef{Kind: ScopeBook, BatchID: batch.ID, BookID: book.ID}, SettingsUpdate{Patch: SettingsPatch{"aiPromptConfig": rawSetting(t, config)}, ExpectedRevision: book.Revision}); err != nil {
 		t.Fatal(err)
 	}
-	seedH3CharacterAssets(t, store, batch.ID, book.ID)
-	provider := &queuedDirectorProvider{values: []string{string(raw)}}
+	provider := &queuedDirectorProvider{values: []string{validDirectorJSON()}}
 	service := &BookStageService{Store: store, Director: &DirectorService{Store: store, Provider: provider}}
-	if _, err := service.Run(context.Background(), "alice", batch.ID, book.ID, BookStageDirector, StageModeForce, "generic-director-1", ""); err != nil {
-		t.Fatalf("unified director stage failed: %v", err)
+	if _, err := service.Run(context.Background(), "alice", batch.ID, book.ID, BookStageDirector, StageModeForce, "sd-director-1", ""); err != nil {
+		t.Fatalf("SD director stage failed: %v", err)
 	}
-	if len(provider.calls) != 1 || !strings.Contains(provider.calls[0].SystemPrompt, "CUSTOM VIDEO PRESET RULE") {
-		t.Fatalf("selected video preset was not used as director rule: %#v", provider.calls)
+	if len(provider.calls) != 1 || !strings.Contains(provider.calls[0].SystemPrompt, "SD VIDEO RULE") {
+		t.Fatalf("selected SD video preset was not used as director rule: %#v", provider.calls)
 	}
 	latest, err := store.GetBatch(context.Background(), "alice", batch.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	revision := latest.Books[0].DirectorRevision
-	if revision == nil || revision.Output.H3Director == nil || len(revision.Output.H3Director.DirectorCards) != 3 {
-		t.Fatalf("generic video preset bypassed unified structured director flow: %#v", revision)
+	if revision == nil || revision.Output.H3Director != nil || len(revision.Output.Storyboard) != 1 {
+		t.Fatalf("SD preset must persist ordinary storyboard output, got %#v", revision)
 	}
 }
 
