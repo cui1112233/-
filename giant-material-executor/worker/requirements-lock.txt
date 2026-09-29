@@ -1,0 +1,5 @@
+# Downloaded on first use, never bundled into the lightweight installer.
+numpy==1.26.4
+opencv-python-headless==4.10.0.84
+paddlepaddle==3.0.0
+paddleocr==3.0.3
