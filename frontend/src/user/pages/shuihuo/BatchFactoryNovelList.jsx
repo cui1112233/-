@@ -1805,9 +1805,6 @@ function MediaVersionPanel({ book, batchId, versionsByVideo, productionStatus, m
             <Button size="small" loading={savingTaskId === `upload-material-${video.id}`} disabled={savingTaskId === `upload-material-${video.id}`} onClick={() => uploadInputRefs.current[video.id]?.click()}>＋</Button>
           </span>
         </Tooltip>
-        <Tooltip title={productionAvailable ? '为此分镜再生成一个候选版本；当前主版本保持不变。' : productionReason}>
-          <Button size="small" loading={regenerating && active} disabled={!productionAvailable || regenerating || state.active} onClick={() => onRegenerate?.(video.id)}>重新生成视频</Button>
-        </Tooltip>
         {state.failed ? <Tooltip title={productionAvailable ? '重试当前分镜最后失败的视频任务。' : productionReason}><Button size="small" danger disabled={!productionAvailable || regenerating} onClick={() => onRetry?.(video.id)}>重试</Button></Tooltip> : null}
       </div>
     </section>;
