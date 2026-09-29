@@ -219,6 +219,30 @@ func TestBuildDirectorContractKeepsSelectedVideoPromptWhenLegacySwitchWasOff(t *
 	}
 }
 
+func TestBuildDirectorContractDropsH3PublicRulesForSelectedSDVideoPreset(t *testing.T) {
+	book := Book{ID: "book-1", Title: "测试书", SourceText: "林晚走进客厅。"}
+	config := map[string]any{
+		"video": map[string]any{"presetId": "batch-video-sd", "presetKey": "h3-video-normal", "body": "SD VIDEO RULE"},
+		"scriptComposition": map[string]any{
+			"general":      map[string]any{"body": "H3 GENERAL RULE"},
+			"cardProtocol": map[string]any{"body": "H3 CARD RULE"},
+		},
+		"constraints": map[string]any{"selections": []any{map[string]any{"body": "H3 CONSTRAINT RULE"}}},
+	}
+	contract, err := BuildDirectorContract(book, HookRevision{}, DirectorSnapshot{Mode: "original", MaxVideoDuration: 10, AspectRatio: "9:16", Effective: SettingsPatch{"aiPromptConfig": rawSetting(t, config)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"H3 GENERAL RULE", "H3 CARD RULE", "H3 CONSTRAINT RULE", "scene_memory", "visual_context"} {
+		if strings.Contains(contract.SystemPrompt, forbidden) {
+			t.Fatalf("SD contract contains H3 rule %q:\n%s", forbidden, contract.SystemPrompt)
+		}
+	}
+	if !strings.Contains(contract.SystemPrompt, "SD VIDEO RULE") {
+		t.Fatal("SD video rule is missing")
+	}
+}
+
 func TestBuildDirectorContractRequiresH3CanonicalShotMetadata(t *testing.T) {
 	book := Book{ID: "book-1", Title: "测试书", SourceText: "林晚走进客厅。"}
 	contract, err := BuildDirectorContract(book, HookRevision{}, DirectorSnapshot{

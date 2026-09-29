@@ -12,22 +12,20 @@ import (
 const h3VideoRendererKey = "h3-video-normal"
 
 func usesH3VideoRenderer(selection AIReasoningPromptModule) bool {
+	presetID := strings.TrimSpace(selection.ID)
+	if presetID != "" {
+		return strings.EqualFold(presetID, "batch-video-h3-director")
+	}
 	return strings.EqualFold(strings.TrimSpace(selection.Key), h3VideoRendererKey)
 }
 
-// compileH3VideoPrompt ports H3's final, structured VIDEO output boundary to
-// Batch Factory. The director's shot timeline remains authoritative; assets
-// provide the stable subject definitions that make the final VIDEO prompt
-// usable by reference-image capable video models.
-func compileH3VideoPrompt(draft DirectorVideo, characters, scenes []compiledAsset, unifiedStyle string) string {
-	parts := make([]string, 0, 5)
+// compileH3VideoPrompt 只产出 H3 骨架（【视听呈现】+【H3视听时间轴】）。
+// 画风（智能统一）与【人物定义】不再由这里注入，而是挪到外层由约束开关统一控制，
+// 与剧本生成的“程序按开关注入”公式保持一致。characters 仍传入，供时间轴里的
+// <Subject N> 指代使用（基础设定开关关闭时外层传 nil，时间轴也就不做指代）。
+func compileH3VideoPrompt(draft DirectorVideo, characters, scenes []compiledAsset) string {
 	subjects := h3Subjects(characters)
-	if style := strings.TrimSpace(unifiedStyle); style != "" {
-		parts = append(parts, style)
-	}
-	if definitions := h3SubjectDefinitions(subjects); definitions != "" {
-		parts = append(parts, definitions)
-	}
+	parts := make([]string, 0, 2)
 	parts = append(parts, "【视听呈现】\n视觉层只呈现人物、环境、动作、道具、光影以及原文明确定义的信息载体。\n人物对白通过人物声音与口型表现；旁白、画外音和内心独白只存在于听觉层。\n\nNo on-screen text unless explicitly required by the story.\nSpoken dialogue and voiceover are audio only.")
 	if timeline := h3StructuredTimeline(draft, scenes, subjects); timeline != "" {
 		parts = append(parts, "【H3视听时间轴】\n"+timeline)

@@ -226,7 +226,32 @@ func storyboardFocusNames(values SettingsPatch) []string {
 	return out
 }
 
+func selectedH3VideoPreset(video AIReasoningPromptModule) bool {
+	presetID := strings.TrimSpace(video.ID)
+	if presetID != "" {
+		return presetID == "batch-video-h3-director"
+	}
+	return strings.TrimSpace(video.Key) == "h3-video-normal"
+}
+
+func h3OnlyRuleBody(body string) bool {
+	value := strings.ToLower(strings.TrimSpace(body))
+	for _, marker := range []string{"h3", "<subject", "scene_memory", "visual_context", "h3_director"} {
+		if strings.Contains(value, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func selectedSDVideoPreset(video AIReasoningPromptModule) bool {
+	return strings.TrimSpace(video.ID) == "batch-video-sd"
+}
+
 func appendPublicStoryboardComposition(rules []string, config AIReasoningPromptConfig, snapshot DirectorSnapshot) []string {
+	if selectedSDVideoPreset(config.Video) {
+		return rules
+	}
 	composition := config.ScriptComposition
 	for _, preset := range []PresetSnapshot{composition.Segmented, composition.General, composition.Shotlist} {
 		if body := interpolateStoryboardPreset(preset.Body, snapshot.MaxVideoDuration); body != "" {
@@ -411,7 +436,7 @@ shots 必须从 0 秒开始连续、无空白无重叠，最后一个 end_sec �
 	if config.Assets.appliesTo(book, config.Assets.Extraction) {
 		rules = append(rules, "人物/场景/道具统一提取方案：一次提取原文实际出现的人物、场景与关键道具。\n"+strings.TrimSpace(config.Assets.Extraction.Body))
 	}
-	if config.Constraints.appliesTo(book) {
+	if config.Constraints.appliesTo(book) && !selectedSDVideoPreset(config.Video) {
 		constraintBodies := []string{}
 		if config.Constraints.BaseSetup.Enabled {
 			constraintBodies = append(constraintBodies, "基础设定：每个 storyboard 必须带入当前情节出现的人物与场景；人物与场景只能引用本次输出的顶层信息库，不能省略场景，也不能凭空新增资产。")
@@ -438,8 +463,10 @@ shots 必须从 0 秒开始连续、无空白无重叠，最后一个 end_sec �
 		每个 shots 项必须额外输出非空 visual_context（该镜头可见的空间、时段、陈设、天气或环境状态）、lighting（具体光源、方向、色温、对比和材质/暗部表现）、rhythm（镜头节奏，例如“克制铺陈”“骤然加速”）和 audio（该镜头的对白、旁白、环境声或“无”）。不得省略字段；没有声音时 audio 必须明确写为“无”。
 		scene_memory、visual_context、lighting、rhythm、audio 是后端 H3 VIDEO 编译器的结构化输入，不是展示性说明，必须与 description 的人物、动作、时间线保持一致。`)
 	}
-	if cardProtocol := interpolateStoryboardPreset(config.ScriptComposition.CardProtocol.Body, snapshot.MaxVideoDuration); cardProtocol != "" {
-		rules = append(rules, cardProtocol)
+	if !selectedSDVideoPreset(config.Video) {
+		if cardProtocol := interpolateStoryboardPreset(config.ScriptComposition.CardProtocol.Body, snapshot.MaxVideoDuration); cardProtocol != "" {
+			rules = append(rules, cardProtocol)
+		}
 	}
 	if len(rules) > 0 {
 		system += "\n\n当前批量已启用的 AI 推理规则：\n" + strings.Join(rules, "\n\n")
