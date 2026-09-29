@@ -1,11 +1,40 @@
-export async function readGiantMaterialContent(giantMaterialId, { signal, onResolved = () => {}, onProgress = () => {} } = {}, fetchImpl = fetch) {
+import { getToken } from '../../shared/api/client.js';
+
+export async function resolveGiantMaterial(giantMaterialId, { signal } = {}, fetchImpl = fetch) {
   const options = { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ giantMaterialId }), signal };
   const response = await fetchImpl('/__local/giant-material-test/resolve', options);
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || payload.ok !== true) throw new Error(payload.code || `HTTP_${response.status}`);
-  onResolved(payload.material);
+  return payload.material;
+}
+
+export async function resolveGiantMaterialForBatch(giantMaterialId, { signal } = {}, fetchImpl = fetch) {
+  const options = { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ giantMaterialId }), signal };
+  try {
+    const token = getToken();
+    if (token) options.headers.Authorization = `Bearer ${token}`;
+  } catch (_) { /* the local development fallback does not have browser storage */ }
+  const response = await fetchImpl('/api/shuihuo-production/giant-material-resolve', options);
+  if (response.status === 404 || response.status === 405) return resolveGiantMaterial(giantMaterialId, { signal }, fetchImpl);
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok !== true) throw new Error(payload.code || payload.error || `HTTP_${response.status}`);
+  if (!payload.material) throw new Error('QINGYU_MATERIAL_RESPONSE_INVALID');
+  return payload.material;
+}
+
+export async function extractGiantMaterial(giantMaterialId, { signal, onProgress = () => {}, onComplete = () => {} } = {}, fetchImpl = fetch) {
+  const options = { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ giantMaterialId }), signal };
   const extraction = await fetchImpl('/__local/giant-material-test/extract', options);
-  return readExtractionStream(extraction, event => { if (event.type === 'progress') onProgress(event); });
+  return readExtractionStream(extraction, event => {
+    if (event.type === 'progress') onProgress(event);
+    if (event.type === 'complete') onComplete(event.result);
+  });
+}
+
+export async function readGiantMaterialContent(giantMaterialId, { signal, onResolved = () => {}, onProgress = () => {}, onComplete = () => {} } = {}, fetchImpl = fetch) {
+  const material = await resolveGiantMaterial(giantMaterialId, { signal }, fetchImpl);
+  onResolved(material);
+  return extractGiantMaterial(giantMaterialId, { signal, onProgress, onComplete }, fetchImpl);
 }
 
 export async function readExtractionStream(response, onEvent = () => {}) {

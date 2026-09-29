@@ -1,0 +1,238 @@
+package giantmaterialresolver
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"math"
+	"net/http"
+	"net/url"
+	"regexp"
+	"strings"
+	"time"
+)
+
+const DefaultMaterialURL = "https://n8.hnqingyuwen.top/center-api/material/video/select"
+
+var materialIDPattern = regexp.MustCompile(`^[0-9]{10,25}$`)
+
+type CodedError struct {
+	Code string
+}
+
+func (e *CodedError) Error() string { return e.Code }
+
+func CodeOf(err error) string {
+	var coded *CodedError
+	if errors.As(err, &coded) {
+		return coded.Code
+	}
+	return ""
+}
+
+type Book struct {
+	PlatformBookID string `json:"platformBookId"`
+	PlatformName   string `json:"platformName,omitempty"`
+	Title          string `json:"title"`
+}
+
+type Material struct {
+	MaterialID      string   `json:"materialId"`
+	GiantMaterialID string   `json:"giantMaterialId"`
+	Title           string   `json:"title,omitempty"`
+	PlatformBookID  string   `json:"platformBookId,omitempty"`
+	PlatformName    string   `json:"platformName,omitempty"`
+	VideoURL        string   `json:"videoUrl"`
+	Width           *float64 `json:"width,omitempty"`
+	Height          *float64 `json:"height,omitempty"`
+	DurationSeconds float64  `json:"durationSeconds"`
+	MaterialTitle   string   `json:"materialTitle,omitempty"`
+	Books           []Book   `json:"books,omitempty"`
+}
+
+type Client struct {
+	HTTPClient *http.Client
+	Endpoint   string
+	Token      string
+}
+
+func NewClient(httpClient *http.Client, endpoint, token string) *Client {
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: 20 * time.Second}
+	}
+	if strings.TrimSpace(endpoint) == "" {
+		endpoint = DefaultMaterialURL
+	}
+	return &Client{HTTPClient: httpClient, Endpoint: strings.TrimSpace(endpoint), Token: strings.TrimSpace(token)}
+}
+
+func (c *Client) Resolve(ctx context.Context, giantMaterialID string) (Material, error) {
+	id := strings.TrimSpace(giantMaterialID)
+	if !materialIDPattern.MatchString(id) {
+		return Material{}, &CodedError{Code: "INVALID_GIANT_MATERIAL_ID"}
+	}
+	if strings.TrimSpace(c.Token) == "" {
+		return Material{}, &CodedError{Code: "QINGYU_AUTH_NOT_CONFIGURED"}
+	}
+	endpoint, err := url.Parse(c.Endpoint)
+	if err != nil || endpoint.Scheme != "https" || endpoint.Hostname() != "n8.hnqingyuwen.top" {
+		return Material{}, &CodedError{Code: "QINGYU_ENDPOINT_INVALID"}
+	}
+	body, _ := json.Marshal(map[string]any{"ocean_material_ids": []string{id}})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.Endpoint, strings.NewReader(string(body)))
+	if err != nil {
+		return Material{}, &CodedError{Code: "QINGYU_REQUEST_FAILED"}
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("N8-Admin-Token", c.Token)
+	response, err := c.HTTPClient.Do(req)
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return Material{}, &CodedError{Code: "QINGYU_TIMEOUT"}
+		}
+		return Material{}, &CodedError{Code: "QINGYU_UPSTREAM_ERROR"}
+	}
+	defer response.Body.Close()
+	if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden {
+		return Material{}, &CodedError{Code: "QINGYU_AUTH_FAILED"}
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return Material{}, &CodedError{Code: "QINGYU_UPSTREAM_FAILED"}
+	}
+	var payload map[string]any
+	if err := json.NewDecoder(io.LimitReader(response.Body, 4<<20)).Decode(&payload); err != nil {
+		return Material{}, &CodedError{Code: "QINGYU_UPSTREAM_INVALID_JSON"}
+	}
+	if code, ok := payload["code"].(string); ok && code != "" && code != "SUCCESS" {
+		return Material{}, &CodedError{Code: "QINGYU_UPSTREAM_FAILED"}
+	}
+	material := normalize(payload)
+	if material.MaterialID == "" || material.VideoURL == "" || !allowedVideoURL(material.VideoURL) {
+		return Material{}, &CodedError{Code: "QINGYU_MATERIAL_RESPONSE_INVALID"}
+	}
+	material.GiantMaterialID = id
+	return material, nil
+}
+
+func allowedVideoURL(raw string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	return err == nil && parsed.Scheme == "https" && parsed.Hostname() == "material.hnqingyuwen.top" && parsed.Port() == "" && parsed.User == nil
+}
+
+func normalize(payload map[string]any) Material {
+	source := object(payload)
+	if data, ok := payload["data"].(map[string]any); ok {
+		if list, ok := data["list"].([]any); ok && len(list) == 1 {
+			if first, ok := list[0].(map[string]any); ok {
+				source = first
+			}
+		} else {
+			source = data
+		}
+	}
+	books := make([]Book, 0)
+	seen := map[string]bool{}
+	if works, ok := source["works"].([]any); ok {
+		for _, raw := range works {
+			work, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			id := text(work["cp_work_id"])
+			name := text(work["name"])
+			platform := text(work["cp_type"])
+			if id == "" || name == "" || seen[platform+":"+id] {
+				continue
+			}
+			seen[platform+":"+id] = true
+			if platform == "QM" {
+				platform = "七猫"
+			}
+			books = append(books, Book{PlatformBookID: id, PlatformName: platform, Title: name})
+		}
+	}
+	material := Material{
+		MaterialID:      firstText(source, "id", "material_id", "materialId"),
+		Title:           firstText(source, "title", "book_title", "bookTitle", "name"),
+		VideoURL:        firstText(source, "video_url", "videoUrl", "url", "play_url", "playUrl", "path"),
+		DurationSeconds: number(source, "duration", "duration_seconds", "durationSeconds"),
+		Width:           numberPtr(source, "width", "video_width", "videoWidth"),
+		Height:          numberPtr(source, "height", "video_height", "videoHeight"),
+		Books:           books,
+	}
+	if len(books) > 0 {
+		titles, platforms := make([]string, 0, len(books)), make([]string, 0, len(books))
+		platformSeen := map[string]bool{}
+		for _, book := range books {
+			titles = append(titles, book.Title)
+			if book.PlatformName != "" && !platformSeen[book.PlatformName] {
+				platforms = append(platforms, book.PlatformName)
+				platformSeen[book.PlatformName] = true
+			}
+		}
+		material.Title = strings.Join(titles, " / ")
+		if len(books) == 1 {
+			material.PlatformBookID = books[0].PlatformBookID
+		}
+		material.PlatformName = strings.Join(platforms, " / ")
+	} else {
+		material.PlatformBookID = firstText(source, "book_id", "bookId", "platform_book_id", "platformBookId")
+		material.PlatformName = firstText(source, "platform_name", "platformName", "platform_label", "platformLabel")
+	}
+	if works, ok := source["works"].([]any); ok {
+		material.MaterialTitle = text(source["name"])
+		_ = works
+	}
+	return material
+}
+
+func object(value any) map[string]any {
+	if result, ok := value.(map[string]any); ok {
+		return result
+	}
+	return map[string]any{}
+}
+
+func firstText(source map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if value := text(source[key]); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func text(value any) string {
+	if value == nil {
+		return ""
+	}
+	return strings.TrimSpace(fmt.Sprint(value))
+}
+
+func number(source map[string]any, keys ...string) float64 {
+	for _, key := range keys {
+		switch value := source[key].(type) {
+		case float64:
+			if math.IsNaN(value) || math.IsInf(value, 0) || value < 0 {
+				continue
+			}
+			return value
+		case json.Number:
+			if parsed, err := value.Float64(); err == nil && parsed >= 0 {
+				return parsed
+			}
+		}
+	}
+	return 0
+}
+
+func numberPtr(source map[string]any, keys ...string) *float64 {
+	value := number(source, keys...)
+	if value <= 0 {
+		return nil
+	}
+	return &value
+}

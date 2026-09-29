@@ -1,7 +1,7 @@
 import { Alert, Button, Descriptions, Input, InputNumber, Modal, Progress, Select, Space, Tag, message } from 'antd';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { appendNovelFetchIntake, classifyBookPublishMetadata, createNovelFetchIntake, getBatch } from '../../../shared/api/batchFactoryV11';
-import { resolveGiantMaterial } from '../giantMaterialExtractionClient.js';
+import { resolveGiantMaterialForBatch } from '../giantMaterialExtractionClient.js';
 import { createGiantMaterialJob, waitForGiantMaterialJob } from '../../../shared/api/giantMaterialExecutorPublic.js';
 import { BatchFactoryGiantMaterialExecutorStatus } from './BatchFactoryGiantMaterialExecutorStatus.jsx';
 import {
@@ -202,7 +202,7 @@ export function BatchFactoryGiantMaterialImportModal({ open, batch, onCancel, on
     }
 
     update({ stage: 'resolve', error: '' });
-    const resolvedMaterial = await resolveGiantMaterial(item.id, { signal });
+    const resolvedMaterial = await resolveGiantMaterialForBatch(item.id, { signal });
     const books = availableGiantMaterialBooks(resolvedMaterial);
     const selectedBookKey = item.selectedBookKey || (books.length === 1 ? giantMaterialBookKey(books[0]) : '');
     update({ stage: 'resolve', material: resolvedMaterial, books, selectedBookKey });

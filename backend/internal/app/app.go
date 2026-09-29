@@ -8,6 +8,7 @@ import (
 	"qiantie/backend/internal/batchfactoryv11/external"
 	"qiantie/backend/internal/config"
 	"qiantie/backend/internal/giantmaterialexecutor"
+	"qiantie/backend/internal/giantmaterialresolver"
 	"qiantie/backend/internal/httpapi"
 	"qiantie/backend/internal/localartifact"
 	"qiantie/backend/internal/localexecutor"
@@ -42,6 +43,7 @@ func Build(ctx context.Context, cfg config.Config, db *sql.DB, register func(*ht
 	videoRegistry := batchfactoryv11.NewMemoryVideoProviderRegistry()
 	localExecutorService := localexecutor.NewService(localexecutor.NewMySQLStore(db), nil)
 	giantMaterialExecutorService := giantmaterialexecutor.NewService(giantmaterialexecutor.NewMySQLStore(db), nil)
+	giantMaterialResolver := giantmaterialresolver.NewClient(nil, cfg.QingyuMaterialSelectURL, cfg.QingyuN8AdminToken)
 	artifactStore := localartifact.NewStore(cfg.LocalExecutorArtifactDir, cfg.LocalExecutorArtifactMaxBytes)
 	var production *batchfactoryv11.ProductionService
 	if cfg.Slice >= 4 {
@@ -119,5 +121,5 @@ func Build(ctx context.Context, cfg config.Config, db *sql.DB, register func(*ht
 			Key:     cfg.ExternalCredentialsKey,
 		}
 	}
-	return httpapi.NewRouter(httpapi.RouterOptions{BridgeSecret: cfg.BridgeSecret, ReleaseSHA: cfg.ReleaseSHA, Users: storage.BridgeUsers{DB: db}, Slice: cfg.Slice, Store: store, Director: director, Compiler: compiler, Production: production, Merge: merge, MergeOutput: mergeOutput, External: externalPublish, NovelFetchStore: novelFetchStore, LocalExecutors: localExecutorService, GiantMaterialExecutor: giantMaterialExecutorService, LocalArtifacts: artifactStore, RegisterV11: register}), nil
+	return httpapi.NewRouter(httpapi.RouterOptions{BridgeSecret: cfg.BridgeSecret, ReleaseSHA: cfg.ReleaseSHA, Users: storage.BridgeUsers{DB: db}, Slice: cfg.Slice, Store: store, Director: director, Compiler: compiler, Production: production, Merge: merge, MergeOutput: mergeOutput, External: externalPublish, NovelFetchStore: novelFetchStore, LocalExecutors: localExecutorService, GiantMaterialExecutor: giantMaterialExecutorService, GiantMaterialResolver: giantMaterialResolver, LocalArtifacts: artifactStore, RegisterV11: register}), nil
 }

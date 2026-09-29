@@ -51,3 +51,22 @@ test('keeps upstream authorization failures as safe stable error codes', async (
     error => error.message === 'QINGYU_UPSTREAM_FAILED' && !error.message.includes('secret-value') && !error.message.includes('Authorization')
   );
 });
+
+test('uses the authenticated public resolver and only falls back to the local dev resolver when absent', async () => {
+  const requests = [];
+  const material = { materialId: '10122315', videoUrl: 'https://material.hnqingyuwen.top/a.mp4', books: [] };
+  const publicResult = await client.resolveGiantMaterialForBatch('7689285397448523826', {}, async (url, options) => {
+    requests.push(url);
+    return Response.json({ ok: true, material });
+  });
+  assert.deepEqual(publicResult, material);
+  assert.deepEqual(requests, ['/api/shuihuo-production/giant-material-resolve']);
+
+  const fallbackResult = await client.resolveGiantMaterialForBatch('7689285397448523826', {}, async (url) => {
+    requests.push(url);
+    if (url.includes('shuihuo-production')) return new Response('', { status: 404 });
+    return Response.json({ ok: true, material });
+  });
+  assert.deepEqual(fallbackResult, material);
+  assert.deepEqual(requests.slice(-2), ['/api/shuihuo-production/giant-material-resolve', '/__local/giant-material-test/resolve']);
+});

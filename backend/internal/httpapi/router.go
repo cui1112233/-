@@ -32,6 +32,7 @@ type RouterOptions struct {
 	NovelFetchStore       novelfetchworkshop.LifecycleStore
 	LocalExecutors        *localexecutor.Service
 	GiantMaterialExecutor *giantmaterialexecutor.Service
+	GiantMaterialResolver GiantMaterialResolver
 	LocalArtifacts        *localartifact.Store
 	MergeOutput           mergeworker.ObjectStore
 }
@@ -87,6 +88,7 @@ func NewRouter(options RouterOptions) http.Handler {
 	RegisterLocalExecutorJobRoutes(root, auth, options.LocalExecutors)
 	RegisterLocalExecutorArtifactRoutes(root, auth, options.LocalExecutors, options.LocalArtifacts)
 	RegisterGiantMaterialExecutorRoutes(root, auth, options.GiantMaterialExecutor)
+	RegisterGiantMaterialResolverRoutes(root, auth, options.GiantMaterialResolver)
 	if options.NovelFetchStore != nil {
 		novelFetch := http.NewServeMux()
 		registerNovelFetchWorkshopRoutes(novelFetch, options.NovelFetchStore)
