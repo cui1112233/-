@@ -2,10 +2,23 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 )
+
+func TestHTTPClientMapsUnauthorizedResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	client := NewHTTPClient(server.URL, server.Client())
+	if _, err := client.Claim(context.Background(), "executor-token"); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("claim error=%v, want ErrUnauthorized", err)
+	}
+}
 
 func TestHTTPClientMapsEmptyClaimAndSendsBearerToken(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

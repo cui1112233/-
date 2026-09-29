@@ -10,6 +10,8 @@ import (
 // it remains alive while the agent returns to idle between jobs.
 type State string
 
+type BindingState string
+
 const (
 	StateIdle             State = "idle"
 	StatePairing          State = "pairing"
@@ -22,6 +24,14 @@ const (
 	StateStopping         State = "stopping"
 )
 
+const (
+	BindingUnpaired     BindingState = "unpaired"
+	BindingConnecting   BindingState = "connecting"
+	BindingOnline       BindingState = "online"
+	BindingOffline      BindingState = "offline"
+	BindingNeedsPairing BindingState = "needs_pairing"
+)
+
 type Progress struct {
 	Completed int `json:"completed"`
 	Total     int `json:"total"`
@@ -29,13 +39,14 @@ type Progress struct {
 }
 
 type Snapshot struct {
-	State          State    `json:"state"`
-	JobID          string   `json:"jobId,omitempty"`
-	ModelVersion   string   `json:"modelVersion,omitempty"`
-	Progress       Progress `json:"progress"`
-	ErrorCode      string   `json:"errorCode,omitempty"`
-	ErrorMessage   string   `json:"errorMessage,omitempty"`
-	WorkerResident bool     `json:"workerResident"`
+	State          State        `json:"state"`
+	BindingState   BindingState `json:"bindingState"`
+	JobID          string       `json:"jobId,omitempty"`
+	ModelVersion   string       `json:"modelVersion,omitempty"`
+	Progress       Progress     `json:"progress"`
+	ErrorCode      string       `json:"errorCode,omitempty"`
+	ErrorMessage   string       `json:"errorMessage,omitempty"`
+	WorkerResident bool         `json:"workerResident"`
 }
 
 type StateMachine struct {
@@ -96,7 +107,7 @@ var allowedTransitions = map[State]map[State]bool{
 }
 
 func NewStateMachine() *StateMachine {
-	return &StateMachine{snapshot: Snapshot{State: StateIdle, WorkerResident: true}}
+	return &StateMachine{snapshot: Snapshot{State: StateIdle, BindingState: BindingUnpaired, WorkerResident: true}}
 }
 
 func (m *StateMachine) Transition(next State) error {
@@ -129,7 +140,11 @@ func (m *StateMachine) Snapshot() Snapshot {
 func (m *StateMachine) ResetToIdle() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.snapshot = Snapshot{State: StateIdle, WorkerResident: true}
+	bindingState := m.snapshot.BindingState
+	if bindingState == "" {
+		bindingState = BindingUnpaired
+	}
+	m.snapshot = Snapshot{State: StateIdle, BindingState: bindingState, WorkerResident: true}
 }
 
 func (m *StateMachine) SetJob(jobID, modelVersion string) {
@@ -143,4 +158,10 @@ func (m *StateMachine) SetProgress(progress Progress) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.snapshot.Progress = progress
+}
+
+func (m *StateMachine) SetBindingState(state BindingState) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.snapshot.BindingState = state
 }

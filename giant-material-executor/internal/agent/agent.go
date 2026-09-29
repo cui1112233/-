@@ -13,7 +13,10 @@ import (
 	"qiantie/giant-material-executor/internal/worker"
 )
 
-var ErrNoClaimableJob = errors.New("no claimable giant material job")
+var (
+	ErrNoClaimableJob = errors.New("no claimable giant material job")
+	ErrUnauthorized   = errors.New("giant material executor is unauthorized")
+)
 
 type Job struct {
 	ID                string     `json:"id"`
@@ -83,6 +86,7 @@ type Config struct {
 	Client         PublicClient
 	Supervisor     *worker.Supervisor
 	PrepareModel   func(context.Context, string) error
+	OnBindingState func(BindingState)
 	Token          string
 	DeviceName     string
 	OS             string
@@ -112,7 +116,9 @@ func New(config Config) (*Agent, error) {
 func (a *Agent) Snapshot() Snapshot { return a.state.Snapshot() }
 
 func (a *Agent) Run(ctx context.Context) error {
+	a.setBindingState(BindingConnecting)
 	if err := a.config.Supervisor.Start(ctx); err != nil {
+		a.setBindingState(BindingOffline)
 		return err
 	}
 	defer func() {
@@ -126,12 +132,15 @@ func (a *Agent) Run(ctx context.Context) error {
 		}
 		if err := a.config.PrepareModel(ctx, "windows-paddleocr-v1"); err != nil {
 			_ = a.state.Transition(StateFailed)
+			a.setBindingState(BindingOffline)
 			return err
 		}
 	}
 	if err := a.heartbeat(ctx); err != nil {
+		a.setBindingState(bindingStateForError(err))
 		return err
 	}
+	a.setBindingState(BindingOnline)
 	if err := a.state.Transition(StateReady); err != nil {
 		return err
 	}
@@ -146,6 +155,7 @@ func (a *Agent) Run(ctx context.Context) error {
 			return ctx.Err()
 		case <-heartbeat.C:
 			if err := a.heartbeat(ctx); err != nil {
+				a.setBindingState(bindingStateForError(err))
 				return err
 			}
 		case <-poll.C:
@@ -154,6 +164,11 @@ func (a *Agent) Run(ctx context.Context) error {
 				continue
 			}
 			if err != nil {
+				if errors.Is(err, ErrUnauthorized) {
+					a.setBindingState(BindingNeedsPairing)
+				} else {
+					a.setBindingState(BindingOffline)
+				}
 				return err
 			}
 			if err := a.process(ctx, claim); err != nil {
@@ -161,6 +176,20 @@ func (a *Agent) Run(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+func (a *Agent) setBindingState(state BindingState) {
+	a.state.SetBindingState(state)
+	if a.config.OnBindingState != nil {
+		a.config.OnBindingState(state)
+	}
+}
+
+func bindingStateForError(err error) BindingState {
+	if errors.Is(err, ErrUnauthorized) {
+		return BindingNeedsPairing
+	}
+	return BindingOffline
 }
 
 func (a *Agent) heartbeat(ctx context.Context) error {
@@ -309,6 +338,9 @@ func (c *HTTPClient) do(ctx context.Context, method, path, token string, body an
 	defer response.Body.Close()
 	if response.StatusCode == http.StatusNoContent {
 		return ErrNoClaimableJob
+	}
+	if response.StatusCode == http.StatusUnauthorized {
+		return fmt.Errorf("%w: public executor API HTTP %d", ErrUnauthorized, response.StatusCode)
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return fmt.Errorf("public executor API HTTP %d", response.StatusCode)

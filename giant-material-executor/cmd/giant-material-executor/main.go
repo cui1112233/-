@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"os"
@@ -14,8 +15,10 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"qiantie/giant-material-executor/internal/agent"
+	"qiantie/giant-material-executor/internal/credential"
 	"qiantie/giant-material-executor/internal/httpapi"
 	"qiantie/giant-material-executor/internal/modelcache"
 	"qiantie/giant-material-executor/internal/worker"
@@ -40,33 +43,83 @@ func main() {
 	prepareModel := modelPreparer(supervisor)
 	var stateMu sync.RWMutex
 	var runningAgent *agent.Agent
+	bindingState := agent.BindingUnpaired
+	setBindingState := func(next agent.BindingState) {
+		stateMu.Lock()
+		bindingState = next
+		stateMu.Unlock()
+	}
 	snapshot := func() agent.Snapshot {
 		stateMu.RLock()
 		defer stateMu.RUnlock()
+		var current agent.Snapshot
 		if runningAgent != nil {
-			return runningAgent.Snapshot()
+			current = runningAgent.Snapshot()
+		} else {
+			current = agent.NewStateMachine().Snapshot()
 		}
-		return agent.NewStateMachine().Snapshot()
+		current.BindingState = bindingState
+		return current
 	}
 	publicClient := agent.NewHTTPClient(publicURL, http.DefaultClient)
+	credentialStore, err := newCredentialStore()
+	if err != nil {
+		log.Fatalf("load executor credential store: %v", err)
+	}
 	startAgent := func(token string) {
 		stateMu.Lock()
 		if runningAgent != nil {
 			stateMu.Unlock()
 			return
 		}
-		next, newErr := agent.New(agent.Config{Client: publicClient, Supervisor: supervisor, PrepareModel: prepareModel, Token: token, DeviceName: deviceName, OS: "windows", Version: version})
-		if newErr == nil {
-			runningAgent = next
-		}
+		bindingState = agent.BindingConnecting
 		stateMu.Unlock()
-		if newErr != nil {
-			log.Printf("agent configuration failed: %v", newErr)
-			return
-		}
 		go func() {
-			if runErr := next.Run(ctx); runErr != nil && ctx.Err() == nil {
-				log.Printf("agent stopped: %v", runErr)
+			for {
+				next, newErr := agent.New(agent.Config{
+					Client:         publicClient,
+					Supervisor:     supervisor,
+					PrepareModel:   prepareModel,
+					OnBindingState: setBindingState,
+					Token:          token,
+					DeviceName:     deviceName,
+					OS:             "windows",
+					Version:        version,
+				})
+				if newErr != nil {
+					setBindingState(agent.BindingOffline)
+					log.Printf("agent configuration failed: %v", newErr)
+					return
+				}
+				stateMu.Lock()
+				runningAgent = next
+				stateMu.Unlock()
+				runErr := next.Run(ctx)
+				stateMu.Lock()
+				if runningAgent == next {
+					runningAgent = nil
+				}
+				stateMu.Unlock()
+				if ctx.Err() != nil {
+					return
+				}
+				if nextState := handleAgentRunError(credentialStore, runErr); nextState == agent.BindingNeedsPairing {
+					setBindingState(nextState)
+					log.Printf("executor credential rejected; pairing required")
+					return
+				}
+				setBindingState(agent.BindingOffline)
+				if runErr != nil {
+					log.Printf("agent stopped; retrying connection: %v", runErr)
+				}
+				timer := time.NewTimer(5 * time.Second)
+				select {
+				case <-ctx.Done():
+					timer.Stop()
+					return
+				case <-timer.C:
+					setBindingState(agent.BindingConnecting)
+				}
 			}
 		}()
 	}
@@ -78,6 +131,9 @@ func main() {
 		if strings.TrimSpace(result.Token) == "" {
 			return &pairError{message: "public pair returned no executor token"}
 		}
+		if err := savePairResult(credentialStore, result); err != nil {
+			return err
+		}
 		startAgent(result.Token)
 		return nil
 	}
@@ -87,6 +143,10 @@ func main() {
 	}
 	if token := strings.TrimSpace(os.Getenv("GIANT_MATERIAL_EXECUTOR_TOKEN")); token != "" {
 		startAgent(token)
+	} else if record, loadErr := loadExecutorCredential(credentialStore); loadErr == nil {
+		startAgent(record.Token)
+	} else if !errors.Is(loadErr, credential.ErrNotFound) {
+		log.Printf("saved executor credential unavailable; pairing required: %v", loadErr)
 	}
 	go func() {
 		if serveErr := server.ListenAndServe(ctx); serveErr != nil && ctx.Err() == nil {
@@ -96,6 +156,42 @@ func main() {
 	log.Printf("giant material executor started version=%s loopback=127.0.0.1:17861 workerResident=true", version)
 	<-ctx.Done()
 	log.Printf("giant material executor stopped")
+}
+
+func newCredentialStore() (credential.Store, error) {
+	path := strings.TrimSpace(os.Getenv("GIANT_MATERIAL_EXECUTOR_CREDENTIAL_PATH"))
+	if path == "" {
+		root, err := os.UserConfigDir()
+		if err != nil {
+			return nil, err
+		}
+		path = filepath.Join(root, "YizhanShengming", "GiantMaterialExecutor", "credential.bin")
+	}
+	return credential.NewProtectedStore(path), nil
+}
+
+func savePairResult(store credential.Store, result agent.PairResult) error {
+	if store == nil {
+		return errors.New("executor credential store is required")
+	}
+	return store.Save(credential.Record{ExecutorID: strings.TrimSpace(result.ExecutorID), Token: strings.TrimSpace(result.Token)})
+}
+
+func loadExecutorCredential(store credential.Store) (credential.Record, error) {
+	if store == nil {
+		return credential.Record{}, errors.New("executor credential store is required")
+	}
+	return store.Load()
+}
+
+func handleAgentRunError(store credential.Store, runErr error) agent.BindingState {
+	if errors.Is(runErr, agent.ErrUnauthorized) {
+		if store != nil {
+			_ = store.Clear()
+		}
+		return agent.BindingNeedsPairing
+	}
+	return agent.BindingOffline
 }
 
 type pairError struct{ message string }

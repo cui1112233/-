@@ -8,7 +8,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const source = fs.readFileSync(path.join(here, 'BatchFactoryGiantMaterialExecutorStatus.jsx'), 'utf8');
 
 test('status bar exposes install, model download, OCR, complete and failure states', () => {
-  for (const text of ['执行器未安装或未启动', '正在下载 OCR 模型', '正在 OCR', '已完成', '失败原因']) assert.match(source, new RegExp(text));
+  for (const text of ['执行器未安装或未启动', '正在下载 OCR 模型', '正在 OCR', '已完成', '失败原因', '已绑定但当前离线', '需要首次绑定或重新绑定']) assert.match(source, new RegExp(text));
 });
 
 test('status bar polls loopback health and never hides an offline executor', () => {
@@ -17,4 +17,5 @@ test('status bar polls loopback health and never hides an offline executor', () 
   assert.match(source, /modelReady/);
   assert.match(source, /createGiantMaterialPairing/);
   assert.match(source, /自动配对/);
+  assert.match(source, /bindingState/);
 });

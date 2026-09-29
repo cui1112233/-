@@ -41,3 +41,23 @@ func TestFailedJobCanRecoverToIdleAfterWorkerRestart(t *testing.T) {
 		t.Fatalf("state=%s", got)
 	}
 }
+
+func TestStateMachineTracksPersistentBindingState(t *testing.T) {
+	machine := NewStateMachine()
+	if got := machine.Snapshot().BindingState; got != BindingUnpaired {
+		t.Fatalf("initial binding state=%s, want %s", got, BindingUnpaired)
+	}
+	machine.SetBindingState(BindingOnline)
+	if got := machine.Snapshot().BindingState; got != BindingOnline {
+		t.Fatalf("binding state=%s, want %s", got, BindingOnline)
+	}
+}
+
+func TestResetToIdlePreservesPersistentBindingState(t *testing.T) {
+	machine := NewStateMachine()
+	machine.SetBindingState(BindingOnline)
+	machine.ResetToIdle()
+	if got := machine.Snapshot().BindingState; got != BindingOnline {
+		t.Fatalf("binding state after reset=%s, want %s", got, BindingOnline)
+	}
+}

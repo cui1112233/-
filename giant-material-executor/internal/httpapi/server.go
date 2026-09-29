@@ -103,7 +103,7 @@ func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 	if s.config.ModelReady != nil {
 		modelReady = s.config.ModelReady()
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"online": true, "version": s.config.Version, "state": snapshot.State, "modelReady": modelReady, "workerResident": snapshot.WorkerResident})
+	writeJSON(w, http.StatusOK, map[string]any{"online": true, "version": s.config.Version, "state": snapshot.State, "bindingState": snapshot.BindingState, "modelReady": modelReady, "workerResident": snapshot.WorkerResident})
 }
 
 func (s *Server) capabilities(w http.ResponseWriter, _ *http.Request) {

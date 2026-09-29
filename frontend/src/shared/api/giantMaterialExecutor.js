@@ -2,6 +2,10 @@ const DEFAULT_BASE_URL = 'http://127.0.0.1:17861';
 
 export function normalizeGiantMaterialExecutorStatus(value) {
   if (!value || value.online === false) return { kind: 'offline', modelReady: false, label: '执行器未安装或未启动' };
+  const bindingState = String(value.bindingState || '').trim();
+  if (bindingState === 'unpaired' || bindingState === 'needs_pairing') return { kind: 'needs_pairing', modelReady: false, label: '需要首次绑定或重新绑定', bindingState };
+  if (bindingState === 'connecting') return { kind: 'connecting', modelReady: value.modelReady !== false, label: '正在连接执行器', bindingState };
+  if (bindingState === 'offline') return { kind: 'offline', modelReady: false, label: '已绑定但当前离线', bindingState };
   if (value.state === 'downloading_model' || value.modelReady === false) return { kind: 'downloading_model', modelReady: false, label: '正在下载 OCR 模型' };
   if (value.state === 'running' || value.state === 'cleaning' || value.state === 'uploading') return { kind: 'running', modelReady: true, label: '正在 OCR' };
   if (value.state === 'failed') return { kind: 'failed', modelReady: value.modelReady !== false, label: value.errorMessage || 'OCR 失败' };

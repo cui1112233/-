@@ -33,7 +33,7 @@ func TestLoopbackServerRejectsUnknownOrigin(t *testing.T) {
 
 func TestHealthShowsMissingModelWithoutLeakingCredentials(t *testing.T) {
 	server, err := NewServer(ServerConfig{Addr: "127.0.0.1:17861", Origin: "https://example.com", Nonce: "nonce", Version: "0.1.0", Snapshot: func() agent.Snapshot {
-		return agent.Snapshot{State: agent.StateDownloadingModel, WorkerResident: true}
+		return agent.Snapshot{State: agent.StateDownloadingModel, BindingState: agent.BindingConnecting, WorkerResident: true}
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -47,7 +47,7 @@ func TestHealthShowsMissingModelWithoutLeakingCredentials(t *testing.T) {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()
-	if !strings.Contains(body, `"modelReady":false`) || !strings.Contains(body, `"state":"downloading_model"`) {
+	if !strings.Contains(body, `"modelReady":false`) || !strings.Contains(body, `"state":"downloading_model"`) || !strings.Contains(body, `"bindingState":"connecting"`) {
 		t.Fatalf("body=%s", body)
 	}
 	if strings.Contains(strings.ToLower(body), "token") || strings.Contains(strings.ToLower(body), "cookie") {

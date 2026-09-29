@@ -9,6 +9,12 @@ test('normalizes offline and first-use model states for the status bar', () => {
   assert.deepEqual(normalizeGiantMaterialExecutorStatus({ online: true, state: 'idle', modelReady: true }), { kind: 'ready', modelReady: true, label: '执行器已就绪' });
 });
 
+test('normalizes persistent binding states without asking for pairing on every reconnect', () => {
+  assert.deepEqual(normalizeGiantMaterialExecutorStatus({ online: true, bindingState: 'connecting', state: 'idle', modelReady: true }), { kind: 'connecting', modelReady: true, label: '正在连接执行器', bindingState: 'connecting' });
+  assert.deepEqual(normalizeGiantMaterialExecutorStatus({ online: true, bindingState: 'offline', state: 'idle', modelReady: true }), { kind: 'offline', modelReady: false, label: '已绑定但当前离线', bindingState: 'offline' });
+  assert.deepEqual(normalizeGiantMaterialExecutorStatus({ online: true, bindingState: 'needs_pairing', state: 'idle', modelReady: true }), { kind: 'needs_pairing', modelReady: false, label: '需要首次绑定或重新绑定', bindingState: 'needs_pairing' });
+});
+
 test('loopback client sends nonce and never exposes credentials in status calls', async () => {
   const calls = [];
   const fetchImpl = async (url, options = {}) => {
