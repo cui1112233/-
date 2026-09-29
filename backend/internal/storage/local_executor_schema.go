@@ -98,5 +98,6 @@ func AppMigrations() []Migration {
 	out := append([]Migration(nil), V11Migrations()...)
 	out = append(out, V12Migrations()...)
 	out = append(out, LocalExecutorMigrations()...)
+	out = append(out, GiantMaterialExecutorMigrations()...)
 	return out
 }

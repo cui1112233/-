@@ -8,6 +8,7 @@ import (
 
 	"qiantie/backend/internal/batchfactoryv11"
 	"qiantie/backend/internal/batchfactoryv11/external"
+	"qiantie/backend/internal/giantmaterialexecutor"
 	"qiantie/backend/internal/localartifact"
 	"qiantie/backend/internal/localexecutor"
 	"qiantie/backend/internal/mergeworker"
@@ -15,23 +16,24 @@ import (
 )
 
 type RouterOptions struct {
-	BridgeSecret    string
-	ReleaseSHA      string
-	Now             func() time.Time
-	Users           BridgeUserResolver
-	Slice           int
-	RegisterV11     func(*http.ServeMux)
-	Store           batchfactoryv11.Store
-	Director        *batchfactoryv11.DirectorService
-	H3AudioProbe    batchfactoryv11.H3AudioDurationProbe
-	Compiler        *batchfactoryv11.PromptCompilerService
-	Production      *batchfactoryv11.ProductionService
-	Merge           *batchfactoryv11.MergeService
-	External        *external.Service
-	NovelFetchStore novelfetchworkshop.LifecycleStore
-	LocalExecutors  *localexecutor.Service
-	LocalArtifacts  *localartifact.Store
-	MergeOutput     mergeworker.ObjectStore
+	BridgeSecret          string
+	ReleaseSHA            string
+	Now                   func() time.Time
+	Users                 BridgeUserResolver
+	Slice                 int
+	RegisterV11           func(*http.ServeMux)
+	Store                 batchfactoryv11.Store
+	Director              *batchfactoryv11.DirectorService
+	H3AudioProbe          batchfactoryv11.H3AudioDurationProbe
+	Compiler              *batchfactoryv11.PromptCompilerService
+	Production            *batchfactoryv11.ProductionService
+	Merge                 *batchfactoryv11.MergeService
+	External              *external.Service
+	NovelFetchStore       novelfetchworkshop.LifecycleStore
+	LocalExecutors        *localexecutor.Service
+	GiantMaterialExecutor *giantmaterialexecutor.Service
+	LocalArtifacts        *localartifact.Store
+	MergeOutput           mergeworker.ObjectStore
 }
 
 func NewRouter(options RouterOptions) http.Handler {
@@ -84,6 +86,7 @@ func NewRouter(options RouterOptions) http.Handler {
 	RegisterLocalExecutorRoutes(root, auth, options.LocalExecutors)
 	RegisterLocalExecutorJobRoutes(root, auth, options.LocalExecutors)
 	RegisterLocalExecutorArtifactRoutes(root, auth, options.LocalExecutors, options.LocalArtifacts)
+	RegisterGiantMaterialExecutorRoutes(root, auth, options.GiantMaterialExecutor)
 	if options.NovelFetchStore != nil {
 		novelFetch := http.NewServeMux()
 		registerNovelFetchWorkshopRoutes(novelFetch, options.NovelFetchStore)

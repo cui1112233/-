@@ -1,0 +1,276 @@
+package giantmaterialexecutor
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+)
+
+type MemoryStore struct {
+	mu        sync.Mutex
+	pairings  map[string]PairingRecord
+	executors map[string]ExecutorRecord
+	tokens    map[string]string
+	jobs      map[string]JobRecord
+	jobKeys   map[string]string
+}
+
+func NewMemoryStore() *MemoryStore {
+	return &MemoryStore{pairings: make(map[string]PairingRecord), executors: make(map[string]ExecutorRecord), tokens: make(map[string]string), jobs: make(map[string]JobRecord), jobKeys: make(map[string]string)}
+}
+
+func (s *MemoryStore) CreatePairing(_ context.Context, record PairingRecord) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.pairings[secretHashKey(record.CodeHash)] = record
+	return nil
+}
+
+func (s *MemoryStore) PairExecutor(_ context.Context, codeHash SecretHash, platform string, executor ExecutorRecord, now time.Time) (ExecutorRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	pairing, ok := s.pairings[secretHashKey(codeHash)]
+	if !ok || pairing.ConsumedAt != nil || pairing.Platform != platform || !pairing.ExpiresAt.After(now) {
+		return ExecutorRecord{}, ErrPairingInvalid
+	}
+	consumed := now
+	pairing.ConsumedAt = &consumed
+	s.pairings[secretHashKey(codeHash)] = pairing
+	executor.OwnerUsername = pairing.OwnerUsername
+	s.executors[executor.ID] = executor
+	s.tokens[secretHashKey(executor.TokenHash)] = executor.ID
+	return executor, nil
+}
+
+func (s *MemoryStore) ExecutorByTokenHash(_ context.Context, hash SecretHash) (ExecutorRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	id, ok := s.tokens[secretHashKey(hash)]
+	if !ok {
+		return ExecutorRecord{}, ErrExecutorUnauthorized
+	}
+	record, ok := s.executors[id]
+	if !ok {
+		return ExecutorRecord{}, ErrExecutorUnauthorized
+	}
+	return record, nil
+}
+
+func (s *MemoryStore) UpdateHeartbeat(_ context.Context, id string, input HeartbeatInput, now time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	record, ok := s.executors[id]
+	if !ok {
+		return ErrExecutorUnauthorized
+	}
+	if strings.TrimSpace(input.DeviceName) != "" {
+		record.DeviceName = strings.TrimSpace(input.DeviceName)
+	}
+	if strings.TrimSpace(input.OS) != "" {
+		record.OS = strings.TrimSpace(input.OS)
+	}
+	if strings.TrimSpace(input.Version) != "" {
+		record.Version = strings.TrimSpace(input.Version)
+	}
+	seen := now
+	record.LastSeenAt = &seen
+	record.UpdatedAt = now
+	s.executors[id] = record
+	return nil
+}
+
+func (s *MemoryStore) ListExecutors(_ context.Context, owner string) ([]ExecutorRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]ExecutorRecord, 0)
+	for _, record := range s.executors {
+		if record.OwnerUsername == owner {
+			out = append(out, record)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt.After(out[j].UpdatedAt) })
+	return out, nil
+}
+
+func (s *MemoryStore) FindJobByKey(_ context.Context, owner, key string) (JobRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	id, ok := s.jobKeys[owner+"\x00"+key]
+	if !ok {
+		return JobRecord{}, ErrJobNotFound
+	}
+	record, ok := s.jobs[id]
+	if !ok {
+		return JobRecord{}, ErrJobNotFound
+	}
+	return record, nil
+}
+
+func (s *MemoryStore) CreateJob(_ context.Context, record JobRecord) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := record.OwnerUsername + "\x00" + jobKey(record)
+	if _, exists := s.jobKeys[key]; exists {
+		return ErrJobConflict
+	}
+	s.jobs[record.ID] = record
+	s.jobKeys[key] = record.ID
+	return nil
+}
+
+func (s *MemoryStore) JobForOwner(_ context.Context, owner, id string) (JobRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	record, ok := s.jobs[id]
+	if !ok || record.OwnerUsername != owner {
+		return JobRecord{}, ErrJobNotFound
+	}
+	return record, nil
+}
+
+func (s *MemoryStore) CancelJob(_ context.Context, owner, id string, now time.Time) (JobRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	record, ok := s.jobs[id]
+	if !ok || record.OwnerUsername != owner {
+		return JobRecord{}, ErrJobNotFound
+	}
+	if record.State != JobSucceeded && record.State != JobFailed && record.State != JobCancelled {
+		record.CancelRequested = true
+		record.State = JobCancelled
+		record.UpdatedAt = now
+		s.jobs[id] = record
+	}
+	return record, nil
+}
+
+func (s *MemoryStore) ClaimJob(_ context.Context, executor ExecutorRecord, leaseHash SecretHash, expires, now time.Time) (JobRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var picked *JobRecord
+	for _, candidate := range s.jobs {
+		if candidate.OwnerUsername != executor.OwnerUsername || candidate.Platform != PlatformGiantMaterial || candidate.CancelRequested || candidate.State == JobCancelled || candidate.State == JobSucceeded || candidate.State == JobFailed {
+			continue
+		}
+		claimable := candidate.State == JobQueued || (candidate.LeaseExpiresAt != nil && !candidate.LeaseExpiresAt.After(now))
+		if !claimable {
+			continue
+		}
+		copy := candidate
+		if picked == nil || copy.CreatedAt.Before(picked.CreatedAt) || (copy.CreatedAt.Equal(picked.CreatedAt) && copy.ID < picked.ID) {
+			picked = &copy
+		}
+	}
+	if picked == nil {
+		return JobRecord{}, ErrNoClaimableJob
+	}
+	record := *picked
+	record.State = JobLeased
+	record.LeaseExecutorID = executor.ID
+	record.LeaseTokenHash = leaseHash
+	record.LeaseGeneration++
+	record.LeaseExpiresAt = &expires
+	record.UpdatedAt = now
+	record.ErrorCode = ""
+	record.ErrorMessage = ""
+	s.jobs[record.ID] = record
+	return record, nil
+}
+
+func (s *MemoryStore) RenewJob(_ context.Context, executorID, id string, leaseHash SecretHash, generation int64, expires, now time.Time) (JobRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	record, err := s.leaseLocked(id, executorID, leaseHash, generation, now)
+	if err != nil {
+		return JobRecord{}, err
+	}
+	record.LeaseExpiresAt = &expires
+	record.UpdatedAt = now
+	s.jobs[id] = record
+	return record, nil
+}
+
+func (s *MemoryStore) SetProgress(_ context.Context, executorID, id string, leaseHash SecretHash, generation int64, next JobState, progress ProgressInput, now time.Time) (JobRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	record, err := s.leaseLocked(id, executorID, leaseHash, generation, now)
+	if err != nil {
+		return JobRecord{}, err
+	}
+	if err := validJobTransition(record.State, next); err != nil {
+		return JobRecord{}, err
+	}
+	record.State = next
+	record.Progress = progress
+	record.UpdatedAt = now
+	s.jobs[id] = record
+	return record, nil
+}
+
+func (s *MemoryStore) CompleteJob(_ context.Context, executorID, id string, leaseHash SecretHash, generation int64, result ResultInput, now time.Time) (JobRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	record, err := s.leaseLocked(id, executorID, leaseHash, generation, now)
+	if err != nil {
+		return JobRecord{}, err
+	}
+	if record.State != JobUploading {
+		return JobRecord{}, ErrInvalidJobState
+	}
+	record.State = JobSucceeded
+	record.Result = ResultRecord{Text: result.Text, WordCount: result.WordCount, CreatedAt: now}
+	record.UpdatedAt = now
+	s.jobs[id] = record
+	return record, nil
+}
+
+func (s *MemoryStore) FailJob(_ context.Context, executorID, id string, leaseHash SecretHash, generation int64, failure FailureInput, now time.Time) (JobRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	record, err := s.leaseLocked(id, executorID, leaseHash, generation, now)
+	if err != nil {
+		return JobRecord{}, err
+	}
+	record.State = JobFailed
+	record.ErrorCode = bounded(failure.Code, 96)
+	record.ErrorMessage = bounded(failure.Message, 512)
+	record.UpdatedAt = now
+	s.jobs[id] = record
+	return record, nil
+}
+
+func (s *MemoryStore) leaseLocked(id, executorID string, leaseHash SecretHash, generation int64, now time.Time) (JobRecord, error) {
+	record, ok := s.jobs[id]
+	if !ok {
+		return JobRecord{}, ErrJobNotFound
+	}
+	if record.CancelRequested || record.State == JobCancelled {
+		return JobRecord{}, ErrJobCancelled
+	}
+	if record.LeaseExecutorID != executorID || record.LeaseGeneration != generation || record.LeaseTokenHash != leaseHash || record.LeaseExpiresAt == nil || !record.LeaseExpiresAt.After(now) {
+		return JobRecord{}, ErrStaleLease
+	}
+	return record, nil
+}
+
+func secretHashKey(hash SecretHash) string { return base64.RawURLEncoding.EncodeToString(hash[:]) }
+func hashSecret(value string) SecretHash   { return sha256.Sum256([]byte(value)) }
+func hashPairingCode(value string) SecretHash {
+	return sha256.Sum256([]byte(normalizePairingCode(value)))
+}
+
+func jobKey(record JobRecord) string {
+	return strings.Join([]string{record.MaterialID, record.PlatformBookID, record.ModelVersion}, "\x00")
+}
+
+func bounded(value string, max int) string {
+	value = strings.TrimSpace(value)
+	if len(value) > max {
+		return value[:max]
+	}
+	return value
+}
