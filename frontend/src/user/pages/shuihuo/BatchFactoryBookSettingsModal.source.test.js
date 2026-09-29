@@ -72,6 +72,16 @@ test('single-book assets expose script-compatible starred-character focus withou
   assert.match(source, /mode="multiple"/);
 });
 
+test('single-book assets independently override extraction, character and scene prompt slots', () => {
+  assert.match(source, /script\.asset-extraction/);
+  assert.match(source, /batch\.character-meta/);
+  assert.match(source, /batch\.scene-meta/);
+  assert.match(source, /updateAssetSelection\('extraction', selection\)/);
+  assert.match(source, /updateAssetSelection\('character', selection\)/);
+  assert.match(source, /updateAssetSelection\('scene', selection\)/);
+  assert.match(source, /const moduleKeys = region === 'video' \|\| region === 'media' \? \['video'\] : \[moduleKey\]/);
+});
+
 test('keeps storyboard duration in engine configuration instead of video settings', () => {
   const videoRegion = source.match(/else if \(region === 'video'\) \{([\s\S]*?)\n  \} else \{/ )?.[1] || '';
   assert.doesNotMatch(videoRegion, /InheritedStoryboardDurationField/);

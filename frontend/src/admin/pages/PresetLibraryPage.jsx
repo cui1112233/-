@@ -62,6 +62,7 @@ const batchFactoryPresetSections = [
     matches: preset => [
       'batch-assets-h3',
       'batch-assets-h3-skill',
+      'batch-assets-sd-character-scene',
       'batch-character-h3',
       'batch-character-meta',
       'batch-scene-h3',
@@ -87,13 +88,49 @@ const batchFactoryPresetSections = [
       'batch-video-meta',
       'batch-video-h3-director',
       'batch-video-sd-fixed-shot',
+      'batch-video-sd',
       'batch-visual-meta'
     ].includes(preset.id) || preset.id.startsWith('batch-prefix-')
+  },
+  {
+    key: 'batch-constraints',
+    title: '约束设置',
+    description: '基础设定、约束规则、画面前缀词、画质约束、画面限制与负面提示词。',
+    matches: preset => preset.id === 'script-constraint-wrapper'
+      || preset.protocolLock?.format === 'constraint'
+      || [
+        'script-extract',
+        'script-extract-assets',
+        'script-extract-novel-panel',
+        'script-card-protocol'
+      ].includes(preset.id),
+    subSections: [
+      { title: '基础设定', ids: ['script-card-protocol', 'script-extract', 'script-extract-assets', 'script-extract-novel-panel'] },
+      { title: '约束规则', ids: ['script-constraint-wrapper'] },
+      { title: '画面前缀词', filter: preset => preset.protocolLock?.format === 'constraint' && preset.protocolLock?.category === 'prefix' },
+      { title: '画质约束', filter: preset => preset.protocolLock?.format === 'constraint' && preset.protocolLock?.category === 'quality' },
+      { title: '画面限制', filter: preset => preset.protocolLock?.format === 'constraint' && preset.protocolLock?.category === 'restriction' },
+      { title: '负面提示词', filter: preset => preset.protocolLock?.format === 'constraint' && preset.protocolLock?.category === 'negative' }
+    ]
   }
 ];
 
 const formatPriority = [
   'script-card-protocol',
+  'script-extract',
+  'script-extract-assets',
+  'script-extract-novel-panel',
+  'script-constraint-wrapper',
+  'script-constraint-prefix-smart-unified',
+  'script-constraint-prefix-live-action',
+  'script-constraint-prefix-3d',
+  'script-constraint-prefix-2d',
+  'script-constraint-prefix-guoman',
+  'script-constraint-quality-4k',
+  'script-constraint-quality-h3-shot-narrative',
+  'script-constraint-restriction-h3-visual-policy',
+  'script-constraint-restriction-no-overlay',
+  'script-constraint-negative-general',
   'shuihuo-extract-characters',
   'shuihuo-extract-scenes',
   'shuihuo-smart-segmentation',
@@ -152,11 +189,20 @@ export function PresetLibraryPage() {
     setLoading(true);
     setError('');
     try {
-      const [presetResult, slotResult] = await Promise.all([
+      const requests = [
         listAdminPresets(module),
         listAdminPresetSlots(module)
-      ]);
-      setPresets(sortPresets(presetResult.presets || []));
+      ];
+      // 批量工厂页需要同时展示约束设置预设（module=script）
+      if (module === 'batch-factory') {
+        requests.push(listAdminPresets('script'));
+      }
+      const [presetResult, slotResult, extraPresetResult] = await Promise.all(requests);
+      const allPresets = [...(presetResult.presets || [])];
+      if (extraPresetResult) {
+        allPresets.push(...(extraPresetResult.presets || []));
+      }
+      setPresets(sortPresets(allPresets));
       setSlots(slotResult.slots || []);
     } catch (requestError) {
       setPresets([]);
@@ -315,6 +361,7 @@ export function PresetLibraryPage() {
         columns={columns}
         loading={loading}
         size="middle"
+        scroll={{ x: 'max-content' }}
         expandable={{
           rowExpandable: row => row.versions.length > 1,
           expandedRowRender: row => (
@@ -374,11 +421,32 @@ export function PresetLibraryPage() {
         ) : module === 'batch-factory' ? (
           <Collapse
             defaultActiveKey={batchFactorySections.map(section => section.key)}
-            items={batchFactorySections.map(section => ({
-              key: section.key,
-              label: <Space direction="vertical" size={0}><Typography.Text strong>{section.title}</Typography.Text><Typography.Text type="secondary">{section.description}</Typography.Text></Space>,
-              children: presetTable(section.items)
-            }))}
+            items={batchFactorySections.map(section => {
+              let children;
+              if (section.subSections) {
+                children = section.subSections.map(sub => {
+                  let subItems;
+                  if (sub.ids) {
+                    subItems = section.items.filter(item => sub.ids.includes(item.id));
+                  } else if (sub.filter) {
+                    subItems = section.items.filter(item => sub.filter(item.current));
+                  }
+                  return subItems && subItems.length > 0 ? (
+                    <div key={sub.title} style={{ marginBottom: 16 }}>
+                      <Typography.Title level={5} style={{ marginTop: 8, marginBottom: 8 }}>{sub.title}</Typography.Title>
+                      {presetTable(subItems)}
+                    </div>
+                  ) : null;
+                }).filter(Boolean);
+              } else {
+                children = presetTable(section.items);
+              }
+              return {
+                key: section.key,
+                label: <Space direction="vertical" size={0}><Typography.Text strong>{section.title}</Typography.Text><Typography.Text type="secondary">{section.description}</Typography.Text></Space>,
+                children
+              };
+            })}
           />
         ) : (
           <Table

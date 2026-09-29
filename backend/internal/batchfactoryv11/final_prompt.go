@@ -599,7 +599,6 @@ func (s *PromptCompilerService) compile(ctx context.Context, owner, batchID, boo
 	// constraint below remains the sole prefix source for VIDEO compilation.
 	config := aiReasoningPromptConfig(values)
 	h3Renderer := usesH3VideoRenderer(config.Video)
-	h3Style := smartUnifiedStyleForRevision(book, config)
 	constraintsActive := constraintsApply(values, config, book)
 	constraintBody := func(category, legacyEnabledKey, legacyValueKey string) string {
 		if category == "prefix" && smartUnifiedSelectedForRevision(book, config) {
@@ -622,11 +621,10 @@ func (s *PromptCompilerService) compile(ctx context.Context, owner, batchID, boo
 	// The final VIDEO request has one stable, user-visible sequence. Transport
 	// fields such as duration and subtitle policy are passed separately to the
 	// provider and must not masquerade as prompt content.
-	// H3 puts the user-requested smart-unified baseline inside its canonical
-	// upload prompt. Keeping it as a standalone prefix would duplicate it.
-	if !(h3Renderer && h3Style != "") {
-		addComponent(&components, "prefix", "画面前缀", constraintBody("prefix", "prefixEnabled", "prefix"))
-	}
+	// 画面前缀统一由约束开关注入，H3 不再特殊跳过。选“智能统一”时
+	// constraintBody("prefix") 返回该书已保存的视觉基线，作为画面前缀内容；
+	// 未选智能统一则注入用户选中的前缀正文。开关关闭时此项为空、不注入。
+	addComponent(&components, "prefix", "画面前缀", constraintBody("prefix", "prefixEnabled", "prefix"))
 	// Base setup is its own user switch. A batch may choose an H3 VIDEO preset
 	// before opening the constraint editor; that must retain the legacy default
 	// of including asset definitions rather than treating an absent module as off.
@@ -644,10 +642,14 @@ func (s *PromptCompilerService) compile(ctx context.Context, owner, batchID, boo
 		if value := selectResolvedPrompts(props, included); value != "" {
 			base = append(base, "道具："+value)
 		}
-		// H3 has its own canonical subject and timeline grammar. Its selected
-		// character/scene definitions are already compiled into that grammar, so
-		// never prepend the generic base-setup wrapper to an H3 provider prompt.
-		if !h3Renderer {
+		// 基础设定统一由开关注入，H3 不再跳过。H3 下的人物定义保留 <Subject N>
+		// 格式（供时间轴引用），但作为外层“基础设定”组件按开关注入；非 H3 沿用
+		// 通用“人物/场景/道具”文本。
+		if h3Renderer {
+			if definitions := h3SubjectDefinitions(h3Subjects(characters)); definitions != "" {
+				addComponent(&components, "baseSetup", "基础设定", definitions)
+			}
+		} else {
 			addComponent(&components, "baseSetup", "基础设定", strings.Join(base, "\n"))
 		}
 	}
@@ -655,18 +657,27 @@ func (s *PromptCompilerService) compile(ctx context.Context, owner, batchID, boo
 	displayPrompt := storyboardVideoPrompt(draft)
 	videoPrompt := displayPrompt
 	if h3Renderer {
-		// Base setup owns asset-definition injection only. The director's own
-		// role names, actions and shot context stay in the timeline regardless.
+		// compileH3VideoPrompt 只产出 H3 骨架（视听呈现+时间轴）；人物定义、画风
+		// 由外层开关统一注入。基础设定开关关闭时不传人物/场景，时间轴里的
+		// <Subject N> 指代也随之取消。H3 编译结果是程序生成的结构化内容，不剥离。
 		h3Characters, h3Scenes := characters, scenes
 		if !baseSetupActive {
 			h3Characters, h3Scenes = nil, nil
 		}
 		videoPrompt = compileH3VideoPrompt(draft, h3Characters, h3Scenes)
+	} else {
+		// 非 H3 正文先剥离模型/粘贴自带的共享设定段，再由开关统一注入，对齐剧本生成。
+		videoPrompt = stripSharedPromptSections(videoPrompt)
+		displayPrompt = videoPrompt
 	}
 	// A video-scope edit is the sole exception: it is an intentional user
 	// replacement for this one card.  Stored pre-fix video_desc summaries are
 	// not overrides and must never win over the director's verified timeline.
+	// 用户手动覆盖的非 H3 文本同样剥离共享段，防止绕过开关与程序注入重复。
 	if override, ok := optionalPromptValue(video.SettingsState.Patch, "videoPrompt"); ok {
+		if !h3Renderer {
+			override = stripSharedPromptSections(override)
+		}
 		videoPrompt = override
 		displayPrompt = override
 	}

@@ -124,11 +124,60 @@ func TestFinalPromptUsesH3VideoRendererWhenTheH3PresetIsSelected(t *testing.T) {
 	if strings.Contains(prompt.CompiledPrompt, "视频提示词：镜头画面：") {
 		t.Fatalf("generic renderer leaked into H3 output:\n%s", prompt.CompiledPrompt)
 	}
-	if strings.Contains(prompt.CompiledPrompt, "基础设定：") {
-		t.Fatalf("the H3 upload grammar must not be wrapped by the generic base-setup component:\n%s", prompt.CompiledPrompt)
+	// 基础设定开关开启时，H3 的人物定义统一走外层“基础设定”组件注入（保留 <Subject> 格式）。
+	if !strings.Contains(prompt.CompiledPrompt, "基础设定：【人物定义】") {
+		t.Fatalf("H3 base-setup must inject subject definitions under the 基础设定 component:\n%s", prompt.CompiledPrompt)
 	}
 	if !strings.Contains(prompt.DisplayPrompt, "镜头画面：") || strings.Contains(prompt.DisplayPrompt, "【H3视听时间轴】") {
 		t.Fatalf("the editable card must keep the director prompt, display=%q", prompt.DisplayPrompt)
+	}
+}
+
+func TestFinalPromptH3BaseSetupSwitchOffOmitsSubjectDefinitions(t *testing.T) {
+	store, batch, book, video := seedCompiledVideo(t)
+	if _, err := store.SaveSettings(context.Background(), "alice", ScopeRef{Kind: ScopeBatch, BatchID: batch.ID}, SettingsUpdate{
+		Patch: SettingsPatch{
+			"aiPromptConfig": rawSetting(t, map[string]any{
+				"video": map[string]any{
+					"enabled":   true,
+					"scope":     "all",
+					"presetId":  "batch-video-h3-director",
+					"presetKey": "h3-video-normal",
+					"body":      "H3 director output renderer",
+				},
+			}),
+			"injectBaseSettings": rawSetting(t, false),
+		},
+		ExpectedRevision: batch.Revision,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	prompt, err := (&PromptCompilerService{Store: store}).Compile(context.Background(), "alice", batch.ID, book.ID, video.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(prompt.CompiledPrompt, "【人物定义】") || strings.Contains(prompt.CompiledPrompt, "<Subject 1>") {
+		t.Fatalf("base-setup off must omit H3 subject definitions:\n%s", prompt.CompiledPrompt)
+	}
+}
+
+func TestFinalPromptStripsSharedSectionsFromOverride(t *testing.T) {
+	store, batch, book, video := seedCompiledVideo(t)
+	if _, err := store.SaveSettings(context.Background(), "alice", ScopeRef{Kind: ScopeVideo, BatchID: batch.ID, BookID: book.ID, VideoID: video.ID}, SettingsUpdate{
+		Patch: SettingsPatch{"videoPrompt": rawSetting(t, "【基础设定】\n人物：张三\n\n镜头画面：\n00:00 | 中景 | 动作\n\n负面提示词：模糊")},
+		ExpectedRevision: video.Revision,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	prompt, err := (&PromptCompilerService{Store: store}).Compile(context.Background(), "alice", batch.ID, book.ID, video.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(prompt.CompiledPrompt, "【基础设定】") || strings.Contains(prompt.CompiledPrompt, "张三") || strings.Contains(prompt.CompiledPrompt, "模糊") {
+		t.Fatalf("override shared sections must be stripped:\n%s", prompt.CompiledPrompt)
+	}
+	if !strings.Contains(prompt.CompiledPrompt, "镜头画面：") {
+		t.Fatalf("override body must remain:\n%s", prompt.CompiledPrompt)
 	}
 }
 

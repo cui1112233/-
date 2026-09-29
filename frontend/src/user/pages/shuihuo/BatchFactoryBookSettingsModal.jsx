@@ -339,6 +339,8 @@ export function BatchFactoryBookSettingsModal({ open, batch, book, activeRegion 
     video: models.filter(item => item.kind === 'video').map(item => ({ value: item.id, label: item.name || item.id }))
   }), [models]);
   const scriptExtraction = useMemo(() => catalog.script.filter(item => item.slot === 'script.asset-extraction'), [catalog.script]);
+  const characterPromptRules = useMemo(() => catalog.batch.filter(item => item.slot === 'batch.character-meta'), [catalog.batch]);
+  const scenePromptRules = useMemo(() => catalog.batch.filter(item => item.slot === 'batch.scene-meta'), [catalog.batch]);
   const scriptConstraints = useMemo(() => catalog.script.filter(item => item.kind === 'addon' && item.constraintCategory), [catalog.script]);
   const videoRules = useMemo(() => catalog.batch.filter(item => item.slot === 'batch.video-meta'), [catalog.batch]);
   const visualRules = useMemo(() => catalog.batch.filter(item => item.slot === 'batch.visual-meta'), [catalog.batch]);
@@ -565,7 +567,9 @@ export function BatchFactoryBookSettingsModal({ open, batch, book, activeRegion 
   } else if (region === 'assets') {
     body = <><Alert type="info" showIcon message="当前书的人物场景预设" description="人物、场景、道具的实际 Prompt 与图片在本书这一行的“添加角色 / 添加场景 / 添加道具”中维护；这里选择这本书调用的提取与推理预设。" />
       <RuleModule title="资产设置" value={assetRules} onChange={next => patchAI('assets', scoped(next))}>
-        <PromptSelect label="人物场景道具提示词" value={assetRules.extraction} options={Object.assign(scriptExtraction.map(optionFor), { catalog: scriptExtraction })} disabled={loading} onChange={selection => updateAssetSelection('extraction', selection)} />
+        <PromptSelect label="人物场景道具提取提示词" value={assetRules.extraction} options={Object.assign(scriptExtraction.map(optionFor), { catalog: scriptExtraction })} disabled={loading} onChange={selection => updateAssetSelection('extraction', selection)} />
+        <PromptSelect label="人物提示词" value={assetRules.character} options={Object.assign(characterPromptRules.map(optionFor), { catalog: characterPromptRules })} disabled={loading} onChange={selection => updateAssetSelection('character', selection)} />
+        <PromptSelect label="场景提示词" value={assetRules.scene} options={Object.assign(scenePromptRules.map(optionFor), { catalog: scenePromptRules })} disabled={loading} onChange={selection => updateAssetSelection('scene', selection)} />
         <label className="batch-factory-engine-field"><span><b>星标人物聚焦</b><small>与公网剧本生成一致：只作为导演分镜的剧情与镜头聚焦变量，不等同于分镜资产灰显。</small></span><Select mode="multiple" allowClear value={starredCharacterNames} options={characterOptions} placeholder={characterOptions.length ? '选择已提取的人物' : '请先提取人物资产'} onChange={starredCharacterNames => patch({ starredCharacterNames })} /></label>
         <Button onClick={() => { onClose?.(); onOpenBookAssets?.(book); }}>维护当前书人物场景预设</Button>
       </RuleModule>

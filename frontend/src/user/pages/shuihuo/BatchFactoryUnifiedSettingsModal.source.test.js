@@ -10,6 +10,7 @@ const source = fs.readFileSync(sourcePath, 'utf8');
 
 test('unified configuration owns models, AI reasoning and publication in one editable patch', () => {
   assert.match(source, /模型配置/);
+  assert.match(source, /BatchFactoryPublishSettingsForm/);
   assert.match(source, /AI 推理/);
   assert.match(source, /发布统一/);
   assert.match(source, /BatchFactoryEngineSettingsForm/);
@@ -55,7 +56,7 @@ test('opens legacy nested unified settings as the original editable configuratio
 });
 
 test('does not discard an open unified-configuration draft when the batch refreshes', () => {
-  const resetEffect = source.match(/useEffect\(\(\) => \{\n    if \(open\) setDraftPatch\(normalizeLegacyPatch\(batch\?\.settingsState\?\.patch\)\);\n  \}, \[[^\]]+\]\);/)?.[0] || '';
+  const resetEffect = source.match(/useEffect\(\(\) => \{\s*if \(open\) setDraftPatch\(normalizeLegacyPatch\(batch\?\.settingsState\?\.patch\)\);\s*\}, \[[^\]]+\]\);/)?.[0] || '';
   assert.doesNotMatch(resetEffect, /batch\?\.settingsState\?\.revision/);
   assert.match(resetEffect, /\[open, batch\?\.id\]/);
 });
@@ -103,4 +104,16 @@ test('marks the video-management session stale and refreshes organizations after
 
 test('treats the legacy novel-fetch browser session as the same shared 121 login', () => {
   assert.match(source, /SESSION_CHECK_NAMES\s*=\s*\[\s*'视频管理系统登录会话',\s*'121 后台登录会话',\s*'目标站登录会话'\s*\]/);
+});
+
+test('unified AI reasoning selects extraction, character and scene prompts without overwriting video prompts', () => {
+  assert.match(source, /value=\{assets\.extraction\?\.presetId \|\| undefined\}/);
+  assert.match(source, /value=\{assets\.character\?\.presetId \|\| undefined\}/);
+  assert.match(source, /value=\{assets\.scene\?\.presetId \|\| undefined\}/);
+  assert.match(source, /bySlot\('script\.asset-extraction'\)/);
+  assert.match(source, /bySlot\('batch\.character-meta'\)/);
+  assert.match(source, /bySlot\('batch\.scene-meta'\)/);
+  assert.match(source, /assets: \{ \.\.\.assets, enabled: true, character: presetFor\(presetId\) \}/);
+  assert.match(source, /assets: \{ \.\.\.assets, enabled: true, scene: presetFor\(presetId\) \}/);
+  assert.match(source, /video: \{ \.\.\.video, \.\.\.presetValue\(catalog\.find\(item => item\.id === presetId\)\), enabled: true \}/);
 });

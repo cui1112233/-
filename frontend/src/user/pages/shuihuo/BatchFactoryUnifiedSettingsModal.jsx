@@ -233,6 +233,7 @@ export function BatchFactoryAiReasoningForm({ value, onChange }) {
     return () => { active = false; };
   }, []);
   const bySlot = slot => catalog.filter(item => item.slot === slot).map(selectOption);
+  const presetFor = presetId => presetValue(catalog.find(item => item.id === presetId));
   const bySlots = slots => catalog.filter(item => slots.includes(item.slot)).map(selectOption);
   const byConstraint = category => catalog.filter(item => item.kind === 'addon' && item.constraintCategory === category).map(selectOption);
   const updateConstraint = (category, presetId) => {
@@ -243,8 +244,10 @@ export function BatchFactoryAiReasoningForm({ value, onChange }) {
   const selectedConstraint = category => (constraints.selections || []).find(item => item.constraintCategory === category)?.presetId;
   return <Space direction="vertical" size={16} style={{ width: '100%' }}>
     <Alert type="info" showIcon message="AI 推理" description="选择规则后，资产提取、智能统一、导演分镜和最终 Prompt 都共用同一份批量草稿。" />
-    <section className="batch-factory-engine-card"><header><b>资产设置</b><small>H3 选项会按名单、事实、关系和全部人物外形的两次调用运行。</small></header><div className="batch-factory-engine-card-body">
-      <label className="batch-factory-engine-field"><span><b>人物场景道具提示词</b></span><Select allowClear value={assets.extraction?.presetId || undefined} options={bySlot('script.asset-extraction')} placeholder="选择已发布预设词" onChange={presetId => onChange({ ...config, assets: { ...assets, enabled: true, extraction: presetValue(catalog.find(item => item.id === presetId)) } })} /></label>
+    <section className="batch-factory-engine-card"><header><b>资产设置</b><small>资产提取、人物和场景提示词独立选择；SD 或 H3 资产方案不会替换视频提示词。</small></header><div className="batch-factory-engine-card-body batch-factory-engine-grid">
+      <label className="batch-factory-engine-field"><span><b>人物场景道具提取提示词</b></span><Select allowClear value={assets.extraction?.presetId || undefined} options={bySlot('script.asset-extraction')} placeholder="选择已发布预设词" onChange={presetId => onChange({ ...config, assets: { ...assets, enabled: true, extraction: presetFor(presetId) } })} /></label>
+      <label className="batch-factory-engine-field"><span><b>人物提示词</b></span><Select allowClear value={assets.character?.presetId || undefined} options={bySlot('batch.character-meta')} placeholder="选择已发布预设词" onChange={presetId => onChange({ ...config, assets: { ...assets, enabled: true, character: presetFor(presetId) } })} /></label>
+      <label className="batch-factory-engine-field"><span><b>场景提示词</b></span><Select allowClear value={assets.scene?.presetId || undefined} options={bySlot('batch.scene-meta')} placeholder="选择已发布预设词" onChange={presetId => onChange({ ...config, assets: { ...assets, enabled: true, scene: presetFor(presetId) } })} /></label>
     </div></section>
     <section className="batch-factory-engine-card"><header><b>约束设置</b><small>智能统一只有这里的画面前缀入口；基础设定和画面限制只控制最终注入层。</small></header><div className="batch-factory-engine-card-body batch-factory-engine-grid">
       <label className="batch-factory-engine-field"><span><b>画面前缀词（智能统一）</b></span><Select allowClear value={selectedConstraint('prefix')} options={byConstraint('prefix')} placeholder="选择系统预设" onChange={presetId => updateConstraint('prefix', presetId)} /></label>
