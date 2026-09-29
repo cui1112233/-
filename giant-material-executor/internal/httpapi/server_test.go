@@ -108,3 +108,29 @@ func TestLocalSetupOriginCanPair(t *testing.T) {
 		t.Fatalf("status=%d paired=%q body=%s", rec.Code, pairedCode, rec.Body.String())
 	}
 }
+
+func TestPairingPersistsBrowserSelectedPublicURLBeforePair(t *testing.T) {
+	var savedURL string
+	var pairedURL string
+	server, err := NewServer(ServerConfig{Addr: "127.0.0.1:17861", Origin: "https://example.com", Nonce: "nonce", Callbacks: Callbacks{
+		SetPublicURL: func(value string) error {
+			savedURL = value
+			return nil
+		},
+		Pair: func(_ context.Context, _ string) error {
+			pairedURL = savedURL
+			return nil
+		},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/v1/pair", strings.NewReader(`{"publicURL":"https://factory.example.com","code":"one-time-code"}`))
+	req.Header.Set("Origin", "http://127.0.0.1:17861")
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || savedURL != "https://factory.example.com" || pairedURL != savedURL {
+		t.Fatalf("status=%d saved=%q paired=%q body=%s", rec.Code, savedURL, pairedURL, rec.Body.String())
+	}
+}

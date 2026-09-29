@@ -31,10 +31,11 @@ type ServerConfig struct {
 }
 
 type Callbacks struct {
-	Pair     func(context.Context, string) error
-	StartJob func(context.Context, string) error
-	GetJob   func(context.Context, string) (JobStatus, error)
-	Cancel   func(context.Context, string) error
+	SetPublicURL func(string) error
+	Pair         func(context.Context, string) error
+	StartJob     func(context.Context, string) error
+	GetJob       func(context.Context, string) (JobStatus, error)
+	Cancel       func(context.Context, string) error
 }
 
 type Server struct {
@@ -144,7 +145,8 @@ func (s *Server) capabilities(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) pair(w http.ResponseWriter, req *http.Request) {
 	var input struct {
-		Code string `json:"code"`
+		PublicURL string `json:"publicURL"`
+		Code      string `json:"code"`
 	}
 	if err := decodeJSON(w, req, &input); err != nil || strings.TrimSpace(input.Code) == "" {
 		writeError(w, http.StatusBadRequest, "pairing code is required")
@@ -153,6 +155,12 @@ func (s *Server) pair(w http.ResponseWriter, req *http.Request) {
 	if s.config.Callbacks.Pair == nil {
 		writeError(w, http.StatusNotImplemented, "pairing is not configured")
 		return
+	}
+	if publicURL := strings.TrimSpace(input.PublicURL); publicURL != "" && s.config.Callbacks.SetPublicURL != nil {
+		if err := s.config.Callbacks.SetPublicURL(publicURL); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 	}
 	if err := s.config.Callbacks.Pair(req.Context(), strings.TrimSpace(input.Code)); err != nil {
 		writeError(w, http.StatusConflict, "pairing failed")

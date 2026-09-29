@@ -10,8 +10,8 @@
 1. 把整个 ZIP 解压到一个固定目录，例如：
    C:\Users\<你的用户名>\AppData\Local\YizhanShengming\GiantMaterialExecutor
 2. 在网页「设置 → 巨量素材执行器」点击「生成配对码」，记下 10 分钟内有效的代码。
-3. 双击 GiantMaterialExecutor.exe，会出现“巨量素材执行器”窗口。先确认“控制服务地址”是网页所在服务器的地址；
-   如果网页和执行器不在同一台电脑，不能填写 Windows 自己的 127.0.0.1。再把网页上生成的配对码粘贴进去并点击“绑定”。
+3. 双击 GiantMaterialExecutor.exe，程序会自动打开本机配对网页（`http://127.0.0.1:17861/setup`）。
+   在网页中填写“控制服务地址”和网页上生成的配对码，然后点击“绑定执行器”。
    绑定成功后，设备凭证会保存在当前 Windows 用户配置目录，之后重启执行器会自动连接，不需要重复配对。
 4. 保持执行器在后台运行。窗口可以点击“最小化到后台”；它只监听本机 127.0.0.1:17861，不会暴露公网端口。
    运行日志保存在 `%APPDATA%\YizhanShengming\GiantMaterialExecutor\executor.log`。

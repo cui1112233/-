@@ -161,7 +161,7 @@ func main() {
 		startAgent(result.Token)
 		return nil
 	}
-	server, err := httpapi.NewServer(httpapi.ServerConfig{Addr: "127.0.0.1:17861", Origin: origin, Nonce: nonce, Version: version, Snapshot: snapshot, Callbacks: httpapi.Callbacks{Pair: pair}})
+	server, err := httpapi.NewServer(httpapi.ServerConfig{Addr: "127.0.0.1:17861", Origin: origin, Nonce: nonce, Version: version, Snapshot: snapshot, Callbacks: httpapi.Callbacks{SetPublicURL: setPublicURL, Pair: pair}})
 	if err != nil {
 		log.Fatalf("create loopback server: %v", err)
 	}
@@ -191,6 +191,12 @@ func main() {
 		}
 	}()
 	go func() {
+		if readyErr := waitForLoopbackSetup(ctx); readyErr != nil {
+			if ctx.Err() == nil {
+				log.Printf("loopback setup page unavailable: %v", readyErr)
+			}
+			return
+		}
 		if uiErr := ui.Run(ctx, ui.Config{PublicURL: publicURL, SetPublicURL: setPublicURL, Pair: pair, Snapshot: snapshot, Shutdown: stop}); uiErr != nil && ctx.Err() == nil {
 			log.Printf("executor UI stopped: %v", uiErr)
 		}
@@ -198,6 +204,33 @@ func main() {
 	log.Printf("giant material executor started version=%s loopback=127.0.0.1:17861 workerResident=true", version)
 	<-ctx.Done()
 	log.Printf("giant material executor stopped")
+}
+
+func waitForLoopbackSetup(ctx context.Context) error {
+	client := &http.Client{Timeout: 500 * time.Millisecond}
+	deadline := time.NewTimer(5 * time.Second)
+	defer deadline.Stop()
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://127.0.0.1:17861/v1/health", nil)
+		if err == nil {
+			resp, requestErr := client.Do(req)
+			if requestErr == nil {
+				_ = resp.Body.Close()
+				if resp.StatusCode >= 200 && resp.StatusCode < 500 {
+					return nil
+				}
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-deadline.C:
+			return errors.New("等待本机配对页面服务超时")
+		case <-ticker.C:
+		}
+	}
 }
 
 func configureLogging() func() {
