@@ -52,6 +52,46 @@ const scriptPresetSections = [
   }
 ];
 
+// 批量工厂页与剧本生成页一样按 Collapse 分区展示：资产生成 → 剧情改编 → 视频提示词。
+// 顺序固定，便于管理员定位；版本管理与归属列保持不变。
+const batchFactoryPresetSections = [
+  {
+    key: 'batch-assets',
+    title: '资产生成',
+    description: '人物、场景、道具资产提取与一致性提示词。',
+    matches: preset => [
+      'batch-assets-h3',
+      'batch-assets-h3-skill',
+      'batch-character-h3',
+      'batch-character-meta',
+      'batch-scene-h3',
+      'batch-scene-meta',
+      'batch-prop-meta'
+    ].includes(preset.id)
+  },
+  {
+    key: 'batch-adaptation',
+    title: '剧情改编',
+    description: '开头改编与导演拆分规则。',
+    matches: preset => [
+      'batch-hook-adaptation',
+      'batch-original-director',
+      'batch-viral-director'
+    ].includes(preset.id)
+  },
+  {
+    key: 'batch-video',
+    title: '视频提示词',
+    description: '视频分镜、画面提示词与视频风格前缀。',
+    matches: preset => [
+      'batch-video-meta',
+      'batch-video-h3-director',
+      'batch-video-sd-fixed-shot',
+      'batch-visual-meta'
+    ].includes(preset.id) || preset.id.startsWith('batch-prefix-')
+  }
+];
+
 const formatPriority = [
   'script-card-protocol',
   'shuihuo-extract-characters',
@@ -301,6 +341,15 @@ export function PresetLibraryPage() {
     }).filter(section => section.items.length > 0);
   }, [grouped]);
 
+  const batchFactorySections = useMemo(() => {
+    const remaining = new Set(grouped.map(item => item.id));
+    return batchFactoryPresetSections.map(section => {
+      const items = grouped.filter(item => remaining.has(item.id) && section.matches(item.current));
+      items.forEach(item => remaining.delete(item.id));
+      return { ...section, items };
+    }).filter(section => section.items.length > 0);
+  }, [grouped]);
+
   return (
     <section className="admin-preset-library">
       <Space direction="vertical" size="middle" style={{ width: '100%' }}>
@@ -317,6 +366,15 @@ export function PresetLibraryPage() {
           <Collapse
             defaultActiveKey={scriptSections.map(section => section.key)}
             items={scriptSections.map(section => ({
+              key: section.key,
+              label: <Space direction="vertical" size={0}><Typography.Text strong>{section.title}</Typography.Text><Typography.Text type="secondary">{section.description}</Typography.Text></Space>,
+              children: presetTable(section.items)
+            }))}
+          />
+        ) : module === 'batch-factory' ? (
+          <Collapse
+            defaultActiveKey={batchFactorySections.map(section => section.key)}
+            items={batchFactorySections.map(section => ({
               key: section.key,
               label: <Space direction="vertical" size={0}><Typography.Text strong>{section.title}</Typography.Text><Typography.Text type="secondary">{section.description}</Typography.Text></Space>,
               children: presetTable(section.items)
