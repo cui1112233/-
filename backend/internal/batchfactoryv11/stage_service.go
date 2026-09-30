@@ -120,7 +120,7 @@ func (s *BookStageService) finish(ctx context.Context, owner string, run BookSta
 	if runErr != nil {
 		status, text = ProductionFailed, productionError(runErr)
 	}
-	_, err = repository.UpdateBookStageRun(ctx, owner, run.ID, BookStageRun{Status: status, ErrorMessage: text})
+	_, err = repository.UpdateBookStageRun(ctx, owner, run.ID, BookStageRun{Status: status, ErrorMessage: text, InputRevision: run.InputRevision})
 	return err
 }
 
@@ -194,6 +194,11 @@ func (s *BookStageService) run(ctx context.Context, owner, batchID, bookID strin
 		_, err = s.Director.RunAssetExtraction(ctx, owner, batchID, bookID)
 	case BookStageOpening:
 		_, err = s.Director.RunOpeningVariants(ctx, owner, batchID, bookID, s.OpeningMeta)
+		if err == nil && book.DirectorRevision != nil {
+			// 换开头绑定当前导演分镜版本：重新生成导演分镜后旧 revision 的成功
+			// 记录不再满足编排器门禁，变体会随新 revision 重新生成。
+			run.InputRevision = book.DirectorRevision.ID
+		}
 	case BookStageVisual:
 		_, err = s.Director.RunVisualPromptExtraction(ctx, owner, batchID, bookID)
 	case BookStageDirector:

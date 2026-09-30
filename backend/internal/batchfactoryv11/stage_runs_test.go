@@ -319,3 +319,41 @@ func TestBookStageOpeningSkipsSingleStoryboardBook(t *testing.T) {
 		}
 	}
 }
+
+func TestBookStageOpeningPersistsDirectorRevisionAsInputRevision(t *testing.T) {
+	sdResponse := `===VIDEO 01===
+时长：10秒
+段内执行约束：无台词。
+[场景 1] 总时长：10.000秒
+[镜头 1] 中景，缓慢推轨，林晚推开门。
+===VIDEO 02===
+时长：10秒
+段内执行约束：无台词。
+[场景 1] 总时长：10.000秒
+[镜头 1] 近景，林晚握紧玻璃杯。`
+	store, batch, book, service := seedOpeningStageBook(t, sdResponse)
+	summary, err := service.Run(context.Background(), "alice", batch.ID, book.ID, BookStageOpening, StageModeForce, "opening-1", "")
+	if err != nil {
+		t.Fatalf("opening stage failed: %v", err)
+	}
+	latest, err := store.GetBatch(context.Background(), "alice", batch.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	revision := latest.Books[0].DirectorRevision
+	if revision == nil {
+		t.Fatal("director revision missing")
+	}
+	var openingRun *BookStageRun
+	for i := range summary.Runs {
+		if summary.Runs[i].Stage == BookStageOpening {
+			openingRun = &summary.Runs[i]
+		}
+	}
+	if openingRun == nil || openingRun.Status != ProductionSucceeded {
+		t.Fatalf("opening run missing or not succeeded: %+v", summary.Runs)
+	}
+	if openingRun.InputRevision != revision.ID {
+		t.Fatalf("opening run input revision = %q, want director revision %q", openingRun.InputRevision, revision.ID)
+	}
+}

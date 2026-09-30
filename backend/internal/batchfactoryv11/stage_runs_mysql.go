@@ -57,12 +57,15 @@ func (s *MySQLStore) UpdateBookStageRun(ctx context.Context, owner, id string, v
 	if value.ErrorMessage != "" || existing.Status == ProductionSucceeded {
 		existing.ErrorMessage = value.ErrorMessage
 	}
+	if value.InputRevision != "" {
+		existing.InputRevision = value.InputRevision
+	}
 	existing.UpdatedAt = time.Now().UTC()
 	existing, err = normalizeBookStageRun(existing)
 	if err != nil {
 		return BookStageRun{}, err
 	}
-	_, err = s.db.ExecContext(ctx, `UPDATE batch_factory_v11_book_stage_runs SET status=?,error_message=?,updated_at=? WHERE id=? AND owner_username=?`, existing.Status, nullableString(existing.ErrorMessage), existing.UpdatedAt, id, owner)
+	_, err = s.db.ExecContext(ctx, `UPDATE batch_factory_v11_book_stage_runs SET status=?,error_message=?,input_revision=?,updated_at=? WHERE id=? AND owner_username=?`, existing.Status, nullableString(existing.ErrorMessage), nullableString(existing.InputRevision), existing.UpdatedAt, id, owner)
 	if err != nil {
 		return BookStageRun{}, err
 	}
