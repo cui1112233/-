@@ -1270,27 +1270,38 @@ func (s *MemoryStore) PersistDirectorRevision(_ context.Context, owner string, b
 	b.UpdatedAt = now
 	s.batches[b.ID] = memoryOwned[Batch]{Owner: owner, Value: b}
 	s.directors[key] = append(s.directors[key], revision)
-	for _, seed := range directorBookAssets(book, snapshot, output) {
-		found := false
+	desiredDirectorAssets := directorBookAssets(book, snapshot, output)
+	// Empty structured output (SD plain-text mode): never wipe extracted assets.
+	if len(desiredDirectorAssets) > 0 {
+		existingRows := []existingAssetRow{}
+		hasImage := map[string]bool{}
+		for _, ownedImage := range s.bookAssetImages {
+			if ownedImage.Owner == owner {
+				hasImage[ownedImage.Value.AssetID] = true
+			}
+		}
 		for assetID, ownedAsset := range s.bookAssets {
 			asset := ownedAsset.Value
-			if ownedAsset.Owner != owner || asset.BatchID != book.BatchID || asset.BookID != book.ID || asset.Kind != seed.Kind || asset.Name != seed.Name {
+			if ownedAsset.Owner != owner || asset.BatchID != book.BatchID || asset.BookID != book.ID {
 				continue
 			}
-			found = true
-			if asset.Source != "manual" {
-				asset.Prompt, asset.Source, asset.ExtractionPresetID, asset.ExtractionPresetVersion = seed.Prompt, seed.Source, seed.ExtractionPresetID, seed.ExtractionPresetVersion
-				asset.Revision++
-				asset.UpdatedAt = now
-				s.bookAssets[assetID] = memoryOwned[BookAsset]{Owner: owner, Value: asset}
-			}
-			break
+			existingRows = append(existingRows, existingAssetRow{ID: assetID, Kind: asset.Kind, Name: asset.Name, Source: asset.Source})
 		}
-		if found {
-			continue
+		assetPlan := reconcileDirectorAssets(existingRows, desiredDirectorAssets, hasImage)
+		for _, staleID := range assetPlan.Deletes {
+			delete(s.bookAssets, staleID)
 		}
-		seed.ID, seed.Revision, seed.CreatedAt, seed.UpdatedAt = s.id("asset"), 1, now, now
-		s.bookAssets[seed.ID] = memoryOwned[BookAsset]{Owner: owner, Value: seed}
+		for _, update := range assetPlan.Updates {
+			asset := s.bookAssets[update.ID].Value
+			asset.Prompt, asset.ExtractionPresetID, asset.ExtractionPresetVersion = update.Prompt, update.ExtractionPresetID, update.ExtractionPresetVersion
+			asset.Revision++
+			asset.UpdatedAt = now
+			s.bookAssets[update.ID] = memoryOwned[BookAsset]{Owner: owner, Value: asset}
+		}
+		for _, seed := range assetPlan.Inserts {
+			seed.ID, seed.Revision, seed.CreatedAt, seed.UpdatedAt = s.id("asset"), 1, now, now
+			s.bookAssets[seed.ID] = memoryOwned[BookAsset]{Owner: owner, Value: seed}
+		}
 	}
 	assetIDs := map[string]string{}
 	for _, ownedAsset := range s.bookAssets {

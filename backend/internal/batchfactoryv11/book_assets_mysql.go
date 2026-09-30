@@ -156,20 +156,74 @@ func (s *MySQLStore) UpdateBookAsset(ctx context.Context, owner, batchID, bookID
 }
 
 func persistDirectorBookAssets(ctx context.Context, tx *sql.Tx, owner string, book Book, snapshot DirectorSnapshot, output DirectorResult, now time.Time) error {
-	for _, asset := range directorBookAssets(book, snapshot, output) {
+	desired := directorBookAssets(book, snapshot, output)
+	// No structured assets in this run (e.g. SD plain-text mode, where assets
+	// are saved separately by the extraction stage). An empty list means "no
+	// new information", never "delete everything": leave the ledger untouched.
+	if len(desired) == 0 {
+		return nil
+	}
+
+	rows, err := tx.QueryContext(ctx, `SELECT id,kind,name,source FROM batch_factory_v11_book_assets WHERE owner_username=? AND batch_id=? AND book_id=?`, owner, book.BatchID, book.ID)
+	if err != nil {
+		return err
+	}
+	existing := []existingAssetRow{}
+	for rows.Next() {
+		var row existingAssetRow
+		if err := rows.Scan(&row.ID, &row.Kind, &row.Name, &row.Source); err != nil {
+			rows.Close()
+			return err
+		}
+		existing = append(existing, row)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+
+	hasImage := map[string]bool{}
+	imageRows, err := tx.QueryContext(ctx, `SELECT DISTINCT asset_id FROM batch_factory_v11_book_asset_images WHERE owner_username=?`, owner)
+	if err != nil {
+		return err
+	}
+	for imageRows.Next() {
+		var assetID string
+		if err := imageRows.Scan(&assetID); err != nil {
+			imageRows.Close()
+			return err
+		}
+		hasImage[assetID] = true
+	}
+	if err := imageRows.Err(); err != nil {
+		imageRows.Close()
+		return err
+	}
+	imageRows.Close()
+
+	plan := reconcileDirectorAssets(existing, desired, hasImage)
+
+	// Delete stale rows first so later inserts never collide with freed names.
+	for _, id := range plan.Deletes {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM batch_factory_v11_book_assets WHERE id=? AND owner_username=? AND source='director'`, id, owner); err != nil {
+			return err
+		}
+	}
+	// Matched rows keep their old name and id; only prompt and preset refresh.
+	for _, update := range plan.Updates {
+		if _, err := tx.ExecContext(ctx, `UPDATE batch_factory_v11_book_assets SET prompt=?,extraction_preset_id=?,extraction_preset_version=?,revision=revision+1,updated_at=? WHERE id=? AND owner_username=? AND source='director'`,
+			update.Prompt, nullableString(update.ExtractionPresetID), nullableInt64(update.ExtractionPresetVersion), now, update.ID, owner); err != nil {
+			return err
+		}
+	}
+	for _, asset := range plan.Inserts {
 		id, err := newID("asset")
 		if err != nil {
 			return err
 		}
-		_, err = tx.ExecContext(ctx, `INSERT INTO batch_factory_v11_book_assets(id,owner_username,batch_id,book_id,kind,name,prompt,source,extraction_preset_id,extraction_preset_version,revision,created_at,updated_at) VALUES(?,?,?,?,?,?,?,'director',?,?,1,?,?)
-ON DUPLICATE KEY UPDATE
-  prompt=IF(source='manual',prompt,VALUES(prompt)),
-  source=IF(source='manual',source,VALUES(source)),
-  extraction_preset_id=IF(source='manual',extraction_preset_id,VALUES(extraction_preset_id)),
-  extraction_preset_version=IF(source='manual',extraction_preset_version,VALUES(extraction_preset_version)),
-  revision=IF(source='manual',revision,revision+1),
-  updated_at=IF(source='manual',updated_at,VALUES(updated_at))`, id, owner, book.BatchID, book.ID, asset.Kind, asset.Name, asset.Prompt, nullableString(asset.ExtractionPresetID), nullableInt64(asset.ExtractionPresetVersion), now, now)
-		if err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO batch_factory_v11_book_assets(id,owner_username,batch_id,book_id,kind,name,prompt,source,extraction_preset_id,extraction_preset_version,revision,created_at,updated_at) VALUES(?,?,?,?,?,?,?,'director',?,?,1,?,?)`,
+			id, owner, book.BatchID, book.ID, asset.Kind, asset.Name, asset.Prompt, nullableString(asset.ExtractionPresetID), nullableInt64(asset.ExtractionPresetVersion), now, now); err != nil {
 			return err
 		}
 	}
