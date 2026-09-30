@@ -66,3 +66,14 @@ test('grouped submit surfaces failed book cities and counts only fetched pending
   assert.match(source, /let fetchedCount = 0/);
   assert.match(source, /for \(const bookId of pending\) \{\s*if \(String\(groupSources\[bookId\] \|\| ''\)\.trim\(\)\) fetchedCount \+= 1;/);
 });
+
+test('offers giant material intake through the resident executor', () => {
+  assert.match(source, /GIANT_MATERIAL_PLATFORM_OPTION/);
+  assert.match(source, /resolveGiantMaterialForBatch/);
+  assert.match(source, /createGiantMaterialJob/);
+  assert.match(source, /waitForGiantMaterialJob/);
+  assert.match(source, /BatchFactoryGiantMaterialExecutorStatus/);
+  assert.match(source, /正在 OCR 读取滚屏正文/);
+  assert.match(source, /buildGiantMaterialIntake/);
+  assert.doesNotMatch(source, /extractGiantMaterial\(/);
+});
