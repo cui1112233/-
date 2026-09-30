@@ -49,7 +49,7 @@ func EncodeExtractCommand(request ExtractRequest) ([]byte, error) {
 		return nil, errors.New("invalid extract request")
 	}
 	parsed, err := url.Parse(request.VideoURL)
-	if err != nil || parsed.Scheme != "https" || parsed.Hostname() != "material.hnqingyuwen.top" || parsed.User != nil || parsed.Port() != "" {
+	if err != nil || parsed.Scheme != "https" || !strings.HasSuffix(parsed.Hostname(), "material.hnqingyuwen.top") || parsed.User != nil || parsed.Port() != "" {
 		return nil, errors.New("extract video URL is not allowed")
 	}
 	return json.Marshal(struct {
