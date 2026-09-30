@@ -32,14 +32,18 @@ function normalizedError(error, fallback) {
     GIANT_OCR_EMPTY: '没有识别到可登记的正文。',
     OCR_NO_TEXT: '没有识别到可登记的正文。'
   };
-  return messages[code] || code || String(fallback || '请求失败').trim();
+  const friendly = messages[code] || code || String(fallback || '请求失败').trim();
+  // 服务器返回的 502/503 网页错误会是一整段 HTML，直接显示会刷屏；换成一句人话。
+  if (/<html[\s>]|502 Bad Gateway|503 Service/i.test(friendly)) {
+    return '服务器通讯短暂中断（正在更新或重启），请点“读取并创建”重试。';
+  }
+  return friendly;
 }
 
 const GIANT_MATERIAL_PLATFORM_OPTION = { value: 'giant_material', label: '巨量获取' };
 
 function withGiantMaterialOption(options = []) {
-  // 巨量获取已迁移：请进入批量后用工具栏的"巨量获取"入口（支持多 ID、占位登记、读取后自动制作）。
-  return Array.isArray(options) ? options : [];
+  return [GIANT_MATERIAL_PLATFORM_OPTION, ...(Array.isArray(options) ? options : []).filter(option => option?.value !== GIANT_MATERIAL_PLATFORM_OPTION.value)];
 }
 
 function preferredPlatformId(options, current = '') {
@@ -565,7 +569,7 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
         detail={giantPhase === 'resolving' ? '正在解析巨量素材…' : giantPhase === 'reading' ? '素材已返回，等待 Windows 执行器读取正文…' : giantPhase === 'ocr' ? '正在 OCR 读取滚屏正文（Windows 执行器）…' : giantPhase === 'cleaning' ? '正在整理正文…' : giantPhase === 'success' ? '正文已提取，可继续创建。' : giantError || '点击“读取并创建”后会显示实时处理状态。'}
         error={giantPhase === 'error' ? giantError : ''}
         progress={busy && !giantExtraction ? giantProgress?.total ? { value: giantProgress.completed, max: giantProgress.total, indeterminate: false } : { indeterminate: true } : null}
-        stats={giantProgress?.total ? ['已处理 ' + (giantProgress.completed || 0) + ' / ' + (giantProgress.total || 0) + ' 帧', (giantProgress.percent || 0) + '%'] : giantExtraction ? [(giantExtraction.frames || 0) + ' 帧', (giantExtraction.characters || 0) + ' 字'] : []}
+        stats={giantProgress?.total ? ['视频 ' + (giantProgress.completed || 0) + ' / ' + (giantProgress.total || 0) + ' 秒', (giantProgress.percent || 0) + '%'] : giantExtraction ? [(giantExtraction.frames || 0) + ' 帧', (giantExtraction.characters || 0) + ' 字'] : []}
       />
     </> : null}
 

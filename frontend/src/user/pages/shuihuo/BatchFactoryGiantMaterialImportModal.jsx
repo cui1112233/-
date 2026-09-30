@@ -38,7 +38,12 @@ const ERROR_MESSAGES = {
 
 function errorText(error) {
   const code = String(error?.message || error?.code || '').trim();
-  return ERROR_MESSAGES[code] || code || '巨量素材登记失败。';
+  const friendly = ERROR_MESSAGES[code] || code || '巨量素材登记失败。';
+  // 服务器返回的 502/503 网页错误会是一整段 HTML，直接显示会刷屏；换成一句人话。
+  if (/<html[\s>]|502 Bad Gateway|503 Service/i.test(friendly)) {
+    return '服务器通讯短暂中断（正在更新或重启），请重试。';
+  }
+  return friendly;
 }
 
 function showExecutorInstallHelp() {
@@ -266,6 +271,18 @@ export function BatchFactoryGiantMaterialImportModal({ open, batch, onCancel, on
     const createdJob = createdResponse?.job || createdResponse?.data?.job || createdResponse;
     if (!createdJob?.id) throw new Error('GIANT_EXECUTOR_FAILED');
     setExecutorJob(createdJob);
+    // 把执行器任务号写进占位书：制作区的书卡正文位置凭它轮询实时进度（关掉弹窗也能看到）。
+    if (placeholderBook?.id && (latestBatchRef.current?.id || batch?.id)) {
+      try {
+        await updateBookMetadata(latestBatchRef.current?.id || batch?.id, placeholderBook.id, {
+          metadata: { ...(placeholderBook.sourceMetadata || {}), executorJobId: createdJob.id },
+          expectedRevision: Number(placeholderBook.revision || 0)
+        });
+        const refreshedBatch = batchFromResponse(await getBatch(latestBatchRef.current?.id || batch?.id).catch(() => null));
+        const refreshedBook = (refreshedBatch?.books || []).find(book => String(book?.id) === String(placeholderBook.id));
+        if (refreshedBook) { placeholderBook = refreshedBook; replaceLatestBatchBook(refreshedBook); }
+      } catch (_) { /* 写不进也不阻塞读取；书卡会显示“排队中”兜底 */ }
+    }
     const completedJob = await waitForGiantMaterialJob(createdJob.id, {
       signal,
       onState: next => {
