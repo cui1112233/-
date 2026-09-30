@@ -97,6 +97,27 @@ test('uses the leading stored Book ID when a legacy smart parse appended the tit
   assert.equal(calls[0].bookId, '2085148147785918287');
 });
 
+test('resolves stored platform display names back to numeric book-store IDs before refetching', async () => {
+  const platforms = [{ id: '2', name: '番茄付费' }, { id: '3', name: '七猫付费' }, { id: '7', name: '番茄免费' }];
+  const calls = [];
+  const fetchDirectOriginal = async input => { calls.push(input); return { text: '正文内容', attempts: 1 }; };
+  const captureSource = async input => ({ ok: true, ...input });
+  const book = { bookId: '123456', sourceText: '', revision: 1, sourceMetadata: { contentCaptureCharacters: 4000 } };
+
+  // 显示名"七猫"唯一前缀匹配到"七猫付费" → '3'
+  await refillMissingBatchFactoryBookSource({ book: { ...book, platform: '七猫' }, platforms, fetchDirectOriginal, captureSource });
+  assert.equal(calls.at(-1).platformId, '3');
+  // 数字 ID 原样通过，manual 书不受影响
+  await refillMissingBatchFactoryBookSource({ book: { ...book, platform: '3' }, platforms, fetchDirectOriginal, captureSource });
+  assert.equal(calls.at(-1).platformId, '3');
+  // "番茄"同时命中番茄付费/番茄免费，不猜，原样传给上游由其报错
+  await refillMissingBatchFactoryBookSource({ book: { ...book, platform: '番茄' }, platforms, fetchDirectOriginal, captureSource });
+  assert.equal(calls.at(-1).platformId, '番茄');
+  // 多平台存档"七猫 / 番茄"取首段解析为 '3'
+  await refillMissingBatchFactoryBookSource({ book: { ...book, platform: '七猫 / 番茄' }, platforms, fetchDirectOriginal, captureSource });
+  assert.equal(calls.at(-1).platformId, '3');
+});
+
 test('rewrites only the V12 batch-factory namespace for the legacy compatibility adapter', () => {
   assert.equal(
     rewriteV12PathForLegacyRead('/api/batch-factory/v12/batches/batch-1/books/book-1/stages/director'),

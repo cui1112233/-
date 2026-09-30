@@ -115,10 +115,26 @@ async function classifyBatchFactoryBooks({ books, classifyBook } = {}) {
   return results;
 }
 
+// 巨量素材占位书的 platform 存的是青语显示名（"七猫"，多平台时"七猫 / 番茄"），
+// 而上游拉正文接口只认数字书城 ID。这里把显示名解析回数字 ID：
+// 数字原样通过 → 精确名匹配 → 去掉"/"后半段做唯一前缀匹配（"七猫"→"七猫付费"）。
+// 解析不出来就原样返回，走原有报错路径，不猜。
+function resolveWorkshopPlatformId(raw, platforms = []) {
+  const value = String(raw || '').trim();
+  if (!value) return '';
+  const list = (Array.isArray(platforms) ? platforms : []).filter(item => String(item?.id || '').trim() && String(item?.name || '').trim());
+  if (list.some(item => String(item.id) === value)) return value;
+  const short = value.split('/')[0].trim();
+  const exact = list.find(item => String(item.name) === short);
+  if (exact) return String(exact.id);
+  const matches = list.filter(item => String(item.name).startsWith(short) && short);
+  return matches.length === 1 ? String(matches[0].id) : value;
+}
+
 // Repairs only legacy/manual intake records where the source was never saved.
 // The Go store enforces the same fill-only rule atomically so retries cannot
 // replace a real source fetched by someone else.
-async function refillMissingBatchFactoryBookSource({ book, fetchDirectOriginal, captureSource, now = () => new Date() } = {}) {
+async function refillMissingBatchFactoryBookSource({ book, fetchDirectOriginal, captureSource, platforms = [], now = () => new Date() } = {}) {
   if (String(book?.sourceText || '').trim()) throw new Error('当前书已有正文，不能覆盖');
   const rawBookID = String(book?.bookId || '').trim();
   // Older smart-input rows occasionally persisted "Book ID + title" in the
@@ -126,7 +142,8 @@ async function refillMissingBatchFactoryBookSource({ book, fetchDirectOriginal, 
   // the title in that malformed field must not make the saved book impossible
   // to repair.
   const bookId = rawBookID.match(/^[A-Za-z0-9_.-]+/)?.[0] || '';
-  const platformId = String(book?.platform || book?.sourceMetadata?.platformId || '').trim();
+  const rawPlatform = String(book?.platform || book?.sourceMetadata?.platformId || '').trim();
+  const platformId = resolveWorkshopPlatformId(rawPlatform, platforms);
   const maxTxt = Number(book?.sourceMetadata?.contentCaptureCharacters || 4000);
   if (!bookId || !platformId || !Number.isInteger(maxTxt) || maxTxt < 100 || maxTxt > 100000) throw new Error('当前书缺少可用的书城、Book ID 或正文范围');
   const fetched = await fetchDirectOriginal({ bookId, platformId, maxTxt });
@@ -177,6 +194,7 @@ function createBatchFactoryV12Router(options = {}) {
       const store = createMySQLWorkshopStore({ targetBaseUrl: options.targetBaseUrl, bridgeSecret: options.bridgeSecret, account });
       const result = await refillMissingBatchFactoryBookSource({
         book,
+        platforms: store.getPlatforms?.() || [],
         fetchDirectOriginal: input => store.fetchDirectOriginal(input),
         captureSource: payload => v11JSONRequest({ ...account, method: 'PUT', pathname: `${V11_BASE}/batches/${batchID}/books/${bookID}/source`, payload, ...goOptions })
       });
