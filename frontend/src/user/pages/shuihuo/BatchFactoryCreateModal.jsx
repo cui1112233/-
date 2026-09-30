@@ -7,7 +7,6 @@ import { buildManualBatchSubmission, manualBookIDsFromInput, removePlatformGroup
 import { formatBeijingDatetimeLocal, normalizeAutomationConcurrency, parseBeijingDatetimeLocal } from './batchFactoryAutomationSchedule';
 import { resolveGiantMaterialForBatch } from '../giantMaterialExtractionClient.js';
 import { normalizeGiantMaterialId } from '../giantMaterialTest.js';
-import GiantMaterialStatusCard from '../GiantMaterialStatusCard.jsx';
 import { createGiantMaterialJob, waitForGiantMaterialJob } from '../../../shared/api/giantMaterialExecutorPublic.js';
 import { BatchFactoryGiantMaterialExecutorStatus } from './BatchFactoryGiantMaterialExecutorStatus.jsx';
 import { availableGiantMaterialBooks, buildGiantMaterialIntake, giantMaterialBookKey, selectGiantMaterialBook } from './batchFactoryGiantMaterialImport.js';
@@ -559,18 +558,6 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
     {isGiantMaterial && giantMaterial ? <>
       {giantBooks.length > 1 ? <><label className="shuihuo-form-label">选择平台书籍</label><Select style={{ width: '100%' }} value={giantSelectedBookKey || undefined} onChange={setGiantSelectedBookKey} placeholder="该素材关联多条记录，请选择一条" options={giantBooks.map(book => ({ value: giantMaterialBookKey(book), label: book.title + ' · ' + (book.platformName || '书城') + ' · ' + book.platformBookId }))} /></> : null}
       <Alert type="success" showIcon message={'素材已解析：' + (giantMaterial.materialTitle || giantMaterial.title || '未命名素材')} description={giantBooks.length > 1 ? '检测到 ' + giantBooks.length + ' 条平台书籍记录，请选择后读取正文。' : (giantBook?.title || '已关联平台书籍') + ' · Book ID ' + (giantBook?.platformBookId || '—')} />
-    </> : null}
-
-    {isGiantMaterial ? <>
-      <GiantMaterialStatusCard
-        title="滚屏 OCR"
-        phase={giantPhase}
-        compact
-        detail={giantPhase === 'resolving' ? '正在解析巨量素材…' : giantPhase === 'reading' ? '素材已返回，等待 Windows 执行器读取正文…' : giantPhase === 'ocr' ? '正在 OCR 读取滚屏正文（Windows 执行器）…' : giantPhase === 'cleaning' ? '正在整理正文…' : giantPhase === 'success' ? '正文已提取，可继续创建。' : giantError || '点击“读取并创建”后会显示实时处理状态。'}
-        error={giantPhase === 'error' ? giantError : ''}
-        progress={busy && !giantExtraction ? giantProgress?.total ? { value: giantProgress.completed, max: giantProgress.total, indeterminate: false } : { indeterminate: true } : null}
-        stats={giantProgress?.total ? ['视频 ' + (giantProgress.completed || 0) + ' / ' + (giantProgress.total || 0) + ' 秒', (giantProgress.percent || 0) + '%'] : giantExtraction ? [(giantExtraction.frames || 0) + ' 帧', (giantExtraction.characters || 0) + ' 字'] : []}
-      />
     </> : null}
 
     <div className="batch-factory-create-toolbar">
