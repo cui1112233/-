@@ -1,6 +1,6 @@
 import { Alert, Button, Checkbox, Descriptions, Input, InputNumber, Modal, Progress, Select, Space, Tag, message } from 'antd';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { appendNovelFetchIntake, classifyBookPublishMetadata, createNovelFetchIntake, getBatch, getBatchAutomationStatus, listAutomationPresets, retryBatchAutomation, startBatchAutomation, updateBookSource } from '../../../shared/api/batchFactoryV11';
+import { appendNovelFetchIntake, classifyBookPublishMetadata, createBatchFromIntake, createNovelFetchIntake, getBatch, getBatchAutomationStatus, listAutomationPresets, retryBatchAutomation, startBatchAutomation, updateBookSource } from '../../../shared/api/batchFactoryV11';
 import { resolveGiantMaterialForBatch } from '../giantMaterialExtractionClient.js';
 import { createGiantMaterialJob, waitForGiantMaterialJob } from '../../../shared/api/giantMaterialExecutorPublic.js';
 import { BatchFactoryGiantMaterialExecutorStatus } from './BatchFactoryGiantMaterialExecutorStatus.jsx';
@@ -236,8 +236,10 @@ export function BatchFactoryGiantMaterialImportModal({ open, batch, onCancel, on
     if (!(durationSeconds > 0)) throw new Error('QINGYU_VIDEO_DURATION_MISSING');
 
     // 先登记占位书（正文为空），让书立刻出现在制作区；OCR 完成后再回填正文。
+    // 没有批量时（从批量工厂首页发起）跳过占位：第一条读取完成后自动创建新批量。
+    const hasBatch = Boolean(latestBatchRef.current?.id || batch?.id);
     let placeholderBook = existing || null;
-    if (!placeholderBook) {
+    if (!placeholderBook && hasBatch) {
       update({ stage: 'register', error: '', result: null });
       const placeholderPayload = buildGiantMaterialPlaceholderIntake({ giantMaterialId: item.id, material: resolvedMaterial, book: selectedBook, contentRangeLines });
       const placeholderResponse = await createNovelFetchIntake(placeholderPayload);
@@ -309,14 +311,23 @@ export function BatchFactoryGiantMaterialImportModal({ open, batch, onCancel, on
       }
       void onImported?.(latestBatchRef.current);
     } else {
-      // 兜底：没有占位书（极端情况）时按老流程直接登记一本完整的书。
+      // 没有占位书：已有批量就按老流程登记完整的书；没有批量（从首页发起）就用第一条正文创建新批量。
       const intakeResponse = await createNovelFetchIntake(intakePayload);
       const intake = intakeResponse?.intake || intakeResponse;
       if (!intake?.id) throw new Error('GIANT_MATERIAL_INTAKE_FAILED');
-      const appended = await appendNovelFetchIntake(latestBatchRef.current?.id || batch?.id, intake.id, { allowDuplicate: false });
-      const nextBatch = appended?.batch || appended;
-      if (nextBatch?.id) latestBatchRef.current = nextBatch;
-      registeredBook = await findAppendedBook(nextBatch, item, selectedBook);
+      if (latestBatchRef.current?.id || batch?.id) {
+        const appended = await appendNovelFetchIntake(latestBatchRef.current?.id || batch?.id, intake.id, { allowDuplicate: false });
+        const nextBatch = appended?.batch || appended;
+        if (nextBatch?.id) latestBatchRef.current = nextBatch;
+      } else {
+        const created = await createBatchFromIntake(intake.id, { title: `巨量素材 · ${selectedBook.title || '批量'}` });
+        const newBatch = created?.batch || created?.data?.batch || created;
+        if (!newBatch?.id) throw new Error('GIANT_MATERIAL_INTAKE_FAILED');
+        latestBatchRef.current = newBatch;
+        message.success(`已创建批量工程「${newBatch.title || '未命名'}」`);
+        void onImported?.(newBatch);
+      }
+      registeredBook = await findAppendedBook(latestBatchRef.current, item, selectedBook);
     }
     const classification = registeredBook ? await classifyImportedBook(registeredBook, update) : { classificationStatus: 'pending', classificationError: '' };
     return { material, result: extracted, selectedBookKey: giantMaterialBookKey(selectedBook), registeredBook: classification.book || registeredBook || selectedBook, batch: latestBatchRef.current, classificationStatus: classification.classificationStatus, classificationError: classification.classificationError };
@@ -346,7 +357,7 @@ export function BatchFactoryGiantMaterialImportModal({ open, batch, onCancel, on
   }
 
   async function executeQueue(items) {
-    if (busy || !items.length || !batch?.id) return;
+    if (busy || !items.length) return;
     setBusy(true);
     const controller = new AbortController();
     controllerRef.current = controller;
@@ -426,7 +437,7 @@ export function BatchFactoryGiantMaterialImportModal({ open, batch, onCancel, on
 
   const summary = queueSummary(queue);
   const inputPreview = useMemo(() => parseGiantMaterialIds(giantMaterialInput), [giantMaterialInput]);
-  const canStart = Boolean(batch?.id) && !busy && inputPreview.valid.length > 0;
+  const canStart = !busy && inputPreview.valid.length > 0;
 
   return <Modal
     title="巨量素材获取"
@@ -441,7 +452,7 @@ export function BatchFactoryGiantMaterialImportModal({ open, batch, onCancel, on
     <label className="shuihuo-form-label" htmlFor="batch-giant-material-id">巨量素材 ID（可多条）</label>
     <Input.TextArea id="batch-giant-material-id" value={giantMaterialInput} disabled={busy} onChange={event => setGiantMaterialInput(event.target.value)} rows={5} placeholder="例如：\n7689285397448523826\n7613606077155459091" />
     {invalidIds.length ? <Alert style={{ marginTop: 10 }} type="warning" showIcon message="已忽略格式不正确的内容" description={invalidIds.join('、')} /> : null}
-    {!batch?.id ? <Alert style={{ marginTop: 10 }} type="error" showIcon message="当前批量不可写入" description="请先打开一个有效的批量工厂批量。" /> : null}
+    {!batch?.id ? <Alert style={{ marginTop: 10 }} type="info" showIcon message="尚未选择批量" description="读取完成后会自动创建一个新的批量工程，并把后续素材都登记进去。" /> : null}
     {queue.length ? <Alert style={{ marginTop: 14 }} type={summary.error ? 'warning' : summary.success + summary.skipped === summary.total ? 'success' : 'info'} showIcon message={`队列状态：${summary.success} 已登记 · ${summary.skipped} 已跳过 · ${summary.error} 失败 · ${summary.pending + summary.running} 待处理`} description="处理严格按输入顺序执行；失败项不会阻塞其它 ID。" /> : null}
     <label className="shuihuo-form-label">内容范围<InputNumber min={1} max={500} value={contentRangeLines} onChange={value => setContentRangeLines(value || 5)} addonAfter="行" disabled={busy} /></label>
     <Space wrap align="center" style={{ marginTop: 12 }}>

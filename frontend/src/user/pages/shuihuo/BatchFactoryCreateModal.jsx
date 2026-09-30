@@ -38,7 +38,8 @@ function normalizedError(error, fallback) {
 const GIANT_MATERIAL_PLATFORM_OPTION = { value: 'giant_material', label: '巨量获取' };
 
 function withGiantMaterialOption(options = []) {
-  return [GIANT_MATERIAL_PLATFORM_OPTION, ...(Array.isArray(options) ? options : []).filter(option => option?.value !== GIANT_MATERIAL_PLATFORM_OPTION.value)];
+  // 巨量获取已迁移：请进入批量后用工具栏的"巨量获取"入口（支持多 ID、占位登记、读取后自动制作）。
+  return Array.isArray(options) ? options : [];
 }
 
 function preferredPlatformId(options, current = '') {

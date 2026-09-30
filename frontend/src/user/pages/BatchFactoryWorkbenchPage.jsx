@@ -1,4 +1,4 @@
-import { FileTextOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
+import { FileTextOutlined, PlusOutlined, ReloadOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import { Button, Modal, Spin, message } from 'antd';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -13,6 +13,7 @@ import {
 } from '../../shared/api/batchFactoryV11';
 import { BatchFactoryNovelList } from './shuihuo/BatchFactoryNovelList';
 import { BatchFactoryCreateModal } from './shuihuo/BatchFactoryCreateModal';
+import { BatchFactoryGiantMaterialImportModal } from './shuihuo/BatchFactoryGiantMaterialImportModal';
 import { batchFactoryBatchFromResponse } from './shuihuo/batchFactoryProjects';
 import {
   BATCH_FACTORY_ACTIVE_BATCH_STORAGE_KEY,
@@ -45,6 +46,7 @@ export default function BatchFactoryWorkbenchPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [createOpen, setCreateOpen] = useState(false);
+  const [giantImportOpen, setGiantImportOpen] = useState(false);
   const handoffRef = useRef('');
   const mountedRef = useRef(true);
 
@@ -191,7 +193,7 @@ export default function BatchFactoryWorkbenchPage() {
   return <main className="shuihuo-production batch-factory-canonical-entry batch-factory-workbench-home">
     <section className="batch-factory-workbench-home-heading">
       <div><h1>批量工厂</h1><p>统一管理批次、单书配置、分镜生产与视频提交。</p></div>
-      <div className="batch-factory-workbench-home-actions"><Button onClick={() => window.location.assign('/shuihuo-production/creative')}>创作漫剧</Button><Button icon={<ReloadOutlined />} loading={loading} onClick={() => refreshBatches()}>刷新</Button><Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>新建批量</Button></div>
+      <div className="batch-factory-workbench-home-actions"><Button onClick={() => window.location.assign('/shuihuo-production/creative')}>创作漫剧</Button><Button icon={<ReloadOutlined />} loading={loading} onClick={() => refreshBatches()}>刷新</Button><Button icon={<ThunderboltOutlined />} onClick={() => setGiantImportOpen(true)}>巨量获取</Button><Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>新建批量</Button></div>
     </section>
     {loading ? <div className="batch-factory-workbench-home-state"><Spin /><span>正在读取批量工程</span></div> : null}
     {!loading && error ? <div className="batch-factory-workbench-home-state is-error"><strong>批量工程暂时无法读取</strong><span>{error}</span><Button onClick={() => refreshBatches()}>重试</Button></div> : null}
@@ -200,5 +202,18 @@ export default function BatchFactoryWorkbenchPage() {
       {!batches.length ? <div className="batch-factory-workbench-home-state"><FileTextOutlined /><strong>还没有批量工程</strong><span>新建批量后即可进入每本小说的完整生产工作台。</span><Button type="primary" onClick={() => setCreateOpen(true)}>新建批量</Button></div> : null}
     </section> : null}
     <BatchFactoryCreateModal open={createOpen} onCancel={() => setCreateOpen(false)} onCreated={async input => { await createBatch(input); setCreateOpen(false); }} />
+    <BatchFactoryGiantMaterialImportModal open={giantImportOpen} batch={null} onCancel={() => setGiantImportOpen(false)} onImported={async created => {
+      if (!created?.id) { await refreshBatches({ quiet: true }); return; }
+      // 从首页发起：第一条读取完成会自动创建新批量，这里刷新列表并直接打开它。
+      try {
+        const opened = asBatch(await getBatch(created.id));
+        if (!mountedRef.current) return;
+        window.localStorage.setItem(BATCH_FACTORY_ACTIVE_BATCH_STORAGE_KEY, String(created.id));
+        setActiveBatch(Object.keys(opened).length ? opened : created);
+      } catch (_) {
+        setActiveBatch(created);
+      }
+      await refreshBatches({ quiet: true });
+    }} />
   </main>;
 }
