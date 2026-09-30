@@ -1291,24 +1291,23 @@ func (s *MemoryStore) PersistDirectorRevision(_ context.Context, owner string, b
 		for _, staleID := range assetPlan.Deletes {
 			delete(s.bookAssets, staleID)
 		}
-		for _, update := range assetPlan.Updates {
-			asset := s.bookAssets[update.ID].Value
-			asset.Prompt, asset.ExtractionPresetID, asset.ExtractionPresetVersion = update.Prompt, update.ExtractionPresetID, update.ExtractionPresetVersion
-			asset.Revision++
-			asset.UpdatedAt = now
-			s.bookAssets[update.ID] = memoryOwned[BookAsset]{Owner: owner, Value: asset}
-		}
+		// Matched rows are frozen: no prompt overwrite, no revision bump.
 		for _, seed := range assetPlan.Inserts {
 			seed.ID, seed.Revision, seed.CreatedAt, seed.UpdatedAt = s.id("asset"), 1, now, now
 			s.bookAssets[seed.ID] = memoryOwned[BookAsset]{Owner: owner, Value: seed}
 		}
 	}
 	assetIDs := map[string]string{}
+	nameRowsByKind := map[string][][2]string{}
 	for _, ownedAsset := range s.bookAssets {
 		asset := ownedAsset.Value
 		if ownedAsset.Owner == owner && asset.BatchID == book.BatchID && asset.BookID == book.ID {
 			assetIDs[asset.Kind+"\x00"+asset.Name] = asset.ID
+			nameRowsByKind[asset.Kind] = append(nameRowsByKind[asset.Kind], [2]string{asset.Name, asset.ID})
 		}
+	}
+	for kind, rows := range nameRowsByKind {
+		addCoreNameLookups(assetIDs, kind, rows)
 	}
 	for ordinal, video := range newVideos {
 		selection := reconcileVideoAssetSelection(previousSelections[ordinal], previousSelectionExists[ordinal], automaticAssetIDsForDirectorVideo(output.Storyboard[ordinal], assetIDs))

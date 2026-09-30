@@ -210,13 +210,7 @@ func persistDirectorBookAssets(ctx context.Context, tx *sql.Tx, owner string, bo
 			return err
 		}
 	}
-	// Matched rows keep their old name and id; only prompt and preset refresh.
-	for _, update := range plan.Updates {
-		if _, err := tx.ExecContext(ctx, `UPDATE batch_factory_v11_book_assets SET prompt=?,extraction_preset_id=?,extraction_preset_version=?,revision=revision+1,updated_at=? WHERE id=? AND owner_username=? AND source='director'`,
-			update.Prompt, nullableString(update.ExtractionPresetID), nullableInt64(update.ExtractionPresetVersion), now, update.ID, owner); err != nil {
-			return err
-		}
-	}
+	// Matched rows are frozen on purpose: no UPDATE, their saved prompt wins.
 	for _, asset := range plan.Inserts {
 		id, err := newID("asset")
 		if err != nil {

@@ -3,13 +3,14 @@ package batchfactoryv11
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 func TestSplitAssetNameCoreAndNote(t *testing.T) {
 	cases := []struct {
-		input     string
-		wantCore  string
-		wantNote  string
+		input    string
+		wantCore string
+		wantNote string
 	}{
 		{"前女友", "前女友", ""},
 		{"前女友（林薇）", "前女友", "林薇"},
@@ -25,19 +26,21 @@ func TestSplitAssetNameCoreAndNote(t *testing.T) {
 	}
 }
 
-func TestReconcileDirectorAssetsMatchesRenamedNote(t *testing.T) {
+func TestReconcileDirectorAssetsFreezesMatchedRow(t *testing.T) {
 	existing := []existingAssetRow{
 		{ID: "asset-old-ex", Kind: "character", Name: "前女友", Source: "director"},
 	}
 	desired := []BookAsset{
-		{Kind: "character", Name: "前女友（林薇）", Prompt: "林薇，29岁"},
+		{Kind: "character", Name: "前女友（林薇）", Prompt: "AI擅自重写的描述"},
 	}
 	plan := reconcileDirectorAssets(existing, desired, map[string]bool{})
-	if len(plan.Updates) != 1 || plan.Updates[0].ID != "asset-old-ex" {
-		t.Fatalf("renamed asset must update the old row: %+v", plan)
+	// Same person: reuse the old row, but its saved prompt is frozen — there is
+	// no update payload carrying the AI's reworded text.
+	if len(plan.MatchedIDs) != 1 || plan.MatchedIDs[0] != "asset-old-ex" {
+		t.Fatalf("renamed asset must match the old row: %+v", plan)
 	}
 	if len(plan.Inserts) != 0 || len(plan.Deletes) != 0 {
-		t.Fatalf("renamed asset must not insert or delete: %+v", plan)
+		t.Fatalf("matched asset must not insert or delete: %+v", plan)
 	}
 }
 
@@ -50,7 +53,7 @@ func TestReconcileDirectorAssetsDeletesStaleRowsWithoutImages(t *testing.T) {
 		{Kind: "character", Name: "林溪", Prompt: "短发女主"},
 	}
 	plan := reconcileDirectorAssets(existing, desired, map[string]bool{})
-	if len(plan.Updates) != 1 || plan.Updates[0].ID != "asset-keep" {
+	if len(plan.MatchedIDs) != 1 || plan.MatchedIDs[0] != "asset-keep" {
 		t.Fatalf("kept asset missing: %+v", plan)
 	}
 	if len(plan.Deletes) != 1 || plan.Deletes[0] != "asset-stale" {
@@ -63,12 +66,12 @@ func TestReconcileDirectorAssetsKeepsStaleRowsWithImages(t *testing.T) {
 		{ID: "asset-stale-image", Kind: "scene", Name: "旧花园", Source: "director"},
 	}
 	plan := reconcileDirectorAssets(existing, nil, map[string]bool{"asset-stale-image": true})
-	if len(plan.Deletes) != 0 {
+	if len(plan.Deletes) != 0 || len(plan.MatchedIDs) != 0 {
 		t.Fatalf("stale rows with images must be kept: %+v", plan)
 	}
 }
 
-func TestReconcileDirectorAssetsKeepsManualRowsUntouched(t *testing.T) {
+func TestReconcileDirectorAssetsFreezesManualRows(t *testing.T) {
 	existing := []existingAssetRow{
 		{ID: "asset-manual", Kind: "character", Name: "前女友", Source: "manual"},
 	}
@@ -76,8 +79,13 @@ func TestReconcileDirectorAssetsKeepsManualRowsUntouched(t *testing.T) {
 		{Kind: "character", Name: "前女友（林薇）", Prompt: "AI又造的同名人"},
 	}
 	plan := reconcileDirectorAssets(existing, desired, map[string]bool{})
-	if len(plan.Updates) != 0 || len(plan.Inserts) != 0 || len(plan.Deletes) != 0 {
-		t.Fatalf("manual row must win and swallow the AI duplicate: %+v", plan)
+	// The manual row is recognised as the same person and frozen; no duplicate
+	// insert and no prompt overwrite.
+	if len(plan.MatchedIDs) != 1 || plan.MatchedIDs[0] != "asset-manual" {
+		t.Fatalf("manual row must swallow the AI duplicate: %+v", plan)
+	}
+	if len(plan.Inserts) != 0 || len(plan.Deletes) != 0 {
+		t.Fatalf("manual row must not insert or delete: %+v", plan)
 	}
 }
 
@@ -117,12 +125,13 @@ func TestReconcileDirectorAssetsSkipsAmbiguousCoreMatches(t *testing.T) {
 	}
 	plan := reconcileDirectorAssets(existing, desired, map[string]bool{})
 	// Only the empty-note candidate qualifies, so the match is still unique.
-	if len(plan.Updates) != 1 || plan.Updates[0].ID != "asset-ex1" {
+	if len(plan.MatchedIDs) != 1 || plan.MatchedIDs[0] != "asset-ex1" {
 		t.Fatalf("empty-note candidate should match uniquely: %+v", plan)
 	}
 
-	// Now make it truly ambiguous: two empty-note same-core rows cannot exist
-	// by unique key, so instead test desired-side ambiguity.
+	// Desired-side ambiguity: two renamed variants in one run cannot be bound
+	// to a single frozen row, so neither matches in place; the imageless old row
+	// is replaced once and both variants insert.
 	plan2 := reconcileDirectorAssets(
 		[]existingAssetRow{{ID: "asset-ex1", Kind: "character", Name: "前女友", Source: "director"}},
 		[]BookAsset{
@@ -131,7 +140,7 @@ func TestReconcileDirectorAssetsSkipsAmbiguousCoreMatches(t *testing.T) {
 		},
 		map[string]bool{},
 	)
-	if len(plan2.Updates) != 0 {
+	if len(plan2.MatchedIDs) != 0 {
 		t.Fatalf("ambiguous desired core must not match in place: %+v", plan2)
 	}
 	if len(plan2.Inserts) != 2 || len(plan2.Deletes) != 1 {
@@ -139,57 +148,81 @@ func TestReconcileDirectorAssetsSkipsAmbiguousCoreMatches(t *testing.T) {
 	}
 }
 
+func TestAddCoreNameLookupsUniqueAndAmbiguous(t *testing.T) {
+	ids := map[string]string{"character\x00前女友": "id-exact"}
+	addCoreNameLookups(ids, "character", [][2]string{{"前女友", "id-exact"}})
+	// Exact key untouched; a core key is added so a variant name still binds.
+	if ids["character\x00前女友"] != "id-exact" {
+		t.Fatalf("exact key must not change: %q", ids["character\x00前女友"])
+	}
+	// Ambiguous core (two different rows): no guessed binding.
+	ambiguous := map[string]string{}
+	addCoreNameLookups(ambiguous, "character", [][2]string{{"儿子（小冰山）", "id-a"}, {"儿子（小火山）", "id-b"}})
+	if _, ok := ambiguous["character\x00儿子"]; ok {
+		t.Fatalf("ambiguous core must stay unindexed: %+v", ambiguous)
+	}
+}
+
 // End-to-end through the memory store: a second director run that renames one
-// character and drops another must not grow the asset ledger.
-func TestMemoryDirectorRunsDoNotStackAssets(t *testing.T) {
+// character and drops another must neither grow the ledger nor change the
+// frozen saved prompts.
+func TestMemoryDirectorRunsDoNotStackOrRewriteAssets(t *testing.T) {
 	store, batch, book := seedDirectorBook(t, "original", false)
 
 	first := []BookAsset{
-		{BatchID: batch.ID, BookID: book.ID, Kind: "character", Name: "前女友", Prompt: "旧描述", Source: "director"},
-		{BatchID: batch.ID, BookID: book.ID, Kind: "character", Name: "林溪", Prompt: "女主", Source: "director"},
+		{Kind: "character", Name: "前女友", Prompt: "唯一有效的旧描述", Source: "director"},
+		{Kind: "character", Name: "林溪", Prompt: "女主", Source: "director"},
 	}
 	for _, asset := range first {
-		id, err := store.CreateBookAsset(context.Background(), "alice", batch.ID, book.ID, CreateBookAssetInput{Kind: asset.Kind, Name: asset.Name, Prompt: asset.Prompt})
-		if err != nil {
+		if _, err := store.CreateBookAsset(context.Background(), "alice", batch.ID, book.ID, CreateBookAssetInput{Kind: asset.Kind, Name: asset.Name, Prompt: asset.Prompt}); err != nil {
 			t.Fatal(err)
 		}
-		_ = id
 	}
-	// Simulate what a second director run would write: one renamed, one kept.
+	// Simulate what a second director run writes: one renamed (AI reworded the
+	// prompt), one kept.
 	reconcile := func(desired []BookAsset) {
 		existingRows := []existingAssetRow{}
+		hasImage := map[string]bool{}
 		for assetID, owned := range store.bookAssets {
 			asset := owned.Value
 			if owned.Owner == "alice" && asset.BatchID == batch.ID && asset.BookID == book.ID {
 				existingRows = append(existingRows, existingAssetRow{ID: assetID, Kind: asset.Kind, Name: asset.Name, Source: asset.Source})
 			}
 		}
-		plan := reconcileDirectorAssets(existingRows, desired, map[string]bool{})
+		plan := reconcileDirectorAssets(existingRows, desired, hasImage)
 		for _, id := range plan.Deletes {
 			delete(store.bookAssets, id)
 		}
-		for _, update := range plan.Updates {
-			asset := store.bookAssets[update.ID].Value
-			asset.Prompt = update.Prompt
-			store.bookAssets[update.ID] = memoryOwned[BookAsset]{Owner: "alice", Value: asset}
-		}
+		// Matched rows: deliberately untouched, no overwrite.
 		for _, seed := range plan.Inserts {
-			seed.ID = store.id("asset")
+			now := time.Now()
+			seed.ID, seed.Revision, seed.CreatedAt, seed.UpdatedAt = store.id("asset"), 1, now, now
 			store.bookAssets[seed.ID] = memoryOwned[BookAsset]{Owner: "alice", Value: seed}
 		}
 	}
 	reconcile([]BookAsset{
-		{BatchID: batch.ID, BookID: book.ID, Kind: "character", Name: "前女友（林薇）", Prompt: "新描述", Source: "director"},
-		{BatchID: batch.ID, BookID: book.ID, Kind: "character", Name: "林溪", Prompt: "女主", Source: "director"},
+		{Kind: "character", Name: "前女友（林薇）", Prompt: "AI擅自改写的新描述", Source: "director"},
+		{Kind: "character", Name: "林溪", Prompt: "女主", Source: "director"},
 	})
-	count := 0
+
+	var count int
+	var frozenPrompt string
 	for _, owned := range store.bookAssets {
 		asset := owned.Value
 		if owned.Owner == "alice" && asset.BatchID == batch.ID && asset.BookID == book.ID {
 			count++
+			if asset.Name == "前女友" {
+				frozenPrompt = asset.Prompt
+			}
+			if asset.Name == "前女友（林薇）" {
+				t.Fatalf("renamed variant must not be inserted: %+v", asset)
+			}
 		}
 	}
 	if count != 2 {
 		t.Fatalf("asset ledger stacked to %d rows, want 2", count)
+	}
+	if frozenPrompt != "唯一有效的旧描述" {
+		t.Fatalf("matched prompt was rewritten to %q", frozenPrompt)
 	}
 }

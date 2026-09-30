@@ -231,6 +231,7 @@ func (s *MySQLStore) PersistDirectorRevision(ctx context.Context, owner string, 
 		return DirectorRevision{}, err
 	}
 	assetIDs := map[string]string{}
+	nameRowsByKind := map[string][][2]string{}
 	for assetRows.Next() {
 		var id, kind, name string
 		if err := assetRows.Scan(&id, &kind, &name); err != nil {
@@ -238,12 +239,17 @@ func (s *MySQLStore) PersistDirectorRevision(ctx context.Context, owner string, 
 			return DirectorRevision{}, err
 		}
 		assetIDs[kind+"\x00"+name] = id
+		nameRowsByKind[kind] = append(nameRowsByKind[kind], [2]string{name, id})
 	}
 	if err := assetRows.Err(); err != nil {
 		assetRows.Close()
 		return DirectorRevision{}, err
 	}
 	assetRows.Close()
+	// Rename-tolerant binding: shot text may carry a parenthesised variant.
+	for kind, rows := range nameRowsByKind {
+		addCoreNameLookups(assetIDs, kind, rows)
+	}
 	for ordinal, video := range videos {
 		selection := reconcileVideoAssetSelection(previousSelections[ordinal], previousSelectionExists[ordinal], automaticAssetIDsForDirectorVideo(output.Storyboard[ordinal], assetIDs))
 		if selection.effectivelyEmpty() {

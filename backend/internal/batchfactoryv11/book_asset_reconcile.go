@@ -10,18 +10,13 @@ type existingAssetRow struct {
 	Source string
 }
 
-type directorAssetUpdate struct {
-	ID                       string
-	Prompt                   string
-	ExtractionPresetID       string
-	ExtractionPresetVersion  int64
-}
-
 // directorAssetReconcile is the write plan for one director run.
 type directorAssetReconcile struct {
-	Updates []directorAssetUpdate // matched director rows; refresh prompt only
-	Inserts []BookAsset          // brand-new director assets
-	Deletes []string             // stale director asset IDs, safe to remove
+	// MatchedIDs are existing director rows this run reuses. They are frozen:
+	// the AI's reworded descriptions must never overwrite the saved prompts.
+	MatchedIDs []string
+	Inserts    []BookAsset // brand-new director assets
+	Deletes    []string    // stale director asset IDs, safe to remove
 }
 
 // splitAssetName splits a trailing parenthesised note from the name, so that
@@ -54,16 +49,48 @@ func stringsLastIndexRune(value string, r rune) int {
 	return strings.LastIndex(value, string(r))
 }
 
+// addCoreNameLookups also indexes saved rows by their core name (parenthesised
+// note stripped), so a shot whose text uses a renamed variant (e.g. AI writes
+// 前女友（林薇） while the frozen row is 前女友) still binds to the same asset.
+// Exact-name keys are never overwritten; an ambiguous core (two different rows
+// share it) is left unset rather than guessing the wrong person.
+func addCoreNameLookups(ids map[string]string, kind string, rows [][2]string) {
+	coreIDs := map[string]string{}
+	for _, row := range rows {
+		name, id := row[0], row[1]
+		core, _ := splitAssetName(name)
+		key := kind + "\x00" + core
+		if existing, exists := coreIDs[key]; exists && existing != id {
+			coreIDs[key] = ""
+			continue
+		}
+		if _, exists := coreIDs[key]; !exists {
+			coreIDs[key] = id
+		}
+	}
+	for key, id := range coreIDs {
+		if id == "" {
+			continue
+		}
+		if _, exists := ids[key]; !exists {
+			ids[key] = id
+		}
+	}
+}
+
+
 // reconcileDirectorAssets matches the freshly extracted director assets onto
-// the rows already saved for the book, then decides what to update, insert and
+// the rows already saved for the book, then decides what to keep, insert and
 // delete. Matching rules:
 //  1. same kind + exact full name;
 //  2. otherwise same core name (parenthesised note ignored), but only when at
 //     least one side has no note and the match is unique on both sides.
 //
-// Stale director rows are deleted only when they have no image; manual rows
-// are never changed or removed. New videos are rebuilt after this step, so no
-// active video can reference rows that the new output dropped.
+// Matched rows are frozen: the saved name, prompt and preset stay as they are,
+// even if the AI reworded them in this run. Stale director rows are deleted
+// only when they have no image; manual rows are never changed or removed. New
+// videos are rebuilt after this step, so no active video can reference rows
+// that the new output dropped.
 func reconcileDirectorAssets(existing []existingAssetRow, desired []BookAsset, hasImage map[string]bool) directorAssetReconcile {
 	existingMatch := make([]int, len(existing)) // -> desired index
 	desiredMatch := make([]int, len(desired))   // -> existing index
@@ -139,15 +166,10 @@ func reconcileDirectorAssets(existing []existingAssetRow, desired []BookAsset, h
 			plan.Inserts = append(plan.Inserts, asset)
 			continue
 		}
-		// Manual rows win: do not touch them and do not insert a duplicate.
-		if existing[ei].Source == "director" {
-			plan.Updates = append(plan.Updates, directorAssetUpdate{
-				ID:                      existing[ei].ID,
-				Prompt:                  asset.Prompt,
-				ExtractionPresetID:      asset.ExtractionPresetID,
-				ExtractionPresetVersion: asset.ExtractionPresetVersion,
-			})
-		}
+		// Matched existing row (manual or director): freeze it. The saved
+		// prompt wins verbatim — no rename, no prompt overwrite, no revision
+		// bump — and no duplicate is inserted.
+		plan.MatchedIDs = append(plan.MatchedIDs, existing[ei].ID)
 	}
 	for ei, row := range existing {
 		if row.Source != "director" || existingMatch[ei] != -1 {

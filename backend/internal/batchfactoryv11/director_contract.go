@@ -435,12 +435,16 @@ func BuildDirectorContract(book Book, hook HookRevision, snapshot DirectorSnapsh
 	allowedPrefixKeys := append([]string(nil), DirectorPrefixKeys...)
 	system := `你是 Batch Factory V11 的导演。只输出合法 JSON，不要输出 Markdown。
 JSON 顶层必须包含 characters、scenes、props、storyboard、source_coverage。
-characters/scenes/props 的每项必须包含 name 与 prompt。
 storyboard 每项必须包含 duration_sec、characters、props、scene、prefix_key、shots、video_desc。
 shots 中的每一项必须包含 start_sec、end_sec、shot_type、camera、description；description 是该镜头可拍、可见的画面动作描述，不能为空。不要把它改写成 shot_description、画面描述或其它字段名。
 shots 必须从 0 秒开始连续、无空白无重叠，最后一个 end_sec 必须等于 duration_sec。
-人物、场景、道具引用必须来自顶层信息库。prefix_key 只能从指定列表选择。
-用户消息中如附 assets 资产清单（本书已提取确认的人物/场景/道具），顶层 characters/scenes/props 必须优先原样沿用其名称与外形/场景设定，不得改名或重新发明外形；只允许补充原文中新出现、清单里没有的资产。
+分镜只“点名引用”，不许描写外形：storyboard.characters 只写人物名字数组、scene 只写场景名字、props 只写道具名字，名字必须来自顶层信息库。
+人物/场景长什么样，一律以资产设置为准，你不负责重新生成人物外形。
+用户消息中如附 assets 资产清单（本书已提取确认的人物/场景/道具），你的职责是“引用”，不是“重造”：
+- 清单里已有的资产，顶层对应项的 name 与 prompt 都必须逐字照抄清单，严禁改名、删减、扩写或用自己的话重新描写外形；prompt 不能留空。
+- 只允许补充原文中新出现、清单里确实没有的资产；新增项才需要写 prompt（人物写外形/服装/年龄感/气质，场景写空间/时段/陈设/氛围，道具写材质/外观/状态）。
+没有附 assets 清单时，characters/scenes/props 每项必须包含 name 与非空 prompt，prompt 是可直接用于图片和视频一致性的完整可见特征。
+prefix_key 只能从指定列表选择。
 原文模式按原文顺序完整覆盖；爆款模式以已批准 Hook 开场，并继续覆盖原文。
 不得把普通情绪只换成形容词；冲突升级要通过动作、表情、对白和可见行为呈现。
 ` + durationRule + "\n画幅：" + snapshot.AspectRatio + "\n允许的 prefix_key：" + strings.Join(allowedPrefixKeys, ", ")
@@ -548,6 +552,7 @@ func buildSDDirectorContract(book Book, hook HookRevision, snapshot DirectorSnap
 
 分段规则：先按预设时长规则逐场景规划时长（保留三位小数），再按原文顺序把场景往 VIDEO 里装；一个 VIDEO 内各场景时长之和一旦达到 %d 秒上限，就必须结束当前段、新开下一个 ===VIDEO NN=== 段继续装，直到全部内容覆盖完。默认在场景与场景的边界切段；仅当单个场景本身就超过上限时，才允许在该场景的镜头边界处切开。段首整数秒等于该段全部镜头时长之和（镜头小数可在边界处微调凑整）；最后一段可以短于上限。严禁把超过上限的内容塞进同一段，也严禁漏掉原文内容。全部内容总时长不超过上限时，只输出一个 VIDEO 段是允许的。
 预设正文中的 ${...} 占位符是旧多阶段流程的注入点，本次为单次调用，忽略占位符语法，直接使用用户消息中的原文与资产资料。
+人物沿用规则：用户消息附了 assets 资产清单时，正文里涉及任何人物/场景/道具的外形，都必须按名字逐字使用清单里对应的 prompt，严禁改名、换称呼或重新发明外形；只有清单里没有、原文中新出现的人物/场景/道具，才允许按原文补充。
 画幅：%s`, snapshot.MaxVideoDuration, snapshot.MaxVideoDuration, snapshot.AspectRatio)
 	if snapshot.FixedSingleVideo {
 		system += "\n固定开头已开启：只输出 ===VIDEO 01=== 一段。"

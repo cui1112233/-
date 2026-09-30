@@ -419,8 +419,8 @@ func TestNormalDirectorPayloadIncludesExistingAssets(t *testing.T) {
 			t.Fatalf("director user prompt missing existing asset %q:\n%s", expected, userPrompt)
 		}
 	}
-	if !strings.Contains(directorProvider.calls[0].SystemPrompt, "优先原样沿用") {
-		t.Fatal("director system prompt must instruct reusing existing assets")
+	if !strings.Contains(directorProvider.calls[0].SystemPrompt, "逐字照抄清单") {
+		t.Fatal("director system prompt must instruct copying existing assets verbatim")
 	}
 }
 
