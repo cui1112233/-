@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"os/signal"
 	"os/user"
 	"path/filepath"
@@ -24,8 +23,8 @@ import (
 	"qiantie/giant-material-executor/internal/credential"
 	"qiantie/giant-material-executor/internal/httpapi"
 	"qiantie/giant-material-executor/internal/modelcache"
+	"qiantie/giant-material-executor/internal/platform"
 	"qiantie/giant-material-executor/internal/ui"
-	"qiantie/giant-material-executor/internal/update"
 	"qiantie/giant-material-executor/internal/worker"
 )
 
@@ -44,19 +43,30 @@ func main() {
 	publicURL := loadPublicAPIURL()
 	origin := envOr("GIANT_MATERIAL_EXECUTOR_ORIGIN", "http://127.0.0.1:5173")
 	deviceName := envOr("GIANT_MATERIAL_EXECUTOR_DEVICE_NAME", localDeviceName())
-	python := defaultPythonCommand()
-	script := workerScriptPath()
-	supervisor := &worker.Supervisor{Command: []string{python, script}, Dir: filepath.Dir(script)}
-	modelPrepare := modelPreparer(supervisor)
 	exeDir := executableDir()
-	prepareRuntime := func(ctx context.Context, modelVersion string) error {
-		if err := ensureRuntime(ctx, python, exeDir); err != nil {
-			return err
+	workerCommand, err := platform.WorkerCommand(runtime.GOOS, exeDir)
+	if err != nil {
+		log.Fatal(err)
+	}
+	var prepareRuntime func(context.Context, string) error
+	if runtime.GOOS == "windows" {
+		python := defaultPythonCommand()
+		script := workerScriptPath()
+		workerCommand = []string{python, script}
+	}
+	supervisor := &worker.Supervisor{Command: workerCommand, Dir: exeDir}
+	if runtime.GOOS == "windows" {
+		python := workerCommand[0]
+		modelPrepare := modelPreparer(supervisor)
+		prepareRuntime = func(ctx context.Context, modelVersion string) error {
+			if err := ensureRuntime(ctx, python, exeDir); err != nil {
+				return err
+			}
+			if modelPrepare != nil {
+				return modelPrepare(ctx, modelVersion)
+			}
+			return nil
 		}
-		if modelPrepare != nil {
-			return modelPrepare(ctx, modelVersion)
-		}
-		return nil
 	}
 	var stateMu sync.RWMutex
 	var runningAgent *agent.Agent
@@ -131,7 +141,7 @@ func main() {
 					OnBindingState: setBindingState,
 					Token:          token,
 					DeviceName:     deviceName,
-					OS:             "windows",
+					OS:             platform.ExecutorPlatform(runtime.GOOS),
 					Version:        version,
 				})
 				if newErr != nil {
@@ -172,7 +182,7 @@ func main() {
 		}()
 	}
 	pair := func(pairCtx context.Context, code string) error {
-		result, pairErr := getPublicClient().Pair(pairCtx, agent.PairInput{Code: code, DeviceName: deviceName, OS: "windows", Version: version, Platform: "giant_material"})
+		result, pairErr := getPublicClient().Pair(pairCtx, agent.PairInput{Code: code, DeviceName: deviceName, OS: platform.ExecutorPlatform(runtime.GOOS), Version: version, Platform: "giant_material"})
 		if pairErr != nil {
 			return pairErr
 		}
@@ -240,48 +250,6 @@ func main() {
 	log.Printf("giant material executor stopped")
 }
 
-func startSelfUpdater(ctx context.Context, stop context.CancelFunc, snapshot func() agent.Snapshot, originMu *sync.RWMutex, origin *string) *update.SelfUpdater {
-	root := ""
-	if exe, err := os.Executable(); err == nil {
-		root = filepath.Dir(exe)
-	}
-	if root == "" {
-		log.Printf("self update disabled: executable path unavailable")
-		return nil
-	}
-	updater := &update.SelfUpdater{
-		Root:           root,
-		CurrentVersion: version,
-		Origin: func() string {
-			originMu.RLock()
-			defer originMu.RUnlock()
-			return *origin
-		},
-		Idle: func() bool {
-			state := snapshot().State
-			// 空闲或上次任务失败都允许更新；只有真正在跑任务/下载模型时才推迟。
-			return state == agent.StateReady || state == agent.StateFailed || state == agent.StateIdle
-		},
-		Apply: func(nextVersion string) {
-			log.Printf("self update %s ready; restarting executor", nextVersion)
-			applyPath := filepath.Join(root, ".updates", "apply-update.cmd")
-			command := exec.Command("cmd", "/C", applyPath)
-			// 先启动接管脚本再退出：脚本会等本进程退出后完成替换并拉起新版本。
-			// 若先 stop() 再启动脚本，进程退出会把协程连同脚本一起带走（0.4.7 前的时序 bug）。
-			command.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
-			if err := command.Start(); err != nil {
-				log.Printf("start apply-update.cmd failed: %v; keep running on %s", err, version)
-				return
-			}
-			log.Printf("apply-update.cmd started; exiting for update")
-			stop()
-		},
-	}
-	go updater.Run(ctx)
-	log.Printf("self update enabled root=%s current=%s", root, version)
-	return updater
-}
-
 func waitForLoopbackSetup(ctx context.Context) error {
 	client := &http.Client{Timeout: 500 * time.Millisecond}
 	deadline := time.NewTimer(5 * time.Second)
@@ -338,7 +306,7 @@ func newCredentialStore() (credential.Store, error) {
 		}
 		path = filepath.Join(root, "YizhanShengming", "GiantMaterialExecutor", "credential.bin")
 	}
-	return credential.NewProtectedStore(path), nil
+	return credential.NewDeviceStore(path), nil
 }
 
 func savePairResult(store credential.Store, result agent.PairResult) error {

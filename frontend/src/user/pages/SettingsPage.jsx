@@ -322,7 +322,7 @@ export function SettingsPage() {
         <section className="settings-section settings-executor-section" aria-labelledby="settings-giant-material-executor-title">
           <div>
             <h2 id="settings-giant-material-executor-title">巨量素材执行器</h2>
-            <p>Windows 本地 OCR 执行器。首次绑定一次，之后会在后台自动连接，不需要重复配对。</p>
+            <p>Windows 与 macOS 本地 OCR 执行器。首次绑定一次，之后会在后台自动连接，不需要重复配对。</p>
           </div>
           <div className="settings-executor-layout">
             <div className="settings-executor-status">
@@ -338,11 +338,12 @@ export function SettingsPage() {
             {giantMaterialExecutors.length > 0 && (
               <ul style={{ listStyle: 'none', margin: '4px 0 0', padding: 0, display: 'flex', flexDirection: 'column', gap: 6, width: '100%' }}>
                 {giantMaterialExecutors.map(item => {
-                  const outdated = Boolean(giantLatestVersion) && Boolean(item.version) && item.version !== giantLatestVersion;
+                  const outdated = item.os === 'windows' && Boolean(giantLatestVersion) && Boolean(item.version) && item.version !== giantLatestVersion;
                   return (
                     <li key={item.id} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, fontSize: 13 }}>
                       <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, background: item.online ? '#52c41a' : '#5b6b79' }} />
                       <strong>{item.name || '未命名设备'}</strong>
+                      <span style={{ color: 'var(--legacy-muted, #9bb1c0)' }}>{item.os === 'darwin' ? 'macOS' : item.os === 'windows' ? 'Windows' : item.os || '未知系统'}</span>
                       <span style={{ color: 'var(--legacy-muted, #9bb1c0)' }}>版本 {item.version || '未知（旧版）'}</span>
                       {outdated && <span style={{ color: '#d48806' }}>待更新 → {giantLatestVersion}</span>}
                       <span style={{ marginLeft: 'auto', color: 'var(--legacy-muted, #9bb1c0)' }}>{item.online ? '在线' : formatLastSeen(item.lastSeenAt)}</span>
@@ -355,9 +356,10 @@ export function SettingsPage() {
               <Button icon={<RefreshCw size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={loadGiantMaterialExecutors} loading={loadingGiantMaterialExecutors}>刷新状态</Button>
               <Button onClick={createGiantMaterialExecutorPairing} loading={giantPairingBusy}>生成配对码</Button>
               <Button type="primary" icon={<Download size={16} strokeWidth={1.8} aria-hidden="true" />} href="/downloads/giant-material-executor/GiantMaterialExecutor-windows-x64.zip">下载 Windows 执行器{giantLatestVersion ? ` ${giantLatestVersion}` : ''}</Button>
+              <Button icon={<Download size={16} strokeWidth={1.8} aria-hidden="true" />} href="/downloads/giant-material-executor/GiantMaterialExecutor-macos-universal.zip">下载 macOS 执行器 0.5.0</Button>
             </div>
-            {giantPairing?.code ? <p className="settings-executor-pairing">配对码：<strong>{giantPairing.code}</strong>（10 分钟内有效）。请在 Windows 执行器首次启动窗口中输入；绑定成功后这里会显示在线状态。</p> : null}
-            <p className="settings-executor-pairing">下载后解压并双击 GiantMaterialExecutor.exe，在首次启动窗口输入上面的配对码；也可以在批量工厂的“巨量素材获取”使用同机自动配对。OCR 模型会在第一次运行时单独下载，不包含在安装包内。已绑定 0.4.0 及以上版本的执行器会自动检查并升级到新版本，无需手动重新下载。</p>
+            {giantPairing?.code ? <p className="settings-executor-pairing">配对码：<strong>{giantPairing.code}</strong>（10 分钟内有效）。请在执行器首次启动窗口或本机配对页中输入；绑定成功后这里会显示在线状态。</p> : null}
+            <p className="settings-executor-pairing">Windows 解压后双击 GiantMaterialExecutor.exe，首次使用会单独下载 OCR 模型，已绑定 0.4.0 及以上版本可自动检查更新。macOS 解压后打开 GiantMaterialExecutor.app，使用系统 Vision OCR，无需额外下载模型；首次启动会打开本机配对页。</p>
           </div>
         </section>
 

@@ -9,6 +9,7 @@ import (
 	"html"
 	"net"
 	"net/http"
+	"runtime"
 	"strings"
 
 	"qiantie/giant-material-executor/internal/agent"
@@ -161,8 +162,11 @@ func isLoopbackHost(host string) bool {
 func (s *Server) setupPage(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	page := strings.Replace(setupPageHTML, "__EXECUTOR_VERSION__", strings.TrimSpace(s.config.Version), 1)
+	page := strings.ReplaceAll(setupPageHTML, "__EXECUTOR_VERSION__", html.EscapeString(strings.TrimSpace(s.config.Version)))
 	page = strings.Replace(page, "__PUBLIC_URL__", html.EscapeString(strings.TrimSpace(s.config.PublicURL)), 1)
+	if runtime.GOOS != "windows" {
+		page = strings.Replace(page, `id="checkUpdate"`, `id="checkUpdate" hidden`, 1)
+	}
 	_, _ = w.Write([]byte(page))
 }
 
@@ -189,7 +193,7 @@ func (s *Server) capabilities(w http.ResponseWriter, _ *http.Request) {
 	if s.config.ModelReady != nil {
 		modelReady = s.config.ModelReady()
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"platform": "windows", "ocr": true, "modelVersion": snapshot.ModelVersion, "modelReady": modelReady})
+	writeJSON(w, http.StatusOK, map[string]any{"platform": runtime.GOOS, "ocr": true, "modelVersion": snapshot.ModelVersion, "modelReady": modelReady})
 }
 
 func (s *Server) pair(w http.ResponseWriter, req *http.Request) {
