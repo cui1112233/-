@@ -41,6 +41,20 @@ if (Test-Path $portableZip) { Remove-Item -Force $portableZip }
 Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $portableZip -CompressionLevel Optimal
 Write-Output $portableZip
 
+# Generate latest.json (version manifest for executor self-update) and sync it with
+# the zip into frontend/public so every Node deployment ships the current release.
+$zipHash = (Get-FileHash -Algorithm SHA256 $portableZip).Hash.ToLowerInvariant()
+$latestJson = @{ version = $Version; sha256 = $zipHash } | ConvertTo-Json -Compress
+$latestPath = Join-Path $OutputRoot "latest.json"
+[System.IO.File]::WriteAllText($latestPath, $latestJson, (New-Object System.Text.UTF8Encoding($false)))
+$publicDir = Join-Path $moduleRoot '..\frontend\public\downloads\giant-material-executor'
+if (Test-Path $publicDir) {
+  Copy-Item $portableZip $publicDir -Force
+  Copy-Item $latestPath $publicDir -Force
+  Write-Output "synced zip+latest.json to $publicDir"
+}
+Write-Output $latestPath
+
 $nsis = Get-Command makensis -ErrorAction SilentlyContinue
 if ($null -eq $nsis) {
   Write-Warning "makensis was not found; executable stage is ready but installer was not built."

@@ -22,6 +22,7 @@ export function SettingsPage() {
   const [loadingExecutors, setLoadingExecutors] = useState(false);
   const [giantMaterialExecutors, setGiantMaterialExecutors] = useState([]);
   const [loadingGiantMaterialExecutors, setLoadingGiantMaterialExecutors] = useState(false);
+  const [giantLatestVersion, setGiantLatestVersion] = useState(null);
   const [giantPairing, setGiantPairing] = useState(null);
   const [giantPairingBusy, setGiantPairingBusy] = useState(false);
   const [pairing, setPairing] = useState(null);
@@ -58,6 +59,15 @@ export function SettingsPage() {
   }
 
   useEffect(() => { loadGiantMaterialExecutors(); }, []);
+
+  useEffect(() => {
+    let alive = true;
+    fetch('/downloads/giant-material-executor/latest.json')
+      .then(res => (res.ok ? res.json() : null))
+      .then(data => { if (alive && data && data.version) setGiantLatestVersion(String(data.version)); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
 
   async function createGiantMaterialExecutorPairing() {
     setGiantPairingBusy(true);
@@ -319,16 +329,35 @@ export function SettingsPage() {
               <div className="settings-executor-icon"><Video size={20} /></div>
               <div>
                 <strong>巨量素材读取通道</strong>
-                <span>{giantMaterialExecutors.length} 台已绑定 · {giantMaterialExecutors.filter(item => item.online).length} 台在线</span>
+                <span>
+                  {giantMaterialExecutors.length} 台已绑定 · {giantMaterialExecutors.filter(item => item.online).length} 台在线
+                  {giantLatestVersion ? ` · 最新版本 ${giantLatestVersion}` : ''}
+                </span>
               </div>
             </div>
+            {giantMaterialExecutors.length > 0 && (
+              <ul style={{ listStyle: 'none', margin: '4px 0 0', padding: 0, display: 'flex', flexDirection: 'column', gap: 6, width: '100%' }}>
+                {giantMaterialExecutors.map(item => {
+                  const outdated = Boolean(giantLatestVersion) && Boolean(item.version) && item.version !== giantLatestVersion;
+                  return (
+                    <li key={item.id} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, fontSize: 13 }}>
+                      <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, background: item.online ? '#52c41a' : '#5b6b79' }} />
+                      <strong>{item.name || '未命名设备'}</strong>
+                      <span style={{ color: 'var(--legacy-muted, #9bb1c0)' }}>版本 {item.version || '未知（旧版）'}</span>
+                      {outdated && <span style={{ color: '#d48806' }}>待更新 → {giantLatestVersion}</span>}
+                      <span style={{ marginLeft: 'auto', color: 'var(--legacy-muted, #9bb1c0)' }}>{item.online ? '在线' : formatLastSeen(item.lastSeenAt)}</span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
             <div className="settings-executor-actions">
               <Button icon={<RefreshCw size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={loadGiantMaterialExecutors} loading={loadingGiantMaterialExecutors}>刷新状态</Button>
               <Button onClick={createGiantMaterialExecutorPairing} loading={giantPairingBusy}>生成配对码</Button>
-              <Button type="primary" icon={<Download size={16} strokeWidth={1.8} aria-hidden="true" />} href="/downloads/giant-material-executor/GiantMaterialExecutor-windows-x64.zip">下载 Windows 执行器</Button>
+              <Button type="primary" icon={<Download size={16} strokeWidth={1.8} aria-hidden="true" />} href="/downloads/giant-material-executor/GiantMaterialExecutor-windows-x64.zip">下载 Windows 执行器{giantLatestVersion ? ` ${giantLatestVersion}` : ''}</Button>
             </div>
             {giantPairing?.code ? <p className="settings-executor-pairing">配对码：<strong>{giantPairing.code}</strong>（10 分钟内有效）。请在 Windows 执行器首次启动窗口中输入；绑定成功后这里会显示在线状态。</p> : null}
-            <p className="settings-executor-pairing">下载后解压并双击 GiantMaterialExecutor.exe，在首次启动窗口输入上面的配对码；也可以在批量工厂的“巨量素材获取”使用同机自动配对。OCR 模型会在第一次运行时单独下载，不包含在安装包内。</p>
+            <p className="settings-executor-pairing">下载后解压并双击 GiantMaterialExecutor.exe，在首次启动窗口输入上面的配对码；也可以在批量工厂的“巨量素材获取”使用同机自动配对。OCR 模型会在第一次运行时单独下载，不包含在安装包内。已绑定 0.4.0 及以上版本的执行器会自动检查并升级到新版本，无需手动重新下载。</p>
           </div>
         </section>
 
@@ -336,6 +365,17 @@ export function SettingsPage() {
       </div>
     </div>
   );
+}
+
+function formatLastSeen(value) {
+  if (!value) return '从未在线';
+  const time = new Date(value).getTime();
+  if (!Number.isFinite(time)) return '从未在线';
+  const diff = Date.now() - time;
+  if (diff < 60 * 1000) return '1 分钟内在线';
+  if (diff < 60 * 60 * 1000) return `${Math.floor(diff / (60 * 1000))} 分钟前在线`;
+  if (diff < 24 * 60 * 60 * 1000) return `${Math.floor(diff / (60 * 60 * 1000))} 小时前在线`;
+  return new Date(time).toLocaleString();
 }
 
 function PetPreview({ form }) {

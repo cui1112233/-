@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"os/signal"
 	"os/user"
 	"path/filepath"
@@ -24,6 +25,7 @@ import (
 	"qiantie/giant-material-executor/internal/httpapi"
 	"qiantie/giant-material-executor/internal/modelcache"
 	"qiantie/giant-material-executor/internal/ui"
+	"qiantie/giant-material-executor/internal/update"
 	"qiantie/giant-material-executor/internal/worker"
 )
 
@@ -181,6 +183,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("create loopback server: %v", err)
 	}
+	startSelfUpdater(ctx, stop, snapshot, &executorOriginMu, &executorOrigin)
 	startupPaired := false
 	if code := configuredPairingCode(); code != "" {
 		pairCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -220,6 +223,43 @@ func main() {
 	log.Printf("giant material executor started version=%s loopback=127.0.0.1:17861 workerResident=true", version)
 	<-ctx.Done()
 	log.Printf("giant material executor stopped")
+}
+
+func startSelfUpdater(ctx context.Context, stop context.CancelFunc, snapshot func() agent.Snapshot, originMu *sync.RWMutex, origin *string) {
+	root := ""
+	if exe, err := os.Executable(); err == nil {
+		root = filepath.Dir(exe)
+	}
+	if root == "" {
+		log.Printf("self update disabled: executable path unavailable")
+		return
+	}
+	updater := &update.SelfUpdater{
+		Root:           root,
+		CurrentVersion: version,
+		Origin: func() string {
+			originMu.RLock()
+			defer originMu.RUnlock()
+			return *origin
+		},
+		Idle: func() bool { return snapshot().State == agent.StateReady },
+		Apply: func(nextVersion string) {
+			log.Printf("self update %s ready; restarting executor", nextVersion)
+			stop()
+			time.Sleep(3 * time.Second)
+			applyPath := filepath.Join(root, ".updates", "apply-update.cmd")
+			command := exec.Command("cmd", "/C", applyPath)
+			command.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+			if err := command.Start(); err != nil {
+				log.Printf("start apply-update.cmd failed: %v", err)
+				return
+			}
+			log.Printf("apply-update.cmd started; exiting for update")
+			os.Exit(0)
+		},
+	}
+	go updater.Run(ctx)
+	log.Printf("self update enabled root=%s current=%s", root, version)
 }
 
 func waitForLoopbackSetup(ctx context.Context) error {
