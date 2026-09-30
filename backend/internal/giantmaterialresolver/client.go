@@ -119,7 +119,7 @@ func (c *Client) Resolve(ctx context.Context, giantMaterialID string) (Material,
 
 func allowedVideoURL(raw string) bool {
 	parsed, err := url.Parse(strings.TrimSpace(raw))
-	return err == nil && parsed.Scheme == "https" && parsed.Hostname() == "material.hnqingyuwen.top" && parsed.Port() == "" && parsed.User == nil
+	return err == nil && parsed.Scheme == "https" && strings.HasSuffix(parsed.Hostname(), "material.hnqingyuwen.top") && parsed.Port() == "" && parsed.User == nil
 }
 
 func normalize(payload map[string]any) Material {
