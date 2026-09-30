@@ -246,7 +246,7 @@ func validateDeviceFields(name, osName, version string) error {
 
 func validateVideoURL(raw string) error {
 	parsed, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || parsed.Scheme != "https" || parsed.Host != "material.hnqingyuwen.top" || parsed.Path == "" {
+	if err != nil || parsed.Scheme != "https" || !strings.HasSuffix(parsed.Hostname(), "material.hnqingyuwen.top") || parsed.Path == "" {
 		return ErrInvalidInput
 	}
 	return nil
