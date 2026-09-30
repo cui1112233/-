@@ -26,6 +26,7 @@ import {
   Dropdown,
   Input,
   InputNumber,
+  Image,
   Modal,
   Popconfirm,
   Select,
@@ -638,12 +639,33 @@ function AssetEditor({ book, batchId, onSaved, onGenerate, onRegenerate, onRetry
         <div className="shuihuo-image-library-grid">{libraryImages.map(({ image, asset }) => <article className="shuihuo-image-card" key={image.id}><div className="shuihuo-image-card-visual"><img src={image.url} alt={`${assetName(asset)} 图片版本`} /></div><div className="shuihuo-image-card-title"><strong>{assetName(asset)}</strong><Tag>{image.isPrimary ? '主图' : `版本 ${image.revision || ''}`}</Tag></div><p>{assetPrompt(asset) || '生成时未保存提示词快照'}</p><div className="shuihuo-image-card-actions">{!image.isPrimary ? <Button type="text" size="small" loading={savingId === `primary-${image.id}`} onClick={() => makePrimary(asset, image)}>设主图</Button> : <span>当前主图</span>}<label className="batch-factory-image-upload"><input type="file" accept="image/png,image/jpeg,image/webp" onChange={event => uploadImage(asset, event)} disabled={savingId !== ''} />上传版本</label></div></article>)}{!libraryImages.length ? <div className="shuihuo-image-empty"><b>图片库</b><p>暂无已生成图片</p><span>在左侧勾选人物、场景或道具后，点击顶部“AI生成”。</span></div> : null}</div>
       </main>
     </div>
-    <Modal title={editing?.id ? `编辑资产 · ${assetName(editing)}` : `添加${categoryLabel(editing?.kind || kind)}`} open={Boolean(editing)} onCancel={() => setEditing(null)} footer={<Space><Button onClick={() => setEditing(null)}>取消</Button><Button loading={savingId !== ''} onClick={saveAsset}>保存</Button><Tooltip title={imageModelId ? '先保存当前提示词，再按引擎配置为这个资产生成新的图片版本。' : '请先在引擎配置选择图片模型。'}><Button type="primary" loading={imageGenerating} disabled={Boolean(savingId) || imageGenerating || !imageModelId} onClick={generateEditedAssetImage}>生成图片</Button></Tooltip></Space>} width={760} destroyOnClose><Space direction="vertical" size={14} style={{ width: '100%' }}><label className="shuihuo-form-label">资产分类<Select value={editing?.kind} options={kindOptions} onChange={value => setEditing(current => ({ ...current, kind: value }))} /></label><label className="shuihuo-form-label">名称<Input value={editing?.name || ''} onChange={event => setEditing(current => ({ ...current, name: event.target.value }))} /></label><label className="shuihuo-form-label">外观描述 / AI 生图提示词<Input.TextArea rows={9} value={editing?.prompt || ''} onChange={event => setEditing(current => ({ ...current, prompt: event.target.value }))} placeholder="输入人物、场景或道具的可视化提示词" /></label>
-	{editing?.id ? <div className="batch-factory-asset-editor-images">
-	  <div className="batch-factory-asset-editor-images-head"><b>资产图片</b><span>有图片时，生成视频走“图片生视频”，不再发此资产的文字设定；没图片才走“文字生视频”</span><label className="batch-factory-image-upload"><input type="file" accept="image/png,image/jpeg,image/webp" onChange={event => uploadImage(editing, event)} disabled={savingId !== ''} />上传图片</label></div>
-	  <div className="batch-factory-asset-editor-image-grid">{(assetImages[editing.id] || []).map(image => <article className="batch-factory-asset-editor-image-card" key={image.id}><div className="batch-factory-asset-editor-image-visual"><img src={image.url} alt={`${assetName(editing)} 图片版本`} /></div><div className="batch-factory-asset-editor-image-meta">{image.isPrimary ? <Tag color="blue">主图</Tag> : <Tag>版本 {image.revision || ''}</Tag>}{!image.isPrimary ? <Button type="link" size="small" loading={savingId === `primary-${image.id}`} onClick={() => makePrimary(editing, image)}>设为主图</Button> : null}</div></article>)}{!(assetImages[editing.id] || []).length ? <p className="batch-factory-asset-editor-images-empty">暂无图片。可直接“上传图片”，或点底部“生成图片”用 AI 出图</p> : null}</div>
-	</div> : <Alert type="info" showIcon message="先保存这个资产，才能上传或生成图片" />}
-</Space></Modal>
+    <Modal title={editing?.id ? `编辑资产 · ${assetName(editing)}` : `添加${categoryLabel(editing?.kind || kind)}`} open={Boolean(editing)} onCancel={() => setEditing(null)} footer={<Space><Button onClick={() => setEditing(null)}>取消</Button><Button type="primary" loading={savingId !== ''} onClick={saveAsset}>保存</Button></Space>} width={920} destroyOnClose>
+	  <div className="batch-factory-asset-editor-body">
+	    <div className="batch-factory-asset-editor-fields">
+	      <label className="shuihuo-form-label">资产分类<Select value={editing?.kind} options={kindOptions} onChange={value => setEditing(current => ({ ...current, kind: value }))} /></label>
+	      <label className="shuihuo-form-label">名称<Input value={editing?.name || ''} onChange={event => setEditing(current => ({ ...current, name: event.target.value }))} /></label>
+	      <label className="shuihuo-form-label">外观描述 / AI 生图提示词<Input.TextArea rows={12} value={editing?.prompt || ''} onChange={event => setEditing(current => ({ ...current, prompt: event.target.value }))} placeholder="输入人物、场景或道具的可视化提示词" /></label>
+	      <p className="batch-factory-asset-editor-hint">规则：这个资产有图片时，生成视频走“图片生视频”，不发文字设定；没图片时，按上面的文字走“文字生视频”。</p>
+	    </div>
+	    <div className="batch-factory-asset-editor-panel">
+	      {editing?.id ? (() => {
+	        const imageList = assetImages[editing.id] || [];
+	        const mainImage = imageList.find(item => item.isPrimary) || imageList[0] || null;
+	        const panelBusy = savingId !== '' || imageGenerating;
+	        return <>
+	          <div className="batch-factory-asset-editor-panel-head"><b>主图预览</b></div>
+	          {mainImage ? <div className="batch-factory-asset-editor-main"><Image src={mainImage.url} alt={`${assetName(editing)} 主图`} preview={{ mask: '点击放大' }} /></div>
+	            : <div className="batch-factory-asset-editor-main is-empty"><PictureOutlined /><span>暂无主图，请上传图片或用 AI 生成</span></div>}
+	          <div className="batch-factory-asset-editor-panel-actions">
+	            <label className="batch-factory-image-upload"><input type="file" accept="image/png,image/jpeg,image/webp" onChange={event => uploadImage(editing, event)} disabled={panelBusy} />上传图片</label>
+	            <Tooltip title={imageModelId ? '先保存当前提示词，再用引擎配置的图片模型为这个资产出新图。' : '请先在引擎配置选择图片模型。'}><Button type="primary" loading={imageGenerating} disabled={panelBusy || !imageModelId} onClick={generateEditedAssetImage}>AI生成</Button></Tooltip>
+	          </div>
+	          <div className="batch-factory-asset-editor-thumbs">{imageList.map(item => <button type="button" key={item.id} className={`batch-factory-asset-editor-thumb${item.id === mainImage?.id ? ' is-main' : ''}`} title={item.isPrimary ? '当前主图' : '点击设为主图'} disabled={panelBusy} onClick={() => makePrimary(editing, item)}><img src={item.url} alt={`${assetName(editing)} 版本 ${item.revision || ''}`} />{item.isPrimary ? <span className="batch-factory-asset-editor-thumb-tag">主图</span> : null}</button>)}{!imageList.length ? <span className="batch-factory-asset-editor-thumbs-empty">还没有图片版本</span> : null}</div>
+	        </>;
+	      })() : <div className="batch-factory-asset-editor-main is-empty"><PictureOutlined /><span>先点右下角“保存”建立这个资产，<br />然后才能上传或生成图片</span></div>}
+	    </div>
+	  </div>
+	</Modal>
   </section>;
 }
 

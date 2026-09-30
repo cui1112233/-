@@ -680,21 +680,32 @@ body.batch-factory-column-resizing, body.batch-factory-column-resizing * { curso
 .batch-factory-prompt-modal-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 @media (max-width: 720px) { .batch-factory-prompt-modal-head { align-items: flex-start; flex-direction: column; } .batch-factory-prompt-modal-tabs { align-self: stretch; justify-content: flex-end; } }
 
-/* 编辑资产弹窗内的图片区 */
-.batch-factory-image-upload { display: inline-flex; align-items: center; justify-content: center; padding: 4px 12px; border-radius: 8px; background: #2b6cb0; color: #fff; font-size: 13px; cursor: pointer; transition: background .16s ease; }
+/* 编辑资产弹窗：左字段右图的两栏布局（对齐剧本生成） */
+.batch-factory-image-upload { display: inline-flex; align-items: center; justify-content: center; padding: 4px 15px; height: 32px; border-radius: 8px; background: #2b6cb0; color: #fff; font-size: 13px; cursor: pointer; transition: background .16s ease; }
 .batch-factory-image-upload:hover { background: #3182ce; }
 .batch-factory-image-upload:has(input:disabled) { opacity: .5; cursor: not-allowed; }
 .batch-factory-image-upload input { display: none; }
-.batch-factory-asset-editor-images { display: grid; gap: 10px; padding: 12px; border: 1px solid rgba(139, 169, 207, .22); border-radius: 10px; background: rgba(21, 38, 60, .5); }
-.batch-factory-asset-editor-images-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
-.batch-factory-asset-editor-images-head b { color: #d9e6f8; }
-.batch-factory-asset-editor-images-head span { flex: 1; min-width: 180px; color: var(--sh-muted); font-size: 12px; }
-.batch-factory-asset-editor-image-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
-.batch-factory-asset-editor-image-card { display: grid; gap: 6px; padding: 8px; border: 1px solid rgba(139, 169, 207, .18); border-radius: 8px; background: #0d1726; }
-.batch-factory-asset-editor-image-visual { border-radius: 6px; overflow: hidden; aspect-ratio: 3 / 4; background: #0a1220; }
-.batch-factory-asset-editor-image-visual img { width: 100%; height: 100%; object-fit: cover; }
-.batch-factory-asset-editor-image-meta { display: flex; align-items: center; justify-content: space-between; gap: 4px; flex-wrap: wrap; }
-.batch-factory-asset-editor-images-empty { margin: 0; color: var(--sh-muted); font-size: 13px; }
+.batch-factory-asset-editor-body { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 22px; }
+.batch-factory-asset-editor-fields { display: grid; align-content: start; gap: 12px; min-width: 0; }
+.batch-factory-asset-editor-hint { margin: 2px 0 0; color: var(--sh-muted); font-size: 12px; line-height: 1.7; }
+.batch-factory-asset-editor-panel { display: grid; align-content: start; gap: 0; min-width: 0; }
+.batch-factory-asset-editor-panel-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.batch-factory-asset-editor-panel-head b { color: #d9e6f8; font-size: 15px; }
+.batch-factory-asset-editor-main { display: flex; align-items: center; justify-content: center; height: 360px; border: 1px solid rgba(139, 169, 207, .22); border-radius: 10px; background: #0a1220; overflow: hidden; }
+.batch-factory-asset-editor-main .ant-image, .batch-factory-asset-editor-main img { display: block; width: 100%; height: 100%; }
+.batch-factory-asset-editor-main img { object-fit: contain; }
+.batch-factory-asset-editor-main.is-empty { flex-direction: column; gap: 10px; color: var(--sh-muted); font-size: 13px; text-align: center; line-height: 1.8; padding: 16px; }
+.batch-factory-asset-editor-main.is-empty .anticon { font-size: 34px; opacity: .7; }
+.batch-factory-asset-editor-panel-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 12px; }
+.batch-factory-asset-editor-thumbs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 14px; }
+.batch-factory-asset-editor-thumb { position: relative; padding: 0; border: 2px solid rgba(139, 169, 207, .25); border-radius: 8px; background: #0a1220; aspect-ratio: 1; overflow: hidden; cursor: pointer; transition: border-color .16s ease; }
+.batch-factory-asset-editor-thumb:hover:not(:disabled) { border-color: #63a3e0; }
+.batch-factory-asset-editor-thumb.is-main { border-color: #4d9fff; }
+.batch-factory-asset-editor-thumb:disabled { cursor: default; opacity: .85; }
+.batch-factory-asset-editor-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.batch-factory-asset-editor-thumb-tag { position: absolute; left: 0; bottom: 0; padding: 1px 6px; border-radius: 0 6px 0 6px; background: rgba(45, 122, 227, .92); color: #fff; font-size: 11px; line-height: 1.6; }
+.batch-factory-asset-editor-thumbs-empty { grid-column: 1 / -1; color: var(--sh-muted); font-size: 12px; }
+@media (max-width: 760px) { .batch-factory-asset-editor-body { grid-template-columns: minmax(0, 1fr); } .batch-factory-asset-editor-main { height: 300px; } }
 
 /* Prompt type is a compact stacked label in the upper-left corner. */
 .batch-factory-prompt-entry-head { min-height:42px; padding:8px 9px 0; }
