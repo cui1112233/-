@@ -21,13 +21,14 @@ type JobStatus struct {
 }
 
 type ServerConfig struct {
-	Addr       string
-	Origin     string
-	Nonce      string
-	Version    string
-	Snapshot   func() agent.Snapshot
-	ModelReady func() bool
-	Callbacks  Callbacks
+	Addr          string
+	Origin        string
+	AllowedOrigin func() string
+	Nonce         string
+	Version       string
+	Snapshot      func() agent.Snapshot
+	ModelReady    func() bool
+	Callbacks     Callbacks
 }
 
 type Callbacks struct {
@@ -90,7 +91,11 @@ func (s *Server) guard(next http.Handler) http.Handler {
 			next.ServeHTTP(w, req)
 			return
 		}
-		originOK := req.Header.Get("Origin") == s.config.Origin || req.Header.Get("Origin") == "http://"+s.config.Addr
+		requestOrigin := req.Header.Get("Origin")
+		originOK := requestOrigin == s.config.Origin || requestOrigin == "http://"+s.config.Addr
+		if !originOK && s.config.AllowedOrigin != nil {
+			originOK = requestOrigin == strings.TrimSpace(s.config.AllowedOrigin())
+		}
 		nonceOK := req.Header.Get("X-Giant-Executor-Nonce") == s.config.Nonce
 		bootstrapPair := req.Method == http.MethodPost && req.URL.Path == "/v1/pair" && strings.TrimSpace(req.Header.Get("X-Giant-Executor-Nonce")) == ""
 		localHealthProbe := req.Method == http.MethodGet && req.URL.Path == "/v1/health" && isLoopbackRemote(req.RemoteAddr)
@@ -117,7 +122,15 @@ func isLoopbackRemote(remoteAddr string) bool {
 func sameHostPort(left, right string) bool {
 	leftHost, leftPort, leftErr := net.SplitHostPort(strings.TrimSpace(left))
 	rightHost, rightPort, rightErr := net.SplitHostPort(strings.TrimSpace(right))
-	return leftErr == nil && rightErr == nil && leftHost == rightHost && leftPort == rightPort
+	return leftErr == nil && rightErr == nil && leftPort == rightPort && (leftHost == rightHost || (isLoopbackHost(leftHost) && isLoopbackHost(rightHost)))
+}
+
+func isLoopbackHost(host string) bool {
+	if strings.EqualFold(strings.TrimSpace(host), "localhost") {
+		return true
+	}
+	ip := net.ParseIP(strings.Trim(host, "[]"))
+	return ip != nil && ip.IsLoopback()
 }
 
 func (s *Server) setupPage(w http.ResponseWriter, _ *http.Request) {

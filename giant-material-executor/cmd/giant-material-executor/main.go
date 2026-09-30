@@ -8,10 +8,12 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"os/user"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -40,8 +42,8 @@ func main() {
 	publicURL := loadPublicAPIURL()
 	origin := envOr("GIANT_MATERIAL_EXECUTOR_ORIGIN", "http://127.0.0.1:5173")
 	deviceName := envOr("GIANT_MATERIAL_EXECUTOR_DEVICE_NAME", localDeviceName())
-	python := envOr("GIANT_MATERIAL_PYTHON", "python")
-	script := envOr("GIANT_MATERIAL_WORKER_SCRIPT", filepath.Join(executableDir(), "worker", "ocr_worker.py"))
+	python := defaultPythonCommand()
+	script := workerScriptPath()
 	supervisor := &worker.Supervisor{Command: []string{python, script}, Dir: filepath.Dir(script)}
 	prepareModel := modelPreparer(supervisor)
 	var stateMu sync.RWMutex
@@ -65,6 +67,11 @@ func main() {
 		return current
 	}
 	publicURLMu := sync.RWMutex{}
+	executorOriginMu := sync.RWMutex{}
+	executorOrigin := origin
+	if parsed, parseErr := url.Parse(publicURL); parseErr == nil && parsed.Scheme != "" && parsed.Host != "" {
+		executorOrigin = parsed.Scheme + "://" + parsed.Host
+	}
 	publicClient := agent.NewHTTPClient(publicURL, &http.Client{Timeout: 20 * time.Second})
 	getPublicClient := func() *agent.HTTPClient {
 		publicURLMu.RLock()
@@ -83,6 +90,11 @@ func main() {
 		publicURL = normalized
 		publicClient = agent.NewHTTPClient(normalized, &http.Client{Timeout: 20 * time.Second})
 		publicURLMu.Unlock()
+		if parsed, parseErr := url.Parse(normalized); parseErr == nil && parsed.Scheme != "" && parsed.Host != "" {
+			executorOriginMu.Lock()
+			executorOrigin = parsed.Scheme + "://" + parsed.Host
+			executorOriginMu.Unlock()
+		}
 		return nil
 	}
 	credentialStore, err := newCredentialStore()
@@ -161,7 +173,11 @@ func main() {
 		startAgent(result.Token)
 		return nil
 	}
-	server, err := httpapi.NewServer(httpapi.ServerConfig{Addr: "127.0.0.1:17861", Origin: origin, Nonce: nonce, Version: version, Snapshot: snapshot, Callbacks: httpapi.Callbacks{SetPublicURL: setPublicURL, Pair: pair}})
+	server, err := httpapi.NewServer(httpapi.ServerConfig{Addr: "127.0.0.1:17861", Origin: origin, AllowedOrigin: func() string {
+		executorOriginMu.RLock()
+		defer executorOriginMu.RUnlock()
+		return executorOrigin
+	}, Nonce: nonce, Version: version, Snapshot: snapshot, Callbacks: httpapi.Callbacks{SetPublicURL: setPublicURL, Pair: pair}})
 	if err != nil {
 		log.Fatalf("create loopback server: %v", err)
 	}
@@ -325,6 +341,33 @@ func executableDir() string {
 		return "."
 	}
 	return filepath.Dir(path)
+}
+
+func defaultPythonCommand() string {
+	if value := strings.TrimSpace(os.Getenv("GIANT_MATERIAL_PYTHON")); value != "" {
+		return value
+	}
+	if runtime.GOOS == "windows" {
+		return "python"
+	}
+	return "python3"
+}
+
+func workerScriptPath() string {
+	if value := strings.TrimSpace(os.Getenv("GIANT_MATERIAL_WORKER_SCRIPT")); value != "" {
+		return value
+	}
+	candidates := []string{
+		filepath.Join(executableDir(), "worker", "ocr_worker.py"),
+		filepath.Join("worker", "ocr_worker.py"),
+		filepath.Join("giant-material-executor", "worker", "ocr_worker.py"),
+	}
+	for _, candidate := range candidates {
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+	return candidates[0]
 }
 
 func localDeviceName() string {
