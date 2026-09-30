@@ -2968,6 +2968,15 @@ body.batch-factory-column-resizing, body.batch-factory-column-resizing * { curso
 .batch-factory-giant-pending .ant-progress-line{padding-bottom:0}
 .batch-factory-giant-pending .ant-progress-text{font-size:10px;color:var(--sh-muted)}
 
+/* 新建批量弹窗：巨量素材多 ID 解析清单 */
+.batch-factory-giant-items { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; max-height: 220px; overflow-y: auto; }
+.batch-factory-giant-item { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 4px 8px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); }
+.batch-factory-giant-item.is-error { background: rgba(255, 77, 79, 0.12); color: #ff7875; }
+.batch-factory-giant-item-index { flex: none; opacity: 0.6; }
+.batch-factory-giant-item-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.batch-factory-giant-item-title.is-error { color: #ff7875; }
+.batch-factory-giant-item-meta { flex: none; opacity: 0.65; }
+
 /* Full fragment library: transparent audio math, not a black-box checkbox. */
 .batch-factory-follow-audio-control{display:flex;align-items:center;justify-content:flex-end;gap:8px;min-width:0}
 .batch-factory-follow-audio-control small{color:var(--sh-muted);font-size:10px;line-height:1.4;text-align:right}

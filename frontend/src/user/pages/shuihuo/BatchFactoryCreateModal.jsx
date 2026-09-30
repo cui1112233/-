@@ -1,15 +1,21 @@
 import { Alert, Button, Input, InputNumber, Modal, Select, Space, Tag, message } from 'antd';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getWorkshopPlatforms } from '../../../shared/api/novelFetchWorkshop';
-import { createNovelFetchIntake, fetchDirectOriginals, getBatchAutomationStatus, listAutomationPresets, listBatches } from '../../../shared/api/batchFactoryV11';
+import { createNovelFetchIntake, fetchDirectOriginals, getBatchAutomationStatus, listAutomationPresets, listBatches, updateBookMetadata } from '../../../shared/api/batchFactoryV11';
 import { batchFactoryPlatformOptions } from './batchFactoryPlatformOptions';
 import { buildManualBatchSubmission, manualBookIDsFromInput, removePlatformGroup, replacePlatformGroup, totalGroupBookCount, upsertPlatformGroup } from './batchFactoryManualFetch';
 import { formatBeijingDatetimeLocal, normalizeAutomationConcurrency, parseBeijingDatetimeLocal } from './batchFactoryAutomationSchedule';
 import { resolveGiantMaterialForBatch } from '../giantMaterialExtractionClient.js';
-import { normalizeGiantMaterialId } from '../giantMaterialTest.js';
-import { createGiantMaterialJob, waitForGiantMaterialJob } from '../../../shared/api/giantMaterialExecutorPublic.js';
+import { parseGiantMaterialIds } from './batchFactoryGiantMaterialQueue.js';
+import { createGiantMaterialJob } from '../../../shared/api/giantMaterialExecutorPublic.js';
 import { BatchFactoryGiantMaterialExecutorStatus } from './BatchFactoryGiantMaterialExecutorStatus.jsx';
-import { availableGiantMaterialBooks, buildGiantMaterialIntake, giantMaterialBookKey, selectGiantMaterialBook } from './batchFactoryGiantMaterialImport.js';
+import {
+  availableGiantMaterialBooks,
+  buildGiantMaterialPlaceholderIntakes,
+  findRegisteredGiantMaterialBook,
+  giantMaterialBookKey,
+  selectGiantMaterialBook
+} from './batchFactoryGiantMaterialImport.js';
 
 // 输入格式与列顺序固定为默认值（智能识别 + 完整元数据列），AI 会自动分析男女频/风格，无需用户手选
 const DEFAULT_PARSE_MODE = 'smart';
@@ -34,7 +40,7 @@ function normalizedError(error, fallback) {
   const friendly = messages[code] || code || String(fallback || '请求失败').trim();
   // 服务器返回的 502/503 网页错误会是一整段 HTML，直接显示会刷屏；换成一句人话。
   if (/<html[\s>]|502 Bad Gateway|503 Service/i.test(friendly)) {
-    return '服务器通讯短暂中断（正在更新或重启），请点“读取并创建”重试。';
+    return '服务器通讯短暂中断（正在更新或重启），请稍后重试。';
   }
   return friendly;
 }
@@ -79,15 +85,10 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
   const [busy, setBusy] = useState(false);
   const [groups, setGroups] = useState([]);
   const [editingPlatformId, setEditingPlatformId] = useState(null);
-  const [giantMaterial, setGiantMaterial] = useState(null);
-  const [giantSelectedBookKey, setGiantSelectedBookKey] = useState('');
-  const [giantExtraction, setGiantExtraction] = useState(null);
-  const [giantProgress, setGiantProgress] = useState(null);
+  const [giantItems, setGiantItems] = useState([]);
   const [giantBusy, setGiantBusy] = useState(false);
-  const [giantPhase, setGiantPhase] = useState('idle');
   const [giantError, setGiantError] = useState('');
   const [executorHealth, setExecutorHealth] = useState(null);
-  const [executorJob, setExecutorJob] = useState(null);
   const giantControllerRef = useRef(null);
 
   async function loadPlatforms() {
@@ -134,21 +135,14 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
 
   const isGiantMaterial = platformId === GIANT_MATERIAL_PLATFORM_OPTION.value;
   const inputBookIds = useMemo(() => manualBookIDsFromInput(inputText), [inputText]);
-  const giantMaterialId = isGiantMaterial ? normalizeGiantMaterialId(inputBookIds[0]) : '';
-  const giantBooks = useMemo(() => availableGiantMaterialBooks(giantMaterial || {}), [giantMaterial]);
-  const giantBook = useMemo(() => selectGiantMaterialBook(giantMaterial || {}, giantSelectedBookKey), [giantMaterial, giantSelectedBookKey]);
 
   function reset() {
     giantControllerRef.current?.abort();
     giantControllerRef.current = null;
-    setGiantMaterial(null);
-    setGiantSelectedBookKey('');
-    setGiantExtraction(null);
-    setGiantProgress(null);
+    setGiantItems([]);
     setGiantBusy(false);
-    setGiantPhase('idle');
     setGiantError('');
-    setExecutorJob(null);
+    setExecutorHealth(null);
     setTitle('');
     setInputText('');
     setScheduleDialogOpen(false);
@@ -168,14 +162,9 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
   function clearGiantMaterialDraft() {
     giantControllerRef.current?.abort();
     giantControllerRef.current = null;
-    setGiantMaterial(null);
-    setGiantSelectedBookKey('');
-    setGiantExtraction(null);
-    setGiantProgress(null);
+    setGiantItems([]);
     setGiantBusy(false);
-    setGiantPhase('idle');
     setGiantError('');
-    setExecutorJob(null);
   }
 
   function changePlatform(value) {
@@ -244,130 +233,126 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
     setGroups(current => removePlatformGroup(current, removedPlatformId));
   }
 
-  async function resolveGiantMaterialDraft() {
-    if (!isGiantMaterial) return;
-    if (inputBookIds.length !== 1 || !giantMaterialId) {
-      message.warning('请输入一条10—25位数字巨量素材 ID');
-      return;
-    }
-    clearGiantMaterialDraft();
-    setGiantBusy(true);
-    setGiantPhase('resolving');
+  const GIANT_ITEM_ERRORS = {
+    INVALID_GIANT_MATERIAL_ID: 'ID 格式不对，应为 10—25 位数字',
+    QINGYU_AUTH_NOT_CONFIGURED: '本机尚未配置青语服务令牌',
+    QINGYU_AUTH_FAILED: '青语授权已失效，需要更新令牌',
+    QINGYU_MATERIAL_RESPONSE_INVALID: '青语服务没有返回有效素材',
+    QINGYU_BOOK_METADATA_INCOMPLETE: '素材没有完整的平台书名或 Book ID',
+    QINGYU_VIDEO_DURATION_MISSING: '素材没有有效的视频时长'
+  };
+
+  function giantItemErrorText(code) {
+    return GIANT_ITEM_ERRORS[code] || '解析失败，可重试';
+  }
+
+  async function resolveAllGiantMaterials() {
+    const { valid, invalid } = parseGiantMaterialIds(inputText);
+    if (!valid.length && !invalid.length) return message.warning('请输入巨量素材 ID（每行一个）');
+    giantControllerRef.current?.abort();
     const controller = new AbortController();
     giantControllerRef.current = controller;
+    setGiantItems([
+      ...valid.map(id => ({ id, status: 'pending', error: '', material: null, books: [], selectedBookKey: '' })),
+      ...invalid.map(token => ({ id: token, status: 'error', error: 'INVALID_GIANT_MATERIAL_ID', material: null, books: [], selectedBookKey: '' }))
+    ]);
+    setGiantBusy(true);
+    setGiantError('');
     try {
-      const material = await resolveGiantMaterialForBatch(giantMaterialId, { signal: controller.signal });
-      const candidates = availableGiantMaterialBooks(material || {});
-      if (!candidates.length) throw new Error('QINGYU_BOOK_METADATA_INCOMPLETE');
-      setGiantMaterial(material);
-      setGiantPhase('reading');
-      if (candidates.length === 1) {
-        setGiantSelectedBookKey(giantMaterialBookKey(candidates[0]));
-        setTitle(current => current.trim() || candidates[0].title);
+      for (const id of valid) {
+        if (controller.signal.aborted) break;
+        try {
+          const material = await resolveGiantMaterialForBatch(id, { signal: controller.signal });
+          const books = availableGiantMaterialBooks(material);
+          if (!books.length) throw new Error('QINGYU_BOOK_METADATA_INCOMPLETE');
+          setGiantItems(current => current.map(row => row.id === id
+            ? { ...row, status: 'resolved', material, books, selectedBookKey: giantMaterialBookKey(books[0]) }
+            : row));
+        } catch (error) {
+          setGiantItems(current => current.map(row => row.id === id
+            ? { ...row, status: 'error', error: String(error?.message || error?.code || 'QINGYU_UPSTREAM_FAILED') }
+            : row));
+        }
       }
-      message.success(`已解析素材，可登记 ${candidates.length} 条平台书籍记录`);
-    } catch (error) {
-      if (controller.signal.aborted) return;
-      const errorText = normalizedError(error, '巨量素材解析失败');
-      setGiantError(errorText);
-      setGiantPhase('error');
-      message.error(errorText);
     } finally {
-      giantControllerRef.current = null;
       setGiantBusy(false);
     }
   }
 
   async function submitGiantMaterial({ scheduledRun = false, automationRun = false } = {}) {
-    if (!validateDraft()) return;
-    const automationEnabled = scheduledRun || automationRun;
+    if (!title.trim()) return message.warning('请填写作品名称');
+    const items = giantItems.filter(item => item.status === 'resolved');
+    if (!items.length) return message.warning('请先点击“解析全部”并等待解析完成');
     if (scheduledRun && !scheduledAt) return message.warning('请选择北京时间自动启动时间');
-    if (automationEnabled && !automationPresetID) return message.warning('请选择自动化预设');
+    if ((scheduledRun || automationRun) && !automationPresetID) return message.warning('请选择自动化预设');
     const scheduledAtISO = scheduledRun ? parseBeijingDatetimeLocal(scheduledAt) : '';
     if (scheduledRun && (!scheduledAtISO || new Date(scheduledAtISO).getTime() <= Date.now())) return message.warning('北京时间自动启动时间需要晚于现在');
-    if (executorHealth?.online !== true) {
-      const errorText = normalizedError(new Error('GIANT_EXECUTOR_OFFLINE'));
-      setGiantError(errorText);
-      setGiantPhase('error');
-      message.error(errorText);
-      return;
-    }
-    const durationSeconds = Number(giantMaterial?.durationSeconds || giantMaterial?.duration || 0);
-    if (!(durationSeconds > 0)) {
-      const errorText = normalizedError(new Error('QINGYU_VIDEO_DURATION_MISSING'));
-      setGiantError(errorText);
-      setGiantPhase('error');
-      message.error(errorText);
-      return;
-    }
+    if (executorHealth?.online !== true) return message.warning('Windows 巨量素材执行器未安装或未登录，请先在执行器配置页完成配对');
+    const missingDuration = items.find(item => !(Number(item.material?.durationSeconds || item.material?.duration || 0) > 0));
+    if (missingDuration) return message.warning(`素材 ${missingDuration.id} 没有有效的视频时长，暂时不能交给执行器处理`);
+    const selected = items.map(item => ({ item, book: selectGiantMaterialBook(item.material, item.selectedBookKey) }));
+    const missingSelection = selected.find(entry => !entry.book);
+    if (missingSelection) return message.warning(`素材 ${missingSelection.item.id} 关联多条平台书籍记录，请在清单中选择一条`);
+
     setBusy(true);
     setGiantError('');
-    setGiantPhase(giantExtraction ? 'success' : 'ocr');
-    const controller = new AbortController();
-    giantControllerRef.current = controller;
     try {
-      let extraction = giantExtraction;
-      if (!extraction) {
-        setGiantProgress({ completed: 0, total: 0, percent: 0 });
-        const createdResponse = await createGiantMaterialJob({
-          materialId: giantMaterialId,
-          platformBookId: giantBook.platformBookId || giantBook.bookId,
-          title: giantBook.title,
-          videoUrl: giantMaterial.videoUrl,
-          durationSeconds,
-          modelVersion: 'windows-paddleocr-v1',
-          contentRangeLines
-        });
-        const createdJob = createdResponse?.job || createdResponse?.data?.job || createdResponse;
-        if (!createdJob?.id) throw new Error('GIANT_EXECUTOR_FAILED');
-        setExecutorJob(createdJob);
-        const completedJob = await waitForGiantMaterialJob(createdJob.id, {
-          signal: controller.signal,
-          onState: next => {
-            setExecutorJob(next);
-            setGiantProgress(next?.progress || null);
-            setGiantPhase(String(next?.state || '').toLowerCase() === 'cleaning' ? 'cleaning' : 'ocr');
-          }
-        });
-        if (String(completedJob?.state || '').toLowerCase() !== 'succeeded' || !String(completedJob?.result?.text || '').trim()) {
-          throw new Error(completedJob?.errorCode || 'GIANT_EXECUTOR_FAILED');
-        }
-        extraction = { ...completedJob.result, sourceCompleteness: 'video_excerpt', requiresProofreading: true };
-      }
-      setGiantExtraction(extraction);
-      setGiantPhase('success');
-      const intakeResponse = await createNovelFetchIntake(buildGiantMaterialIntake({
-        giantMaterialId,
-        material: giantMaterial,
-        extraction,
-        book: giantBook,
-        contentRangeLines
-      }));
+      const importedAt = new Date().toISOString();
+      const intakePayload = buildGiantMaterialPlaceholderIntakes(
+        selected.map(entry => ({ giantMaterialId: entry.item.id, material: entry.item.material, book: entry.book })),
+        { contentRangeLines, importedAt }
+      );
+      const intakeResponse = await createNovelFetchIntake(intakePayload);
       const intake = intakeResponse?.intake || intakeResponse;
       if (!intake?.id) throw new Error('GIANT_MATERIAL_INTAKE_FAILED');
-      await onCreated?.({
+      const batch = await onCreated?.({
         intakeId: intake.id,
-        title: title.trim() || giantBook.title,
+        title: title.trim(),
         scheduledAt: scheduledAtISO,
-        automationEnabled,
+        automationEnabled: scheduledRun || automationRun,
         autoPublishEnabled: automationRun && automationRunMode === 'full_submit',
         presetId: automationPresetID,
         runMode: automationRunMode,
         automationConcurrency: normalizeAutomationConcurrency(automationConcurrency)
       });
-      message.success(`已创建《${giantBook.title}》巨量素材批量`);
+      const batchId = batch?.id;
+      if (!batchId) throw new Error('GIANT_MATERIAL_INTAKE_FAILED');
+      let queued = 0;
+      for (const entry of selected) {
+        try {
+          const durationSeconds = Number(entry.item.material.durationSeconds || entry.item.material.duration || 0);
+          const createdResponse = await createGiantMaterialJob({
+            materialId: entry.item.id,
+            platformBookId: entry.book.platformBookId || entry.book.bookId,
+            title: entry.book.title,
+            videoUrl: entry.item.material.videoUrl,
+            durationSeconds,
+            modelVersion: 'windows-paddleocr-v1',
+            contentRangeLines
+          });
+          const createdJob = createdResponse?.job || createdResponse?.data?.job || createdResponse;
+          if (!createdJob?.id) throw new Error('GIANT_EXECUTOR_FAILED');
+          const book = findRegisteredGiantMaterialBook(batch.books, entry.item.id);
+          if (book?.id) {
+            await updateBookMetadata(batchId, book.id, {
+              metadata: { ...(book.sourceMetadata || {}), executorJobId: createdJob.id },
+              expectedRevision: Number(book.revision || 0)
+            });
+          }
+          queued += 1;
+        } catch (error) {
+          console.warn('巨量读取任务派发失败', entry.item.id, error);
+        }
+      }
+      message.success(queued
+        ? `已创建批量并排队读取 ${queued}/${selected.length} 本书；正文进度请在工作区书卡查看。`
+        : '已创建批量，但读取任务派发失败；可在工作区用“原文获取”兜底。');
       reset();
     } catch (error) {
-      if (!controller.signal.aborted) {
-        const errorText = normalizedError(error, '巨量素材创建失败');
-        setGiantError(errorText);
-        setGiantPhase('error');
-        message.error(errorText);
-      } else {
-        setGiantPhase('cancelled');
-      }
+      const text = normalizedError(error, '巨量素材创建失败');
+      setGiantError(text);
+      message.error(text);
     } finally {
-      giantControllerRef.current = null;
       setBusy(false);
     }
   }
@@ -375,9 +360,7 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
   function validateDraft() {
     if (!title.trim()) return message.warning('请填写作品名称');
     if (isGiantMaterial) {
-      if (inputBookIds.length !== 1 || !giantMaterialId) return message.warning('请输入一条10—25位数字巨量素材 ID');
-      if (!giantMaterial) return message.warning('请先点击“解析素材”');
-      if (!giantBook) return message.warning('该素材关联多条平台书籍记录，请先选择一条');
+      if (!giantItems.some(item => item.status === 'resolved')) return message.warning('请先点击“解析全部”');
       return true;
     }
     if (!groups.length) return message.warning('请至少添加一个书城的书（粘贴后点“添加书城”）');
@@ -506,9 +489,8 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
   }
 
   const createDisabled = isGiantMaterial
-    ? busy || giantBusy || !title.trim() || !giantMaterialId || !giantMaterial || !giantBook
+    ? busy || giantBusy || !title.trim() || !giantItems.some(item => item.status === 'resolved')
     : busy || !title.trim() || editingPlatformId || !groups.length;
-  const createLabel = isGiantMaterial ? '读取并创建' : '立即执行';
 
   return <><Modal
     className="shuihuo-create-project-modal"
@@ -518,7 +500,7 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
     width={760}
     footer={<Button onClick={() => { onCancel(); reset(); }}>取消</Button>}
   >
-    {isGiantMaterial ? <BatchFactoryGiantMaterialExecutorStatus variant="dot" job={executorJob} onHealthChange={setExecutorHealth} /> : null}
+    {isGiantMaterial ? <BatchFactoryGiantMaterialExecutorStatus variant="dot" job={null} onHealthChange={setExecutorHealth} /> : null}
 
     <label className="shuihuo-form-label" htmlFor="batch-title">作品名称 <em>*</em></label>
     <Input id="batch-title" value={title} onChange={event => setTitle(event.target.value)} placeholder="请输入作品名称" maxLength={255} />
@@ -552,16 +534,28 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
       value={inputText}
       onChange={event => { setInputText(event.target.value); if (isGiantMaterial) clearGiantMaterialDraft(); }}
       rows={isGiantMaterial ? 3 : 9}
-      placeholder={isGiantMaterial ? '例如：7689285397448523826' : '每行一本小说，可粘贴 ID、书名、男女频、风格、标签、推荐理由、评级。\n示例：2080989285751305136\t重生书\t女频\t现代爽文\t重生,逆袭\t女主逆袭\tS'}
+      placeholder={isGiantMaterial ? '每行一个巨量素材 ID，数量不限\n例如：7689285355255727121' : '每行一本小说，可粘贴 ID、书名、男女频、风格、标签、推荐理由、评级。\n示例：2080989285751305136\t重生书\t女频\t现代爽文\t重生,逆袭\t女主逆袭\tS'}
     />
 
-    {isGiantMaterial && giantMaterial ? <>
-      {giantBooks.length > 1 ? <><label className="shuihuo-form-label">选择平台书籍</label><Select style={{ width: '100%' }} value={giantSelectedBookKey || undefined} onChange={setGiantSelectedBookKey} placeholder="该素材关联多条记录，请选择一条" options={giantBooks.map(book => ({ value: giantMaterialBookKey(book), label: book.title + ' · ' + (book.platformName || '书城') + ' · ' + book.platformBookId }))} /></> : null}
-      <Alert type="success" showIcon message={'素材已解析：' + (giantMaterial.materialTitle || giantMaterial.title || '未命名素材')} description={giantBooks.length > 1 ? '检测到 ' + giantBooks.length + ' 条平台书籍记录，请选择后读取正文。' : (giantBook?.title || '已关联平台书籍') + ' · Book ID ' + (giantBook?.platformBookId || '—')} />
-    </> : null}
+    {isGiantMaterial && giantItems.length ? <div className="batch-factory-giant-items">
+      {giantItems.map((item, index) => <div key={`${item.id}-${index}`} className={item.status === 'error' ? 'batch-factory-giant-item is-error' : 'batch-factory-giant-item'}>
+        <span className="batch-factory-giant-item-index">{index + 1}</span>
+        {item.status === 'error'
+          ? <span className="batch-factory-giant-item-title is-error">{giantItemErrorText(item.error)}（{item.id}）</span>
+          : item.status === 'resolved'
+            ? <>
+              <span className="batch-factory-giant-item-title">{item.material?.materialTitle || item.material?.title || item.id}</span>
+              <span className="batch-factory-giant-item-meta">Book ID {(selectGiantMaterialBook(item.material, item.selectedBookKey)?.platformBookId) || '—'}</span>
+              {item.books.length > 1 ? <Select size="small" style={{ minWidth: 180 }} value={item.selectedBookKey || undefined} onChange={value => setGiantItems(current => current.map(row => row.id === item.id ? { ...row, selectedBookKey: value } : row))} options={item.books.map(book => ({ value: giantMaterialBookKey(book), label: `${book.title} · ${book.platformBookId}` }))} /> : null}
+            </>
+            : <span className="batch-factory-giant-item-title">正在解析 {item.id}…</span>}
+      </div>)}
+    </div> : null}
 
     <div className="batch-factory-create-toolbar">
-      {isGiantMaterial ? <><Button loading={giantBusy} disabled={giantBusy || busy || !giantMaterialId} onClick={resolveGiantMaterialDraft}>解析素材</Button><Button type="primary" loading={busy} disabled={createDisabled} onClick={() => submit()}>{createLabel}</Button><Button type="primary" disabled={createDisabled} loading={busy} onClick={() => openAutomationDialog('immediate')}>立即执行</Button></> : <><Button type="primary" onClick={handleAddPlatformGroup}>{editingPlatformId ? '保存书城修改' : '添加书城'}</Button><Button type="primary" disabled={createDisabled} loading={busy} onClick={() => openAutomationDialog('immediate')}>立即执行</Button></>}
+      {isGiantMaterial
+        ? <><Button loading={giantBusy} disabled={giantBusy || busy || !inputText.trim()} onClick={resolveAllGiantMaterials}>解析全部</Button><Button type="primary" disabled={createDisabled} loading={busy} onClick={() => openAutomationDialog('immediate')}>立即执行</Button></>
+        : <><Button type="primary" onClick={handleAddPlatformGroup}>{editingPlatformId ? '保存书城修改' : '添加书城'}</Button><Button type="primary" disabled={createDisabled} loading={busy} onClick={() => openAutomationDialog('immediate')}>立即执行</Button></>}
       <Button onClick={() => openAutomationDialog('scheduled')}>开始定时</Button>
       <Button onClick={openScheduleTasks}>定时任务</Button>
     </div>

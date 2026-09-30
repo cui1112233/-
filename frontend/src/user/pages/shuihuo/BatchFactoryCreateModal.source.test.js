@@ -71,9 +71,14 @@ test('offers giant material intake through the resident executor', () => {
   assert.match(source, /GIANT_MATERIAL_PLATFORM_OPTION/);
   assert.match(source, /resolveGiantMaterialForBatch/);
   assert.match(source, /createGiantMaterialJob/);
-  assert.match(source, /waitForGiantMaterialJob/);
+  // 多 ID：解析全部 + 一次占位 intake + 工作区进度条（不在弹窗内等 OCR）
+  assert.match(source, /解析全部/);
+  assert.match(source, /buildGiantMaterialPlaceholderIntakes/);
+  assert.match(source, /每行一个巨量素材 ID，数量不限/);
+  assert.match(source, /parseGiantMaterialIds/);
   assert.match(source, /BatchFactoryGiantMaterialExecutorStatus/);
-  assert.match(source, /正在 OCR 读取滚屏正文/);
-  assert.match(source, /buildGiantMaterialIntake/);
   assert.doesNotMatch(source, /extractGiantMaterial\(/);
+  // 旧单 ID 等待式流程已移除
+  assert.doesNotMatch(source, /waitForGiantMaterialJob/);
+  assert.doesNotMatch(source, /读取并创建/);
 });

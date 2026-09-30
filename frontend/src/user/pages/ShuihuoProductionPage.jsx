@@ -177,8 +177,12 @@ export function ShuihuoProductionPage({ openBatchOnLoad = false }) {
     }
   }
   async function handleCreateBatch(input) {
-    const created = await createManualIntake(input);
-    const batch = created.batch;
+    // 巨量素材弹窗已提前建好 intake（含 N 本占位书）：直接从 intake 建批量。
+    // 旧路径 createManualIntake 的 Go 端 ManualIntakeInput 不认识 intakeId，会按空 InputText 解析报错。
+    const created = input?.intakeId
+      ? await createBatchFromIntake(input.intakeId, { title: input.title })
+      : await createManualIntake(input);
+    const batch = created?.batch || created?.data?.batch || created;
     localStorage.setItem(BATCH_FACTORY_ACTIVE_BATCH_STORAGE_KEY, batch.id);
     setActiveBatchProject(batch);
     setView('batch-novels');
