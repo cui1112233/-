@@ -89,21 +89,27 @@ func (u *SelfUpdater) Run(ctx context.Context) {
 		case <-timer.C:
 		case <-ticker.C:
 		}
-		if err := u.check(ctx); err != nil {
+		if _, err := u.check(ctx); err != nil {
 			log.Printf("self update check skipped: %v", err)
 		}
 	}
 }
 
-func (u *SelfUpdater) check(ctx context.Context) error {
+// CheckNow 立即检查并执行一次更新（配对页“检查更新”按钮触发）。
+// 返回新版本号；已是最新时返回空字符串。
+func (u *SelfUpdater) CheckNow(ctx context.Context) (string, error) {
+	return u.check(ctx)
+}
+
+func (u *SelfUpdater) check(ctx context.Context) (string, error) {
 	if u == nil || u.Apply == nil || u.Origin == nil || strings.TrimSpace(u.Origin()) == "" {
-		return errors.New("self update is not configured")
+		return "", errors.New("self update is not configured")
 	}
 	if strings.TrimSpace(u.Root) == "" {
-		return errors.New("self update root is not configured")
+		return "", errors.New("self update root is not configured")
 	}
 	if u.Idle != nil && !u.Idle() {
-		return errors.New("executor busy")
+		return "", errors.New("执行器正在跑任务，等空闲后再更新")
 	}
 	client := u.HTTPClient
 	if client == nil {
@@ -111,26 +117,26 @@ func (u *SelfUpdater) check(ctx context.Context) error {
 	}
 	manifest, err := fetchManifest(ctx, client, u.manifestURL())
 	if err != nil {
-		return err
+		return "", err
 	}
 	if !validVersion(manifest.Version) {
-		return fmt.Errorf("manifest version %q is not a valid release version", manifest.Version)
+		return "", fmt.Errorf("manifest version %q is not a valid release version", manifest.Version)
 	}
 	if len(strings.TrimSpace(manifest.SHA256)) != 64 {
-		return fmt.Errorf("manifest sha256 for %s is missing or malformed", manifest.Version)
+		return "", fmt.Errorf("manifest sha256 for %s is missing or malformed", manifest.Version)
 	}
 	if compareVersions(manifest.Version, u.CurrentVersion) <= 0 {
-		return nil // 已经是最新版本，不用更新
+		return "", nil // 已经是最新版本，不用更新
 	}
 	if u.Idle != nil && !u.Idle() {
-		return errors.New("executor busy; update deferred")
+		return "", errors.New("executor busy; update deferred")
 	}
 	if err := u.stage(ctx, client, manifest); err != nil {
-		return err
+		return "", err
 	}
 	log.Printf("self update %s staged; applying now", manifest.Version)
 	u.Apply(manifest.Version)
-	return nil
+	return manifest.Version, nil
 }
 
 func fetchManifest(ctx context.Context, client *http.Client, url string) (ReleaseManifest, error) {

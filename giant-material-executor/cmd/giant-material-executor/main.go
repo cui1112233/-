@@ -175,15 +175,20 @@ func main() {
 		startAgent(result.Token)
 		return nil
 	}
+	updater := startSelfUpdater(ctx, stop, snapshot, &executorOriginMu, &executorOrigin)
 	server, err := httpapi.NewServer(httpapi.ServerConfig{Addr: "127.0.0.1:17861", Origin: origin, AllowedOrigin: func() string {
 		executorOriginMu.RLock()
 		defer executorOriginMu.RUnlock()
 		return executorOrigin
-	}, Nonce: nonce, Version: version, PublicURL: publicURL, Snapshot: snapshot, Callbacks: httpapi.Callbacks{SetPublicURL: setPublicURL, Pair: pair}})
+	}, Nonce: nonce, Version: version, PublicURL: publicURL, Snapshot: snapshot, Callbacks: httpapi.Callbacks{SetPublicURL: setPublicURL, Pair: pair, CheckUpdate: func(checkCtx context.Context) (string, error) {
+		if updater == nil {
+			return "", errors.New("self update unavailable")
+		}
+		return updater.CheckNow(checkCtx)
+	}}})
 	if err != nil {
 		log.Fatalf("create loopback server: %v", err)
 	}
-	startSelfUpdater(ctx, stop, snapshot, &executorOriginMu, &executorOrigin)
 	startupPaired := false
 	if code := configuredPairingCode(); code != "" {
 		pairCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -225,14 +230,14 @@ func main() {
 	log.Printf("giant material executor stopped")
 }
 
-func startSelfUpdater(ctx context.Context, stop context.CancelFunc, snapshot func() agent.Snapshot, originMu *sync.RWMutex, origin *string) {
+func startSelfUpdater(ctx context.Context, stop context.CancelFunc, snapshot func() agent.Snapshot, originMu *sync.RWMutex, origin *string) *update.SelfUpdater {
 	root := ""
 	if exe, err := os.Executable(); err == nil {
 		root = filepath.Dir(exe)
 	}
 	if root == "" {
 		log.Printf("self update disabled: executable path unavailable")
-		return
+		return nil
 	}
 	updater := &update.SelfUpdater{
 		Root:           root,
@@ -260,6 +265,7 @@ func startSelfUpdater(ctx context.Context, stop context.CancelFunc, snapshot fun
 	}
 	go updater.Run(ctx)
 	log.Printf("self update enabled root=%s current=%s", root, version)
+	return updater
 }
 
 func waitForLoopbackSetup(ctx context.Context) error {
