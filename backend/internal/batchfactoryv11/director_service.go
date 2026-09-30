@@ -433,3 +433,106 @@ func (s *DirectorService) RunAssetExtraction(ctx context.Context, owner, batchID
 	})
 	return persisted, nil
 }
+
+// RunOpeningVariants generates alternative VIDEO01 openings. It silently
+// returns no variants when the feature is off, the book has fewer than two
+// storyboards, or the director output is not SD-direct; callers treat an empty
+// result as "no opening replacement" and continue the normal pipeline.
+func (s *DirectorService) RunOpeningVariants(ctx context.Context, owner, batchID, bookID string, meta PresetSnapshot) ([]OpeningVariant, error) {
+	if err := s.validate(); err != nil {
+		return nil, err
+	}
+	batch, err := s.Store.GetBatch(ctx, owner, batchID)
+	if err != nil {
+		return nil, err
+	}
+	book, err := bookFromBatch(batch, bookID)
+	if err != nil {
+		return nil, err
+	}
+	effective := ResolveSettings(batch.SettingsState.Patch, book.SettingsState.Patch)
+	if !rawBool(effective, "openingEnabled", false) {
+		return nil, nil
+	}
+	if len(book.Videos) < 2 || book.DirectorRevision == nil || len(book.DirectorRevision.Output.Storyboard) < 2 {
+		return nil, nil
+	}
+	storyboard := book.DirectorRevision.Output.Storyboard
+	first, followUps := storyboard[0], storyboard[1:]
+	if strings.TrimSpace(first.FinalPrompt) == "" {
+		return nil, nil // H3 结构化分镜：变体无法注入确定性编译，按规则跳过
+	}
+	count := rawInt(effective, "openingCount", 4)
+	if count < 1 || count > 8 {
+		return nil, fmt.Errorf("%w: openingCount must be between 1 and 8", ErrInvalid)
+	}
+	variantCount := count - 1
+	if variantCount < 1 {
+		return nil, nil
+	}
+	snapshot, err := snapshotForBook(batch, book)
+	if err != nil {
+		return nil, err
+	}
+	contract := BuildOpeningVariantsContract(book, first, followUps, meta, variantCount, snapshot.MaxVideoDuration)
+	text, err := s.Provider.Complete(ctx, TextCompletionRequest{SystemPrompt: contract.SystemPrompt, UserPrompt: contract.UserPrompt, Temperature: contract.Temperature, MaxTokens: contract.MaxTokens})
+	if err != nil {
+		return nil, err
+	}
+	variants := parseOpeningVariants(text, snapshot.MaxVideoDuration, variantCount)
+	if err := s.saveOpeningVariants(ctx, owner, batchID, bookID, book.Videos[0].ID, variants); err != nil {
+		return nil, err
+	}
+	return variants, nil
+}
+
+// saveOpeningVariants writes the generated variants into VIDEO01's settings
+// patch under openingVariants. A failed slot never overwrites a previously
+// stored success at the same index, so a bad rerun cannot destroy usable
+// variants; every other patch key is left untouched by the sparse update.
+func (s *DirectorService) saveOpeningVariants(ctx context.Context, owner, batchID, bookID, videoID string, variants []OpeningVariant) error {
+	batch, err := s.Store.GetBatch(ctx, owner, batchID)
+	if err != nil {
+		return err
+	}
+	book, err := bookFromBatch(batch, bookID)
+	if err != nil {
+		return err
+	}
+	var video *Video
+	for i := range book.Videos {
+		if book.Videos[i].ID == videoID {
+			video = &book.Videos[i]
+			break
+		}
+	}
+	if video == nil {
+		return ErrNotFound
+	}
+	merged := append([]OpeningVariant(nil), variants...)
+	if raw, ok := video.SettingsState.Patch["openingVariants"]; ok {
+		var previous []OpeningVariant
+		if json.Unmarshal(raw, &previous) == nil {
+			for i, variant := range merged {
+				if variant.Status != "failed" {
+					continue
+				}
+				for _, old := range previous {
+					if old.Index == variant.Index && old.Status == "success" {
+						merged[i] = old
+						break
+					}
+				}
+			}
+		}
+	}
+	encoded, err := json.Marshal(merged)
+	if err != nil {
+		return err
+	}
+	_, err = s.Store.SaveSettings(ctx, owner, ScopeRef{Kind: ScopeVideo, BatchID: batchID, BookID: bookID, VideoID: videoID}, SettingsUpdate{
+		Patch:            SettingsPatch{"openingVariants": encoded},
+		ExpectedRevision: video.Revision,
+	})
+	return err
+}
