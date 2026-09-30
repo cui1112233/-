@@ -1,12 +1,13 @@
-import { Alert, Button, Descriptions, Input, InputNumber, Modal, Progress, Select, Space, Tag, message } from 'antd';
+import { Alert, Button, Checkbox, Descriptions, Input, InputNumber, Modal, Progress, Select, Space, Tag, message } from 'antd';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { appendNovelFetchIntake, classifyBookPublishMetadata, createNovelFetchIntake, getBatch } from '../../../shared/api/batchFactoryV11';
+import { appendNovelFetchIntake, classifyBookPublishMetadata, createNovelFetchIntake, getBatch, getBatchAutomationStatus, listAutomationPresets, retryBatchAutomation, startBatchAutomation, updateBookSource } from '../../../shared/api/batchFactoryV11';
 import { resolveGiantMaterialForBatch } from '../giantMaterialExtractionClient.js';
 import { createGiantMaterialJob, waitForGiantMaterialJob } from '../../../shared/api/giantMaterialExecutorPublic.js';
 import { BatchFactoryGiantMaterialExecutorStatus } from './BatchFactoryGiantMaterialExecutorStatus.jsx';
 import {
   availableGiantMaterialBooks,
   buildGiantMaterialIntake,
+  buildGiantMaterialPlaceholderIntake,
   findRegisteredGiantMaterialBook,
   giantMaterialClassificationState,
   giantMaterialBookKey,
@@ -85,6 +86,9 @@ export function BatchFactoryGiantMaterialImportModal({ open, batch, onCancel, on
   const [contentRangeLines, setContentRangeLines] = useState(5);
   const [executorHealth, setExecutorHealth] = useState(null);
   const [executorJob, setExecutorJob] = useState(null);
+  const [autoStartEnabled, setAutoStartEnabled] = useState(true);
+  const [automationPresetId, setAutomationPresetId] = useState('');
+  const [automationPresets, setAutomationPresets] = useState([]);
   const controllerRef = useRef(null);
   const queueRef = useRef([]);
   const latestBatchRef = useRef(batch);
@@ -92,6 +96,17 @@ export function BatchFactoryGiantMaterialImportModal({ open, batch, onCancel, on
   useEffect(() => {
     latestBatchRef.current = batch;
   }, [batch]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    let cancelled = false;
+    listAutomationPresets().then(response => {
+      if (cancelled) return;
+      const rows = Array.isArray(response?.presets) ? response.presets : Array.isArray(response) ? response : [];
+      setAutomationPresets(rows.map(preset => ({ value: String(preset?.id || ''), label: String(preset?.name || preset?.id || '未命名预设') })).filter(option => option.value));
+    }).catch(() => { /* 预设拉取失败不阻塞读取；留空即可 */ });
+    return () => { cancelled = true; };
+  }, [open]);
 
   useEffect(() => {
     if (open) return undefined;
@@ -198,7 +213,8 @@ export function BatchFactoryGiantMaterialImportModal({ open, batch, onCancel, on
 
   async function processItem(item, { signal, update }) {
     const existing = findRegisteredGiantMaterialBook(latestBatchRef.current?.books, item.id);
-    if (existing) {
+    // 已登记且正文已回填的素材才算重复；上次中断留下的空占位书会继续走读取回填流程。
+    if (existing && String(existing.sourceText || '').trim()) {
       const existingState = giantMaterialClassificationState(existing);
       if (existingState.status === 'classified') return { status: 'skipped', registeredBook: existing, classificationStatus: existingState.status };
       const classification = await classifyImportedBook(existing, update);
@@ -218,6 +234,23 @@ export function BatchFactoryGiantMaterialImportModal({ open, batch, onCancel, on
     if (!selectedBook) throw new Error('QINGYU_BOOK_SELECTION_REQUIRED');
     const durationSeconds = Number(resolvedMaterial.durationSeconds || resolvedMaterial.duration || 0);
     if (!(durationSeconds > 0)) throw new Error('QINGYU_VIDEO_DURATION_MISSING');
+
+    // 先登记占位书（正文为空），让书立刻出现在制作区；OCR 完成后再回填正文。
+    let placeholderBook = existing || null;
+    if (!placeholderBook) {
+      update({ stage: 'register', error: '', result: null });
+      const placeholderPayload = buildGiantMaterialPlaceholderIntake({ giantMaterialId: item.id, material: resolvedMaterial, book: selectedBook, contentRangeLines });
+      const placeholderResponse = await createNovelFetchIntake(placeholderPayload);
+      const placeholderIntake = placeholderResponse?.intake || placeholderResponse;
+      if (!placeholderIntake?.id) throw new Error('GIANT_MATERIAL_INTAKE_FAILED');
+      const appendedPlaceholder = await appendNovelFetchIntake(latestBatchRef.current?.id || batch?.id, placeholderIntake.id, { allowDuplicate: false });
+      const placeholderBatch = appendedPlaceholder?.batch || appendedPlaceholder;
+      if (placeholderBatch?.id) latestBatchRef.current = placeholderBatch;
+      placeholderBook = await findAppendedBook(placeholderBatch, item, selectedBook);
+      // 通知父组件刷新批量，占位书立即显示在小说列表和制作区。
+      void onImported?.(latestBatchRef.current);
+    }
+
     update({ stage: 'ocr', progress: { seconds: 0, durationSeconds, frames: 0, characters: 0 } });
     const createdResponse = await createGiantMaterialJob({
       materialId: item.id,
@@ -250,18 +283,66 @@ export function BatchFactoryGiantMaterialImportModal({ open, batch, onCancel, on
       requiresProofreading: true
     };
 
+    // OCR 完成：把读取到的正文回填到占位书（后端只允许填空书，不会覆盖已有内容）。
     update({ stage: 'register', result: extracted });
     const material = resolvedMaterial || item.material || {};
     const intakePayload = buildGiantMaterialIntake({ giantMaterialId: item.id, material, extraction: extracted, book: selectedBook, contentRangeLines });
-    const intakeResponse = await createNovelFetchIntake(intakePayload);
-    const intake = intakeResponse?.intake || intakeResponse;
-    if (!intake?.id) throw new Error('GIANT_MATERIAL_INTAKE_FAILED');
-    const appended = await appendNovelFetchIntake(latestBatchRef.current?.id || batch?.id, intake.id, { allowDuplicate: false });
-    const nextBatch = appended?.batch || appended;
-    if (nextBatch?.id) latestBatchRef.current = nextBatch;
-    const registeredBook = await findAppendedBook(nextBatch, item, selectedBook);
+    const filledBook = intakePayload.books[0];
+    let registeredBook = placeholderBook || existing || null;
+    if (registeredBook?.id && !String(registeredBook.sourceText || '').trim()) {
+      const sourceUpdate = { sourceText: filledBook.sourceText, sourceMetadata: filledBook.sourceMetadata };
+      const revision = Number(registeredBook.revision);
+      if (Number.isFinite(revision) && revision > 0) sourceUpdate.expectedRevision = revision;
+      try {
+        const updateResponse = await updateBookSource(latestBatchRef.current?.id || batch?.id, registeredBook.id, sourceUpdate);
+        const updatedBook = updateResponse?.book || updateResponse?.data?.book || null;
+        if (updatedBook?.id) {
+          registeredBook = updatedBook;
+          replaceLatestBatchBook(updatedBook);
+        }
+      } catch (backfillError) {
+        // 冲突通常是正文已被填过（如上次任务慢返回）：刷新一次，有正文就继续 AI 判断。
+        const refreshedBatch = batchFromResponse(await getBatch(latestBatchRef.current?.id || batch?.id).catch(() => null));
+        const refreshedBook = (refreshedBatch?.books || []).find(book => String(book?.id) === String(registeredBook.id));
+        if (!refreshedBook || !String(refreshedBook.sourceText || '').trim()) throw backfillError;
+        registeredBook = refreshedBook;
+      }
+      void onImported?.(latestBatchRef.current);
+    } else {
+      // 兜底：没有占位书（极端情况）时按老流程直接登记一本完整的书。
+      const intakeResponse = await createNovelFetchIntake(intakePayload);
+      const intake = intakeResponse?.intake || intakeResponse;
+      if (!intake?.id) throw new Error('GIANT_MATERIAL_INTAKE_FAILED');
+      const appended = await appendNovelFetchIntake(latestBatchRef.current?.id || batch?.id, intake.id, { allowDuplicate: false });
+      const nextBatch = appended?.batch || appended;
+      if (nextBatch?.id) latestBatchRef.current = nextBatch;
+      registeredBook = await findAppendedBook(nextBatch, item, selectedBook);
+    }
     const classification = registeredBook ? await classifyImportedBook(registeredBook, update) : { classificationStatus: 'pending', classificationError: '' };
-    return { material, result: extracted, selectedBookKey: giantMaterialBookKey(selectedBook), registeredBook: classification.book || registeredBook || selectedBook, batch: latestBatchRef.current || nextBatch, classificationStatus: classification.classificationStatus, classificationError: classification.classificationError };
+    return { material, result: extracted, selectedBookKey: giantMaterialBookKey(selectedBook), registeredBook: classification.book || registeredBook || selectedBook, batch: latestBatchRef.current, classificationStatus: classification.classificationStatus, classificationError: classification.classificationError };
+  }
+
+  // 读取完成后自动开始制作：跟其他书城一样进入自动生产（分镜→视频→合成→上传）。
+  async function autoStartProduction(completed) {
+    if (!autoStartEnabled) return;
+    const batchId = latestBatchRef.current?.id || batch?.id;
+    if (!batchId) return;
+    const bookIds = (Array.isArray(completed) ? completed : [])
+      .filter(item => (item.status === 'success' || item.status === 'skipped') && item.registeredBook?.id)
+      .map(item => String(item.registeredBook.id));
+    if (!bookIds.length) return;
+    try {
+      const status = await getBatchAutomationStatus(batchId).catch(() => null);
+      const state = String(status?.state || status?.automation?.state || '').toLowerCase();
+      if (!state || state === 'idle') {
+        await startBatchAutomation(batchId, { presetId: automationPresetId || '', runMode: 'full_submit', autoPublish: true });
+      } else {
+        await retryBatchAutomation(batchId, bookIds);
+      }
+      message.success('读取完成，已自动开始制作。');
+    } catch (error) {
+      message.warning(`自动开始制作失败：${errorText(error)}；可在工作台“自动生产”里手动启动。`);
+    }
   }
 
   async function executeQueue(items) {
@@ -278,9 +359,11 @@ export function BatchFactoryGiantMaterialImportModal({ open, batch, onCancel, on
       const summary = queueSummary(completed);
       if (summary.error) {
         message.warning(`已处理 ${summary.success + summary.skipped} / ${summary.total} 条；失败项可以单独重试。`);
+        await autoStartProduction(completed);
       } else if (summary.success || summary.skipped) {
         message.success(`已顺序处理 ${summary.success} 条，跳过 ${summary.skipped} 条重复素材。`);
         await onImported?.(latestBatchRef.current);
+        await autoStartProduction(completed);
       }
     } catch (error) {
       if (!controller.signal.aborted) message.error(errorText(error));
@@ -361,6 +444,10 @@ export function BatchFactoryGiantMaterialImportModal({ open, batch, onCancel, on
     {!batch?.id ? <Alert style={{ marginTop: 10 }} type="error" showIcon message="当前批量不可写入" description="请先打开一个有效的批量工厂批量。" /> : null}
     {queue.length ? <Alert style={{ marginTop: 14 }} type={summary.error ? 'warning' : summary.success + summary.skipped === summary.total ? 'success' : 'info'} showIcon message={`队列状态：${summary.success} 已登记 · ${summary.skipped} 已跳过 · ${summary.error} 失败 · ${summary.pending + summary.running} 待处理`} description="处理严格按输入顺序执行；失败项不会阻塞其它 ID。" /> : null}
     <label className="shuihuo-form-label">内容范围<InputNumber min={1} max={500} value={contentRangeLines} onChange={value => setContentRangeLines(value || 5)} addonAfter="行" disabled={busy} /></label>
+    <Space wrap align="center" style={{ marginTop: 12 }}>
+      <Checkbox checked={autoStartEnabled} onChange={event => setAutoStartEnabled(event.target.checked)} disabled={busy}>读取完成后自动开始制作</Checkbox>
+      {autoStartEnabled ? <Select style={{ minWidth: 240 }} value={automationPresetId || undefined} onChange={value => setAutomationPresetId(value || '')} placeholder="自动化预设（可选，默认用统一配置）" allowClear disabled={busy} options={automationPresets} /> : null}
+    </Space>
     <Space direction="vertical" size={10} style={{ width: '100%', marginTop: 12 }}>
       {queue.map(item => {
         const tag = queueTag(item);

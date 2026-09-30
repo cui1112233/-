@@ -93,3 +93,54 @@ export function buildGiantMaterialIntake({ giantMaterialId, material, extraction
     }
   };
 }
+
+// 占位登记：解析成功后立刻把书登记进批量（正文为空），Windows 执行器读取完成后再回填正文。
+// 这样新书会马上出现在制作区，用户不用等 OCR 读完才看到书。
+export function buildGiantMaterialPlaceholderIntake({ giantMaterialId, material, book, contentRangeLines = 5, importedAt = new Date().toISOString() } = {}) {
+  const normalizedID = normalizeGiantMaterialId(giantMaterialId);
+  const selected = book || selectGiantMaterialBook(material);
+  const platformBookId = text(selected?.platformBookId || selected?.bookId);
+  const title = text(selected?.title || material?.title);
+  const platformName = text(selected?.platformName || selected?.platform || material?.platformName);
+  if (!normalizedID) throw new Error('INVALID_GIANT_MATERIAL_ID');
+  if (!selected || !platformBookId || !title) throw new Error('QINGYU_BOOK_METADATA_INCOMPLETE');
+  const sourceLabel = giantMaterialSourceLabel(normalizedID);
+  const sourceContentVersion = `giant_material:${normalizedID}`;
+  const rangeLines = Math.min(500, Math.max(1, Number(contentRangeLines) || 5));
+  return {
+    books: [{
+      id: platformBookId,
+      bookId: platformBookId,
+      sourceTaskId: `giant-material:${normalizedID}`,
+      title,
+      platform: platformName,
+      sourceText: '',
+      txtText: '',
+      txtFileName: `${platformBookId}.txt`,
+      sourceMetadata: {
+        sourceMode: 'giant_material',
+        sourceLabel,
+        giantMaterialId: normalizedID,
+        qingyuMaterialId: text(material?.materialId),
+        videoUrl: text(material?.videoUrl),
+        platformName,
+        platformBookId,
+        sourceBookTitle: title,
+        sourceContentVersion,
+        sourceImportedAt: text(importedAt) || new Date().toISOString(),
+        contentPending: true,
+        contentRangeLines: rangeLines
+      }
+    }],
+    metadata: {
+      sourceMode: 'giant_material',
+      sourceLabel,
+      giantMaterialId: normalizedID,
+      qingyuMaterialId: text(material?.materialId),
+      sourceContentVersion,
+      contentPending: true,
+      contentRangeLines: rangeLines,
+      sourceImportedAt: text(importedAt) || new Date().toISOString()
+    }
+  };
+}
