@@ -645,6 +645,50 @@ func TestSDDirectorReturnsPlainTextCards(t *testing.T) {
 	}
 }
 
+func TestSDDirectorSplitsMultipleVideosByDurationLimit(t *testing.T) {
+	store, batch, book := seedDirectorBook(t, "original", false)
+	if _, err := store.SaveSettings(context.Background(), "alice", ScopeRef{Kind: ScopeBatch, BatchID: batch.ID}, SettingsUpdate{
+		Patch: SettingsPatch{"aiPromptConfig": rawSetting(t, map[string]any{
+			"video": map[string]any{"enabled": true, "scope": "all", "presetId": "batch-video-sd", "presetKey": "sd-video-normal", "body": "SD预设"},
+		})},
+		ExpectedRevision: batch.Revision,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	batch, _ = store.GetBatch(context.Background(), "alice", batch.ID)
+	book = batch.Books[0]
+
+	sdResponse := `===VIDEO 01===
+时长：10秒
+段内执行约束：按场景编号依次完成。
+[场景 1] 总时长：10.000秒
+[镜头 1] 中景，林晚推开门。
+
+===VIDEO 02===
+时长：4秒
+段内执行约束：按场景编号依次完成。
+[场景 6] 总时长：4.000秒
+[镜头 1] 近景，林晚转身。`
+
+	provider := &queuedDirectorProvider{values: []string{sdResponse}}
+	revision, err := (&DirectorService{Store: store, Provider: provider}).RunDirector(context.Background(), "alice", batch.ID, book.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(revision.Output.Storyboard) != 2 {
+		t.Fatalf("storyboard count=%d, want 2", len(revision.Output.Storyboard))
+	}
+	if revision.Output.Storyboard[0].DurationSec != 10 || revision.Output.Storyboard[1].DurationSec != 4 {
+		t.Fatalf("durations=%d,%d", revision.Output.Storyboard[0].DurationSec, revision.Output.Storyboard[1].DurationSec)
+	}
+	if !strings.Contains(revision.Output.Storyboard[1].FinalPrompt, "林晚转身") {
+		t.Fatalf("second card body wrong:\n%s", revision.Output.Storyboard[1].FinalPrompt)
+	}
+	if !strings.Contains(revision.Videos[1].VideoPrompt, "[场景 6]") {
+		t.Fatalf("second video prompt wrong:\n%s", revision.Videos[1].VideoPrompt)
+	}
+}
+
 func TestNormalDirectorStillUsesJSONContract(t *testing.T) {
 	store, batch, book := seedDirectorBook(t, "original", false)
 	provider := &queuedDirectorProvider{values: []string{validDirectorJSON()}}
