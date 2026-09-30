@@ -110,12 +110,12 @@ func registerMergeRoutes(mux *http.ServeMux, service *batchfactoryv11.MergeServi
 			writeStoreError(w, batchfactoryv11.ErrInvalid)
 			return
 		}
-		job, err := service.SubmitBookMerge(r.Context(), owner, r.PathValue("batchId"), r.PathValue("bookId"), input.RequestID, batchfactoryv11.MergeOptions{TimingMode: input.TimingMode, Speed: input.Speed, TTSSpeed: input.TTSSpeed, AudioDurationSeconds: input.AudioDurationSeconds})
+		jobs, err := service.SubmitBookMerge(r.Context(), owner, r.PathValue("batchId"), r.PathValue("bookId"), input.RequestID, batchfactoryv11.MergeOptions{TimingMode: input.TimingMode, Speed: input.Speed, TTSSpeed: input.TTSSpeed, AudioDurationSeconds: input.AudioDurationSeconds})
 		if err != nil {
 			writeStoreError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusCreated, map[string]any{"job": job})
+		writeJSON(w, http.StatusCreated, map[string]any{"jobs": jobs, "job": jobs[0]})
 	})
 	mux.HandleFunc("GET /api/batch-factory/v11/batches/{batchId}/merge-status", func(w http.ResponseWriter, r *http.Request) {
 		owner, ok := bridgeOwner(r)

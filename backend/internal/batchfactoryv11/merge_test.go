@@ -104,17 +104,18 @@ func TestBookMergeReusesSucceededSpeedAndOverwritesFailedSpeed(t *testing.T) {
 		{Status: MergeSucceeded, OutputURL: "https://media.example/recovered.mp4"},
 	}}
 	merge := &MergeService{Store: store, Adapter: adapter, Enabled: true}
-	failed, err := merge.SubmitBookMerge(context.Background(), "alice", batch.ID, book.ID, "merge-speed-failed", MergeOptions{Speed: 1.1})
-	if err != nil || failed.Status != MergeFailed {
-		t.Fatalf("failed=%+v err=%v", failed, err)
+	failedJobs, err := merge.SubmitBookMerge(context.Background(), "alice", batch.ID, book.ID, "merge-speed-failed", MergeOptions{Speed: 1.1})
+	if err != nil || len(failedJobs) != 1 || failedJobs[0].Status != MergeFailed {
+		t.Fatalf("failed=%+v err=%v", failedJobs, err)
 	}
-	recovered, err := merge.SubmitBookMerge(context.Background(), "alice", batch.ID, book.ID, "merge-speed-retry", MergeOptions{Speed: 1.1})
-	if err != nil || recovered.ID != failed.ID || recovered.Status != MergeSucceeded || adapter.calls != 2 {
-		t.Fatalf("failed=%+v recovered=%+v calls=%d err=%v", failed, recovered, adapter.calls, err)
+	failed := failedJobs[0]
+	recoveredJobs, err := merge.SubmitBookMerge(context.Background(), "alice", batch.ID, book.ID, "merge-speed-retry", MergeOptions{Speed: 1.1})
+	if err != nil || len(recoveredJobs) != 1 || recoveredJobs[0].ID != failed.ID || recoveredJobs[0].Status != MergeSucceeded || adapter.calls != 2 {
+		t.Fatalf("failed=%+v recovered=%+v calls=%d err=%v", failed, recoveredJobs, adapter.calls, err)
 	}
-	reused, err := merge.SubmitBookMerge(context.Background(), "alice", batch.ID, book.ID, "merge-speed-repeat", MergeOptions{Speed: 1.1})
-	if err != nil || reused.ID != failed.ID || reused.Status != MergeSucceeded || adapter.calls != 2 {
-		t.Fatalf("reused=%+v calls=%d err=%v", reused, adapter.calls, err)
+	reusedJobs, err := merge.SubmitBookMerge(context.Background(), "alice", batch.ID, book.ID, "merge-speed-repeat", MergeOptions{Speed: 1.1})
+	if err != nil || len(reusedJobs) != 1 || reusedJobs[0].ID != failed.ID || reusedJobs[0].Status != MergeSucceeded || adapter.calls != 2 {
+		t.Fatalf("reused=%+v calls=%d err=%v", reusedJobs, adapter.calls, err)
 	}
 	jobs, err := store.ListMergeJobs(context.Background(), "alice", batch.ID)
 	if err != nil || len(jobs) != 1 {
@@ -159,12 +160,12 @@ func TestBookMergeScopesFinalOutputToOneBookAndUsesItsSelectedVideos(t *testing.
 		t.Fatal(err)
 	}
 	adapter := &recordingMergeAdapter{job: MergeJob{Status: MergeSucceeded, OutputURL: "https://media.example/book-merged.mp4"}}
-	job, err := (&MergeService{Store: store, Adapter: adapter, Enabled: true}).SubmitBookMerge(context.Background(), "alice", batch.ID, book.ID, "book-merge-1", MergeOptions{TimingMode: "audio", AudioDurationSeconds: 3})
+	jobs, err := (&MergeService{Store: store, Adapter: adapter, Enabled: true}).SubmitBookMerge(context.Background(), "alice", batch.ID, book.ID, "book-merge-1", MergeOptions{TimingMode: "audio", AudioDurationSeconds: 3})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if job.BookID != book.ID || len(job.Sources) != 1 || len(adapter.sources) != 1 || adapter.sources[0].ActualDurationSeconds != 6 || adapter.options.AspectRatio != "16:9" || job.OutputURL != "https://media.example/book-merged.mp4" {
-		t.Fatalf("job=%+v sources=%+v options=%+v", job, adapter.sources, adapter.options)
+	if len(jobs) != 1 || jobs[0].BookID != book.ID || len(jobs[0].Sources) != 1 || len(adapter.sources) != 1 || adapter.sources[0].ActualDurationSeconds != 6 || adapter.options.AspectRatio != "16:9" || jobs[0].OutputURL != "https://media.example/book-merged.mp4" {
+		t.Fatalf("jobs=%+v sources=%+v options=%+v", jobs, adapter.sources, adapter.options)
 	}
 }
 
@@ -176,15 +177,15 @@ func TestAudioMergeProbesAndPersistsCompletedMediaDurationWhenProviderOmitsIt(t 
 	}
 	probe := &recordingVideoDurationProbe{seconds: 10.125}
 	adapter := &recordingMergeAdapter{job: MergeJob{Status: MergeSucceeded, OutputURL: "https://media.example/merged.mp4"}}
-	job, err := (&MergeService{Store: store, Adapter: adapter, DurationProbe: probe, Enabled: true}).SubmitBookMerge(context.Background(), "alice", batch.ID, book.ID, "merge-probed-duration", MergeOptions{TimingMode: "audio", AudioDurationSeconds: 5})
+	jobs, err := (&MergeService{Store: store, Adapter: adapter, DurationProbe: probe, Enabled: true}).SubmitBookMerge(context.Background(), "alice", batch.ID, book.ID, "merge-probed-duration", MergeOptions{TimingMode: "audio", AudioDurationSeconds: 5})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if probe.calls != 1 || len(job.Sources) != 1 || job.Sources[0].ActualDurationSeconds != 10.125 || adapter.options.Speed != 2.025 {
-		t.Fatalf("probe=%+v job=%+v options=%+v", probe, job, adapter.options)
+	if probe.calls != 1 || len(jobs) != 1 || len(jobs[0].Sources) != 1 || jobs[0].Sources[0].ActualDurationSeconds != 10.125 || adapter.options.Speed != 2.025 {
+		t.Fatalf("probe=%+v jobs=%+v options=%+v", probe, jobs, adapter.options)
 	}
-	jobs, err := store.ListProductionJobs(context.Background(), "alice", batch.ID)
-	if err != nil || jobs[0].Tasks[0].ActualDurationSeconds != 10.125 {
-		t.Fatalf("duration must be persisted: jobs=%+v err=%v", jobs, err)
+	productionJobs, err := store.ListProductionJobs(context.Background(), "alice", batch.ID)
+	if err != nil || productionJobs[0].Tasks[0].ActualDurationSeconds != 10.125 {
+		t.Fatalf("duration must be persisted: jobs=%+v err=%v", productionJobs, err)
 	}
 }
