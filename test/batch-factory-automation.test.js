@@ -415,3 +415,32 @@ test('retry regenerates only a failed VIDEO and then completes', async () => {
   assert.equal(status.state, 'completed');
   assert.deepEqual(modes[0], { stage: 'video', mode: 'force', videoId: 'video-1' });
 });
+
+test('giant placeholder book waits for content instead of blocking forever', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-test-'));
+  const { batch, adapter } = fixture();
+  batch.books.push({ id: 'book-2', bookId: '102', title: '巨量占位', sourceText: '', sourceMetadata: { sourceMode: 'giant_material', contentPending: true }, settingsState: { patch: {} }, assetRecords: [], videos: [] });
+  const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} } });
+  await controller.start({ owner: 'user', batchId: 'batch-1', concurrency: 2 });
+  for (let i = 0; i < 6; i += 1) { await controller.tick(); await wait(); }
+  let status = controller.status({ owner: 'user', batchId: 'batch-1' });
+  assert.equal(status.books[1].status, 'waiting');
+  assert.equal(status.books[1].message, '等待正文读取（巨量素材）');
+  assert.equal(status.state, 'running');
+  // 正文回填后，下一轮巡检自动进入流水线并走到待上传
+  batch.books[1].sourceText = '巨量读取到的正文';
+  for (let i = 0; i < 10; i += 1) { await controller.tick(); await wait(); }
+  status = controller.status({ owner: 'user', batchId: 'batch-1' });
+  assert.equal(status.books[1].stage, 'ready_for_upload');
+});
+
+test('non-giant book without source text still blocks as before', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-test-'));
+  const { batch, adapter } = fixture();
+  batch.books.push({ id: 'book-2', bookId: '102', title: '缺正文', sourceText: '', sourceMetadata: {}, settingsState: { patch: {} }, assetRecords: [], videos: [] });
+  const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} } });
+  await controller.start({ owner: 'user', batchId: 'batch-1', concurrency: 2 });
+  for (let i = 0; i < 4; i += 1) { await controller.tick(); await wait(); }
+  const status = controller.status({ owner: 'user', batchId: 'batch-1' });
+  assert.equal(status.counts.blocked, 1);
+});
