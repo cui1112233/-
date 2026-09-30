@@ -13,6 +13,7 @@ function createGiantMaterialExecutorBridgeRouter(options = {}) {
     }
   };
 
+  router.post('/giant-material-resolve', forward);
   router.get('/giant-material-executors', forward);
   router.post('/giant-material-executor/pairings', forward);
   router.post('/giant-material-jobs', forward);
