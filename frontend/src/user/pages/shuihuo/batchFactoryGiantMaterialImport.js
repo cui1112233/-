@@ -144,3 +144,27 @@ export function buildGiantMaterialPlaceholderIntake({ giantMaterialId, material,
     }
   };
 }
+
+// 多本占位登记：一次解析出的 N 条素材合成一个 intake（books 数组），
+// createBatchFromIntake 一次性建出含 N 本占位书的批量。
+export function buildGiantMaterialPlaceholderIntakes(entries, { contentRangeLines = 5, importedAt = new Date().toISOString() } = {}) {
+  const list = (Array.isArray(entries) ? entries : []).filter(Boolean);
+  if (!list.length) throw new Error('GIANT_MATERIAL_INTAKE_EMPTY');
+  const books = list.map(entry => buildGiantMaterialPlaceholderIntake({
+    giantMaterialId: entry.giantMaterialId,
+    material: entry.material,
+    book: entry.book,
+    contentRangeLines,
+    importedAt
+  }).books[0]);
+  return {
+    books,
+    metadata: {
+      sourceMode: 'giant_material',
+      sourceLabel: `巨量素材 · ${books.length} 本`,
+      contentPending: true,
+      contentRangeLines: Math.min(500, Math.max(1, Number(contentRangeLines) || 5)),
+      sourceImportedAt: importedAt
+    }
+  };
+}
