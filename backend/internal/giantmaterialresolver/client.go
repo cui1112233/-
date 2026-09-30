@@ -125,12 +125,11 @@ func allowedVideoURL(raw string) bool {
 func normalize(payload map[string]any) Material {
 	source := object(payload)
 	if data, ok := payload["data"].(map[string]any); ok {
-		if list, ok := data["list"].([]any); ok && len(list) == 1 {
+		source = data
+		if list, ok := data["list"].([]any); ok && len(list) > 0 {
 			if first, ok := list[0].(map[string]any); ok {
 				source = first
 			}
-		} else {
-			source = data
 		}
 	}
 	books := make([]Book, 0)
@@ -182,9 +181,8 @@ func normalize(payload map[string]any) Material {
 		material.PlatformBookID = firstText(source, "book_id", "bookId", "platform_book_id", "platformBookId")
 		material.PlatformName = firstText(source, "platform_name", "platformName", "platform_label", "platformLabel")
 	}
-	if works, ok := source["works"].([]any); ok {
+	if _, ok := source["works"].([]any); ok {
 		material.MaterialTitle = text(source["name"])
-		_ = works
 	}
 	return material
 }
