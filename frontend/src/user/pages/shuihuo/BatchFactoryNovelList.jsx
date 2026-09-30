@@ -111,7 +111,7 @@ const DEFAULT_TTS = { voice: 'zh-CN-XiaoxiaoNeural', style: 'general', speed: 1.
 const UNIFIED_CONFIGURATION_KEYS = [
   'textModelId', 'imageModelId', 'videoModelId', 'videoProvider', 'aspectRatio', 'imageAspectRatio', 'videoAspectRatio', 'videoResolution', 'productionMode',
   'storyboardDurationLimit', 'maxVideoDuration', 'fixedSingleVideo', 'audioPlanningEnabled',
-  'audioMergeEnabled', 'tts', 'publishRewriteEnabled', 'publishSettings', 'aiPromptConfig'
+  'audioMergeEnabled', 'tts', 'publishRewriteEnabled', 'publishSettings', 'aiPromptConfig', 'openingEnabled', 'openingCount'
 ];
 function readBatchFactoryAudioDuration(blob) {
   return new Promise((resolve, reject) => {

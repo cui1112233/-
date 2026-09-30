@@ -78,6 +78,7 @@ test('makes a saved unified configuration authoritative for every book', () => {
   assert.doesNotMatch(toolbar, />AI 推理<\/Button>/);
   assert.match(source, /BatchFactoryUnifiedSettingsModal/);
   assert.match(source, /const UNIFIED_CONFIGURATION_KEYS = \[/);
+  assert.match(source, /UNIFIED_CONFIGURATION_KEYS = \[[\s\S]*?'openingEnabled', 'openingCount'[\s\S]*?\]/);
   assert.match(source, /async function syncUnifiedSettingsToBooks\(currentBatch\)/);
   assert.match(source, /restoreKeys: UNIFIED_CONFIGURATION_KEYS/);
   assert.match(source, /await syncUnifiedSettingsToBooks\(savedBatch\)/);
