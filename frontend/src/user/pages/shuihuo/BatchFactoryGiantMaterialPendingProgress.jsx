@@ -66,6 +66,7 @@ export function BatchFactoryGiantMaterialPendingProgress({ book, batchId, onCont
     setRefetching(true);
     try {
       await fetchBookOriginal(batchId, book.id);
+      try { await classifyBookPublishMetadata(batchId, book.id, { force: true }); } catch (_) { /* 分类失败不阻断生产，可单书重试 */ }
       message.success('已通过书城获取正文');
       onContentReady?.();
     } catch (fetchError) {
@@ -76,7 +77,7 @@ export function BatchFactoryGiantMaterialPendingProgress({ book, batchId, onCont
   }
 
   if (!pending) return null;
-  if (error || !jobId) return <div className="batch-factory-giant-pending is-error">
+  if (error || !jobId) return <div className="batch-factory-giant-pending is-error" onClick={event => event.stopPropagation()}>
     <span>{error || '未绑定读取任务'}</span>
     <Button size="small" type="primary" loading={refetching} onClick={refetchOriginal}>原文获取</Button>
   </div>;
