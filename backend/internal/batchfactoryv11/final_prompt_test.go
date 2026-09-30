@@ -916,3 +916,136 @@ func TestEffectiveSettingsMergesBookPromptModulesWithTheBatchH3VideoPreset(t *te
 		t.Fatalf("a partial book prompt config must retain the batch H3 VIDEO renderer, got:\n%s", prompt.CompiledPrompt)
 	}
 }
+
+func TestCompileForOpeningVariant(t *testing.T) {
+	store, batch, book, video := seedCompiledSDOpening(t, []OpeningVariant{
+		{Index: 1, Label: "分镜一 | 换开头1", Prompt: "变体开场", Status: "success"},
+		{Index: 2, Label: "分镜一 | 换开头2", Prompt: "变体二", Status: "failed"},
+	})
+
+	t.Run("variant overrides VIDEO01 prompt", func(t *testing.T) {
+		prompt, err := (&PromptCompilerService{Store: store}).CompileForOpeningVariant(context.Background(), "alice", batch.ID, book.ID, video.ID, 1, -1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(prompt.CompiledPrompt, "变体开场") {
+			t.Fatalf("expected compiled prompt to contain variant prompt, got:\n%s", prompt.CompiledPrompt)
+		}
+		if strings.Contains(prompt.CompiledPrompt, "原开场") {
+			t.Fatalf("expected compiled prompt NOT to contain original prompt, got:\n%s", prompt.CompiledPrompt)
+		}
+		if !strings.Contains(prompt.DisplayPrompt, "变体开场") {
+			t.Fatalf("expected display prompt to contain variant prompt, got:\n%s", prompt.DisplayPrompt)
+		}
+	})
+
+	t.Run("variantIndex 0 uses original prompt", func(t *testing.T) {
+		prompt, err := (&PromptCompilerService{Store: store}).CompileForOpeningVariant(context.Background(), "alice", batch.ID, book.ID, video.ID, 0, -1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(prompt.CompiledPrompt, "原开场") {
+			t.Fatalf("expected compiled prompt to contain original prompt, got:\n%s", prompt.CompiledPrompt)
+		}
+		if strings.Contains(prompt.CompiledPrompt, "变体开场") {
+			t.Fatalf("expected compiled prompt NOT to contain variant prompt, got:\n%s", prompt.CompiledPrompt)
+		}
+	})
+
+	t.Run("normal Compile uses original prompt", func(t *testing.T) {
+		prompt, err := (&PromptCompilerService{Store: store}).Compile(context.Background(), "alice", batch.ID, book.ID, video.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(prompt.CompiledPrompt, "原开场") {
+			t.Fatalf("expected compiled prompt to contain original prompt, got:\n%s", prompt.CompiledPrompt)
+		}
+	})
+
+	t.Run("nonexistent variant returns ErrConflict", func(t *testing.T) {
+		_, err := (&PromptCompilerService{Store: store}).CompileForOpeningVariant(context.Background(), "alice", batch.ID, book.ID, video.ID, 99, -1)
+		if !errors.Is(err, ErrConflict) {
+			t.Fatalf("expected ErrConflict for nonexistent variant, got %v", err)
+		}
+	})
+
+	t.Run("failed variant returns ErrConflict", func(t *testing.T) {
+		_, err := (&PromptCompilerService{Store: store}).CompileForOpeningVariant(context.Background(), "alice", batch.ID, book.ID, video.ID, 2, -1)
+		if !errors.Is(err, ErrConflict) {
+			t.Fatalf("expected ErrConflict for failed variant, got %v", err)
+		}
+	})
+
+	t.Run("opening variant on non-VIDEO01 returns ErrInvalid", func(t *testing.T) {
+		video2 := book.Videos[1]
+		_, err := (&PromptCompilerService{Store: store}).CompileForOpeningVariant(context.Background(), "alice", batch.ID, book.ID, video2.ID, 1, -1)
+		if !errors.Is(err, ErrInvalid) {
+			t.Fatalf("expected ErrInvalid for non-VIDEO01 variant request, got %v", err)
+		}
+	})
+
+	t.Run("component injection consistent with normal compile", func(t *testing.T) {
+		if _, err := store.SaveSettings(context.Background(), "alice", ScopeRef{Kind: ScopeBatch, BatchID: batch.ID}, SettingsUpdate{
+			Patch: SettingsPatch{
+				"qualityEnabled":  rawSetting(t, true),
+				"quality":         rawSetting(t, "高质量商业成片"),
+				"negativeEnabled": rawSetting(t, true),
+				"negative":        rawSetting(t, "不要水印和畸形手指"),
+			},
+			ExpectedRevision: batch.Revision,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		batch, _ = store.GetBatch(context.Background(), "alice", batch.ID)
+		book = batch.Books[0]
+		video = book.Videos[0]
+
+		normal, err := (&PromptCompilerService{Store: store}).Compile(context.Background(), "alice", batch.ID, book.ID, video.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		variant, err := (&PromptCompilerService{Store: store}).CompileForOpeningVariant(context.Background(), "alice", batch.ID, book.ID, video.ID, 1, -1)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if !strings.Contains(variant.CompiledPrompt, "画面约束提示词：高质量商业成片") {
+			t.Fatalf("variant missing quality component:\n%s", variant.CompiledPrompt)
+		}
+		if !strings.Contains(variant.CompiledPrompt, "负面提示词：不要水印和畸形手指") {
+			t.Fatalf("variant missing negative component:\n%s", variant.CompiledPrompt)
+		}
+
+		normalKeys := make([]string, len(normal.Components))
+		for i, c := range normal.Components {
+			normalKeys[i] = c.Key
+		}
+		variantKeys := make([]string, len(variant.Components))
+		for i, c := range variant.Components {
+			variantKeys[i] = c.Key
+		}
+		if !slices.Equal(normalKeys, variantKeys) {
+			t.Fatalf("component order mismatch: normal=%v variant=%v", normalKeys, variantKeys)
+		}
+	})
+}
+
+func seedCompiledSDOpening(t *testing.T, variants []OpeningVariant) (*MemoryStore, Batch, Book, Video) {
+	t.Helper()
+	store, batch, book := seedOpeningBook(t, true, 2, []DirectorVideo{
+		{DurationSec: 10, FinalPrompt: "原开场"},
+		{DurationSec: 10, FinalPrompt: "分镜二"},
+	})
+	video := book.Videos[0]
+	patch := SettingsPatch{}
+	if variants != nil {
+		patch["openingVariants"] = rawSetting(t, variants)
+	}
+	if _, err := store.SaveSettings(context.Background(), "alice", ScopeRef{Kind: ScopeVideo, BatchID: batch.ID, BookID: book.ID, VideoID: video.ID}, SettingsUpdate{Patch: patch, ExpectedRevision: video.Revision}); err != nil {
+		t.Fatal(err)
+	}
+	batch, _ = store.GetBatch(context.Background(), "alice", batch.ID)
+	book = batch.Books[0]
+	video = book.Videos[0]
+	return store, batch, book, video
+}

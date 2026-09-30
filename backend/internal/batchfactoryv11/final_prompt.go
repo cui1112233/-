@@ -529,23 +529,30 @@ func (s *PromptCompilerService) Compile(ctx context.Context, owner, batchID, boo
 			return FinalPrompt{}, latestErr
 		}
 	}
-	return s.compile(ctx, owner, batchID, bookID, videoID, -1, false)
+	return s.compile(ctx, owner, batchID, bookID, videoID, -1, false, 0)
 }
 
 // CompileForProduction applies all effective-setting compatibility checks
 // before a provider task can be created. It is used by adapters that do not
 // expose a concrete reference-image limit.
 func (s *PromptCompilerService) CompileForProduction(ctx context.Context, owner, batchID, bookID, videoID string) (FinalPrompt, error) {
-	return s.compile(ctx, owner, batchID, bookID, videoID, -1, true)
+	return s.compile(ctx, owner, batchID, bookID, videoID, -1, true, 0)
 }
 
 // CompileWithReferenceImageLimit is used by production after the concrete
 // video model is frozen. Preview compilation keeps the saved per-book limit.
 func (s *PromptCompilerService) CompileWithReferenceImageLimit(ctx context.Context, owner, batchID, bookID, videoID string, limit int) (FinalPrompt, error) {
-	return s.compile(ctx, owner, batchID, bookID, videoID, limit, true)
+	return s.compile(ctx, owner, batchID, bookID, videoID, limit, true, 0)
 }
 
-func (s *PromptCompilerService) compile(ctx context.Context, owner, batchID, bookID, videoID string, frozenReferenceLimit int, strict bool) (FinalPrompt, error) {
+// CompileForOpeningVariant compiles VIDEO01 with the given opening variant
+// prompt replacing the original director prompt. The variant must exist in the
+// video's settings patch with status "success".
+func (s *PromptCompilerService) CompileForOpeningVariant(ctx context.Context, owner, batchID, bookID, videoID string, variantIndex, frozenReferenceLimit int) (FinalPrompt, error) {
+	return s.compile(ctx, owner, batchID, bookID, videoID, frozenReferenceLimit, true, variantIndex)
+}
+
+func (s *PromptCompilerService) compile(ctx context.Context, owner, batchID, bookID, videoID string, frozenReferenceLimit int, strict bool, variantIndex int) (FinalPrompt, error) {
 	effective, book, video, ordinal, err := s.ResolveEffective(ctx, owner, batchID, bookID, videoID)
 	if err != nil {
 		return FinalPrompt{}, err
@@ -561,6 +568,17 @@ func (s *PromptCompilerService) compile(ctx context.Context, owner, batchID, boo
 		}
 	}
 	draft := book.DirectorRevision.Output.Storyboard[ordinal]
+	if variantIndex > 0 {
+		if ordinal != 0 {
+			return FinalPrompt{}, fmt.Errorf("%w: opening variants only apply to VIDEO01", ErrInvalid)
+		}
+		variant, found := openingVariantFor(video, variantIndex)
+		if !found {
+			return FinalPrompt{}, fmt.Errorf("%w: opening variant %d is not available", ErrConflict, variantIndex)
+		}
+		draft.FinalPrompt = variant.Prompt
+		draft.Shots = nil
+	}
 	values := effective.Values
 	characterRefs := rawStrings(values, "characterRefs")
 	if len(characterRefs) == 0 {

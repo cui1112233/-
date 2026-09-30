@@ -1,6 +1,7 @@
 package batchfactoryv11
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -61,6 +62,41 @@ func parseOpeningVariants(raw string, maxVideoDuration, variantCount int) []Open
 			continue
 		}
 		out[number-1] = OpeningVariant{Index: number, Label: openingVariantLabel(number), Prompt: prompt, Status: "success", DurationSec: duration}
+	}
+	return out
+}
+
+func openingVariantFor(video Video, index int) (OpeningVariant, bool) {
+	raw, ok := video.SettingsState.Patch["openingVariants"]
+	if !ok {
+		return OpeningVariant{}, false
+	}
+	var variants []OpeningVariant
+	if json.Unmarshal(raw, &variants) != nil {
+		return OpeningVariant{}, false
+	}
+	for _, variant := range variants {
+		if variant.Index == index && variant.Status == "success" && strings.TrimSpace(variant.Prompt) != "" {
+			return variant, true
+		}
+	}
+	return OpeningVariant{}, false
+}
+
+func successfulOpeningVariants(video Video) []OpeningVariant {
+	raw, ok := video.SettingsState.Patch["openingVariants"]
+	if !ok {
+		return nil
+	}
+	var variants []OpeningVariant
+	if json.Unmarshal(raw, &variants) != nil {
+		return nil
+	}
+	out := []OpeningVariant{}
+	for _, variant := range variants {
+		if variant.Status == "success" && strings.TrimSpace(variant.Prompt) != "" {
+			out = append(out, variant)
+		}
 	}
 	return out
 }
