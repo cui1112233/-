@@ -246,6 +246,10 @@ func (s *MySQLStore) PersistDirectorRevision(ctx context.Context, owner string, 
 	assetRows.Close()
 	for ordinal, video := range videos {
 		selection := reconcileVideoAssetSelection(previousSelections[ordinal], previousSelectionExists[ordinal], automaticAssetIDsForDirectorVideo(output.Storyboard[ordinal], assetIDs))
+		if selection.effectivelyEmpty() {
+			// 空选择不落库：否则会被当成“用户一个都没选”，把默认资产全过滤掉。
+			continue
+		}
 		encoded, err := json.Marshal(selection)
 		if err != nil {
 			return DirectorRevision{}, err

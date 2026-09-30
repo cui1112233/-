@@ -67,6 +67,15 @@ func reconcileVideoAssetSelection(previous VideoAssetSelection, hadPrevious bool
 	return selection
 }
 
+// effectivelyEmpty reports that a reconciled selection carries no automatic
+// recommendation and no user additions/exclusions. Persisting it would make
+// the compiler read "no data yet" as "user selected nothing" and filter out
+// every asset (SD plain-text storyboards carry no per-VIDEO character lists).
+// Such a record must be skipped so compilation falls back to the default set.
+func (selection VideoAssetSelection) effectivelyEmpty() bool {
+	return len(selection.AutoAssetIDs) == 0 && len(selection.AddedAssetIDs) == 0 && len(selection.ExcludedAssetIDs) == 0
+}
+
 func automaticAssetIDsForDirectorVideo(draft DirectorVideo, idsByKindAndName map[string]string) []string {
 	ids := make([]string, 0, len(draft.Characters)+len(draft.Props)+1)
 	for _, name := range draft.Characters {

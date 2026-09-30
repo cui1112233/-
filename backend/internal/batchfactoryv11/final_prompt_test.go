@@ -593,7 +593,12 @@ func TestSDDirectorReturnsPlainTextCards(t *testing.T) {
 [场景 1] 总时长：10.000秒
 [镜头 1] 中景，缓慢推轨，新娘低头抚平嫁衣袖口。`
 
-	provider := &queuedDirectorProvider{values: []string{sdResponse}}
+	// 真实流程：先点“智能预设”提取资产，再选 SD 重新生成导演分镜。
+	assetJSON := `{"characters":[{"name":"林溪","prompt":"短发女主，右耳一颗小痣"}],"scenes":[{"name":"客厅","prompt":"现代中式客厅"}],"props":[]}`
+	provider := &queuedDirectorProvider{values: []string{assetJSON, sdResponse}}
+	if _, err := (&DirectorService{Store: store, Provider: provider}).RunAssetExtraction(context.Background(), "alice", batch.ID, book.ID); err != nil {
+		t.Fatal(err)
+	}
 	revision, err := (&DirectorService{Store: store, Provider: provider}).RunDirector(context.Background(), "alice", batch.ID, book.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -630,6 +635,13 @@ func TestSDDirectorReturnsPlainTextCards(t *testing.T) {
 	}
 	if !strings.Contains(compiled.DisplayPrompt, "段内执行约束") {
 		t.Fatalf("DisplayPrompt must show SD card body:\n%s", compiled.DisplayPrompt)
+	}
+	// 基础设定默认开启：必须注入已提取的人物与场景。
+	if !strings.Contains(compiled.CompiledPrompt, "基础设定") || !strings.Contains(compiled.CompiledPrompt, "林溪：短发女主，右耳一颗小痣") {
+		t.Fatalf("基础设定必须注入已提取人物:\n%s", compiled.CompiledPrompt)
+	}
+	if !strings.Contains(compiled.CompiledPrompt, "客厅：现代中式客厅") {
+		t.Fatalf("基础设定必须注入已提取场景:\n%s", compiled.CompiledPrompt)
 	}
 }
 

@@ -319,6 +319,16 @@ func (s *PromptCompilerService) primaryAssetImages(ctx context.Context, owner, b
 	return images, nil
 }
 
+func namedPromptNames(items []NamedPrompt) []string {
+	names := make([]string, 0, len(items))
+	for _, item := range items {
+		if name := strings.TrimSpace(item.Name); name != "" {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
 func selectedAssets(kind string, names []string, records map[string]compiledAsset, images map[string]string, selectedIDs map[string]bool, hasSelection bool) []compiledAsset {
 	selected := make([]compiledAsset, 0, len(names))
 	seen := map[string]bool{}
@@ -541,13 +551,24 @@ func (s *PromptCompilerService) compile(ctx context.Context, owner, batchID, boo
 	if len(characterRefs) == 0 {
 		characterRefs = draft.Characters
 	}
+	if len(characterRefs) == 0 {
+		// SD 纯文本分镜没有逐镜人物字段，也没有 VIDEO 级手动选择时，
+		// 默认带整本书已提取的全部人物，跟剧本生成一致。
+		characterRefs = namedPromptNames(book.Assets.Characters)
+	}
 	sceneRefs := rawStrings(values, "sceneRefs")
 	if len(sceneRefs) == 0 && draft.Scene != "" {
 		sceneRefs = []string{draft.Scene}
 	}
+	if len(sceneRefs) == 0 {
+		sceneRefs = namedPromptNames(book.Assets.Scenes)
+	}
 	propRefs := rawStrings(values, "propRefs")
 	if len(propRefs) == 0 {
 		propRefs = draft.Props
+	}
+	if len(propRefs) == 0 {
+		propRefs = namedPromptNames(book.Assets.Props)
 	}
 
 	records := recordsByKindAndName(book, map[string][]NamedPrompt{

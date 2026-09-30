@@ -1301,11 +1301,17 @@ func (s *MemoryStore) PersistDirectorRevision(_ context.Context, owner string, b
 	}
 	for ordinal, video := range newVideos {
 		selection := reconcileVideoAssetSelection(previousSelections[ordinal], previousSelectionExists[ordinal], automaticAssetIDsForDirectorVideo(output.Storyboard[ordinal], assetIDs))
+		patchKey := scopeKey(ScopeRef{Kind: ScopeVideo, BatchID: b.ID, BookID: book.ID, VideoID: video.ID})
+		if selection.effectivelyEmpty() {
+			// 空选择不落库：否则会被当成“用户一个都没选”，把默认资产全过滤掉。
+			delete(s.patches, patchKey)
+			continue
+		}
 		encoded, err := json.Marshal(selection)
 		if err != nil {
 			return DirectorRevision{}, err
 		}
-		s.patches[scopeKey(ScopeRef{Kind: ScopeVideo, BatchID: b.ID, BookID: book.ID, VideoID: video.ID})] = SettingsPatch{videoAssetSelectionKey: encoded}
+		s.patches[patchKey] = SettingsPatch{videoAssetSelectionKey: encoded}
 	}
 	return revision, nil
 }
