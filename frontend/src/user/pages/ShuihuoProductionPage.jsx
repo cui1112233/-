@@ -216,6 +216,15 @@ export function ShuihuoProductionPage({ openBatchOnLoad = false }) {
         message.warning(`批量工程已创建，但自动生产启动失败：${error?.message || '请进入工程后手动启动'}`);
       }
     }
+    if (input?.intakeId && batch?.id) {
+      // intakeId 路径下 classifyFetchedBatchMetadata 会逐本写分类 metadata 并 bump 书的
+      // revision：重新拉取最新快照返回，避免弹窗按旧 revision 写 executorJobId 乐观锁冲突。
+      try {
+        return batchFactoryBatchFromResponse(await getBatch(batch.id));
+      } catch (_) {
+        return batch;
+      }
+    }
     return batch;
   }
 
