@@ -21,6 +21,7 @@ import {
 import {
   Alert,
   Button,
+  Card,
   Checkbox,
   Descriptions,
   Dropdown,
@@ -956,7 +957,7 @@ function StoryboardVideoNavigator({ videos, selectedVideoId, onSelect }) {
 	return <Space wrap className="batch-factory-storyboard-navigator"><Tooltip title="上一分镜"><Button aria-label="上一分镜" icon={<LeftOutlined />} disabled={!hasVideos || index === 0} onClick={() => onSelect(videos[index - 1]?.id)} /></Tooltip><Select value={selectedVideoId || undefined} onChange={onSelect} style={{ minWidth: 260 }} placeholder="选择分镜 / VIDEO" options={videos.map((video, videoIndex) => ({ value: video.id, label: storyboardVideoLabel(video, videoIndex) }))} /><Tooltip title="下一分镜"><Button aria-label="下一分镜" icon={<RightOutlined />} disabled={!hasVideos || index >= videos.length - 1} onClick={() => onSelect(videos[index + 1]?.id)} /></Tooltip></Space>;
 }
 
-function PromptPanel({ book, batch, batchId, settingsRevision, initialVideoId = '', onSaved, onCompile, onRegenerate, onRegenerateVisual, onRetry, onGenerateVideo, onViewVideoCandidates, onGenerateVisual, onViewVisualCandidates, regenerating, productionAvailable = false, productionReason = '' }) {
+function PromptPanel({ book, batch, batchId, settingsRevision, initialVideoId = '', onSaved, onCompile, onRegenerate, onRegenerateVisual, onRetry, onGenerateVideo, onGenerateVisual, regenerating, productionAvailable = false, productionReason = '' }) {
   const videos = book?.videos || [];
   const precompiledWorkspace = resolvePrecompiledVideoWorkspace(book);
   const [selectedVideoId, setSelectedVideoId] = useState(initialVideoId || videos[0]?.id || '');
@@ -966,6 +967,7 @@ function PromptPanel({ book, batch, batchId, settingsRevision, initialVideoId = 
   const [videoPrompt, setVideoPrompt] = useState('');
   const [visualPrompt, setVisualPrompt] = useState('');
   const [h3TraceOpen, setH3TraceOpen] = useState(false);
+  const [openingVariantsOpen, setOpeningVariantsOpen] = useState(false);
   const [h3TraceBusy, setH3TraceBusy] = useState(false);
   const [h3Trace, setH3Trace] = useState(null);
   const [h3TraceError, setH3TraceError] = useState('');
@@ -1056,7 +1058,6 @@ function PromptPanel({ book, batch, batchId, settingsRevision, initialVideoId = 
         <Button loading={regenerating} disabled={regenerating || !onRegenerate} onClick={onRegenerate}>重新生成导演分镜</Button>
         <Tooltip title="等待最终 VIDEO 编译后才能编辑"><Button disabled>编辑</Button></Tooltip>
         <Tooltip title="等待 H3 最终 VIDEO 编译"><Button disabled>生成视频</Button></Tooltip>
-        <Tooltip title="等待当前分镜生成视频候选版本"><Button disabled>查看候选版本</Button></Tooltip>
         <Button onClick={openH3Trace}>查看 H3 Trace</Button>
         <Button type="text" disabled={regenerating} onClick={() => onRetry?.()}>重试</Button>
       </div>
@@ -1101,7 +1102,7 @@ function PromptPanel({ book, batch, batchId, settingsRevision, initialVideoId = 
           setEditing(value => !value);
         }}>{editing ? '完成编辑' : '编辑'}</Button>
         {promptKind === 'visual' ? <Button onClick={() => onGenerateVisual?.(selectedVideo?.id)}>生成图片</Button> : <Tooltip title={productionAvailable ? '为当前分镜生成视频候选版本。' : productionReason}><Button disabled={!productionAvailable || regenerating} loading={regenerating} onClick={() => onGenerateVideo?.(selectedVideo?.id)}>生成视频</Button></Tooltip>}
-        <Button onClick={() => promptKind === 'visual' ? onViewVisualCandidates?.(selectedVideo?.id) : onViewVideoCandidates?.(selectedVideo?.id)}>查看候选版本</Button>
+        {promptKind === 'video' && selectedIndex === 0 && engineSettings.openingEnabled === true ? <Button onClick={() => setOpeningVariantsOpen(true)}>查看换开头提示词</Button> : null}
         {promptKind === 'video' ? <Button onClick={openH3Trace}>查看 H3 Trace</Button> : null}
         <Button type="text" disabled={regenerating} onClick={() => onRetry?.(selectedVideo?.id)}>重试</Button>
       </div>
@@ -1119,6 +1120,17 @@ function PromptPanel({ book, batch, batchId, settingsRevision, initialVideoId = 
         <label className="shuihuo-form-label">实际提交视频模型的 H3 最终 Prompt<Input.TextArea rows={16} readOnly value={h3Segment.compiled_prompt || ''} /></label>
         <label className="shuihuo-form-label">Compile Trace<Input.TextArea rows={12} readOnly value={JSON.stringify(h3Segment.compile_trace || {}, null, 2)} /></label>
       </Space> : <Alert type="info" showIcon message="当前分镜尚无编译记录" />}
+    </Modal>
+    <Modal title="分镜一 | 换开头提示词" open={openingVariantsOpen} onCancel={() => setOpeningVariantsOpen(false)} footer={null} width={860}>
+      <Space direction="vertical" size={12} style={{ width: '100%' }}>
+        <Card size="small" title="分镜一（原始）"><pre style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{submittedVideoPrompt || '—'}</pre></Card>
+        {(selectedVideo?.settingsState?.patch?.openingVariants || []).map(variant => (
+          <Card key={variant.index} size="small" title={variant.label || `分镜一 | 换开头${variant.index}`} extra={<Tag color={variant.status === 'success' ? 'success' : 'error'}>{variant.status === 'success' ? '成功' : '失败'}</Tag>}>
+            {variant.status === 'success' ? <pre style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{variant.prompt}</pre> : <Alert type="error" showIcon message="AI 未生成出该变体，不参与生成与合成" />}
+          </Card>
+        ))}
+        {!(selectedVideo?.settingsState?.patch?.openingVariants || []).length ? <Alert type="info" showIcon message="换开头变体尚未生成" /> : null}
+      </Space>
     </Modal>
   </div>;
 }
@@ -3114,7 +3126,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
     <Modal title={editingContentBook ? `编辑生产内容 · ${editingContentBook.title}` : '编辑生产内容'} open={Boolean(editingContentBook)} onCancel={() => setEditingContentBook(null)} onOk={saveWorkingContent} confirmLoading={contentSaving} okText="保存生产内容" width={820} destroyOnClose><Space direction="vertical" size={14} style={{ width: '100%' }}><Alert type="info" showIcon message="只编辑当前小说用于 AI 推理的视频生产内容" description="原文会继续完整保存；未开启“改文后上传”时，121 仍上传本次内容截取保存的原文。" /><Input.TextArea rows={16} value={editingContentValue} onChange={event => { setEditingContentValue(event.target.value); setEditingContentMode('custom'); }} placeholder="输入当前小说的生产内容" /><label className="shuihuo-form-label"><span>衍生开篇</span><Select value={derivedOpeningPresetId || undefined} onChange={setDerivedOpeningPresetId} options={derivedOpeningOptions} loading={!derivedOpeningOptions.length} placeholder="选择已发布的衍生开篇提示词" style={{ width: 320 }} /></label>{!workingFrontCapability.available ? <Alert type="warning" showIcon message="当前不能生成爆款候选" description={workingFrontCapability.reason || '请先完成当前书的可执行配置。'} /> : null}<Space wrap><Tooltip title={workingFrontCapability.available ? '按选中的衍生开篇提示词生成候选；不会覆盖当前生产内容' : workingFrontCapability.reason}><Button type="primary" onClick={createViralCandidate} loading={rewritingFront} disabled={!workingFrontCapability.available || !String(editingContentValue || '').trim() || !derivedOpeningPresetId}>生成爆款候选</Button></Tooltip><Tooltip title={workingFrontCapability.available ? '按当前选择的同一提示词重新生成候选；不会覆盖当前生产内容' : workingFrontCapability.reason}><Button onClick={createViralCandidate} loading={rewritingFront} disabled={!workingFrontCapability.available || !String(editingContentValue || '').trim() || !derivedOpeningPresetId}>重试生成爆款候选</Button></Tooltip></Space>{viralCandidate ? <Alert type="warning" showIcon message="爆款候选尚未替换" description={<Space direction="vertical" size={8} style={{ width: '100%' }}><pre className="batch-factory-viral-candidate">{viralCandidate}</pre><Space><Button type="primary" onClick={() => { setEditingContentValue(viralCandidate); setEditingContentMode('viral'); }}>替换为当前生产内容</Button><Button onClick={cancelViralCandidate}>取消候选</Button></Space></Space>} /> : null}</Space></Modal>
     <BatchFactoryBookSettingsModal open={Boolean(configTarget)} batch={batch} book={configTarget?.book} activeRegion={configTarget?.region} onClose={() => setConfigTarget(null)} onSaved={refreshAfterBookSettingsSaved} onOpenBookAssets={book => setAssetBook(book)} />
     <Modal title={assetBook ? `人物场景预设 · ${assetBook.title}` : '人物场景预设'} open={Boolean(assetBook)} onCancel={() => setAssetBook(null)} footer={null} width="min(1440px, calc(100vw - 48px))" className="batch-factory-assets-modal">{assetBook ? <AssetEditor book={assetBook} batchId={batch?.id} onSaved={refreshBatch} onGenerate={async textModelId => { await refreshAssetPresetSnapshot(assetBook); await runBookStageAction(assetBook, 'assets', 'missing', '', textModelId); }} onRegenerate={async textModelId => { await refreshAssetPresetSnapshot(assetBook); await runBookStageAction(assetBook, 'assets', 'force', '', textModelId); }} onRetry={textModelId => retryLastFailedStage(assetBook, '', textModelId)} assetRules={effectiveBookAssetRules(batch, assetBook)} onAssetPromptChange={async selection => { const bookPromptConfig = assetBook?.settingsState?.patch?.aiPromptConfig || {}; const assetRules = effectiveBookAssetRules(batch, assetBook); await saveBookOverrideWithRetry(batch.id, assetBook.id, assetBook.revision, { patch: { aiPromptConfig: { ...bookPromptConfig, assets: { ...assetRules, extraction: selection, scope: 'custom', bookIds: [assetBook.id] } } } }); await refreshBatch(); }} canGenerate={runCapability.available} generateReason={runCapability.reason} generating={actionBusy === stageActionKey('assets', assetBook.id)} engineSettings={effectiveBookSettings(batch, assetBook)} /> : null}</Modal>
-	<Modal title={promptBook ? `分镜卡（视频提示词） · ${promptBook.title}` : '分镜卡（视频提示词）'} open={Boolean(promptBook)} onCancel={() => { setPromptBook(null); setPromptVideoId(''); }} footer={null} width={900} className="batch-factory-prompt-modal">{promptBook ? <PromptPanel book={promptBook} batch={batch} batchId={batch?.id} settingsRevision={batch?.settingsState?.revision} initialVideoId={promptVideoId} onSaved={refreshBatch} onCompile={() => runBookStageAction(promptBook, 'director', 'compile')} onRegenerate={() => runBookStageAction(promptBook, 'director', 'force')} onRegenerateVisual={() => runBookStageAction(promptBook, 'visual', 'force')} onRetry={videoId => retryLastFailedStage(promptBook, videoId)} onGenerateVideo={videoId => runBookStageAction(promptBook, 'video', 'missing', videoId)} onViewVideoCandidates={videoId => { setMediaVideoId(videoId || ''); setMediaStartTab('clips'); setMediaBook(promptBook); }} onGenerateVisual={() => setAssetBook(promptBook)} onViewVisualCandidates={() => setAssetBook(promptBook)} regenerating={actionBusy === stageActionKey('director', promptBook.id) || actionBusy === stageActionKey('video', promptBook.id) || actionBusy === stageActionKey('retry', promptBook.id)} productionAvailable={productionCapability.available} productionReason={productionCapability.reason} /> : null}</Modal>
+	<Modal title={promptBook ? `分镜卡（视频提示词） · ${promptBook.title}` : '分镜卡（视频提示词）'} open={Boolean(promptBook)} onCancel={() => { setPromptBook(null); setPromptVideoId(''); }} footer={null} width={900} className="batch-factory-prompt-modal">{promptBook ? <PromptPanel book={promptBook} batch={batch} batchId={batch?.id} settingsRevision={batch?.settingsState?.revision} initialVideoId={promptVideoId} onSaved={refreshBatch} onCompile={() => runBookStageAction(promptBook, 'director', 'compile')} onRegenerate={() => runBookStageAction(promptBook, 'director', 'force')} onRegenerateVisual={() => runBookStageAction(promptBook, 'visual', 'force')} onRetry={videoId => retryLastFailedStage(promptBook, videoId)} onGenerateVideo={videoId => runBookStageAction(promptBook, 'video', 'missing', videoId)} onGenerateVisual={() => setAssetBook(promptBook)} regenerating={actionBusy === stageActionKey('director', promptBook.id) || actionBusy === stageActionKey('video', promptBook.id) || actionBusy === stageActionKey('retry', promptBook.id)} productionAvailable={productionCapability.available} productionReason={productionCapability.reason} /> : null}</Modal>
 	<Modal
       title={mediaBook ? `片段库 · ${mediaBook.title}` : '片段库'}
       open={Boolean(mediaBook)}
