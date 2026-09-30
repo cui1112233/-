@@ -46,7 +46,7 @@ export function BatchFactoryGiantMaterialPendingProgress({ book, batchId, onCont
           return;
         }
         if (state === 'failed' || state === 'cancelled') {
-          setError(state === 'cancelled' ? '正文读取已取消，可在“巨量获取”里重试。' : '正文读取失败，可在“巨量获取”里重试。');
+          setError(state === 'cancelled' ? '正文读取已取消，可用同一个巨量素材 ID 重新登记重试。' : '正文读取失败，可用同一个巨量素材 ID 重新登记重试。');
           return;
         }
         setProgress(job.progress || null);
