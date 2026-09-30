@@ -96,7 +96,19 @@ func (s *Server) guard(next http.Handler) http.Handler {
 			next.ServeHTTP(w, req)
 			return
 		}
-		requestOrigin := req.Header.Get("Origin")
+		requestOrigin := strings.TrimSpace(req.Header.Get("Origin"))
+		if req.Method == http.MethodOptions {
+			// 浏览器对“公网页面 → 本机回环地址”的请求会先发预检（含 Chrome 私网预检），
+			// 这里直接放行并回显来源，否则网页永远拿不到执行器状态。
+			w.Header().Set("Access-Control-Allow-Origin", requestOrigin)
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Giant-Executor-Nonce")
+			w.Header().Set("Access-Control-Allow-Private-Network", "true")
+			w.Header().Set("Access-Control-Max-Age", "600")
+			w.Header().Set("Vary", "Origin")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		originOK := requestOrigin == s.config.Origin || requestOrigin == "http://"+s.config.Addr
 		if !originOK && s.config.AllowedOrigin != nil {
 			originOK = requestOrigin == strings.TrimSpace(s.config.AllowedOrigin())
@@ -109,7 +121,12 @@ func (s *Server) guard(next http.Handler) http.Handler {
 			writeError(w, http.StatusForbidden, "loopback origin or nonce rejected")
 			return
 		}
-		w.Header().Set("Access-Control-Allow-Origin", s.config.Origin)
+		allowOrigin := s.config.Origin
+		if requestOrigin != "" {
+			// 谁来问就回显谁的来源，浏览器才能把结果交给发起请求的网页。
+			allowOrigin = requestOrigin
+		}
+		w.Header().Set("Access-Control-Allow-Origin", allowOrigin)
 		w.Header().Set("Vary", "Origin")
 		next.ServeHTTP(w, req)
 	})
