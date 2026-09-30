@@ -106,6 +106,16 @@ test('treats the legacy novel-fetch browser session as the same shared 121 login
   assert.match(source, /SESSION_CHECK_NAMES\s*=\s*\[\s*'视频管理系统登录会话',\s*'121 后台登录会话',\s*'目标站登录会话'\s*\]/);
 });
 
+test('unified AI reasoning video settings expose opening variants toggle and count', () => {
+  assert.match(source, /换开头/);
+  assert.match(source, /openingEnabled/);
+  assert.match(source, /openingCount/);
+  assert.match(source, /min=\{1\}/);
+  assert.match(source, /max=\{8\}/);
+  assert.match(source, /disabled=\{config\.openingEnabled !== true\}/);
+  assert.match(source, /条（含原始）/);
+});
+
 test('unified AI reasoning selects extraction, character and scene prompts without overwriting video prompts', () => {
   assert.match(source, /value=\{assets\.extraction\?\.presetId \|\| undefined\}/);
   assert.match(source, /value=\{assets\.character\?\.presetId \|\| undefined\}/);

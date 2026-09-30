@@ -258,6 +258,13 @@ export function BatchFactoryAiReasoningForm({ value, onChange }) {
       <label className="batch-factory-engine-field"><span><b>衍生开篇</b></span><Select allowClear value={derivedOpening.presetId || undefined} options={bySlots(['batch.hook-adaptation', 'batch.original-director', 'batch.viral-director'])} placeholder="选择已发布衍生开篇提示词" onChange={presetId => onChange({ ...config, derivedOpening: { ...derivedOpening, ...presetValue(catalog.find(item => item.id === presetId)), enabled: Boolean(presetId) } })} /></label>
       <label className="batch-factory-engine-field"><span><b>视频提示词</b></span><Select value={video.presetId || undefined} options={bySlot('batch.video-meta')} placeholder="选择已发布视频提示词" onChange={presetId => onChange({ ...config, video: { ...video, ...presetValue(catalog.find(item => item.id === presetId)), enabled: true } })} /></label>
       <label className="batch-factory-engine-field"><span><b>画面提示词</b></span><Select allowClear value={visual.presetId || undefined} options={bySlot('batch.visual-meta')} placeholder="选择已发布画面提示词" onChange={presetId => onChange({ ...config, visual: { ...visual, ...presetValue(catalog.find(item => item.id === presetId)) } })} /></label>
+      <Space style={{ justifyContent: 'space-between', width: '100%' }}>
+        <span><b>换开头</b><small style={{ display: 'block', color: '#94a3b8' }}>开启后，2 个及以上分镜的书会为分镜一生成多个开场变体并分别合成上传。</small></span>
+        <Space>
+          <Switch checked={config.openingEnabled === true} onChange={enabled => onChange({ ...config, openingEnabled: enabled, openingCount: config.openingCount ?? 4 })} />
+          <InputNumber min={1} max={8} precision={0} disabled={config.openingEnabled !== true} value={config.openingCount ?? 4} onChange={value => onChange({ ...config, openingCount: value ?? 4 })} addonAfter="条（含原始）" />
+        </Space>
+      </Space>
     </div></section>
   </Space>;
 }
