@@ -104,6 +104,7 @@ func (s *Supervisor) Start(ctx context.Context) error {
 	}
 	command := exec.CommandContext(ctx, s.Command[0], s.Command[1:]...)
 	command.Dir = s.Dir
+	hideConsoleWindow(command)
 	stdin, err := command.StdinPipe()
 	if err != nil {
 		return err
