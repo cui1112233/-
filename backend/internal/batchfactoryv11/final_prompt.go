@@ -599,8 +599,9 @@ func (s *PromptCompilerService) compile(ctx context.Context, owner, batchID, boo
 	// constraint below remains the sole prefix source for VIDEO compilation.
 	config := aiReasoningPromptConfig(values)
 	h3Renderer := usesH3VideoRenderer(config.Video)
-	// SD 直出：分镜卡正文即 AI 按预设模板写好的完整最终提示词，外层开关组件
-	// 不再注入，避免与正文自带的统一风格/画质/负面段落重复。
+	// SD 直出：分镜卡正文即 AI 按预设模板写好的提示词，外层开关组件
+	// （智能统一、基础设定、画质约束、负面提示词）照常注入，与 SD 模板
+	// 移除的统一风格/统一人物/画质/负面段落互补，由开关控制是否显示。
 	sdDirect := strings.TrimSpace(draft.FinalPrompt) != ""
 	constraintsActive := constraintsApply(values, config, book)
 	constraintBody := func(category, legacyEnabledKey, legacyValueKey string) string {
@@ -627,13 +628,13 @@ func (s *PromptCompilerService) compile(ctx context.Context, owner, batchID, boo
 	// 画面前缀统一由约束开关注入，H3 不再特殊跳过。选“智能统一”时
 	// constraintBody("prefix") 返回该书已保存的视觉基线，作为画面前缀内容；
 	// 未选智能统一则注入用户选中的前缀正文。开关关闭时此项为空、不注入。
-	if !sdDirect {
+	if !sdDirect || smartUnifiedSelectedForRevision(book, config) || rawBool(values, "prefixEnabled", false) {
 		addComponent(&components, "prefix", "画面前缀", constraintBody("prefix", "prefixEnabled", "prefix"))
 	}
 	// Base setup is its own user switch. A batch may choose an H3 VIDEO preset
 	// before opening the constraint editor; that must retain the legacy default
 	// of including asset definitions rather than treating an absent module as off.
-	baseSetupActive := !sdDirect && baseSetupEnabled(values) && rawBool(values, "injectBaseSettings", true)
+	baseSetupActive := baseSetupEnabled(values) && rawBool(values, "injectBaseSettings", true)
 	baseSetupPrompt := ""
 	if baseSetupActive {
 		base := []string{}
@@ -663,7 +664,11 @@ func (s *PromptCompilerService) compile(ctx context.Context, owner, batchID, boo
 		videoPrompt = draft.FinalPrompt
 		displayPrompt = videoPrompt
 		videoLabel = "视频提示词"
+		// SD 直出仍注入外层约束组件（智能统一、基础设定已在上面处理）
+		addComponent(&components, "quality", "画面约束提示词", constraintBody("quality", "qualityEnabled", "quality"))
 		addComponent(&components, "video", videoLabel, videoPrompt)
+		addComponent(&components, "restriction", "画面限制", constraintBody("restriction", "restrictionEnabled", "restriction"))
+		addComponent(&components, "negative", "负面提示词", constraintBody("negative", "negativeEnabled", "negative"))
 	} else {
 		addComponent(&components, "quality", "画面约束提示词", constraintBody("quality", "qualityEnabled", "quality"))
 		displayPrompt = storyboardVideoPrompt(draft)

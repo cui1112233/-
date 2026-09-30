@@ -589,13 +589,9 @@ func TestSDDirectorReturnsPlainTextCards(t *testing.T) {
 
 	sdResponse := `===VIDEO 01===
 时长：10秒
-统一风格：朱红金赤与幽深玄色交织，镜头沉稳克制。
-统一人物：新娘妹妹（22岁，瓜子脸，眉如远山）。
 段内执行约束：全程无台词，仅靠眼神与动作。
 [场景 1] 总时长：10.000秒
-[镜头 1] 中景，缓慢推轨，新娘低头抚平嫁衣袖口。
-【最终导出画质约束】4K级细节，人物面部清晰可读。
-【最终导出负面提示词】不要水印，不要畸形手指。`
+[镜头 1] 中景，缓慢推轨，新娘低头抚平嫁衣袖口。`
 
 	provider := &queuedDirectorProvider{values: []string{sdResponse}}
 	revision, err := (&DirectorService{Store: store, Provider: provider}).RunDirector(context.Background(), "alice", batch.ID, book.ID)
@@ -609,8 +605,14 @@ func TestSDDirectorReturnsPlainTextCards(t *testing.T) {
 	if card.FinalPrompt == "" {
 		t.Fatal("FinalPrompt must be populated for SD plain-text response")
 	}
-	if !strings.Contains(card.FinalPrompt, "统一风格：朱红金赤与幽深玄色交织") {
+	if !strings.Contains(card.FinalPrompt, "段内执行约束") {
 		t.Fatalf("FinalPrompt missing SD content:\n%s", card.FinalPrompt)
+	}
+	if strings.Contains(card.FinalPrompt, "统一风格") {
+		t.Fatalf("FinalPrompt must not contain 统一风格 (injected by switch):\n%s", card.FinalPrompt)
+	}
+	if strings.Contains(card.FinalPrompt, "最终导出画质约束") {
+		t.Fatalf("FinalPrompt must not contain quality section (injected by switch):\n%s", card.FinalPrompt)
 	}
 	if card.DurationSec != 10 {
 		t.Fatalf("duration=%d, want 10", card.DurationSec)
@@ -623,13 +625,10 @@ func TestSDDirectorReturnsPlainTextCards(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(compiled.CompiledPrompt, "统一风格：朱红金赤与幽深玄色交织") {
-		t.Fatalf("CompiledPrompt must contain SD full text:\n%s", compiled.CompiledPrompt)
+	if !strings.Contains(compiled.CompiledPrompt, "段内执行约束") {
+		t.Fatalf("CompiledPrompt must contain SD body:\n%s", compiled.CompiledPrompt)
 	}
-	if !strings.Contains(compiled.CompiledPrompt, "【最终导出画质约束】4K级细节") {
-		t.Fatalf("CompiledPrompt must contain SD quality section:\n%s", compiled.CompiledPrompt)
-	}
-	if !strings.Contains(compiled.DisplayPrompt, "统一人物：新娘妹妹") {
+	if !strings.Contains(compiled.DisplayPrompt, "段内执行约束") {
 		t.Fatalf("DisplayPrompt must show SD card body:\n%s", compiled.DisplayPrompt)
 	}
 }
