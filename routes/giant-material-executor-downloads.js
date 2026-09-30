@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 
 const WINDOWS_EXECUTOR_ZIP = 'GiantMaterialExecutor-windows-x64.zip';
+const LATEST_MANIFEST = 'latest.json';
 
 function createGiantMaterialExecutorDownloadsRouter({ downloadsDir } = {}) {
   const router = express.Router();
@@ -14,6 +15,15 @@ function createGiantMaterialExecutorDownloadsRouter({ downloadsDir } = {}) {
     res.setHeader('Cache-Control', 'public, max-age=3600');
     res.type('application/zip');
     return res.download(filePath, WINDOWS_EXECUTOR_ZIP);
+  });
+  router.get(`/${LATEST_MANIFEST}`, (req, res) => {
+    const filePath = path.resolve(downloadsDir || '', LATEST_MANIFEST);
+    if (!downloadsDir || !fs.existsSync(filePath)) {
+      return res.status(503).json({ error: '版本清单尚未发布，请稍后重试' });
+    }
+    res.setHeader('Cache-Control', 'no-store');
+    res.type('application/json');
+    return res.sendFile(filePath);
   });
   return router;
 }
