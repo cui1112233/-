@@ -179,7 +179,7 @@ func main() {
 		executorOriginMu.RLock()
 		defer executorOriginMu.RUnlock()
 		return executorOrigin
-	}, Nonce: nonce, Version: version, Snapshot: snapshot, Callbacks: httpapi.Callbacks{SetPublicURL: setPublicURL, Pair: pair}})
+	}, Nonce: nonce, Version: version, PublicURL: publicURL, Snapshot: snapshot, Callbacks: httpapi.Callbacks{SetPublicURL: setPublicURL, Pair: pair}})
 	if err != nil {
 		log.Fatalf("create loopback server: %v", err)
 	}

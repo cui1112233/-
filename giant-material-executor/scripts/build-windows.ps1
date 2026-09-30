@@ -1,5 +1,6 @@
 param(
   [string]$Version = "0.1.0",
+  [string]$ControlURL = "http://115.190.156.223",
   [string]$OutputRoot = "$(Join-Path $PSScriptRoot '..\dist\windows-x64')"
 )
 
@@ -24,7 +25,8 @@ try {
   $env:CGO_ENABLED = "0"
   # windowsgui makes double-clicking the EXE open the native pairing window
   # instead of briefly showing a console window and then disappearing.
-  & go build -trimpath -ldflags "-s -w -H=windowsgui -X main.version=$Version" -o $binary ./cmd/giant-material-executor
+  # -X main.bakedPublicAPIURL 烧入控制服务地址，用户无需手填。
+  & go build -trimpath -ldflags "-s -w -H=windowsgui -X main.version=$Version -X main.bakedPublicAPIURL=$ControlURL" -o $binary ./cmd/giant-material-executor
   if ($LASTEXITCODE -ne 0) { throw "go build failed" }
   Copy-Item (Join-Path $moduleRoot 'worker\ocr_worker.py') (Join-Path $stage 'worker\ocr_worker.py')
   Copy-Item (Join-Path $moduleRoot 'worker\requirements-lock.txt') (Join-Path $stage 'worker\requirements-lock.txt')

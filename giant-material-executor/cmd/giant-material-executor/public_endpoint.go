@@ -11,6 +11,11 @@ import (
 
 const defaultPublicAPIURL = "http://127.0.0.1:4000"
 
+// bakedPublicAPIURL 是正式发布包自带的控制服务地址（打包时通过
+// -ldflags "-X main.bakedPublicAPIURL=..." 注入）。普通用户拿到执行器后
+// 无需知道服务器地址，直接填配对码即可绑定。
+var bakedPublicAPIURL = ""
+
 func normalizePublicAPIURL(raw string) (string, error) {
 	value := strings.TrimSpace(raw)
 	if value == "" {
@@ -38,12 +43,14 @@ func publicAPIURLPath() (string, error) {
 }
 
 func loadPublicAPIURL() string {
+	// 优先级：环境变量 > 用户保存的地址 > 打包烧入的地址 > 本机调试兜底。
 	candidates := []string{strings.TrimSpace(os.Getenv("GIANT_MATERIAL_PUBLIC_API_URL"))}
 	if path, err := publicAPIURLPath(); err == nil {
 		if data, readErr := os.ReadFile(path); readErr == nil {
 			candidates = append(candidates, strings.TrimSpace(string(data)))
 		}
 	}
+	candidates = append(candidates, strings.TrimSpace(bakedPublicAPIURL))
 	for _, candidate := range candidates {
 		if normalized, err := normalizePublicAPIURL(candidate); err == nil {
 			return normalized
