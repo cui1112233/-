@@ -400,6 +400,30 @@ func TestFixedSingleDirectorCreatesOneImmutableVideo(t *testing.T) {
 	}
 }
 
+func TestNormalDirectorPayloadIncludesExistingAssets(t *testing.T) {
+	store, batch, book := seedDirectorBook(t, "original", false)
+	assetProvider := &queuedDirectorProvider{values: []string{`{"characters":[{"name":"林溪","prompt":"短发女主，右耳一颗小痣"}],"scenes":[{"name":"客厅","prompt":"现代中式客厅"}],"props":[{"name":"手机","prompt":"黑色手机"}]}`}}
+	if _, err := (&DirectorService{Store: store, Provider: assetProvider}).RunAssetExtraction(context.Background(), "alice", batch.ID, book.ID); err != nil {
+		t.Fatal(err)
+	}
+	directorProvider := &queuedDirectorProvider{values: []string{validDirectorJSON()}}
+	if _, err := (&DirectorService{Store: store, Provider: directorProvider}).RunDirector(context.Background(), "alice", batch.ID, book.ID); err != nil {
+		t.Fatal(err)
+	}
+	if len(directorProvider.calls) != 1 {
+		t.Fatalf("director calls=%d", len(directorProvider.calls))
+	}
+	userPrompt := directorProvider.calls[0].UserPrompt
+	for _, expected := range []string{`"assets"`, "林溪", "短发女主，右耳一颗小痣", "现代中式客厅"} {
+		if !strings.Contains(userPrompt, expected) {
+			t.Fatalf("director user prompt missing existing asset %q:\n%s", expected, userPrompt)
+		}
+	}
+	if !strings.Contains(directorProvider.calls[0].SystemPrompt, "优先原样沿用") {
+		t.Fatal("director system prompt must instruct reusing existing assets")
+	}
+}
+
 func TestAssetExtractionDoesNotReplaceExistingDirectorVideos(t *testing.T) {
 	store, batch, book := seedDirectorBook(t, "original", false)
 	provider := &queuedDirectorProvider{values: []string{`{"characters":[{"name":"林溪","prompt":"短发女主"}],"scenes":[{"name":"客厅","prompt":"现代客厅"}],"props":[{"name":"手机","prompt":"黑色手机"}]}`}}

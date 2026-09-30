@@ -440,6 +440,7 @@ storyboard 每项必须包含 duration_sec、characters、props、scene、prefix
 shots 中的每一项必须包含 start_sec、end_sec、shot_type、camera、description；description 是该镜头可拍、可见的画面动作描述，不能为空。不要把它改写成 shot_description、画面描述或其它字段名。
 shots 必须从 0 秒开始连续、无空白无重叠，最后一个 end_sec 必须等于 duration_sec。
 人物、场景、道具引用必须来自顶层信息库。prefix_key 只能从指定列表选择。
+用户消息中如附 assets 资产清单（本书已提取确认的人物/场景/道具），顶层 characters/scenes/props 必须优先原样沿用其名称与外形/场景设定，不得改名或重新发明外形；只允许补充原文中新出现、清单里没有的资产。
 原文模式按原文顺序完整覆盖；爆款模式以已批准 Hook 开场，并继续覆盖原文。
 不得把普通情绪只换成形容词；冲突升级要通过动作、表情、对白和可见行为呈现。
 ` + durationRule + "\n画幅：" + snapshot.AspectRatio + "\n允许的 prefix_key：" + strings.Join(allowedPrefixKeys, ", ")
@@ -492,6 +493,9 @@ shots 必须从 0 秒开始连续、无空白无重叠，最后一个 end_sec �
 		"title":       book.Title,
 		"mode":        mode,
 		"source_text": book.SourceText,
+	}
+	if assets := payloadAssets(book); len(assets) > 0 {
+		payload["assets"] = assets
 	}
 	if snapshot.AudioTargetSeconds > 0 {
 		payload["audio_planning"] = map[string]any{
@@ -554,7 +558,7 @@ func buildSDDirectorContract(book Book, hook HookRevision, snapshot DirectorSnap
 		"mode":        snapshot.Mode,
 		"source_text": book.SourceText,
 	}
-	if assets := sdPayloadAssets(book); len(assets) > 0 {
+	if assets := payloadAssets(book); len(assets) > 0 {
 		payload["assets"] = assets
 	}
 	if analysis, err := parseSmartUnifiedAnalysis(rawString(snapshot.Effective, "h3StyleAnalysis", "")); err == nil && analysis != nil {
@@ -595,10 +599,10 @@ func buildSDDirectorContract(book Book, hook HookRevision, snapshot DirectorSnap
 	}, nil
 }
 
-// sdPayloadAssets flattens the book's extracted asset records (人物/场景/道具)
-// into name+prompt lists so the SD preset anchors its 统一人物 section on the
-// frozen assets instead of re-inventing appearances.
-func sdPayloadAssets(book Book) map[string]any {
+// payloadAssets flattens the book's extracted asset records (人物/场景/道具)
+// into name+prompt lists so every video preset can anchor its top-level asset
+// library on the frozen assets instead of re-inventing appearances.
+func payloadAssets(book Book) map[string]any {
 	groups := map[string][]map[string]string{}
 	for _, asset := range book.AssetRecords {
 		kind := strings.TrimSpace(asset.Kind)
