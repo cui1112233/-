@@ -1,7 +1,7 @@
 import { Alert, Button, Input, InputNumber, Modal, Select, Space, Tag, message } from 'antd';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getWorkshopPlatforms } from '../../../shared/api/novelFetchWorkshop';
-import { createNovelFetchIntake, fetchDirectOriginals, getBatchAutomationStatus, listAutomationPresets, listBatches, updateBookMetadata } from '../../../shared/api/batchFactoryV11';
+import { createNovelFetchIntake, fetchDirectOriginals, getBatch, getBatchAutomationStatus, listAutomationPresets, listBatches, updateBookMetadata } from '../../../shared/api/batchFactoryV11';
 import { batchFactoryPlatformOptions } from './batchFactoryPlatformOptions';
 import { buildManualBatchSubmission, manualBookIDsFromInput, removePlatformGroup, replacePlatformGroup, totalGroupBookCount, upsertPlatformGroup } from './batchFactoryManualFetch';
 import { formatBeijingDatetimeLocal, normalizeAutomationConcurrency, parseBeijingDatetimeLocal } from './batchFactoryAutomationSchedule';
@@ -31,9 +31,9 @@ function normalizedError(error, fallback) {
     QINGYU_BOOK_METADATA_INCOMPLETE: '素材没有完整的平台书名或 Book ID，不能登记。',
     QINGYU_BOOK_SELECTION_REQUIRED: '该素材关联多条平台书籍记录，请先选择一条。',
     QINGYU_VIDEO_DURATION_MISSING: '素材没有返回有效的视频时长，暂时不能交给执行器处理。',
-    GIANT_EXECUTOR_OFFLINE: 'Windows 巨量素材执行器未安装或未启动，请先安装并完成配对。',
-    GIANT_EXECUTOR_FAILED: 'Windows 巨量素材执行器处理失败，可重试失败项。',
-    GIANT_EXECUTOR_TIMEOUT: 'Windows 巨量素材执行器超时，任务仍可能在后台运行，请稍后查看状态。',
+    GIANT_EXECUTOR_OFFLINE: '巨量素材执行器未安装或未启动，请先安装并完成配对。',
+    GIANT_EXECUTOR_FAILED: '巨量素材执行器处理失败，可重试失败项。',
+    GIANT_EXECUTOR_TIMEOUT: '巨量素材执行器超时，任务仍可能在后台运行，请稍后查看状态。',
     GIANT_OCR_EMPTY: '没有识别到可登记的正文。',
     OCR_NO_TEXT: '没有识别到可登记的正文。'
   };
@@ -287,7 +287,7 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
     if ((scheduledRun || automationRun) && !automationPresetID) return message.warning('请选择自动化预设');
     const scheduledAtISO = scheduledRun ? parseBeijingDatetimeLocal(scheduledAt) : '';
     if (scheduledRun && (!scheduledAtISO || new Date(scheduledAtISO).getTime() <= Date.now())) return message.warning('北京时间自动启动时间需要晚于现在');
-    if (executorHealth?.online !== true) return message.warning('Windows 巨量素材执行器未安装或未登录，请先在执行器配置页完成配对');
+    if (executorHealth?.online !== true) return message.warning('巨量素材执行器未安装或未登录，请先在执行器配置页完成配对');
     const missingDuration = items.find(item => !(Number(item.material?.durationSeconds || item.material?.duration || 0) > 0));
     if (missingDuration) return message.warning(`素材 ${missingDuration.id} 没有有效的视频时长，暂时不能交给执行器处理`);
     const selected = items.map(item => ({ item, book: selectGiantMaterialBook(item.material, item.selectedBookKey) }));
@@ -309,8 +309,10 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
         intakeId: intake.id,
         title: title.trim(),
         scheduledAt: scheduledAtISO,
-        automationEnabled: scheduledRun || automationRun,
-        autoPublishEnabled: automationRun && automationRunMode === 'full_submit',
+        // 巨量书在 OCR 回填前没有可生产正文。自动生产计划先随书保存，
+        // 由正文回填成功的那一刻启动，避免被普通自动化误判为“原文缺失”。
+        automationEnabled: false,
+        autoPublishEnabled: false,
         presetId: automationPresetID,
         runMode: automationRunMode,
         automationConcurrency: normalizeAutomationConcurrency(automationConcurrency)
@@ -332,13 +334,39 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
           });
           const createdJob = createdResponse?.job || createdResponse?.data?.job || createdResponse;
           if (!createdJob?.id) throw new Error('GIANT_EXECUTOR_FAILED');
-          const book = findRegisteredGiantMaterialBook(batch.books, entry.item.id);
-          if (book?.id) {
-            await updateBookMetadata(batchId, book.id, {
-              metadata: { ...(book.sourceMetadata || {}), executorJobId: createdJob.id },
-              expectedRevision: Number(book.revision || 0)
-            });
+          // 创建批量会并行触发分类，不能使用 onCreated 回传的旧 revision；否则
+          // metadata 的乐观锁冲突被吞掉，书卡就会显示“未绑定读取任务”。
+          let latestError;
+          for (let attempt = 0; attempt < 3; attempt += 1) {
+            try {
+              const latestResponse = await getBatch(batchId);
+              const latestBatch = latestResponse?.batch || latestResponse?.data?.batch || latestResponse?.data || latestResponse;
+              const book = findRegisteredGiantMaterialBook(latestBatch?.books, entry.item.id);
+              if (!book?.id) throw new Error('GIANT_MATERIAL_BOOK_NOT_FOUND');
+              await updateBookMetadata(batchId, book.id, {
+                metadata: {
+                  ...(book.sourceMetadata || {}),
+                  executorJobId: createdJob.id,
+                  contentPending: true,
+                  giantOcrState: String(createdJob.state || 'queued').toLowerCase(),
+                  giantAutomationPlan: (scheduledRun || automationRun) ? {
+                    scheduledAt: scheduledAtISO,
+                    presetId: automationPresetID,
+                    runMode: automationRunMode,
+                    autoPublish: automationRun && automationRunMode === 'full_submit',
+                    concurrency: normalizeAutomationConcurrency(automationConcurrency)
+                  } : undefined
+                },
+                expectedRevision: Number(book.revision || 0)
+              });
+              latestError = null;
+              break;
+            } catch (bindError) {
+              latestError = bindError;
+              if (Number(bindError?.status) !== 409) break;
+            }
           }
+          if (latestError) throw latestError;
           queued += 1;
         } catch (error) {
           console.warn('巨量读取任务派发失败', entry.item.id, error);
