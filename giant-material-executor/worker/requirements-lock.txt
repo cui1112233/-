@@ -1,5 +1,7 @@
 # Downloaded on first use, never bundled into the lightweight installer.
+# paddleocr 必须锁 2.7.3：worker 的初始化参数与结果解析按 2.x API 编写，
+# 3.x 移除了 show_log 且返回结构不兼容（会导致 0 字或初始化失败）。
 numpy==1.26.4
 opencv-python-headless==4.10.0.84
 paddlepaddle==3.0.0
-paddleocr==3.0.3
+paddleocr==2.7.3
