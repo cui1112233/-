@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/url"
 	"os/exec"
 	"strings"
@@ -113,6 +114,16 @@ func (s *Supervisor) Start(ctx context.Context) error {
 	if err != nil {
 		stdin.Close()
 		return err
+	}
+	// 把搬运工的错误输出记进执行器日志，崩溃时才有线索可查。
+	if stderr, stderrErr := command.StderrPipe(); stderrErr == nil {
+		go func() {
+			scanner := bufio.NewScanner(stderr)
+			scanner.Buffer(make([]byte, 0, 64*1024), 256*1024)
+			for scanner.Scan() {
+				log.Printf("[worker] %s", scanner.Text())
+			}
+		}()
 	}
 	if err := command.Start(); err != nil {
 		stdin.Close()

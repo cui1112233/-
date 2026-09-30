@@ -47,7 +47,17 @@ func main() {
 	python := defaultPythonCommand()
 	script := workerScriptPath()
 	supervisor := &worker.Supervisor{Command: []string{python, script}, Dir: filepath.Dir(script)}
-	prepareModel := modelPreparer(supervisor)
+	modelPrepare := modelPreparer(supervisor)
+	exeDir := executableDir()
+	prepareRuntime := func(ctx context.Context, modelVersion string) error {
+		if err := ensureRuntime(ctx, python, exeDir); err != nil {
+			return err
+		}
+		if modelPrepare != nil {
+			return modelPrepare(ctx, modelVersion)
+		}
+		return nil
+	}
 	var stateMu sync.RWMutex
 	var runningAgent *agent.Agent
 	bindingState := agent.BindingUnpaired
@@ -117,7 +127,7 @@ func main() {
 				next, newErr := agent.New(agent.Config{
 					Client:         client,
 					Supervisor:     supervisor,
-					PrepareModel:   prepareModel,
+					PrepareModel:   prepareRuntime,
 					OnBindingState: setBindingState,
 					Token:          token,
 					DeviceName:     deviceName,
@@ -247,7 +257,11 @@ func startSelfUpdater(ctx context.Context, stop context.CancelFunc, snapshot fun
 			defer originMu.RUnlock()
 			return *origin
 		},
-		Idle: func() bool { return snapshot().State == agent.StateReady },
+		Idle: func() bool {
+			state := snapshot().State
+			// 空闲或上次任务失败都允许更新；只有真正在跑任务/下载模型时才推迟。
+			return state == agent.StateReady || state == agent.StateFailed || state == agent.StateIdle
+		},
 		Apply: func(nextVersion string) {
 			log.Printf("self update %s ready; restarting executor", nextVersion)
 			stop()
