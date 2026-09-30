@@ -129,6 +129,10 @@ type h3CompilationPromptResolver interface {
 	CompileH3ForProduction(context.Context, string, string, string, string, string, int) (FinalPrompt, error)
 }
 
+type openingVariantPromptResolver interface {
+	CompileForOpeningVariant(context.Context, string, string, string, string, int, int) (FinalPrompt, error)
+}
+
 type ProductionService struct {
 	Store            Store
 	Compiler         PromptResolver
@@ -340,7 +344,7 @@ func (s *ProductionService) SubmitBookProductionWithOptions(ctx context.Context,
 		}
 		for _, task := range prior.Tasks {
 			if !options.Force && (task.Status == ProductionQueued || task.Status == ProductionRunning || task.Status == ProductionSucceeded) {
-				blockedVideos[task.VideoID] = true
+				blockedVideos[fmt.Sprintf("%s#v%d", task.VideoID, task.OpeningVariantIndex)] = true
 			}
 		}
 	}
@@ -352,14 +356,13 @@ func (s *ProductionService) SubmitBookProductionWithOptions(ctx context.Context,
 	} else if snapshot.FixedSingleVideo && len(mediaVideos) > 1 {
 		mediaVideos = mediaVideos[:1]
 	}
+	openingOn := rawBool(ResolveSettings(batch.SettingsState.Patch, book.SettingsState.Patch), "openingEnabled", false)
 	pendingVideos := make([]Video, 0, len(mediaVideos))
 	for _, video := range mediaVideos {
 		if options.VideoID != "" && video.ID != options.VideoID {
 			continue
 		}
-		if !blockedVideos[video.ID] {
-			pendingVideos = append(pendingVideos, video)
-		}
+		pendingVideos = append(pendingVideos, video)
 	}
 	if len(pendingVideos) == 0 {
 		return ProductionJob{}, fmt.Errorf("%w: no pending VIDEOs to produce", ErrConflict)
@@ -368,17 +371,30 @@ func (s *ProductionService) SubmitBookProductionWithOptions(ctx context.Context,
 	now := time.Now().UTC()
 	job := ProductionJob{ID: "", Owner: owner, BatchID: batchID, BookID: bookID, RequestID: requestID, DirectorRevisionID: book.DirectorRevision.ID, Status: ProductionQueued, Tasks: []ProductionTask{}, CreatedAt: now, UpdatedAt: now}
 	prompts := make(map[string]FinalPrompt, len(pendingVideos))
-	for _, video := range pendingVideos {
+	// buildTask compiles one VIDEO at one opening-variant index. Every compile
+	// happens before the job is persisted, so a failure aborts the whole
+	// submission instead of leaving a partial job behind.
+	buildTask := func(video Video, variantIndex int) error {
+		key := fmt.Sprintf("%s#v%d", video.ID, variantIndex)
+		if blockedVideos[key] {
+			return nil
+		}
 		limit := model.MaxReferenceImages
 		if limit <= 0 {
 			limit = 3
 		}
 		var prompt FinalPrompt
 		var compileErr error
-		if options.CompilationID != "" {
+		if variantIndex > 0 {
+			compiler, ok := s.Compiler.(openingVariantPromptResolver)
+			if !ok {
+				return fmt.Errorf("%w: opening variant compiler is unavailable", ErrUnavailable)
+			}
+			prompt, compileErr = compiler.CompileForOpeningVariant(ctx, owner, batchID, bookID, video.ID, variantIndex, limit)
+		} else if options.CompilationID != "" {
 			compiler, ok := s.Compiler.(h3CompilationPromptResolver)
 			if !ok {
-				return ProductionJob{}, fmt.Errorf("%w: H3 production compiler is unavailable", ErrUnavailable)
+				return fmt.Errorf("%w: H3 production compiler is unavailable", ErrUnavailable)
 			}
 			prompt, compileErr = compiler.CompileH3ForProduction(ctx, owner, batchID, bookID, video.ID, options.CompilationID, limit)
 		} else if compiler, ok := s.Compiler.(referenceImageLimitPromptResolver); ok {
@@ -389,14 +405,31 @@ func (s *ProductionService) SubmitBookProductionWithOptions(ctx context.Context,
 			prompt, compileErr = s.Compiler.Compile(ctx, owner, batchID, bookID, video.ID)
 		}
 		if compileErr != nil {
-			return ProductionJob{}, compileErr
+			return compileErr
 		}
 		selectedModel := rawString(prompt.EffectiveSettings.Values, "videoModelId", "")
 		if !VideoModelMatchesProviderModel(selectedModel, model.ID, provider) {
-			return ProductionJob{}, fmt.Errorf("%w: selected video model %q is not available for provider %s", ErrConflict, selectedModel, provider)
+			return fmt.Errorf("%w: selected video model %q is not available for provider %s", ErrConflict, selectedModel, provider)
 		}
-		prompts[video.ID] = prompt
-		job.Tasks = append(job.Tasks, ProductionTask{VideoID: video.ID, Provider: provider, Status: ProductionQueued, Attempt: 1, FinalPromptHash: prompt.SnapshotHash, CompiledPrompt: prompt.CompiledPrompt, CompilationID: prompt.CompilationID, CompilationSegmentKey: prompt.CompilationSegmentKey, CompileTrace: cloneH3CompileTrace(prompt.CompileTrace), ReferenceImageURLs: append([]string(nil), prompt.ReferenceImageURLs...), DowngradedAssetIDs: append([]string(nil), prompt.DowngradedAssetIDs...), TargetDurationSeconds: float64(prompt.DurationSeconds), RequestedDurationSeconds: float64(prompt.DurationSeconds), CreatedAt: now, UpdatedAt: now})
+		prompts[key] = prompt
+		job.Tasks = append(job.Tasks, ProductionTask{VideoID: video.ID, OpeningVariantIndex: variantIndex, Provider: provider, Status: ProductionQueued, Attempt: 1, FinalPromptHash: prompt.SnapshotHash, CompiledPrompt: prompt.CompiledPrompt, CompilationID: prompt.CompilationID, CompilationSegmentKey: prompt.CompilationSegmentKey, CompileTrace: cloneH3CompileTrace(prompt.CompileTrace), ReferenceImageURLs: append([]string(nil), prompt.ReferenceImageURLs...), DowngradedAssetIDs: append([]string(nil), prompt.DowngradedAssetIDs...), TargetDurationSeconds: float64(prompt.DurationSeconds), RequestedDurationSeconds: float64(prompt.DurationSeconds), CreatedAt: now, UpdatedAt: now})
+		return nil
+	}
+	for _, video := range pendingVideos {
+		indices := []int{0}
+		if openingOn && video.ID == book.Videos[0].ID {
+			for _, variant := range successfulOpeningVariants(video) {
+				indices = append(indices, variant.Index)
+			}
+		}
+		for _, variantIndex := range indices {
+			if err := buildTask(video, variantIndex); err != nil {
+				return ProductionJob{}, err
+			}
+		}
+	}
+	if len(job.Tasks) == 0 {
+		return ProductionJob{}, fmt.Errorf("%w: no pending VIDEOs to produce", ErrConflict)
 	}
 	job, err = repository.CreateProductionJob(ctx, job)
 	if err != nil {
@@ -404,15 +437,19 @@ func (s *ProductionService) SubmitBookProductionWithOptions(ctx context.Context,
 	}
 
 	for _, task := range job.Tasks {
-		prompt, ok := prompts[task.VideoID]
+		prompt, ok := prompts[fmt.Sprintf("%s#v%d", task.VideoID, task.OpeningVariantIndex)]
 		if !ok {
 			return ProductionJob{}, fmt.Errorf("%w: persisted task prompt is missing", ErrConflict)
 		}
 		var ref ProviderTaskRef
 		var submitErr error
 		if provider == VideoProviderDoubaoLocal {
+			sourceTaskID := "bf11:" + batchID + ":" + bookID + ":" + task.VideoID
+			if task.OpeningVariantIndex > 0 {
+				sourceTaskID = fmt.Sprintf("%s#v%d", sourceTaskID, task.OpeningVariantIndex)
+			}
 			ref, submitErr = s.LocalExecutor.Submit(ctx, owner, LocalVideoJobInput{
-				SourceTaskID: "bf11:" + batchID + ":" + bookID + ":" + task.VideoID,
+				SourceTaskID: sourceTaskID,
 				BatchID:      batchID, BookID: bookID, VideoID: task.VideoID,
 				Model: model.ID, Prompt: prompt.CompiledPrompt,
 				Duration:           prompt.DurationSeconds,
