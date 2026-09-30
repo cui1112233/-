@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -110,6 +111,14 @@ func (s *Service) CreateJob(ctx context.Context, owner string, input CreateJobIn
 	record := JobRecord{ID: randomID("gme_job_"), OwnerUsername: owner, Platform: PlatformGiantMaterial, MaterialID: strings.TrimSpace(input.MaterialID), PlatformBookID: strings.TrimSpace(input.PlatformBookID), Title: bounded(input.Title, 191), VideoURL: strings.TrimSpace(input.VideoURL), VideoExpiresAt: input.VideoExpiresAt, DurationSeconds: input.DurationSeconds, ModelVersion: bounded(input.ModelVersion, 64), ContentRangeLines: bounded(input.ContentRangeLines, 64), State: JobQueued, CreatedAt: s.now().UTC(), UpdatedAt: s.now().UTC()}
 	key := jobKey(record)
 	if existing, err := s.store.FindJobByKey(ctx, owner, key); err == nil {
+		// 同 key 的失败/取消任务允许重试：用新的视频地址重置为排队状态。
+		if existing.State == JobFailed || existing.State == JobCancelled {
+			if requeued, retryErr := s.store.RequeueJob(ctx, existing.ID, record, s.now().UTC()); retryErr == nil {
+				return jobView(requeued), nil
+			} else if !errors.Is(retryErr, ErrJobNotFound) {
+				return JobView{}, retryErr
+			}
+		}
 		return jobView(existing), nil
 	} else if err != ErrJobNotFound {
 		return JobView{}, err

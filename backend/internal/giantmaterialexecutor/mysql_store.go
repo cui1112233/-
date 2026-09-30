@@ -254,6 +254,52 @@ func (s *MySQLStore) FailJob(ctx context.Context, executorID, id string, leaseHa
 	})
 }
 
+func (s *MySQLStore) RequeueJob(ctx context.Context, id string, update JobRecord, now time.Time) (JobRecord, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return JobRecord{}, err
+	}
+	defer tx.Rollback()
+	record, err := queryJobTx(ctx, tx, jobSelect+` WHERE j.id = ? FOR UPDATE`, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return JobRecord{}, ErrJobNotFound
+	}
+	if err != nil {
+		return JobRecord{}, err
+	}
+	if record.State != JobFailed && record.State != JobCancelled {
+		return record, nil
+	}
+	record.State = JobQueued
+	record.CancelRequested = false
+	record.Title = update.Title
+	record.VideoURL = update.VideoURL
+	record.VideoExpiresAt = update.VideoExpiresAt
+	record.DurationSeconds = update.DurationSeconds
+	record.ContentRangeLines = update.ContentRangeLines
+	record.LeaseExecutorID = ""
+	record.LeaseTokenHash = SecretHash{}
+	record.LeaseGeneration++
+	record.LeaseExpiresAt = nil
+	record.ErrorCode = ""
+	record.ErrorMessage = ""
+	record.Progress = ProgressInput{}
+	record.UpdatedAt = now
+	if _, err := tx.ExecContext(ctx, `UPDATE giant_executor_jobs SET state = ?, cancel_requested = FALSE, title = ?, video_url = ?, video_expires_at = ?, duration_seconds = ?, content_range_lines = ?,
+	 lease_executor_id = NULL, lease_token_hash = NULL, lease_generation = ?, lease_expires_at = NULL,
+	 error_code = NULL, error_message = NULL, progress_completed = 0, progress_total = 0, progress_percent = 0, updated_at = ?
+	 WHERE id = ?`, record.State, record.Title, record.VideoURL, record.VideoExpiresAt, record.DurationSeconds, record.ContentRangeLines, record.LeaseGeneration, now, id); err != nil {
+		return JobRecord{}, err
+	}
+	if err := appendEvent(ctx, tx, id, "", "requeued", JobQueued, "", now); err != nil {
+		return JobRecord{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return JobRecord{}, err
+	}
+	return record, nil
+}
+
 func (s *MySQLStore) mutateLease(ctx context.Context, executorID, id string, leaseHash SecretHash, generation int64, now time.Time, mutate func(*sql.Tx, *JobRecord) error) (JobRecord, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {

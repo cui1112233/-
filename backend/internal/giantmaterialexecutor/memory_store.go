@@ -148,6 +148,35 @@ func (s *MemoryStore) CancelJob(_ context.Context, owner, id string, now time.Ti
 	return record, nil
 }
 
+func (s *MemoryStore) RequeueJob(_ context.Context, id string, update JobRecord, now time.Time) (JobRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	record, ok := s.jobs[id]
+	if !ok {
+		return JobRecord{}, ErrJobNotFound
+	}
+	if record.State != JobFailed && record.State != JobCancelled {
+		return record, nil
+	}
+	record.State = JobQueued
+	record.CancelRequested = false
+	record.Title = update.Title
+	record.VideoURL = update.VideoURL
+	record.VideoExpiresAt = update.VideoExpiresAt
+	record.DurationSeconds = update.DurationSeconds
+	record.ContentRangeLines = update.ContentRangeLines
+	record.LeaseExecutorID = ""
+	record.LeaseTokenHash = SecretHash{}
+	record.LeaseGeneration++
+	record.LeaseExpiresAt = nil
+	record.ErrorCode = ""
+	record.ErrorMessage = ""
+	record.Progress = ProgressInput{}
+	record.UpdatedAt = now
+	s.jobs[id] = record
+	return record, nil
+}
+
 func (s *MemoryStore) ClaimJob(_ context.Context, executor ExecutorRecord, leaseHash SecretHash, expires, now time.Time) (JobRecord, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
