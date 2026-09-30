@@ -680,6 +680,22 @@ body.batch-factory-column-resizing, body.batch-factory-column-resizing * { curso
 .batch-factory-prompt-modal-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 @media (max-width: 720px) { .batch-factory-prompt-modal-head { align-items: flex-start; flex-direction: column; } .batch-factory-prompt-modal-tabs { align-self: stretch; justify-content: flex-end; } }
 
+/* 编辑资产弹窗内的图片区 */
+.batch-factory-image-upload { display: inline-flex; align-items: center; justify-content: center; padding: 4px 12px; border-radius: 8px; background: #2b6cb0; color: #fff; font-size: 13px; cursor: pointer; transition: background .16s ease; }
+.batch-factory-image-upload:hover { background: #3182ce; }
+.batch-factory-image-upload:has(input:disabled) { opacity: .5; cursor: not-allowed; }
+.batch-factory-image-upload input { display: none; }
+.batch-factory-asset-editor-images { display: grid; gap: 10px; padding: 12px; border: 1px solid rgba(139, 169, 207, .22); border-radius: 10px; background: rgba(21, 38, 60, .5); }
+.batch-factory-asset-editor-images-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.batch-factory-asset-editor-images-head b { color: #d9e6f8; }
+.batch-factory-asset-editor-images-head span { flex: 1; min-width: 180px; color: var(--sh-muted); font-size: 12px; }
+.batch-factory-asset-editor-image-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.batch-factory-asset-editor-image-card { display: grid; gap: 6px; padding: 8px; border: 1px solid rgba(139, 169, 207, .18); border-radius: 8px; background: #0d1726; }
+.batch-factory-asset-editor-image-visual { border-radius: 6px; overflow: hidden; aspect-ratio: 3 / 4; background: #0a1220; }
+.batch-factory-asset-editor-image-visual img { width: 100%; height: 100%; object-fit: cover; }
+.batch-factory-asset-editor-image-meta { display: flex; align-items: center; justify-content: space-between; gap: 4px; flex-wrap: wrap; }
+.batch-factory-asset-editor-images-empty { margin: 0; color: var(--sh-muted); font-size: 13px; }
+
 /* Prompt type is a compact stacked label in the upper-left corner. */
 .batch-factory-prompt-entry-head { min-height:42px; padding:8px 9px 0; }
 .batch-factory-prompt-entry-nav { margin-left:auto; }

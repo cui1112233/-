@@ -461,6 +461,8 @@ func selectResolvedPrompts(assets []compiledAsset, included map[string]bool) str
 	parts := []string{}
 	for _, asset := range assets {
 		if asset.ID != "" && included[asset.ID] {
+			// 图片确实作为参考输入发给了视频模型：走图片生视频，
+			// 不再重复发文字设定。图片因上限没发出去时，文字仍兜底保留。
 			continue
 		}
 		if prompt := strings.TrimSpace(asset.Prompt); prompt != "" {
@@ -468,6 +470,19 @@ func selectResolvedPrompts(assets []compiledAsset, included map[string]bool) str
 		}
 	}
 	return strings.Join(parts, "；")
+}
+
+// assetsWithoutImages drops assets whose image is actually sent, so H3 subject
+// definitions are emitted only for text-to-video (or limit-dropped) assets.
+func assetsWithoutImages(assets []compiledAsset, included map[string]bool) []compiledAsset {
+	out := make([]compiledAsset, 0, len(assets))
+	for _, asset := range assets {
+		if asset.ID != "" && included[asset.ID] {
+			continue
+		}
+		out = append(out, asset)
+	}
+	return out
 }
 
 func referenceImageLimit(values SettingsPatch) int {
@@ -671,9 +686,9 @@ func (s *PromptCompilerService) compile(ctx context.Context, owner, batchID, boo
 		}
 		// 基础设定统一由开关注入，H3 不再跳过。H3 下的人物定义保留 <Subject N>
 		// 格式（供时间轴引用），但作为外层“基础设定”组件按开关注入；非 H3 沿用
-		// 通用“人物/场景/道具”文本。
+		// 通用“人物/场景/道具”文本。图片真发出去的资产不出文字（图片生视频）。
 		if h3Renderer {
-			if definitions := h3SubjectDefinitions(h3Subjects(characters)); definitions != "" {
+			if definitions := h3SubjectDefinitions(h3Subjects(assetsWithoutImages(characters, included))); definitions != "" {
 				addComponent(&components, "baseSetup", "基础设定", definitions)
 			}
 		} else {

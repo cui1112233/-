@@ -519,6 +519,37 @@ func TestFinalPromptExcludesDeselectedStoryboardAssetFromTextAndReferences(t *te
 	}
 }
 
+func TestFinalPromptOmitsTextForImageBackedAssets(t *testing.T) {
+	store, batch, book, video := seedCompiledVideo(t)
+	var scene BookAsset
+	for _, asset := range book.AssetRecords {
+		if asset.Kind == "scene" && asset.Name == "林家客厅" {
+			scene = asset
+		}
+	}
+	if scene.ID == "" {
+		t.Fatalf("scene asset not found: %+v", book.AssetRecords)
+	}
+	if _, err := store.CreateBookAssetImage(context.Background(), "alice", batch.ID, book.ID, scene.ID, CreateBookAssetImageInput{URL: "https://images.example/scene-primary.png", MediaType: "image/png", Source: "provider"}); err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := (&PromptCompilerService{Store: store}).Compile(context.Background(), "alice", batch.ID, book.ID, video.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 有主图的场景：走图片生视频，文字设定不发。
+	if strings.Contains(compiled.CompiledPrompt, "林家客厅：现代中式客厅") {
+		t.Fatalf("image-backed scene text must be omitted:\n%s", compiled.CompiledPrompt)
+	}
+	if !slices.Contains(compiled.ReferenceImageURLs, "https://images.example/scene-primary.png") {
+		t.Fatalf("scene primary image missing: %+v", compiled.ReferenceImageURLs)
+	}
+	// 没图片的人物：文字照常发，走文生视频。
+	if !strings.Contains(compiled.CompiledPrompt, "林晚：18岁中国女性") {
+		t.Fatalf("text-only character prompt must remain:\n%s", compiled.CompiledPrompt)
+	}
+}
+
 func TestFinalPromptIgnoresLegacyAssetPromptDraftWhenAssetRecordExists(t *testing.T) {
 	store, batch, book, video := seedCompiledVideo(t)
 	if _, err := store.SaveDraft(context.Background(), "alice", Draft{Key: "asset:character:林晚", Kind: "asset-prompt", Scope: batch.ID, Content: "过期草稿"}); err != nil {
