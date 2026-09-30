@@ -671,6 +671,10 @@ body.batch-factory-column-resizing, body.batch-factory-column-resizing * { curso
 .batch-factory-prompt-modal-tabs .is-video { border-radius: 12px 12px 0 0; background: #cfe8ff; transform: translateY(-5px); position: relative; z-index: 2; }
 .batch-factory-prompt-modal-tabs button.active { box-shadow: 0 -4px 0 rgba(255,255,255,.35), 0 4px 12px rgba(14, 63, 136, .22); }
 .batch-factory-prompt-modal-tabs button:disabled { opacity: .48; cursor: not-allowed; }
+.batch-factory-prompt-meta-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 22px; padding: 10px 14px; border: 1px solid rgba(139, 169, 207, .22); border-radius: 10px; background: rgba(21, 38, 60, .72); color: #d9e6f8; font-size: 13px; }
+.batch-factory-prompt-meta-item { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+.batch-factory-prompt-meta-item b { color: #8fb4dd; font-weight: 700; white-space: nowrap; }
+.batch-factory-prompt-meta-item:not(:first-child) { font-variant-numeric: tabular-nums; word-break: break-all; }
 .batch-factory-prompt-editor-label .ant-input { min-height: 290px; background: #0d1726; }
 .batch-factory-prompt-editor-label .ant-input[readonly] { cursor: default; color: #d9e6f8; }
 .batch-factory-prompt-modal-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
