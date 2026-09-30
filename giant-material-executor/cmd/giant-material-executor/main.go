@@ -216,7 +216,7 @@ func main() {
 			}
 			return
 		}
-		if uiErr := ui.Run(ctx, ui.Config{PublicURL: publicURL, SetPublicURL: setPublicURL, Pair: pair, Snapshot: snapshot, Shutdown: stop}); uiErr != nil && ctx.Err() == nil {
+		if uiErr := ui.Run(ctx, ui.Config{PublicURL: publicURL, SetPublicURL: setPublicURL, Pair: pair, Snapshot: snapshot, Shutdown: stop, Version: version}); uiErr != nil && ctx.Err() == nil {
 			log.Printf("executor UI stopped: %v", uiErr)
 		}
 	}()

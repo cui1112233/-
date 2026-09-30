@@ -12,11 +12,13 @@ type Config struct {
 	// PublicURL is the control API address used by the executor. It is shown
 	// in the native Windows UI so an executor on another computer does not
 	// accidentally call its own 127.0.0.1.
-	PublicURL    string
+	PublicURL string
 	SetPublicURL func(string) error
 	Pair         func(context.Context, string) error
 	Snapshot     func() agent.Snapshot
 	Shutdown     func()
+	// Version 是编译时注入的执行器版本号，显示在托盘提示里。
+	Version string
 }
 
 func validateConfig(config Config) error {

@@ -13,6 +13,12 @@ New-Item -ItemType Directory -Force -Path $stage, (Join-Path $stage 'worker') | 
 
 Push-Location $moduleRoot
 try {
+  # 国内代理，避免 rsrc/go get 下载模块超时
+  $env:GOPROXY = "https://goproxy.cn,direct"
+  # Embed the icon into the EXE so Explorer/taskbar show a real logo
+  # (generates cmd/giant-material-executor/rsrc_windows_amd64.syso).
+  & go run github.com/akavel/rsrc@v0.10.2 -ico (Join-Path $moduleRoot 'assets\icon.ico') -arch amd64 -o (Join-Path $moduleRoot 'cmd\giant-material-executor\rsrc_windows_amd64.syso')
+  if ($LASTEXITCODE -ne 0) { throw "rsrc failed" }
   $env:GOOS = "windows"
   $env:GOARCH = "amd64"
   $env:CGO_ENABLED = "0"
