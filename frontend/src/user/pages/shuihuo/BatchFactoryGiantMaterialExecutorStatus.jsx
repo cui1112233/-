@@ -18,7 +18,7 @@ function localNonce() {
   }
 }
 
-export function BatchFactoryGiantMaterialExecutorStatus({ job, onHealthChange, onInstall }) {
+export function BatchFactoryGiantMaterialExecutorStatus({ job, onHealthChange, onInstall, variant = 'alert' }) {
   const [health, setHealth] = useState(null);
   const [backendOnline, setBackendOnline] = useState(null);
   const [pairingBusy, setPairingBusy] = useState(false);
@@ -114,6 +114,46 @@ export function BatchFactoryGiantMaterialExecutorStatus({ job, onHealthChange, o
     } finally {
       setPairingBusy(false);
     }
+  }
+
+  // 紧凑圆点模式：给“新建批量”弹窗顶部用，一行显示在线状态，离线时点击跳设置页（下载/配对）。
+  if (variant === 'dot') {
+    const online = Boolean(effectiveHealth) && status.kind !== 'needs_pairing' && status.kind !== 'offline';
+    const dotLabel = completed
+      ? '正文读取已完成'
+      : failed
+        ? '正文读取失败'
+        : !effectiveHealth
+          ? '执行器未安装或未登录'
+          : status.kind === 'needs_pairing'
+            ? '执行器需要配对登录'
+            : status.kind === 'offline'
+              ? BOUND_OFFLINE_LABEL
+              : status.kind === 'connecting'
+                ? '执行器正在登录'
+                : status.kind === 'downloading_model'
+                  ? '正在准备 OCR 环境'
+                  : status.kind === 'failed'
+                    ? '执行器异常'
+                    : status.kind === 'running'
+                      ? (progress > 0 ? `正在读取正文 ${progress}%` : '正在读取正文')
+                      : '执行器已就绪';
+    const version = String(effectiveHealth?.version || '').trim();
+    const goToSettings = () => {
+      window.history.pushState({}, '', '/settings');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    };
+    return <div
+      className={`gme-executor-dot ${online ? 'is-online' : 'is-offline'}${online ? '' : ' is-clickable'}`}
+      onClick={online ? undefined : goToSettings}
+      role={online ? undefined : 'button'}
+      title={online ? undefined : '点击前往设置页下载执行器或完成配对'}
+    >
+      <span className="gme-executor-dot-light" aria-hidden="true" />
+      <span>{dotLabel}</span>
+      {version ? <span className="gme-executor-dot-version">{version}</span> : null}
+      {online ? null : <span className="gme-executor-dot-action">去下载 / 配对</span>}
+    </div>;
   }
 
   return <Alert

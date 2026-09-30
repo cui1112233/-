@@ -514,6 +514,8 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
     width={760}
     footer={<Button onClick={() => { onCancel(); reset(); }}>取消</Button>}
   >
+    {isGiantMaterial ? <BatchFactoryGiantMaterialExecutorStatus variant="dot" job={executorJob} onHealthChange={setExecutorHealth} /> : null}
+
     <label className="shuihuo-form-label" htmlFor="batch-title">作品名称 <em>*</em></label>
     <Input id="batch-title" value={title} onChange={event => setTitle(event.target.value)} placeholder="请输入作品名称" maxLength={255} />
 
@@ -540,8 +542,6 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
       </Space>}
     /> : null}
 
-    {isGiantMaterial ? <Alert type="info" showIcon message="巨量获取" description="输入一条巨量素材 ID。系统会读取青语平台书名、Book ID 和视频正文；不会保存 MP4 文件。" /> : null}
-
     <label className="shuihuo-form-label" htmlFor="batch-input-text">{isGiantMaterial ? '巨量素材 ID' : '小说列表'} <em>*</em></label>
     <Input.TextArea
       id="batch-input-text"
@@ -557,7 +557,6 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
     </> : null}
 
     {isGiantMaterial ? <>
-      <BatchFactoryGiantMaterialExecutorStatus job={executorJob} onHealthChange={setExecutorHealth} />
       <GiantMaterialStatusCard
         title="滚屏 OCR"
         phase={giantPhase}
