@@ -1663,9 +1663,14 @@ function createBatchFactoryV11Router(options = {}) {
         }
         const settings = frozenSettings || automationEffectiveSettings(batch, book);
         const payload = { mode, requestId, ...(videoId ? { videoId } : {}) };
-        if (['assets', 'director', 'visual'].includes(stage)) {
+        if (['assets', 'director', 'visual', 'opening'].includes(stage)) {
           const textModelId = String(settings.textModelId || '').trim();
           payload.textProvider = requestTextProvider({ username, body: { textModelId } }, upstreamOptions, textModelId);
+        }
+        if (stage === 'opening') {
+          const body = String(resolveSystemPresetBody(upstreamOptions.presetStore, 'batch-opening-meta') || '').trim();
+          if (!body) throw requestError('换开头元提示词预设没有可用正文', 422, 'OPENING_META_PRESET_REQUIRED');
+          payload.openingMeta = { presetId: 'batch-opening-meta', presetName: '换开头元提示词', presetSlot: 'batch.opening-meta', presetVersion: 1, presetKey: 'batch-opening-meta', body, constraintCategory: '' };
         }
         if (stage === 'video') {
           const provider = automationVideoProvider(settings);
@@ -1732,6 +1737,11 @@ function createBatchFactoryV11Router(options = {}) {
               configReader: upstreamOptions.configReader || readConfig, persist: true
           });
           if (smartUnified.style) payload.smartUnifiedStyle = smartUnified.style;
+        }
+        if (stage === 'opening') {
+          const body = String(resolveSystemPresetBody(upstreamOptions.presetStore, 'batch-opening-meta') || '').trim();
+          if (!body) throw requestError('换开头元提示词预设没有可用正文', 422, 'OPENING_META_PRESET_REQUIRED');
+          payload.openingMeta = { presetId: 'batch-opening-meta', presetName: '换开头元提示词', presetSlot: 'batch.opening-meta', presetVersion: 1, presetKey: 'batch-opening-meta', body, constraintCategory: '' };
         }
         if (stage === 'video') {
           const provider = automationVideoProvider(settings);
