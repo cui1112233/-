@@ -264,17 +264,17 @@ func startSelfUpdater(ctx context.Context, stop context.CancelFunc, snapshot fun
 		},
 		Apply: func(nextVersion string) {
 			log.Printf("self update %s ready; restarting executor", nextVersion)
-			stop()
-			time.Sleep(3 * time.Second)
 			applyPath := filepath.Join(root, ".updates", "apply-update.cmd")
 			command := exec.Command("cmd", "/C", applyPath)
-			command.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+			// 先启动接管脚本再退出：脚本会等本进程退出后完成替换并拉起新版本。
+			// 若先 stop() 再启动脚本，进程退出会把协程连同脚本一起带走（0.4.7 前的时序 bug）。
+			command.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
 			if err := command.Start(); err != nil {
-				log.Printf("start apply-update.cmd failed: %v", err)
+				log.Printf("start apply-update.cmd failed: %v; keep running on %s", err, version)
 				return
 			}
 			log.Printf("apply-update.cmd started; exiting for update")
-			os.Exit(0)
+			stop()
 		},
 	}
 	go updater.Run(ctx)
