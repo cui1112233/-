@@ -217,3 +217,105 @@ func TestBookStageVideoReportsImmediateProviderFailure(t *testing.T) {
 		t.Fatalf("missing provider feedback: %+v", summary.LastFailed)
 	}
 }
+
+func seedOpeningStageBook(t *testing.T, sdResponse string) (*MemoryStore, Batch, Book, *BookStageService) {
+	t.Helper()
+	store := NewMemoryStore()
+	batch, err := store.CreateBatch(context.Background(), "alice", CreateBatchInput{Title: "batch", Books: []CreateBookInput{{Title: "book", SourceText: "林晚推开客厅门，握紧玻璃杯。", Videos: []CreateVideoInput{{Label: "v1"}, {Label: "v2"}}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	book := batch.Books[0]
+	config := map[string]any{
+		"video": map[string]any{"enabled": true, "scope": "all", "presetId": "batch-video-sd", "presetVersion": 1, "body": "SD VIDEO RULE"},
+	}
+	patch := SettingsPatch{
+		"aiPromptConfig": rawSetting(t, config),
+		"openingEnabled": rawSetting(t, true),
+		"openingCount":   rawSetting(t, 4),
+	}
+	if _, err := store.SaveSettings(context.Background(), "alice", ScopeRef{Kind: ScopeBook, BatchID: batch.ID, BookID: book.ID}, SettingsUpdate{Patch: patch, ExpectedRevision: book.Revision}); err != nil {
+		t.Fatal(err)
+	}
+	variantResponse := "===VARIANT 1===\n时长：10秒\n画面故事脚本：雨夜推门而入的开场。"
+	provider := &queuedDirectorProvider{values: []string{sdResponse, variantResponse}}
+	service := &BookStageService{Store: store, Director: &DirectorService{Store: store, Provider: provider}, OpeningMeta: PresetSnapshot{ID: "batch-opening-meta", Body: "换开头元提示词"}}
+	if _, err := service.Run(context.Background(), "alice", batch.ID, book.ID, BookStageDirector, StageModeForce, "director-1", ""); err != nil {
+		t.Fatalf("director stage failed: %v", err)
+	}
+	batch, err = store.GetBatch(context.Background(), "alice", batch.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return store, batch, batch.Books[0], service
+}
+
+func openingRunSucceeded(summary BookStageSummary) bool {
+	for _, run := range summary.Runs {
+		if run.Stage == BookStageOpening {
+			return run.Status == ProductionSucceeded
+		}
+	}
+	return false
+}
+
+func TestBookStageOpeningSucceedsForTwoStoryboardSDBook(t *testing.T) {
+	sdResponse := `===VIDEO 01===
+时长：10秒
+段内执行约束：无台词。
+[场景 1] 总时长：10.000秒
+[镜头 1] 中景，缓慢推轨，林晚推开门。
+===VIDEO 02===
+时长：10秒
+段内执行约束：无台词。
+[场景 1] 总时长：10.000秒
+[镜头 1] 近景，林晚握紧玻璃杯。`
+	store, batch, book, service := seedOpeningStageBook(t, sdResponse)
+	summary, err := service.Run(context.Background(), "alice", batch.ID, book.ID, BookStageOpening, StageModeForce, "opening-1", "")
+	if err != nil {
+		t.Fatalf("opening stage failed: %v", err)
+	}
+	if !openingRunSucceeded(summary) {
+		t.Fatalf("opening run missing or not succeeded: %+v", summary.Runs)
+	}
+	latest, err := store.GetBatch(context.Background(), "alice", batch.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, ok := latest.Books[0].Videos[0].SettingsState.Patch["openingVariants"]
+	if !ok {
+		t.Fatalf("two-storyboard book must persist opening variants on VIDEO01: %+v", latest.Books[0].Videos[0].SettingsState.Patch)
+	}
+	var variants []OpeningVariant
+	if err := json.Unmarshal(raw, &variants); err != nil {
+		t.Fatal(err)
+	}
+	if len(variants) == 0 || variants[0].Status != "success" || !strings.Contains(variants[0].Prompt, "雨夜推门而入") {
+		t.Fatalf("variants = %+v", variants)
+	}
+}
+
+func TestBookStageOpeningSkipsSingleStoryboardBook(t *testing.T) {
+	sdResponse := `===VIDEO 01===
+时长：10秒
+段内执行约束：无台词。
+[场景 1] 总时长：10.000秒
+[镜头 1] 中景，缓慢推轨，林晚推开门。`
+	store, batch, book, service := seedOpeningStageBook(t, sdResponse)
+	summary, err := service.Run(context.Background(), "alice", batch.ID, book.ID, BookStageOpening, StageModeForce, "opening-1", "")
+	if err != nil {
+		t.Fatalf("opening stage failed: %v", err)
+	}
+	if !openingRunSucceeded(summary) {
+		t.Fatalf("opening run missing or not succeeded: %+v", summary.Runs)
+	}
+	latest, err := store.GetBatch(context.Background(), "alice", batch.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, video := range latest.Books[0].Videos {
+		if _, ok := video.SettingsState.Patch["openingVariants"]; ok {
+			t.Fatalf("single-storyboard book must not persist opening variants: %+v", video.SettingsState.Patch)
+		}
+	}
+}

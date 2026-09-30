@@ -25,6 +25,7 @@ type BookStageService struct {
 	Director          *DirectorService
 	Production        *ProductionService
 	SmartUnifiedStyle string
+	OpeningMeta       PresetSnapshot
 	H3Director        bool
 	ProviderOverride  string
 }
@@ -49,6 +50,11 @@ func (s *BookStageService) availability(stage BookStage) BookStageAvailability {
 		return BookStageAvailability{Stage: stage, Reason: "文本模型未配置"}
 	case BookStageDirector, BookStageVisual:
 		if s != nil && s.Director != nil && s.Director.Store != nil && s.Director.Provider != nil {
+			return BookStageAvailability{Stage: stage, Available: true}
+		}
+		return BookStageAvailability{Stage: stage, Reason: "文本模型未配置"}
+	case BookStageOpening:
+		if s.Director != nil && s.Director.Provider != nil {
 			return BookStageAvailability{Stage: stage, Available: true}
 		}
 		return BookStageAvailability{Stage: stage, Reason: "文本模型未配置"}
@@ -78,7 +84,7 @@ func (s *BookStageService) Summary(ctx context.Context, owner, batchID, bookID s
 	if err != nil {
 		return BookStageSummary{}, err
 	}
-	availability := []BookStageAvailability{s.availability(BookStageAssets), s.availability(BookStageDirector), s.availability(BookStageVisual), s.availability(BookStageImage), s.availability(BookStageVideo)}
+	availability := []BookStageAvailability{s.availability(BookStageAssets), s.availability(BookStageDirector), s.availability(BookStageOpening), s.availability(BookStageVisual), s.availability(BookStageImage), s.availability(BookStageVideo)}
 	return BookStageSummary{BookID: bookID, Runs: runs, Availability: availability, LastFailed: LatestFailedBookStageRun(runs)}, nil
 }
 
@@ -119,7 +125,7 @@ func (s *BookStageService) finish(ctx context.Context, owner string, run BookSta
 }
 
 func normalizeStageExecutionError(stage BookStage, err error) error {
-	if err == nil || (stage != BookStageAssets && stage != BookStageDirector && stage != BookStageVisual) {
+	if err == nil || (stage != BookStageAssets && stage != BookStageDirector && stage != BookStageVisual && stage != BookStageOpening) {
 		return err
 	}
 	if errors.Is(err, ErrNotFound) || errors.Is(err, ErrConflict) || errors.Is(err, ErrInvalid) || errors.Is(err, ErrUnavailable) {
@@ -186,6 +192,8 @@ func (s *BookStageService) run(ctx context.Context, owner, batchID, bookID strin
 	switch stage {
 	case BookStageAssets:
 		_, err = s.Director.RunAssetExtraction(ctx, owner, batchID, bookID)
+	case BookStageOpening:
+		_, err = s.Director.RunOpeningVariants(ctx, owner, batchID, bookID, s.OpeningMeta)
 	case BookStageVisual:
 		_, err = s.Director.RunVisualPromptExtraction(ctx, owner, batchID, bookID)
 	case BookStageDirector:
