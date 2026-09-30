@@ -40,23 +40,24 @@ type MergeOptions struct {
 }
 
 type MergeJob struct {
-	ID              string       `json:"id"`
-	Owner           string       `json:"-"`
-	BatchID         string       `json:"batchId"`
-	BookID          string       `json:"bookId,omitempty"`
-	RequestID       string       `json:"requestId"`
-	TimingMode      string       `json:"timingMode,omitempty"`
-	Speed           float64      `json:"speed,omitempty"`
-	ProviderTaskID  string       `json:"providerTaskId,omitempty"`
-	Status          MergeState   `json:"status"`
-	ProgressPhase   string       `json:"progressPhase,omitempty"`
-	ProgressCurrent int          `json:"progressCurrent,omitempty"`
-	ProgressTotal   int          `json:"progressTotal,omitempty"`
-	Sources         []MergeMedia `json:"sources"`
-	OutputURL       string       `json:"outputUrl,omitempty"`
-	ErrorMessage    string       `json:"errorMessage,omitempty"`
-	CreatedAt       time.Time    `json:"createdAt"`
-	UpdatedAt       time.Time    `json:"updatedAt"`
+	ID                  string       `json:"id"`
+	Owner               string       `json:"-"`
+	BatchID             string       `json:"batchId"`
+	BookID              string       `json:"bookId,omitempty"`
+	OpeningVariantIndex int          `json:"openingVariantIndex,omitempty"`
+	RequestID           string       `json:"requestId"`
+	TimingMode          string       `json:"timingMode,omitempty"`
+	Speed               float64      `json:"speed,omitempty"`
+	ProviderTaskID      string       `json:"providerTaskId,omitempty"`
+	Status              MergeState   `json:"status"`
+	ProgressPhase       string       `json:"progressPhase,omitempty"`
+	ProgressCurrent     int          `json:"progressCurrent,omitempty"`
+	ProgressTotal       int          `json:"progressTotal,omitempty"`
+	Sources             []MergeMedia `json:"sources"`
+	OutputURL           string       `json:"outputUrl,omitempty"`
+	ErrorMessage        string       `json:"errorMessage,omitempty"`
+	CreatedAt           time.Time    `json:"createdAt"`
+	UpdatedAt           time.Time    `json:"updatedAt"`
 }
 
 type MergeAdapter interface {

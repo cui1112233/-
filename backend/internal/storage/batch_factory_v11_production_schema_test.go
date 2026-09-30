@@ -34,8 +34,8 @@ func TestV11BookStageRunsMigrationIsAdditiveAndDurable(t *testing.T) {
 		t.Fatalf("stage migration=%+v", migrations)
 	}
 	last := migrations[len(migrations)-1]
-	if last.Version != 1100020 || last.CallbackChecksum != "batch-factory-v11-merge-progress-v1" {
-		t.Fatalf("merge progress migration=%+v", last)
+	if last.Version != 1100021 || last.CallbackChecksum != "batch-factory-v11-opening-variant-v1" {
+		t.Fatalf("last migration=%+v", last)
 	}
 	if joined := strings.ToLower(strings.Join(V11ProductionDurationStatements(), "\n")); !strings.Contains(joined, "target_duration_seconds") || !strings.Contains(joined, "requested_duration_seconds") || !strings.Contains(joined, "actual_duration_seconds") {
 		t.Fatalf("duration migration=%s", joined)

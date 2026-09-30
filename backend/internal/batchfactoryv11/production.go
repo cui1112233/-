@@ -37,6 +37,7 @@ type ProviderTaskRef struct {
 type ProductionTask struct {
 	ID                       string          `json:"id"`
 	VideoID                  string          `json:"videoId"`
+	OpeningVariantIndex      int             `json:"openingVariantIndex,omitempty"`
 	Provider                 string          `json:"provider,omitempty"`
 	Status                   ProductionState `json:"status"`
 	Attempt                  int             `json:"attempt"`
