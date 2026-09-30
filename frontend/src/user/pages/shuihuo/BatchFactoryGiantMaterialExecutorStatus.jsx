@@ -2,6 +2,7 @@ import { Alert, Button, Progress, Space, Tag, message } from 'antd';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createGiantMaterialExecutorClient, normalizeGiantMaterialExecutorStatus } from '../../../shared/api/giantMaterialExecutor.js';
 import { createGiantMaterialPairing, listGiantMaterialExecutors } from '../../../shared/api/giantMaterialExecutorPublic.js';
+import { selectGiantExecutorHealth } from './giantExecutorHealth.js';
 
 const EXECUTOR_BASE_URL = 'http://127.0.0.1:17861';
 const OFFLINE_LABEL = '执行器未安装或未启动';
@@ -27,7 +28,7 @@ export function BatchFactoryGiantMaterialExecutorStatus({ job, onHealthChange, o
   const client = useMemo(() => createGiantMaterialExecutorClient({ baseUrl: EXECUTOR_BASE_URL, nonce }), [nonce]);
   // 本机直连常被浏览器"公网页面 → 本机回环"安全策略拦截；后台名单不受影响。
   // 两者任一可用即认为执行器可用，任务本身通过后台队列派发，不依赖本机直连。
-  const effectiveHealth = health || backendOnline;
+  const effectiveHealth = selectGiantExecutorHealth(health, backendOnline);
   const status = normalizeGiantMaterialExecutorStatus(effectiveHealth);
   const modelReady = status.modelReady;
   const bindingState = String(effectiveHealth?.bindingState || '').trim();
@@ -37,13 +38,14 @@ export function BatchFactoryGiantMaterialExecutorStatus({ job, onHealthChange, o
   const onHealthChangeRef = useRef(onHealthChange);
   onHealthChangeRef.current = onHealthChange;
 
+  useEffect(() => { onHealthChangeRef.current?.(effectiveHealth); }, [effectiveHealth]);
+
   useEffect(() => {
     let active = true;
     const poll = async () => {
       const next = await client.health().catch(() => null);
       if (!active) return;
       setHealth(next);
-      onHealthChangeRef.current?.(next);
     };
     poll();
     const timer = setInterval(poll, 3000);
@@ -57,7 +59,7 @@ export function BatchFactoryGiantMaterialExecutorStatus({ job, onHealthChange, o
       if (!active) return;
       const list = Array.isArray(next?.executors) ? next.executors : Array.isArray(next?.data?.executors) ? next.data.executors : [];
       const online = list.find(item => item?.online === true) || null;
-      setBackendOnline(online ? { online: true, version: online.version || '', bindingState: 'online', state: 'ready', modelReady: true, backendView: true } : null);
+      setBackendOnline(online ? { online: true, version: online.version || '', os: online.os, bindingState: 'online', state: 'ready', modelReady: true, backendView: true } : null);
     };
     pollBackend();
     const timer = setInterval(pollBackend, 6000);
@@ -67,13 +69,13 @@ export function BatchFactoryGiantMaterialExecutorStatus({ job, onHealthChange, o
   const completed = jobState === 'succeeded';
   const failed = jobState === 'failed' || jobState === 'cancelled';
   const statusMessage = completed ? '已完成' : failed ? '失败原因' : !effectiveHealth ? OFFLINE_LABEL : status.kind === 'offline' || status.kind === 'needs_pairing' || status.kind === 'connecting' ? status.label : modelReady === false ? MODEL_LABEL : status.kind === 'running' ? OCR_LABEL : status.label;
-  const versionLabel = effectiveHealth?.version || 'Windows 执行器';
+  const versionLabel = effectiveHealth?.version || '巨量素材执行器';
   const description = completed
     ? '正文已返回并登记，可继续查看书籍详情。'
     : failed
       ? (job?.errorMessage || job?.errorCode || '执行器返回失败，请重试。')
       : !effectiveHealth
-        ? '请安装并启动 Windows 巨量素材执行器；首次使用时完成一次绑定，之后会自动连接。'
+        ? '请安装并启动 Windows 或 macOS 巨量素材执行器；首次使用时完成一次绑定，之后会自动连接。'
         : status.kind === 'needs_pairing'
           ? `${NEEDS_PAIRING_LABEL}：这台电脑完成一次配对后，后续启动不需要再次配对。`
           : status.kind === 'offline'
@@ -103,7 +105,7 @@ export function BatchFactoryGiantMaterialExecutorStatus({ job, onHealthChange, o
         setHealth(next);
         onHealthChangeRef.current?.(next);
         setPairingFallback(null);
-        message.success('Windows 巨量素材执行器已配对。');
+        message.success('巨量素材执行器已配对。');
       } catch (_) {
         // 本机直连被浏览器拦截时，退回“本机配置页粘贴配对码”的方式。
         setPairingFallback(code);
@@ -118,7 +120,7 @@ export function BatchFactoryGiantMaterialExecutorStatus({ job, onHealthChange, o
 
   // 紧凑圆点模式：给“新建批量”弹窗顶部用，一行显示在线状态，离线时点击跳设置页（下载/配对）。
   if (variant === 'dot') {
-    const online = Boolean(effectiveHealth) && status.kind !== 'needs_pairing' && status.kind !== 'offline';
+    const online = effectiveHealth?.online === true && effectiveHealth?.bindingState === 'online';
     const dotLabel = completed
       ? '正文读取已完成'
       : failed
