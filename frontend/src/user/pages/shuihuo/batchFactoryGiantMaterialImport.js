@@ -50,6 +50,8 @@ export function buildGiantMaterialIntake({ giantMaterialId, material, extraction
   const platformBookId = text(selected?.platformBookId || selected?.bookId);
   const title = text(selected?.title || material?.title);
   const platformName = text(selected?.platformName || selected?.platform || material?.platformName);
+  const platformCode = text(selected?.platformCode || material?.platformCode);
+  const platformId = text(selected?.platformId || material?.platformId);
   if (!normalizedID) throw new Error('INVALID_GIANT_MATERIAL_ID');
   if (!selected || !platformBookId || !title) throw new Error('QINGYU_BOOK_METADATA_INCOMPLETE');
   if (!sourceText) throw new Error('GIANT_OCR_EMPTY');
@@ -73,6 +75,8 @@ export function buildGiantMaterialIntake({ giantMaterialId, material, extraction
         qingyuMaterialId: text(material?.materialId),
         videoUrl: text(material?.videoUrl),
         platformName,
+        platformCode,
+        platformId,
         platformBookId,
         sourceBookTitle: title,
         sourceContentVersion,
@@ -102,6 +106,8 @@ export function buildGiantMaterialPlaceholderIntake({ giantMaterialId, material,
   const platformBookId = text(selected?.platformBookId || selected?.bookId);
   const title = text(selected?.title || material?.title);
   const platformName = text(selected?.platformName || selected?.platform || material?.platformName);
+  const platformCode = text(selected?.platformCode || material?.platformCode);
+  const platformId = text(selected?.platformId || material?.platformId);
   if (!normalizedID) throw new Error('INVALID_GIANT_MATERIAL_ID');
   if (!selected || !platformBookId || !title) throw new Error('QINGYU_BOOK_METADATA_INCOMPLETE');
   const sourceLabel = giantMaterialSourceLabel(normalizedID);
@@ -124,6 +130,8 @@ export function buildGiantMaterialPlaceholderIntake({ giantMaterialId, material,
         qingyuMaterialId: text(material?.materialId),
         videoUrl: text(material?.videoUrl),
         platformName,
+        platformCode,
+        platformId,
         platformBookId,
         sourceBookTitle: title,
         sourceContentVersion,

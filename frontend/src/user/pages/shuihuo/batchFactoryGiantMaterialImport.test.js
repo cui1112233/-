@@ -54,6 +54,23 @@ test('stores the selected content range with the giant material intake', () => {
   assert.equal(payload.metadata.contentRangeLines, 12);
 });
 
+test('preserves Qingyu platform label, raw code, and verified target platform ID', () => {
+  const changdu = {
+    materialId: '10122316',
+    videoUrl: 'https://material.hnqingyuwen.top/a.mp4',
+    books: [{ platformBookId: '7632217270088895550', platformName: '常读', platformCode: 'CD', platformId: '2', title: '常读测试书' }]
+  };
+  const payload = buildGiantMaterialIntake({
+    giantMaterialId: '7683728935785873458',
+    material: changdu,
+    book: changdu.books[0],
+    extraction: { text: '正文' }
+  });
+  assert.equal(payload.books[0].platform, '常读');
+  assert.equal(payload.books[0].sourceMetadata.platformCode, 'CD');
+  assert.equal(payload.books[0].sourceMetadata.platformId, '2');
+});
+
 test('rejects missing platform identity or empty OCR output', () => {
   assert.throws(() => buildGiantMaterialIntake({ giantMaterialId: '7689285397448523826', material: { title: '书' }, extraction: { text: '正文' } }), { message: 'QINGYU_BOOK_METADATA_INCOMPLETE' });
   assert.throws(() => buildGiantMaterialIntake({ giantMaterialId: '7689285397448523826', material, book: material.books[0], extraction: { text: '' } }), { message: 'GIANT_OCR_EMPTY' });
