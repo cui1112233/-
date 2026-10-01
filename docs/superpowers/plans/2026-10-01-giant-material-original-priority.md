@@ -52,7 +52,7 @@
 - Modify: `frontend/src/user/pages/shuihuo/batchFactoryGiantMaterialImport.js`
 - Modify: `frontend/src/user/pages/shuihuo/batchFactoryGiantMaterialImport.test.js`
 
-**Consumes:** `buildGiantMaterialPlaceholderIntake(..., originalReadStrategy)`。  
+**Consumes:** `buildGiantMaterialPlaceholderIntake(..., originalReadStrategy)`。
 **Produces:** 每本占位书的策略、阶段与错误字段。
 
 - [x] **Step 1: 写入失败测试**
@@ -81,7 +81,7 @@ test('records direct-first for every book in a multi-ID giant intake', () => {
 
 - [x] **Step 2: 确认测试失败**
 
-Run: `node --test frontend/src/user/pages/shuihuo/batchFactoryGiantMaterialImport.test.js`  
+Run: `node --test frontend/src/user/pages/shuihuo/batchFactoryGiantMaterialImport.test.js`
 Expected: FAIL，字段尚不存在。
 
 - [x] **Step 3: 最小实现**
@@ -107,7 +107,7 @@ contentPending: true
 
 - [x] **Step 4: 验证并提交**
 
-Run: `node --test frontend/src/user/pages/shuihuo/batchFactoryGiantMaterialImport.test.js`  
+Run: `node --test frontend/src/user/pages/shuihuo/batchFactoryGiantMaterialImport.test.js`
 Expected: PASS.
 
 ```bash
@@ -121,7 +121,7 @@ git commit -m "feat: persist giant original read strategy"
 - Modify: `routes/batch-factory-v12.js`
 - Create: `test/batch-factory-v12-direct-original.test.js`
 
-**Consumes:** `refillMissingBatchFactoryBookSource`。  
+**Consumes:** `refillMissingBatchFactoryBookSource`。
 **Produces:** 保留巨量字段且将 direct fetch 标为已完成的 `captureSource` payload。
 
 - [x] **Step 1: 写入失败测试**
@@ -158,7 +158,7 @@ test('direct retrieval preserves giant metadata and records bookstore completion
 
 - [x] **Step 2: 确认测试失败**
 
-Run: `node --test test/batch-factory-v12-direct-original.test.js`  
+Run: `node --test test/batch-factory-v12-direct-original.test.js`
 Expected: FAIL，因为当前 helper 把来源写为 `manual_refetched`。
 
 - [x] **Step 3: 合并元数据**
@@ -208,7 +208,7 @@ Expected: PASS.
 - Modify: `frontend/src/user/pages/shuihuo/BatchFactoryCreateModal.source.test.js`
 - Modify: `frontend/src/user/pages/shuihuo-production.css`
 
-**Consumes:** Task 1 metadata；已有 `fetchBookOriginal`、`createGiantMaterialJob`、`getBatch`。  
+**Consumes:** Task 1 metadata；已有 `fetchBookOriginal`、`createGiantMaterialJob`、`getBatch`。
 **Produces:** direct-first 不创建 executor job；ocr-first 正常创建 executor job。
 
 - [x] **Step 1: 写入失败的源码测试**
@@ -227,7 +227,7 @@ assert.match(source, /if \(giantOriginalReadStrategy === 'direct_first'\)[\s\S]{
 
 - [x] **Step 2: 确认测试失败**
 
-Run: `node --test frontend/src/user/pages/shuihuo/BatchFactoryCreateModal.source.test.js`  
+Run: `node --test frontend/src/user/pages/shuihuo/BatchFactoryCreateModal.source.test.js`
 Expected: FAIL，开关和分支不存在。
 
 - [x] **Step 3: 新增 UI 状态**
@@ -281,7 +281,7 @@ Expected: PASS.
 - Modify: `frontend/src/user/pages/shuihuo/BatchFactoryGiantMaterialPendingProgress.jsx`
 - Modify: `frontend/src/user/pages/shuihuo/BatchFactoryGiantMaterialFlow.source.test.js`
 
-**Consumes:** Task 1 策略、Task 2 直接取文结果、已有 job API。  
+**Consumes:** Task 1 策略、Task 2 直接取文结果、已有 job API。
 **Produces:** ocr-first 的一次自动兜底，direct-first 的两个手动恢复按钮。
 
 - [x] **Step 1: 写入失败源码测试**
@@ -300,7 +300,7 @@ assert.match(progress, /originalReadStage: 'failed'/);
 
 - [x] **Step 2: 确认测试失败**
 
-Run: `node --test frontend/src/user/pages/shuihuo/BatchFactoryGiantMaterialFlow.source.test.js`  
+Run: `node --test frontend/src/user/pages/shuihuo/BatchFactoryGiantMaterialFlow.source.test.js`
 Expected: FAIL，当前仅有一个“原文获取”按钮。
 
 - [x] **Step 3: 实现一次性自动书城兜底**
