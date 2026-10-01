@@ -31,6 +31,27 @@ function routeV12UpstreamPath(value) {
   return rewriteV12PathForLegacyRead(original);
 }
 
+// The project library needs names and counts, not every book's source text,
+// director document, and media history. Keep the detailed contract on the
+// single-batch endpoint so opening the library never freezes the browser.
+function batchFactoryBatchListSummary(batch = {}) {
+  const books = Array.isArray(batch?.books) ? batch.books : [];
+  return {
+    id: String(batch?.id || ''),
+    title: String(batch?.title || ''),
+    createdAt: batch?.createdAt,
+    updatedAt: batch?.updatedAt,
+    revision: Number(batch?.revision || 0),
+    bookCount: books.length,
+    books: books.map(book => ({
+      id: String(book?.id || ''),
+      bookId: String(book?.bookId || ''),
+      title: String(book?.title || ''),
+      platform: String(book?.platform || '')
+    }))
+  };
+}
+
 function rejectLegacyV11Mutations(req, res, next) {
 	if (["GET", "HEAD", "OPTIONS"].includes(String(req.method || "").toUpperCase())) return next();
 	return res.status(410).json({
@@ -178,6 +199,22 @@ async function refillMissingBatchFactoryBookSource({ book, fetchDirectOriginal, 
 function createBatchFactoryV12Router(options = {}) {
   const legacy = createBatchFactoryV11Router(options);
   const router = express.Router();
+  router.get('/batches/summary', async (req, res) => {
+    try {
+      const account = { username: req.username, isOwner: req.auth?.account?.isOwner === true };
+      const result = await v11JSONRequest({
+        ...account,
+        method: 'GET',
+        pathname: `${V11_BASE}/batches`,
+        goBaseUrl: options.goBaseUrl,
+        bridgeSecret: options.bridgeSecret
+      });
+      const batches = Array.isArray(result?.batches) ? result.batches : [];
+      return res.json({ batches: batches.map(batchFactoryBatchListSummary) });
+    } catch (error) {
+      return res.status(Number(error?.status) || 400).json({ error: error?.message || '读取批量工程失败' });
+    }
+  });
   router.post('/fetch-originals', async (req, res) => {
     try {
       const account = { username: req.username, isOwner: req.auth?.account?.isOwner === true };
@@ -277,6 +314,7 @@ function createBatchFactoryV12Router(options = {}) {
 
 module.exports = {
   V12_BASE,
+  batchFactoryBatchListSummary,
   classifyBatchFactoryBooks,
   fetchBatchFactoryOriginals,
   refillMissingBatchFactoryBookSource,

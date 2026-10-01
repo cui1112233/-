@@ -7,7 +7,7 @@ import { batchFactoryMergeCoverFrom } from './shuihuo/batchFactoryMergeCover';
 import { ProjectsView } from './shuihuo/ProjectsView';
 import { AssetsView } from './shuihuo/AssetsView';
 import { confirmSegmentation, createProject, deleteProject, getProductionHealth, getProject, listModels, listProjects, paragraphSegmentation, replaceProjectSource, smartSegmentation } from '../../shared/api/shuihuoProduction';
-import { appendNovelFetchIntake, classifyFetchedBatchMetadata, createBatchFromIntake, createManualIntake, deleteBatchFactoryProject, getBatch, getIntake, getMergeStatus, getProductionStatus, listBatches, startBatchAutomation } from '../../shared/api/batchFactoryV11';
+import { appendNovelFetchIntake, classifyFetchedBatchMetadata, createBatchFromIntake, createManualIntake, deleteBatchFactoryProject, getBatch, getIntake, getMergeStatus, getProductionStatus, listBatchSummaries, startBatchAutomation } from '../../shared/api/batchFactoryV11';
 import { BATCH_FACTORY_ACTIVE_BATCH_STORAGE_KEY, novelFetchIntakeBooks, pendingNovelFetchIntakeId } from './shuihuo/batchFactoryNovelFetchHandoff';
 import './shuihuo-production.css';
 
@@ -56,7 +56,7 @@ export function ShuihuoProductionPage({ openBatchOnLoad = false }) {
     try {
       const [water, batch] = await Promise.allSettled([
         listProjects({ silent: true }),
-        listBatches()
+        listBatchSummaries()
       ]);
 
       const waterProjects =

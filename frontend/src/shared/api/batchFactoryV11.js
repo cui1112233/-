@@ -112,6 +112,12 @@ export function listBatches() {
   return apiRequest(bf11Path('batches'));
 }
 
+// The project library must not download full originals and storyboard payloads
+// for every batch. Detailed data remains available through getBatch(batchId).
+export function listBatchSummaries() {
+  return apiRequest(bf11Path('batches/summary'));
+}
+
 export function createBatch(payload) {
   return apiRequest(bf11Path('batches'), { method: 'POST', body: body(payload) });
 }

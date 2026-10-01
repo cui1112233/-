@@ -8,7 +8,7 @@ import {
   createManualIntake,
   getBatch,
   getIntake,
-  listBatches,
+  listBatchSummaries,
   startBatchAutomation
 } from '../../shared/api/batchFactoryV11';
 import { BatchFactoryNovelList } from './shuihuo/BatchFactoryNovelList';
@@ -63,7 +63,7 @@ export default function BatchFactoryWorkbenchPage() {
     setLoading(true);
     setError('');
     try {
-      const next = batchesFromResult(await listBatches());
+      const next = batchesFromResult(await listBatchSummaries());
       if (mountedRef.current) setBatches(next);
       return next;
     } catch (requestError) {

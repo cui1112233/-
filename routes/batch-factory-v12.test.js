@@ -3,12 +3,37 @@ const assert = require('node:assert/strict');
 
 const {
   classifyBatchFactoryBooks,
+  batchFactoryBatchListSummary,
   fetchBatchFactoryOriginals,
   refillMissingBatchFactoryBookSource,
   routeV12UpstreamPath,
   rewriteV12PathForLegacyRead,
   rejectLegacyV11Mutations
 } = require('./batch-factory-v12');
+
+test('lists batch projects without serializing their full source and storyboard payloads', () => {
+  const result = batchFactoryBatchListSummary({
+    id: 'batch-1',
+    title: '测试批量',
+    createdAt: '2026-10-01T00:00:00.000Z',
+    updatedAt: '2026-10-01T00:00:00.000Z',
+    revision: 3,
+    settingsState: { patch: { textModelId: 'text-1' } },
+    books: [{
+      id: 'book-1', bookId: '558154', title: '后来情深情亦浅', platform: '七猫',
+      sourceText: '这里是一大段不该进入项目列表的正文',
+      sourceMetadata: { gender: '女频' },
+      directorRevision: { output: { h3_director: { director_cards: [{ source_text: '不该进入列表' }] } } },
+      videos: [{ id: 'video-1', prompt: '不该进入列表' }]
+    }]
+  });
+
+  assert.deepEqual(result, {
+    id: 'batch-1', title: '测试批量', createdAt: '2026-10-01T00:00:00.000Z', updatedAt: '2026-10-01T00:00:00.000Z',
+    revision: 3, bookCount: 1,
+    books: [{ id: 'book-1', bookId: '558154', title: '后来情深情亦浅', platform: '七猫' }]
+  });
+});
 
 test('classifies every fetched book independently without letting one failure block the others', async () => {
   const calls = [];

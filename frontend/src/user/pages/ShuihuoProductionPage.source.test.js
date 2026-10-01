@@ -7,10 +7,10 @@ import { fileURLToPath } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const pagePath = path.join(here, 'ShuihuoProductionPage.jsx');
 
-test('shared Shuihuo library loads both commentary projects and Batch Factory batches', () => {
+test('shared Shuihuo library loads batch summaries instead of every full original and storyboard', () => {
   const page = fs.readFileSync(pagePath, 'utf8');
 
-  assert.match(page, /Promise\.allSettled\(\[\s*listProjects\(\{ silent: true \}\),\s*listBatches\(\)/s);
+  assert.match(page, /Promise\.allSettled\(\[\s*listProjects\(\{ silent: true \}\),\s*listBatchSummaries\(\)/s);
   assert.match(page, /batchFactoryProjectsFrom\(batches\)/);
   assert.match(page, /getProductionStatus\(project\.batchId/);
   assert.match(page, /getMergeStatus\(project\.batchId/);
