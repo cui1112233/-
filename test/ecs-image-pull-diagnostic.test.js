@@ -17,6 +17,9 @@ test('ECS image pull diagnostic is manually triggered, SHA-validated, and read-o
   assert.match(workflow, /df -h \/ \/var\/lib\/docker/);
   assert.match(workflow, /df -ih \/ \/var\/lib\/docker/);
   assert.match(workflow, /docker system df --format/);
+  assert.match(workflow, /docker container ls -a/);
+  assert.match(workflow, /docker image ls --digests/);
+  assert.match(workflow, /docker image ls -f dangling=true/);
   assert.match(workflow, /curl -sS -o \/dev\/null -w/);
   assert.match(workflow, /docker image inspect/);
   assert.doesNotMatch(workflow, /- name: Prepare pinned ECS SSH connection/);

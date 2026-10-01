@@ -81,6 +81,24 @@ jobs:
             report 'docker_storage' "failed:$?"
           fi
 
+          if timeout 20 docker container ls -a --format 'ECS_PULL_DIAGNOSTIC container={{.ID}} status={{.Status}} image={{.Image}} names={{.Names}}'; then
+            report 'docker_containers' 'ok'
+          else
+            report 'docker_containers' "failed:$?"
+          fi
+
+          if timeout 20 docker image ls --digests --format 'ECS_PULL_DIAGNOSTIC image={{.ID}} repository={{.Repository}} tag={{.Tag}} digest={{.Digest}} size={{.Size}}'; then
+            report 'docker_images' 'ok'
+          else
+            report 'docker_images' "failed:$?"
+          fi
+
+          if timeout 20 docker image ls -f dangling=true --format 'ECS_PULL_DIAGNOSTIC dangling_image={{.ID}} size={{.Size}}'; then
+            report 'docker_dangling_images' 'ok'
+          else
+            report 'docker_dangling_images' "failed:$?"
+          fi
+
           ps -eo pid=,stat=,etime=,comm= | awk '$4 ~ /^(dockerd|containerd|docker)$/ { print "ECS_PULL_DIAGNOSTIC process=" $1 ":" $2 ":" $3 ":" $4 }'
 
           if timeout 10 getent hosts ghcr.io; then
