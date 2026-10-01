@@ -4,6 +4,15 @@ import { classifyBookPublishMetadata, fetchBookOriginal, getBatch, startBatchAut
 import { findRegisteredGiantMaterialBook } from './batchFactoryGiantMaterialImport.js';
 import { createGiantMaterialJob, getGiantMaterialJob } from '../../../shared/api/giantMaterialExecutorPublic.js';
 
+// 旧批量在浏览器页面里创建，可能已经留下“direct_first + 待读取”的占位书。
+// 同一页面只允许一条直取请求在飞行，避免一次打开 20 本书把书城接口打爆。
+let directFirstReadTail = Promise.resolve();
+function enqueueDirectFirstRead(task) {
+  const next = directFirstReadTail.then(task, task);
+  directFirstReadTail = next.catch(() => undefined);
+  return next;
+}
+
 // 占位书正文进度条：巨量素材登记后正文为空，Windows 执行器读取期间在书卡“小说正文”位置
 // 显示实时进度（视频 x/y 秒 + 百分比）。读取完成后在这里直接回填正文并刷新，弹窗关了也不丢。
 // 读取失败或未绑定任务时提供“原文获取”：用书卡已有的书名 + Book ID + 书城直接拉正文兜底。
@@ -19,6 +28,7 @@ export function BatchFactoryGiantMaterialPendingProgress({ book, batchId, onCont
   const [ocrStarting, setOcrStarting] = useState(false);
   const doneRef = useRef(false);
   const fallbackRef = useRef('');
+  const autoStartRef = useRef('');
 
   useEffect(() => {
     doneRef.current = false;
@@ -142,6 +152,11 @@ export function BatchFactoryGiantMaterialPendingProgress({ book, batchId, onCont
           });
         }
       } catch (_) { /* 原错误优先展示；用户仍可手动重试 */ }
+      if (automatic && originalReadStrategy === 'direct_first') {
+        setError('原始书城读取失败，正在自动改用滚屏 OCR…');
+        await startOcrFallback();
+        return;
+      }
       setError(failure);
       if (!automatic) message.error(failure);
     } finally {
@@ -149,7 +164,6 @@ export function BatchFactoryGiantMaterialPendingProgress({ book, batchId, onCont
     }
   }
 
-  if (!pending || !visible) return null;
   async function startOcrFallback() {
     if (!batchId || !book?.id) return;
     setOcrStarting(true);
@@ -177,6 +191,24 @@ export function BatchFactoryGiantMaterialPendingProgress({ book, batchId, onCont
     } catch (startError) { setError(String(startError?.message || '等待执行器')); } finally { setOcrStarting(false); }
   }
 
+  useEffect(() => {
+    const key = `${book?.id || ''}:${book?.revision || 0}`;
+    const shouldResume = Boolean(
+      visible
+      && pending
+      && batchId
+      && book?.id
+      && !jobId
+      && !String(book?.sourceText || '').trim()
+      && !persistedOriginalReadError
+      && originalReadStrategy === 'direct_first'
+    );
+    if (!shouldResume || autoStartRef.current === key) return;
+    autoStartRef.current = key;
+    enqueueDirectFirstRead(() => refetchOriginal(true));
+  }, [visible, pending, batchId, book?.id, book?.revision, book?.sourceText, jobId, persistedOriginalReadError, originalReadStrategy]);
+
+  if (!pending || !visible) return null;
   if (error || persistedOriginalReadError || !jobId) return <Alert className="batch-factory-giant-pending is-error" type="error" showIcon message={error || persistedOriginalReadError || 'OCR 任务未派发'} description={<Space size="small"><Button size="small" type="primary" loading={refetching} onClick={() => refetchOriginal(false)}>重试获取原文</Button><Button size="small" loading={ocrStarting} disabled={refetching} onClick={startOcrFallback}>改用滚屏 OCR</Button></Space>} onClick={event => event.stopPropagation()} />;
   const percent = Math.max(0, Math.min(100, Number(progress?.percent || 0)));
   const seconds = progress?.total ? ` · 视频 ${progress.completed || 0}/${progress.total} 秒` : '';
