@@ -149,15 +149,26 @@ async function refillMissingBatchFactoryBookSource({ book, fetchDirectOriginal, 
   const fetched = await fetchDirectOriginal({ bookId, platformId, maxTxt });
   const sourceText = String(fetched?.text || '').trim();
   if (!sourceText) throw new Error('没有返回正文');
+  const existingMetadata = book?.sourceMetadata && typeof book.sourceMetadata === 'object'
+    ? book.sourceMetadata
+    : {};
+  const isGiantMaterial = existingMetadata.sourceMode === 'giant_material';
   const response = await captureSource({
     sourceText,
     expectedRevision: Number(book?.revision || 0),
     sourceMetadata: {
-      sourceMode: 'manual_refetched',
+      ...existingMetadata,
+      sourceMode: isGiantMaterial ? 'giant_material' : 'manual_refetched',
       sourceFetchedAt: now().toISOString(),
       sourceFetchAttempts: Number(fetched?.attempts || 0),
       sourceCaptureCharacters: maxTxt,
       sourceBookId: bookId,
+      ...(isGiantMaterial ? {
+        originalReadStage: 'completed',
+        originalReadVia: 'bookstore',
+        originalReadError: '',
+        contentPending: false
+      } : {}),
       ...(fetched?.bookinfo?.work_title ? { sourceBookTitle: String(fetched.bookinfo.work_title) } : {})
     }
   });
