@@ -237,7 +237,15 @@ func (a *Agent) process(ctx context.Context, claim ClaimResult) error {
 				if err := a.state.Transition(StateCleaning); err != nil {
 					return err
 				}
+				progress := a.state.Snapshot().Progress
+				jobProgress := JobProgress{Completed: progress.Completed, Total: progress.Total, Percent: progress.Percent}
+				if err := a.config.Client.Progress(ctx, a.config.Token, claim.Job.ID, LeaseCredential{Token: claim.LeaseToken, Generation: claim.LeaseGeneration}, StateCleaning, jobProgress); err != nil {
+					return err
+				}
 				if err := a.state.Transition(StateUploading); err != nil {
+					return err
+				}
+				if err := a.config.Client.Progress(ctx, a.config.Token, claim.Job.ID, LeaseCredential{Token: claim.LeaseToken, Generation: claim.LeaseGeneration}, StateUploading, jobProgress); err != nil {
 					return err
 				}
 				if err := a.config.Client.Complete(ctx, a.config.Token, claim.Job.ID, LeaseCredential{Token: claim.LeaseToken, Generation: claim.LeaseGeneration}, Result{Text: event.Text, WordCount: event.Characters}); err != nil {
