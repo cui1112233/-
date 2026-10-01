@@ -145,7 +145,10 @@ export default function BatchFactoryWorkbenchPage() {
   }, [refreshBatches]);
 
   async function createBatch(input) {
-    const batch = asBatch(await createManualIntake(input));
+    const created = input?.intakeId
+      ? await createBatchFromIntake(input.intakeId, { title: input.title })
+      : await createManualIntake(input);
+    const batch = asBatch(created);
     localStorage.setItem(BATCH_FACTORY_ACTIVE_BATCH_STORAGE_KEY, batch.id);
     setActiveBatch(batch);
     await refreshBatches({ quiet: true });

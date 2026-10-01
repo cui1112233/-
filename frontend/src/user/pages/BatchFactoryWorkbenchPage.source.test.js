@@ -18,3 +18,8 @@ test('uses only Batch Factory data and keeps novel-fetch intake handoff', () => 
   assert.doesNotMatch(page, /getProductionHealth\(/);
   assert.doesNotMatch(page, /CommentaryWorkbench/);
 });
+
+test('creates a batch from an intake when the giant-material flow has already registered its placeholder book', () => {
+  const page = fs.readFileSync(pagePath, 'utf8');
+  assert.match(page, /input\?\.intakeId\s*\?\s*await createBatchFromIntake\(input\.intakeId,\s*\{\s*title: input\.title\s*\}\)/s);
+});
