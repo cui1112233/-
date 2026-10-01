@@ -81,7 +81,11 @@ test('offers giant material intake through the resident executor', () => {
   assert.doesNotMatch(source, /extractGiantMaterial\(/);
   // 旧单 ID 等待式流程已移除
   assert.doesNotMatch(source, /waitForGiantMaterialJob/);
-  assert.doesNotMatch(source, /读取并创建/);
+});
+
+test('giant immediate execution creates and starts original retrieval without an automation preset', () => {
+  assert.match(source, /isGiantMaterial\s*\?\s*<>[\s\S]*?onClick=\{\(\) => submitGiantMaterial\(\)\}/);
+  assert.match(source, /onClick=\{\(\) => openAutomationDialog\('immediate'\)\}/);
 });
 
 test('lets giant batches choose a mutually exclusive original acquisition priority', () => {
