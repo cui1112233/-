@@ -44,8 +44,26 @@ func (s *MemoryStore) PairExecutor(_ context.Context, codeHash SecretHash, platf
 	pairing.ConsumedAt = &consumed
 	s.pairings[secretHashKey(codeHash)] = pairing
 	executor.OwnerUsername = pairing.OwnerUsername
-	s.executors[executor.ID] = executor
-	s.tokens[secretHashKey(executor.TokenHash)] = executor.ID
+	var existingID string
+	for id, item := range s.executors {
+		if item.OwnerUsername != pairing.OwnerUsername || item.OS != executor.OS || item.DeviceName != executor.DeviceName {
+			continue
+		}
+		if existingID == "" || item.UpdatedAt.After(s.executors[existingID].UpdatedAt) {
+			existingID = id
+		}
+	}
+	if existingID != "" {
+		old := s.executors[existingID]
+		delete(s.tokens, secretHashKey(old.TokenHash))
+		executor.ID = existingID
+		executor.UpdatedAt = now
+		s.executors[existingID] = executor
+		s.tokens[secretHashKey(executor.TokenHash)] = existingID
+	} else {
+		s.executors[executor.ID] = executor
+		s.tokens[secretHashKey(executor.TokenHash)] = executor.ID
+	}
 	return executor, nil
 }
 

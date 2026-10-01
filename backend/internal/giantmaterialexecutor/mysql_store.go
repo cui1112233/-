@@ -36,10 +36,30 @@ FROM giant_executor_pairings WHERE code_hash = ? FOR UPDATE`, codeHash[:]).Scan(
 		return ExecutorRecord{}, ErrPairingInvalid
 	}
 	executor.OwnerUsername = pairing.OwnerUsername
-	if _, err := tx.ExecContext(ctx, `INSERT INTO giant_executors
+	var existingID string
+	lookupErr := tx.QueryRowContext(ctx, `SELECT id FROM giant_executors
+WHERE owner_username = ? AND os = ? AND device_name = ?
+ORDER BY updated_at DESC, id ASC LIMIT 1 FOR UPDATE`,
+		executor.OwnerUsername, executor.OS, executor.DeviceName).Scan(&existingID)
+	switch {
+	case errors.Is(lookupErr, sql.ErrNoRows):
+		if _, err := tx.ExecContext(ctx, `INSERT INTO giant_executors
 (id, owner_username, platform, token_hash, device_name, os, app_version, last_seen_at, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`, executor.ID, executor.OwnerUsername, executor.Platform, executor.TokenHash[:], executor.DeviceName, executor.OS, executor.Version, executor.CreatedAt, executor.UpdatedAt); err != nil {
-		return ExecutorRecord{}, err
+VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`, executor.ID, executor.OwnerUsername, executor.Platform,
+			executor.TokenHash[:], executor.DeviceName, executor.OS, executor.Version,
+			executor.CreatedAt, executor.UpdatedAt); err != nil {
+			return ExecutorRecord{}, err
+		}
+	case lookupErr != nil:
+		return ExecutorRecord{}, lookupErr
+	default:
+		executor.ID = existingID
+		executor.UpdatedAt = now
+		if _, err := tx.ExecContext(ctx, `UPDATE giant_executors
+SET token_hash = ?, app_version = ?, updated_at = ? WHERE id = ?`,
+			executor.TokenHash[:], executor.Version, now, existingID); err != nil {
+			return ExecutorRecord{}, err
+		}
 	}
 	result, err := tx.ExecContext(ctx, `UPDATE giant_executor_pairings SET consumed_at = ? WHERE id = ? AND consumed_at IS NULL`, now, pairing.ID)
 	if err != nil {
