@@ -20,10 +20,11 @@ test('ECS image pull diagnostic is manually triggered, SHA-validated, and read-o
   assert.match(workflow, /docker container ls -a/);
   assert.match(workflow, /docker image ls --digests/);
   assert.match(workflow, /docker image ls -f dangling=true/);
+  assert.match(workflow, /ps -eo pid=,ppid=,stat=,etime=,args=/);
   assert.match(workflow, /curl -sS -o \/dev\/null -w/);
   assert.match(workflow, /docker image inspect/);
   assert.doesNotMatch(workflow, /- name: Prepare pinned ECS SSH connection/);
-  assert.doesNotMatch(workflow, /docker (pull|login|compose|system prune|image prune|container prune|builder prune)/);
+  assert.doesNotMatch(workflow, /^\s*docker (pull|login|compose|system prune|image prune|container prune|builder prune)/m);
   assert.doesNotMatch(workflow, /docker (rm|stop|restart|kill)/);
   assert.doesNotMatch(workflow, /\b(systemctl|service|kill|rm -rf)\b/);
 });

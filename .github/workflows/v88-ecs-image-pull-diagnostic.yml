@@ -100,6 +100,7 @@ jobs:
           fi
 
           ps -eo pid=,stat=,etime=,comm= | awk '$4 ~ /^(dockerd|containerd|docker)$/ { print "ECS_PULL_DIAGNOSTIC process=" $1 ":" $2 ":" $3 ":" $4 }'
+          ps -eo pid=,ppid=,stat=,etime=,args= | awk '$0 ~ /docker pull/ { print "ECS_PULL_DIAGNOSTIC pull_process=" $0 }'
 
           if timeout 10 getent hosts ghcr.io; then
             report 'ghcr_dns' 'ok'
