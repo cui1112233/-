@@ -7,6 +7,8 @@ import (
 
 type Store interface {
 	EnsureIdentityUniqueIndex(context.Context) error
+	ConsolidateDuplicateExecutors(context.Context, time.Time) (int, error)
+	RecentFailures(context.Context, string, time.Time) (map[string]time.Time, error)
 	CreatePairing(context.Context, PairingRecord) error
 	PairExecutor(context.Context, SecretHash, string, ExecutorRecord, time.Time) (ExecutorRecord, error)
 	ExecutorByTokenHash(context.Context, SecretHash) (ExecutorRecord, error)

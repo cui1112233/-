@@ -91,11 +91,33 @@ func (s *Service) ListExecutors(ctx context.Context, owner string) ([]ExecutorVi
 		return nil, err
 	}
 	now := s.now().UTC()
+	failures, err := s.store.RecentFailures(ctx, owner, now.Add(-FailureCooldown))
+	if err != nil {
+		return nil, err
+	}
 	views := make([]ExecutorView, 0, len(records))
 	for _, record := range records {
+		if value, ok := failures[record.ID]; ok {
+			copyValue := value
+			views = append(views, ExecutorView{
+				ID: record.ID, Name: record.DeviceName, Platform: record.Platform, OS: record.OS,
+				Version: record.Version, Online: record.LastSeenAt != nil && !record.LastSeenAt.Before(now.Add(-OnlineThreshold)),
+				LastSeenAt: record.LastSeenAt, RecentFailureAt: &copyValue,
+			})
+			continue
+		}
 		views = append(views, ExecutorView{ID: record.ID, Name: record.DeviceName, Platform: record.Platform, OS: record.OS, Version: record.Version, Online: record.LastSeenAt != nil && !record.LastSeenAt.Before(now.Add(-OnlineThreshold)), LastSeenAt: record.LastSeenAt})
 	}
 	return views, nil
+}
+
+func (s *Service) ConsolidateExecutors(ctx context.Context) (int, error) {
+	return s.store.ConsolidateDuplicateExecutors(ctx, s.now().UTC())
+}
+
+// EnsureIdentityUniqueIndex 包装 store 同名方法（0a260d61 引入；Service 层需补此方法供 app.go 调用）
+func (s *Service) EnsureIdentityUniqueIndex(ctx context.Context) error {
+	return s.store.EnsureIdentityUniqueIndex(ctx)
 }
 
 func (s *Service) GetPreference(ctx context.Context, owner string) (PreferenceView, error) {
@@ -398,4 +420,80 @@ func randomID(prefix string) string {
 		return fmt.Sprintf("%s%x", prefix, time.Now().UnixNano())
 	}
 	return prefix + base64.RawURLEncoding.EncodeToString(bytes)
+}
+
+type executorCandidate struct {
+	id        string
+	version   string
+	lastSeen  *time.Time
+	updatedAt time.Time
+}
+
+func pickKeeping(list []executorCandidate) string {
+	target := list[0]
+	for _, item := range list[1:] {
+		cmp := compareVersion(item.version, target.version)
+		if cmp > 0 ||
+			(cmp == 0 && compareSeen(item.lastSeen, target.lastSeen) > 0) ||
+			(cmp == 0 && compareSeen(item.lastSeen, target.lastSeen) == 0 && item.updatedAt.After(target.updatedAt)) {
+			target = item
+		}
+	}
+	return target.id
+}
+
+func compareVersion(a, b string) int {
+	pa := strings.Split(strings.TrimSpace(a), ".")
+	pb := strings.Split(strings.TrimSpace(b), ".")
+	n := len(pa)
+	if len(pb) > n {
+		n = len(pb)
+	}
+	for i := 0; i < n; i++ {
+		var x, y int
+		if i < len(pa) {
+			x = atoiOrZero(pa[i])
+		}
+		if i < len(pb) {
+			y = atoiOrZero(pb[i])
+		}
+		if x != y {
+			if x > y {
+				return 1
+			}
+			return -1
+		}
+	}
+	return 0
+}
+
+func atoiOrZero(value string) int {
+	value = strings.TrimSpace(value)
+	out := 0
+	for _, r := range value {
+		if r < '0' || r > '9' {
+			return 0
+		}
+		out = out*10 + int(r-'0')
+	}
+	return out
+}
+
+func compareSeen(a, b *time.Time) int {
+	if a == nil && b == nil {
+		return 0
+	}
+	if a == nil {
+		return -1
+	}
+	if b == nil {
+		return 1
+	}
+	if a.After(*b) {
+		return 1
+	}
+	if b.After(*a) {
+		return -1
+	}
+	return 0
 }

@@ -84,13 +84,14 @@ type ExecutorRecord struct {
 }
 
 type ExecutorView struct {
-	ID         string     `json:"id"`
-	Name       string     `json:"name"`
-	Platform   string     `json:"platform"`
-	OS         string     `json:"os"`
-	Version    string     `json:"version"`
-	Online     bool       `json:"online"`
-	LastSeenAt *time.Time `json:"lastSeenAt,omitempty"`
+	ID              string     `json:"id"`
+	Name            string     `json:"name"`
+	Platform        string     `json:"platform"`
+	OS              string     `json:"os"`
+	Version         string     `json:"version"`
+	Online          bool       `json:"online"`
+	LastSeenAt      *time.Time `json:"lastSeenAt,omitempty"`
+	RecentFailureAt *time.Time `json:"recentFailureAt,omitempty"`
 }
 
 type JobState string

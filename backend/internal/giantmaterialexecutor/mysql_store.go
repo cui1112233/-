@@ -29,6 +29,120 @@ ADD UNIQUE KEY uq_giant_executors_identity (owner_username, os, device_name)`)
 	return err
 }
 
+func (s *MySQLStore) ConsolidateDuplicateExecutors(ctx context.Context, now time.Time) (int, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT owner_username, os, device_name
+FROM giant_executors GROUP BY owner_username, os, device_name HAVING COUNT(*) > 1`)
+	if err != nil {
+		return 0, err
+	}
+	type groupRow struct{ owner, osName, deviceName string }
+	groups := make([]groupRow, 0)
+	for rows.Next() {
+		var group groupRow
+		if err := rows.Scan(&group.owner, &group.osName, &group.deviceName); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		groups = append(groups, group)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	merged := 0
+	for _, group := range groups {
+		if err := s.consolidateOneGroup(ctx, group.owner, group.osName, group.deviceName, now); err != nil {
+			return merged, err
+		}
+		merged++
+	}
+	return merged, nil
+}
+
+func (s *MySQLStore) consolidateOneGroup(ctx context.Context, owner, osName, deviceName string, now time.Time) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	rows, err := tx.QueryContext(ctx, `SELECT id, app_version, last_seen_at, updated_at
+FROM giant_executors WHERE owner_username = ? AND os = ? AND device_name = ? ORDER BY id ASC FOR UPDATE`,
+		owner, osName, deviceName)
+	if err != nil {
+		return err
+	}
+	candidates := make([]executorCandidate, 0)
+	for rows.Next() {
+		var item executorCandidate
+		var lastSeen sql.NullTime
+		if err := rows.Scan(&item.id, &item.version, &lastSeen, &item.updatedAt); err != nil {
+			rows.Close()
+			return err
+		}
+		if lastSeen.Valid {
+			seen := lastSeen.Time
+			item.lastSeen = &seen
+		}
+		candidates = append(candidates, item)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil || len(candidates) < 2 {
+		return err
+	}
+	keeping := pickKeeping(candidates)
+	oldIDs := make([]string, 0, len(candidates)-1)
+	for _, item := range candidates {
+		if item.id != keeping {
+			oldIDs = append(oldIDs, item.id)
+		}
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(oldIDs)), ",")
+	args := make([]any, 0, len(oldIDs)+1)
+	args = append(args, keeping)
+	for _, id := range oldIDs {
+		args = append(args, id)
+	}
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE giant_executor_jobs SET lease_executor_id = ? WHERE lease_executor_id IN (`+placeholders+`)`, args...); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE giant_executor_job_events SET executor_id = ? WHERE executor_id IN (`+placeholders+`)`, args...); err != nil {
+		return err
+	}
+	deleteArgs := make([]any, 0, len(oldIDs))
+	for _, id := range oldIDs {
+		deleteArgs = append(deleteArgs, id)
+	}
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM giant_executors WHERE id IN (`+placeholders+`)`, deleteArgs...); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *MySQLStore) RecentFailures(ctx context.Context, owner string, since time.Time) (map[string]time.Time, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT executor_id, MAX(created_at)
+FROM giant_executor_job_events
+WHERE event_type = 'failed' AND created_at >= ?
+AND executor_id IN (SELECT id FROM giant_executors WHERE owner_username = ?)
+GROUP BY executor_id`, since, owner)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[string]time.Time)
+	for rows.Next() {
+		var id string
+		var value time.Time
+		if err := rows.Scan(&id, &value); err != nil {
+			return nil, err
+		}
+		out[id] = value
+	}
+	return out, rows.Err()
+}
+
 func (s *MySQLStore) CreatePairing(ctx context.Context, record PairingRecord) error {
 	_, err := s.db.ExecContext(ctx, `INSERT INTO giant_executor_pairings
 (id, owner_username, platform, code_hash, expires_at, consumed_at, created_at)

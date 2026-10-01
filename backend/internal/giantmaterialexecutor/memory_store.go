@@ -28,6 +28,59 @@ func NewMemoryStore() *MemoryStore {
 
 func (s *MemoryStore) EnsureIdentityUniqueIndex(_ context.Context) error { return nil }
 
+func (s *MemoryStore) ConsolidateDuplicateExecutors(_ context.Context, now time.Time) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	type groupKey struct {
+		owner, osName, deviceName string
+	}
+	groups := make(map[groupKey][]executorCandidate)
+	for id, item := range s.executors {
+		key := groupKey{item.OwnerUsername, item.OS, item.DeviceName}
+		groups[key] = append(groups[key], executorCandidate{
+			id: id, version: item.Version, lastSeen: item.LastSeenAt, updatedAt: item.UpdatedAt,
+		})
+	}
+	merged := 0
+	for _, candidates := range groups {
+		if len(candidates) < 2 {
+			continue
+		}
+		keeping := pickKeeping(candidates)
+		for _, item := range candidates {
+			if item.id == keeping {
+				continue
+			}
+			for _, job := range s.jobs {
+				if job.LeaseExecutorID == item.id {
+					job.LeaseExecutorID = keeping
+					s.jobs[job.ID] = job
+				}
+			}
+			delete(s.executors, item.id)
+			merged++
+		}
+	}
+	return merged, nil
+}
+
+func (s *MemoryStore) RecentFailures(_ context.Context, owner string, since time.Time) (map[string]time.Time, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make(map[string]time.Time)
+	for executorID, failedAt := range s.lastFailure {
+		if failedAt.Before(since) {
+			continue
+		}
+		executor, ok := s.executors[executorID]
+		if !ok || executor.OwnerUsername != owner {
+			continue
+		}
+		out[executorID] = failedAt
+	}
+	return out, nil
+}
+
 func (s *MemoryStore) CreatePairing(_ context.Context, record PairingRecord) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
