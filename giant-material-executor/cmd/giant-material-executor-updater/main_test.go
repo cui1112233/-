@@ -33,3 +33,10 @@ func TestValidateMacStageRejectsMissingMainBinary(t *testing.T) {
 		t.Fatal("validateMacStage() error = nil, want missing executable rejection")
 	}
 }
+
+func TestValidateRequestRejectsUnsafeParentPID(t *testing.T) {
+	err := validateRequest(updateRequest{Platform: "windows", ParentPID: 0, AppRoot: t.TempDir(), StageDir: t.TempDir()})
+	if err == nil {
+		t.Fatal("validateRequest() error = nil, want parent PID rejection")
+	}
+}

@@ -24,6 +24,7 @@ import (
 // executable unless ApplyNow was called by the local executor UI.
 type SelfUpdater struct {
 	Root           string
+	StageRoot      string
 	CurrentVersion string
 	Origin         func() string
 	HTTPClient     *http.Client
@@ -169,7 +170,11 @@ func (u *SelfUpdater) stage(ctx context.Context, client *http.Client, manifest R
 	if !strings.EqualFold(hex.EncodeToString(sum[:]), strings.TrimSpace(manifest.SHA256)) {
 		return errors.New("新版本文件校验失败（SHA256 不匹配），已放弃更新")
 	}
-	stageDir := filepath.Join(u.Root, ".updates", manifest.Version)
+	stageRoot := strings.TrimSpace(u.StageRoot)
+	if stageRoot == "" {
+		stageRoot = filepath.Join(u.Root, ".updates")
+	}
+	stageDir := filepath.Join(stageRoot, manifest.Version)
 	if err := os.RemoveAll(stageDir); err != nil {
 		return err
 	}

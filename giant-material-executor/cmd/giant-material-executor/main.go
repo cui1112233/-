@@ -205,6 +205,11 @@ func main() {
 			return "", errors.New("self update unavailable")
 		}
 		return updater.CheckNow(checkCtx)
+	}, ApplyUpdate: func(applyCtx context.Context) (string, error) {
+		if updater == nil {
+			return "", errors.New("self update unavailable")
+		}
+		return updater.ApplyNow(applyCtx)
 	}}})
 	if err != nil {
 		log.Fatalf("create loopback server: %v", err)

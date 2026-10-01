@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,26 @@ const (
 	appBundleName = "GiantMaterialExecutor.app"
 	macMainBinary = "GiantMaterialExecutor"
 )
+
+type updateRequest struct {
+	Platform  string
+	ParentPID int
+	AppRoot   string
+	StageDir  string
+}
+
+func validateRequest(request updateRequest) error {
+	if request.ParentPID <= 0 {
+		return errors.New("parent PID is required")
+	}
+	if request.Platform != "windows" && request.Platform != "macos" {
+		return errors.New("unsupported update platform")
+	}
+	if strings.TrimSpace(request.AppRoot) == "" || strings.TrimSpace(request.StageDir) == "" {
+		return errors.New("app root and stage directory are required")
+	}
+	return nil
+}
 
 // macAppBundleFromExecutable derives the one application bundle an updater is
 // allowed to replace. It rejects a loose binary so an arbitrary file cannot be
@@ -44,13 +65,18 @@ func validateMacStage(stage string) error {
 }
 
 func main() {
-	// The platform-specific process handoff is deliberately invoked by the
-	// executor only after it has verified a signed archive and stopped its OCR
-	// worker. Keeping this command inert without validated arguments avoids an
-	// accidentally executable destructive helper while the handoff contract is
-	// wired in the next implementation step.
-	if len(os.Args) > 1 {
-		fmt.Fprintln(os.Stderr, "GiantMaterialExecutorUpdater must be started by the executor")
+	platform := flag.String("platform", "", "target platform")
+	parentPID := flag.Int("parent-pid", 0, "executor process id")
+	appRoot := flag.String("app-root", "", "executor install root")
+	stageDir := flag.String("stage-dir", "", "verified staged update directory")
+	flag.Parse()
+	request := updateRequest{Platform: strings.TrimSpace(*platform), ParentPID: *parentPID, AppRoot: *appRoot, StageDir: *stageDir}
+	if err := validateRequest(request); err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
+	}
+	if err := applyUpdate(request); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
 	}
 }
