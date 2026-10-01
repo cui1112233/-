@@ -1,3 +1,3 @@
-release_sha=4ed67cbb
-scope=batch factory opening variants (multi-opening generation, per-variant merge and upload); giant executor Windows/macOS preference dispatch, targeted retry and stuck-job reclaim; Qingyu platform tag fixes
-requested_at=2026-10-01T11:50:00+08:00
+release_sha=5df903f2
+scope=move opening-variants toggle into the AI reasoning asset-settings grid cell (UI placement only, patch-root keys unchanged)
+requested_at=2026-10-01T14:20:00+08:00
