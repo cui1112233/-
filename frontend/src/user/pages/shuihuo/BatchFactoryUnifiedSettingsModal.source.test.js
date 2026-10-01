@@ -145,3 +145,10 @@ test('unified AI reasoning exposes all four constraint layers plus the base-setu
     assert.match(source, new RegExp(`updateConstraint\\('${category}', presetId\\)`));
   }
 });
+
+test('unified constraint selector fetches and persists the preset body instead of saving an empty selection', () => {
+  assert.match(source, /import \{ getConstraintPresetTexts \} from '..\/..\/..\/shared\/api\/generation'/);
+  assert.match(source, /getConstraintPresetTexts\(\[presetId\]\)/);
+  assert.match(source, /const body = String\(result\?\.texts\?\.\[presetId\] \|\| ''\)/);
+  assert.match(source, /selections: \[\.\.\.rest, \{ \.\.\.presetValue\(selected\), body \}\]/);
+});

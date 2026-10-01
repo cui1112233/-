@@ -338,6 +338,38 @@ export function BatchFactoryBookSettingsModal({ open, batch, book, activeRegion 
     EDITABLE_CONSTRAINT_LAYERS.forEach(([category]) => { loadPersonalConstraintPrompts(category); });
   }, [open, region]);
 
+  // 存量批量/单书配置可能只保存了系统约束的 presetId 而没有正文（旧版统一配置选择器漏抓 body）。
+  // 打开约束页时按预设号静默补拉一次正文用于回显，避免“下拉有名字、内容框空白”；
+  // 只补“系统预设 + 正文为空”的层，个人提示词/草稿不碰，后端生产另有权威兜底。
+  useEffect(() => {
+    if (!open || region !== 'constraints' || loading) return undefined;
+    const initialRules = normalizeConstraintRules((form.aiPromptConfig || {}).constraints);
+    const missing = EDITABLE_CONSTRAINT_LAYERS
+      .map(([category]) => ({ category, layer: initialRules[category] }))
+      .filter(({ layer }) => layer && layer.enabled && layer.source === 'system' && layer.presetId && !String(layer.body || '').trim());
+    if (!missing.length) return undefined;
+    let alive = true;
+    getConstraintPresetTexts(missing.map(({ layer }) => layer.presetId))
+      .then(result => {
+        if (!alive) return;
+        const texts = result?.texts || {};
+        setForm(current => {
+          const rules = normalizeConstraintRules((current.aiPromptConfig || {}).constraints);
+          let changed = false;
+          for (const { category, layer } of missing) {
+            const body = String(texts[layer.presetId] || '').trim();
+            if (body && !String(rules[category]?.body || '').trim()) { rules[category] = { ...rules[category], body }; changed = true; }
+          }
+          if (!changed) return current;
+          return { ...current, aiPromptConfig: { ...(current.aiPromptConfig || {}), constraints: withDirectorConstraintSelections(rules) } };
+        });
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+    // 只在弹窗打开/切到约束页/目录加载完成/换书时执行，不跟随每次输入。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, region, loading, catalog, book?.id, book?.settingsState?.revision]);
+
   const modelOptions = useMemo(() => ({
     text: models.filter(item => item.kind === 'text').map(item => ({ value: item.id, label: item.name || item.id })),
     image: models.filter(item => item.kind === 'image').map(item => ({ value: item.id, label: item.name || item.id })),

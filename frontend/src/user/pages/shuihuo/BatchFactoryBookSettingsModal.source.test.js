@@ -93,6 +93,15 @@ test('single-book engine settings can override opening variants and restore batc
   assert.doesNotMatch(source, /换开头（当前书覆盖）/);
 });
 
+test('single-book constraints view backfills empty system-constraint bodies on open for display', () => {
+  // 打开约束页时，对“系统预设 + 有 presetId + 正文为空”的层静默拉取正文回显
+  assert.match(source, /if \(!open \|\| region !== 'constraints' \|\| loading\) return undefined/);
+  assert.match(source, /layer\.source === 'system' && layer\.presetId && !String\(layer\.body \|\| ''\)\.trim\(\)/);
+  assert.match(source, /getConstraintPresetTexts\(missing\.map\(\(\{ layer \}\) => layer\.presetId\)\)/);
+  assert.match(source, /const body = String\(texts\[layer\.presetId\] \|\| ''\)\.trim\(\)/);
+  assert.match(source, /withDirectorConstraintSelections\(rules\)/);
+});
+
 test('keeps storyboard duration in engine configuration instead of video settings', () => {
   const videoRegion = source.match(/else if \(region === 'video'\) \{([\s\S]*?)\n  \} else \{/ )?.[1] || '';
   assert.doesNotMatch(videoRegion, /InheritedStoryboardDurationField/);

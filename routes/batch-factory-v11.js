@@ -1558,6 +1558,30 @@ function splitVideoPresetBody(body) {
   return { directorRules: value, finalTemplate: '' };
 }
 
+function automationSettingsWithResolvedConstraintBodies(settings, presetStore) {
+  // 浏览器的批量/单书配置里，约束 selection 可能只保存了 presetId 而没有正文
+  //（旧版统一配置选择器不抓 body）。导演编译走的是 Node 本地组装的 payload，
+  // 不经过透传代理上的 enrich 兜底，因此在这里按已发布系统预设补齐空正文，
+  // 只补“系统约束 + 正文为空”的项，绝不覆盖个人/草稿正文，也不改动共享 settings。
+  const constraints = settings?.aiPromptConfig?.constraints;
+  if (!presetStore?.getPublished || !plainObject(constraints) || !Array.isArray(constraints.selections)) return settings;
+  let changed = false;
+  const selections = constraints.selections.map(selection => {
+    const presetId = String(selection?.presetId || '').trim();
+    const category = String(selection?.constraintCategory || '').trim();
+    const existing = String(selection?.body || '').trim();
+    if (existing || !presetId || !category) return selection;
+    const preset = presetStore.getPublished(presetId);
+    if (!preset || preset.module !== 'script' || preset.kind !== 'addon' || preset.protocolLock?.format !== 'constraint' || preset.protocolLock?.category !== category) return selection;
+    const body = String(preset.body || '').trim();
+    if (!body) return selection;
+    changed = true;
+    return { ...selection, body };
+  });
+  if (!changed) return settings;
+  return { ...settings, aiPromptConfig: { ...settings.aiPromptConfig, constraints: { ...constraints, selections } } };
+}
+
 function automationCompilePayload(book, settings, audioAssetID = '', semantic = false) {
   const promptConfig = object(settings.aiPromptConfig);
   const video = object(promptConfig.video);
@@ -1767,7 +1791,8 @@ function createBatchFactoryV11Router(options = {}) {
       compileDirector: async ({ owner: username, isOwner, batch, book, settings }) => {
         const document = automationH3Document(book);
         if (!Array.isArray(document?.director_cards) || !document.director_cards.length) return null;
-        const payload = automationCompilePayload(book, settings, '', settings.audioPlanningEnabled !== true);
+        const compileSettings = automationSettingsWithResolvedConstraintBodies(settings, upstreamOptions.presetStore);
+        const payload = automationCompilePayload(book, compileSettings, '', compileSettings.audioPlanningEnabled !== true);
         if (settings.audioPlanningEnabled === true) {
           const tts = { voice: 'zh-CN-XiaoxiaoNeural', style: 'general', speed: 1.8, pitch: 10, ...object(settings.tts) };
           const fingerprint = automationTTSFingerprint(tts);
@@ -2069,6 +2094,7 @@ module.exports = {
   mpegAudioDurationSeconds,
   automationPublishSettings,
   automationCompilePayload,
+  automationSettingsWithResolvedConstraintBodies,
   safeAutomationStatus,
   splitVideoPresetBody,
   listBatchFactory121Organizations,

@@ -12,6 +12,7 @@ import {
   updateAutomationPreset
 } from '../../../shared/api/batchFactoryV11';
 import { videoProviderForModel } from './videoProviderBinding';
+import { getConstraintPresetTexts } from '../../../shared/api/generation';
 
 const clone = value => JSON.parse(JSON.stringify(value || {}));
 const normalizeLegacyPatch = value => {
@@ -238,9 +239,20 @@ export function BatchFactoryAiReasoningForm({ value, onChange }) {
   const bySlots = slots => catalog.filter(item => slots.includes(item.slot)).map(selectOption);
   const byConstraint = category => catalog.filter(item => item.kind === 'addon' && item.constraintCategory === category).map(selectOption);
   const updateConstraint = (category, presetId) => {
-    const selected = catalog.find(item => item.id === presetId);
     const rest = (constraints.selections || []).filter(item => item.constraintCategory !== category);
-    onChange({ ...config, constraints: { ...constraints, enabled: true, enabledCategories: [...new Set([...(constraints.enabledCategories || []), category])], selections: selected ? [...rest, presetValue(selected)] : rest } });
+    if (!presetId) {
+      onChange({ ...config, constraints: { ...constraints, enabled: true, enabledCategories: [...new Set([...(constraints.enabledCategories || []), category])], selections: rest } });
+      return;
+    }
+    const selected = catalog.find(item => item.id === presetId);
+    // 预设目录为了提速不带正文，这里按预设号取一次权威正文一并保存，
+    // 否则导演/视频生产拿不到约束内容（历史版本正是漏了这一步）。
+    getConstraintPresetTexts([presetId])
+      .then(result => {
+        const body = String(result?.texts?.[presetId] || '');
+        onChange({ ...config, constraints: { ...constraints, enabled: true, enabledCategories: [...new Set([...(constraints.enabledCategories || []), category])], selections: [...rest, { ...presetValue(selected), body }] } });
+      })
+      .catch(() => message.error('系统预设提示词读取失败，请重试'));
   };
   const selectedConstraint = category => (constraints.selections || []).find(item => item.constraintCategory === category)?.presetId;
   return <Space direction="vertical" size={16} style={{ width: '100%' }}>
