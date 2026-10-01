@@ -411,14 +411,6 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated, onBatchUpda
                 throw fallbackError;
               }
             }
-            if (giantAutomationPlan?.presetId) {
-              try {
-                await startBatchAutomation(batchId, giantAutomationPlan);
-              } catch (automationError) {
-                // 原文已入库，自动制作失败不能把这本书误标成“正文获取失败”。
-                console.warn('巨量书城正文已获取，但自动制作未启动', entry.item.id, automationError);
-              }
-            }
             queued += 1;
             continue;
           }
@@ -466,6 +458,17 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated, onBatchUpda
           queued += 1;
         } catch (error) {
           console.warn('巨量读取任务派发失败', entry.item.id, error);
+        }
+      }
+      // 自动化只在整批素材的正文读取已全部派发后启动一次。引擎会把仍在直取或 OCR
+      // 的书保持在“等待正文读取”，而不是把每条 ID 的成功回调都当成一条新生产任务。
+      if (giantAutomationPlan?.presetId) {
+        try {
+          await startBatchAutomation(batchId, giantAutomationPlan);
+        } catch (automationError) {
+          // 正文读取任务已派发；自动生产失败不能把它们误标成“正文获取失败”。
+          console.warn('巨量书城读取已派发，但自动制作未启动', batchId, automationError);
+          message.warning(`正文读取已派发；自动生产请在工作区重试：${normalizedError(automationError, '启动失败')}`);
         }
       }
       if (queued) {
@@ -692,7 +695,7 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated, onBatchUpda
 
     <div className="batch-factory-create-toolbar">
       {isGiantMaterial
-        ? <><Button loading={giantBusy} disabled={giantBusy || busy || !inputText.trim()} onClick={resolveAllGiantMaterials}>解析全部</Button><Button type="primary" disabled={createDisabled} loading={busy} onClick={() => submitGiantMaterial()}>立即执行</Button></>
+        ? <><Button loading={giantBusy} disabled={giantBusy || busy || !inputText.trim()} onClick={resolveAllGiantMaterials}>解析全部</Button><Button type="primary" disabled={createDisabled} loading={busy} onClick={() => openAutomationDialog('immediate')}>立即执行</Button></>
         : <><Button type="primary" onClick={handleAddPlatformGroup}>{editingPlatformId ? '保存书城修改' : '添加书城'}</Button><Button type="primary" disabled={createDisabled} loading={busy} onClick={() => openAutomationDialog('immediate')}>立即执行</Button></>}
       <Button onClick={() => openAutomationDialog('scheduled')}>开始定时</Button>
       <Button onClick={openScheduleTasks}>定时任务</Button>

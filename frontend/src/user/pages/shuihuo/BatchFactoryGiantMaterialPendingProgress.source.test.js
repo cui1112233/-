@@ -13,3 +13,11 @@ test('automatically resumes legacy direct-first books and hands failed direct re
   assert.match(source, /enqueueDirectFirstRead/);
   assert.match(source, /原始书城读取失败，正在自动改用滚屏 OCR/);
 });
+
+test('starts a saved giant automation plan after a legacy direct read succeeds', () => {
+  const directRead = source.match(/async function refetchOriginal\([\s\S]*?\n  async function startOcrFallback/)?.[0] || '';
+  assert.match(directRead, /const plan = latestBook\.sourceMetadata\?\.giantAutomationPlan/);
+  assert.match(directRead, /await startSavedGiantAutomation\(batchId, plan\)/);
+  assert.match(source, /getBatchAutomationStatus/);
+  assert.match(source, /giantAutomationStartClaims/);
+});

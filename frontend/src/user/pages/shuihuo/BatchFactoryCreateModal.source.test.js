@@ -83,9 +83,12 @@ test('offers giant material intake through the resident executor', () => {
   assert.doesNotMatch(source, /waitForGiantMaterialJob/);
 });
 
-test('giant immediate execution creates and starts original retrieval without an automation preset', () => {
-  assert.match(source, /isGiantMaterial\s*\?\s*<>[\s\S]*?onClick=\{\(\) => submitGiantMaterial\(\)\}/);
-  assert.match(source, /onClick=\{\(\) => openAutomationDialog\('immediate'\)\}/);
+test('giant immediate execution opens the same automation-plan dialog as other book cities', () => {
+  const toolbarStart = source.indexOf('{isGiantMaterial\n        ? <>');
+  const toolbarEnd = source.indexOf('\n      <Button onClick={() => openAutomationDialog(\'scheduled\')}>开始定时</Button>', toolbarStart);
+  const giantToolbar = toolbarStart >= 0 && toolbarEnd > toolbarStart ? source.slice(toolbarStart, toolbarEnd) : '';
+  assert.match(giantToolbar, /onClick=\{\(\) => openAutomationDialog\('immediate'\)\}/);
+  assert.doesNotMatch(giantToolbar, /onClick=\{\(\) => submitGiantMaterial\(\)\}/);
 });
 
 test('lets giant batches choose a mutually exclusive original acquisition priority', () => {

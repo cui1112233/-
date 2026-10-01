@@ -1,16 +1,41 @@
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Button, message, Progress, Space } from 'antd';
-import { classifyBookPublishMetadata, fetchBookOriginal, getBatch, startBatchAutomation, updateBookMetadata, updateBookSource } from '../../../shared/api/batchFactoryV11.js';
+import { classifyBookPublishMetadata, fetchBookOriginal, getBatch, getBatchAutomationStatus, startBatchAutomation, updateBookMetadata, updateBookSource } from '../../../shared/api/batchFactoryV11.js';
 import { findRegisteredGiantMaterialBook } from './batchFactoryGiantMaterialImport.js';
 import { createGiantMaterialJob, getGiantMaterialJob } from '../../../shared/api/giantMaterialExecutorPublic.js';
 
 // 旧批量在浏览器页面里创建，可能已经留下“direct_first + 待读取”的占位书。
 // 同一页面只允许一条直取请求在飞行，避免一次打开 20 本书把书城接口打爆。
 let directFirstReadTail = Promise.resolve();
+const giantAutomationStartClaims = new Set();
 function enqueueDirectFirstRead(task) {
   const next = directFirstReadTail.then(task, task);
   directFirstReadTail = next.catch(() => undefined);
   return next;
+}
+
+async function startSavedGiantAutomation(batchId, plan) {
+  if (!batchId || !plan?.presetId) return { started: false };
+  // 同批多本书可能在相邻秒数里完成 OCR；只允许其中一条回填继续启动生产。
+  // 生产控制器的 start 会替换已有任务，因此这里既要本页去重，也要先看服务端真实状态。
+  if (giantAutomationStartClaims.has(batchId)) return { started: false };
+  giantAutomationStartClaims.add(batchId);
+  try {
+    const statusResponse = await getBatchAutomationStatus(batchId);
+    const automation = statusResponse?.automation || statusResponse?.data?.automation || statusResponse?.data || statusResponse || {};
+    if (['running', 'scheduled', 'paused'].includes(String(automation.state || '').toLowerCase())) return { started: false };
+    await startBatchAutomation(batchId, {
+      scheduledAt: plan.scheduledAt || '',
+      presetId: plan.presetId,
+      runMode: plan.runMode || 'video_no_submit',
+      autoPublish: plan.autoPublish === true,
+      concurrency: plan.concurrency
+    });
+    return { started: true, scheduled: Boolean(plan.scheduledAt) };
+  } catch (error) {
+    giantAutomationStartClaims.delete(batchId);
+    throw error;
+  }
 }
 
 // 占位书正文进度条：巨量素材登记后正文为空，Windows 执行器读取期间在书卡“小说正文”位置
@@ -80,14 +105,8 @@ export function BatchFactoryGiantMaterialPendingProgress({ book, batchId, onCont
                 const plan = nextMetadata.giantAutomationPlan;
                 if (plan?.presetId) {
                   try {
-                    await startBatchAutomation(batchId, {
-                      scheduledAt: plan.scheduledAt || '',
-                      presetId: plan.presetId,
-                      runMode: plan.runMode || 'video_no_submit',
-                      autoPublish: plan.autoPublish === true,
-                      concurrency: plan.concurrency
-                    });
-                    message.success(plan.scheduledAt ? '正文已回填，自动生产已进入定时队列。' : '正文已回填，已继续自动生产。');
+                    const result = await startSavedGiantAutomation(batchId, plan);
+                    if (result.started) message.success(result.scheduled ? '正文已回填，自动生产已进入定时队列。' : '正文已回填，已继续自动生产。');
                   } catch (automationError) {
                     message.warning(`正文已回填；自动生产请在工作区重试：${automationError?.message || '启动失败'}`);
                   }
@@ -137,6 +156,14 @@ export function BatchFactoryGiantMaterialPendingProgress({ book, batchId, onCont
       });
       await fetchBookOriginal(batchId, latestBook.id);
       try { await classifyBookPublishMetadata(batchId, latestBook.id, { force: true }); } catch (_) { /* 分类失败不阻断生产，可单书重试 */ }
+      const plan = latestBook.sourceMetadata?.giantAutomationPlan;
+      if (plan?.presetId) {
+        try {
+          await startSavedGiantAutomation(batchId, plan);
+        } catch (automationError) {
+          message.warning(`正文已回填；自动生产请在工作区重试：${automationError?.message || '启动失败'}`);
+        }
+      }
       message.success('已通过书城获取正文');
       onContentReady?.();
     } catch (fetchError) {

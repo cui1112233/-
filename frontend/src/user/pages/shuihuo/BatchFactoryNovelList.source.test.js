@@ -39,6 +39,12 @@ test('offers existing batches explicit immediate and Beijing-time automation act
   assert.match(source, /下次重试：北京时间/);
 });
 
+test('task logs explain that giant batches are waiting for source text before production begins', () => {
+  const logs = source.match(/function BatchLogs\([\s\S]*?\n}\n\nfunction /)?.[0] || '';
+  assert.match(logs, /等待正文读取/);
+  assert.match(logs, /巨量素材/);
+});
+
 test('keeps H3 director cards in the workbench until final VIDEO compilation', () => {
   assert.match(source, /resolvePrecompiledVideoWorkspace/);
   assert.match(source, /resolvePrecompiledStoryboardFrame/);

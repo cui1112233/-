@@ -41,3 +41,17 @@ test('direct-first automatically hands a failed book-city read to OCR before rep
   assert.match(source, /书城获取失败，已自动转为滚屏 OCR/);
   assert.match(source, /await startBatchAutomation\(batchId, giantAutomationPlan\)/);
 });
+
+test('a giant batch starts its saved automation plan once after all source reads have been dispatched', () => {
+  const source = read('BatchFactoryCreateModal.jsx');
+  const directReadBlock = source.slice(
+    source.indexOf("if (giantOriginalReadStrategy === 'direct_first')"),
+    source.indexOf('const durationSeconds', source.indexOf("if (giantOriginalReadStrategy === 'direct_first')"))
+  );
+  const dispatchLoop = source.indexOf('for (const entry of selected)');
+  const automationStart = source.indexOf('await startBatchAutomation(batchId, giantAutomationPlan)');
+
+  assert.doesNotMatch(directReadBlock, /await startBatchAutomation\(batchId, giantAutomationPlan\)/);
+  assert.ok(automationStart > dispatchLoop);
+  assert.equal((source.match(/await startBatchAutomation\(batchId, giantAutomationPlan\)/g) || []).length, 1);
+});
