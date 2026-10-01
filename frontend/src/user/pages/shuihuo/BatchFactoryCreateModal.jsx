@@ -1,7 +1,7 @@
 import { Alert, Button, Input, InputNumber, Modal, Select, Space, Switch, Tag, message } from 'antd';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getWorkshopPlatforms } from '../../../shared/api/novelFetchWorkshop';
-import { createNovelFetchIntake, fetchBookOriginal, fetchDirectOriginals, getBatch, getBatchAutomationStatus, listAutomationPresets, listBatches, updateBookMetadata } from '../../../shared/api/batchFactoryV11';
+import { createNovelFetchIntake, fetchBookOriginal, fetchDirectOriginals, getBatch, getBatchAutomationStatus, listAutomationPresets, listBatches, startBatchAutomation, updateBookMetadata } from '../../../shared/api/batchFactoryV11';
 import { batchFactoryPlatformOptions } from './batchFactoryPlatformOptions';
 import { buildManualBatchSubmission, manualBookIDsFromInput, removePlatformGroup, replacePlatformGroup, totalGroupBookCount, upsertPlatformGroup } from './batchFactoryManualFetch';
 import { formatBeijingDatetimeLocal, normalizeAutomationConcurrency, parseBeijingDatetimeLocal } from './batchFactoryAutomationSchedule';
@@ -290,7 +290,7 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated, onBatchUpda
     const scheduledAtISO = scheduledRun ? parseBeijingDatetimeLocal(scheduledAt) : '';
     if (scheduledRun && (!scheduledAtISO || new Date(scheduledAtISO).getTime() <= Date.now())) return message.warning('北京时间自动启动时间需要晚于现在');
     if (giantOriginalReadStrategy !== 'direct_first' && executorHealth?.online !== true) return message.warning('巨量素材执行器未安装或未登录，请先在执行器配置页完成配对');
-    const missingDuration = items.find(item => !(Number(item.material?.durationSeconds || item.material?.duration || 0) > 0));
+    const missingDuration = giantOriginalReadStrategy !== 'direct_first' && items.find(item => !(Number(item.material?.durationSeconds || item.material?.duration || 0) > 0));
     if (missingDuration) return message.warning(`素材 ${missingDuration.id} 没有有效的视频时长，暂时不能交给执行器处理`);
     const selected = items.map(item => ({ item, book: selectGiantMaterialBook(item.material, item.selectedBookKey) }));
     const missingSelection = selected.find(entry => !entry.book);
@@ -321,6 +321,13 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated, onBatchUpda
       });
       const batchId = batch?.id;
       if (!batchId) throw new Error('GIANT_MATERIAL_INTAKE_FAILED');
+      const giantAutomationPlan = (scheduledRun || automationRun) ? {
+        scheduledAt: scheduledAtISO,
+        presetId: automationPresetID,
+        runMode: automationRunMode,
+        autoPublish: automationRun && automationRunMode === 'full_submit',
+        concurrency: normalizeAutomationConcurrency(automationConcurrency)
+      } : undefined;
       let queued = 0;
       for (const entry of selected) {
         try {
@@ -330,10 +337,36 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated, onBatchUpda
             const book = findRegisteredGiantMaterialBook(latestBatch?.books, entry.item.id);
             if (!book?.id) throw new Error('GIANT_MATERIAL_BOOK_NOT_FOUND');
             await updateBookMetadata(batchId, book.id, {
-              metadata: { ...(book.sourceMetadata || {}), originalReadStage: 'direct', originalReadError: '', contentPending: true },
+              metadata: { ...(book.sourceMetadata || {}), originalReadStage: 'direct', originalReadError: '', contentPending: true, giantAutomationPlan },
               expectedRevision: Number(book.revision || 0)
             });
-            await fetchBookOriginal(batchId, book.id);
+            try {
+              await fetchBookOriginal(batchId, book.id);
+            } catch (directFetchError) {
+              const refreshedResponse = await getBatch(batchId);
+              const refreshedBatch = refreshedResponse?.batch || refreshedResponse?.data?.batch || refreshedResponse?.data || refreshedResponse;
+              const refreshedBook = findRegisteredGiantMaterialBook(refreshedBatch?.books, entry.item.id);
+              if (refreshedBook?.id) {
+                await updateBookMetadata(batchId, refreshedBook.id, {
+                  metadata: {
+                    ...(refreshedBook.sourceMetadata || {}),
+                    originalReadStage: 'failed',
+                    originalReadError: normalizedError(directFetchError, '书城获取原文失败'),
+                    contentPending: true
+                  },
+                  expectedRevision: Number(refreshedBook.revision || 0)
+                });
+              }
+              throw directFetchError;
+            }
+            if (giantAutomationPlan?.presetId) {
+              try {
+                await startBatchAutomation(batchId, giantAutomationPlan);
+              } catch (automationError) {
+                // 原文已入库，自动制作失败不能把这本书误标成“正文获取失败”。
+                console.warn('巨量书城正文已获取，但自动制作未启动', entry.item.id, automationError);
+              }
+            }
             queued += 1;
             continue;
           }
@@ -366,13 +399,7 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated, onBatchUpda
                   originalReadStage: 'ocr',
                   originalReadError: '',
                   giantOcrState: String(createdJob.state || 'queued').toLowerCase(),
-                  giantAutomationPlan: (scheduledRun || automationRun) ? {
-                    scheduledAt: scheduledAtISO,
-                    presetId: automationPresetID,
-                    runMode: automationRunMode,
-                    autoPublish: automationRun && automationRunMode === 'full_submit',
-                    concurrency: normalizeAutomationConcurrency(automationConcurrency)
-                  } : undefined
+                  giantAutomationPlan
                 },
                 expectedRevision: Number(book.revision || 0)
               });
@@ -393,8 +420,12 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated, onBatchUpda
         try { await onBatchUpdated?.(batchId); } catch (refreshError) { console.warn('巨量读取任务已派发，但工作区刷新失败', refreshError); }
       }
       message.success(queued
-        ? `已创建批量并排队读取 ${queued}/${selected.length} 本书；正文进度请在工作区书卡查看。`
-        : '已创建批量，但读取任务派发失败；可在工作区用“原文获取”兜底。');
+        ? giantOriginalReadStrategy === 'direct_first'
+          ? `已创建批量并通过书城获取 ${queued}/${selected.length} 本正文；失败的书可在工作区重试或改用滚屏 OCR。`
+          : `已创建批量并排队读取 ${queued}/${selected.length} 本书；正文进度请在工作区书卡查看。`
+        : giantOriginalReadStrategy === 'direct_first'
+          ? '已创建批量，但书城获取原文失败；可在工作区重试或改用滚屏 OCR。'
+          : '已创建批量，但读取任务派发失败；可在工作区用“原文获取”兜底。');
       reset();
     } catch (error) {
       const text = normalizedError(error, '巨量素材创建失败');

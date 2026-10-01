@@ -22,3 +22,22 @@ test('giant OCR progress is displayed in the production-content editor', () => {
   assert.match(editor, /onContentReady=\{refreshBatch\}/);
   assert.match(read('BatchFactoryGiantMaterialPendingProgress.jsx'), /startBatchAutomation/);
 });
+
+test('giant original reads fall back safely and expose both recovery actions', () => {
+  const progress = read('BatchFactoryGiantMaterialPendingProgress.jsx');
+  assert.match(progress, /originalReadStrategy/);
+  assert.match(progress, /originalReadStrategy === 'ocr_first'/);
+  assert.match(progress, /自动改用书城获取正文/);
+  assert.match(progress, /重试获取原文/);
+  assert.match(progress, /改用滚屏 OCR/);
+  assert.match(progress, /createGiantMaterialJob/);
+  assert.match(progress, /persistedOriginalReadError/);
+});
+
+test('direct-first starts automation only after direct source retrieval and persists a failure', () => {
+  const source = read('BatchFactoryCreateModal.jsx');
+  assert.match(source, /await fetchBookOriginal\(batchId, book\.id\)/);
+  assert.match(source, /await startBatchAutomation\(batchId, giantAutomationPlan\)/);
+  assert.match(source, /originalReadStage: 'failed'/);
+  assert.match(source, /originalReadError: normalizedError\(directFetchError/);
+});

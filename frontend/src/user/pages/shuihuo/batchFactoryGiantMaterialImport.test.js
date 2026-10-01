@@ -120,3 +120,12 @@ test('records direct-first for every book in a multi-ID giant intake', () => {
   ], { originalReadStrategy: 'direct_first' });
   assert.deepEqual(payload.books.map(book => book.sourceMetadata.originalReadStrategy), ['direct_first', 'direct_first']);
 });
+
+test('keeps video duration on a placeholder so OCR fallback can be started later', () => {
+  const payload = buildGiantMaterialPlaceholderIntake({
+    giantMaterialId: '7689285397448523826',
+    material: { ...material, durationSeconds: 123 },
+    book: material.books[0]
+  });
+  assert.equal(payload.books[0].sourceMetadata.videoDurationSeconds, 123);
+});

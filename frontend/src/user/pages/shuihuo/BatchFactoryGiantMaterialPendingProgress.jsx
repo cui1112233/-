@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { Alert, Button, message, Progress } from 'antd';
-import { classifyBookPublishMetadata, fetchBookOriginal, getBatch, startBatchAutomation, updateBookSource } from '../../../shared/api/batchFactoryV11.js';
+import { Alert, Button, message, Progress, Space } from 'antd';
+import { classifyBookPublishMetadata, fetchBookOriginal, getBatch, startBatchAutomation, updateBookMetadata, updateBookSource } from '../../../shared/api/batchFactoryV11.js';
 import { findRegisteredGiantMaterialBook } from './batchFactoryGiantMaterialImport.js';
-import { getGiantMaterialJob } from '../../../shared/api/giantMaterialExecutorPublic.js';
+import { createGiantMaterialJob, getGiantMaterialJob } from '../../../shared/api/giantMaterialExecutorPublic.js';
 
 // 占位书正文进度条：巨量素材登记后正文为空，Windows 执行器读取期间在书卡“小说正文”位置
 // 显示实时进度（视频 x/y 秒 + 百分比）。读取完成后在这里直接回填正文并刷新，弹窗关了也不丢。
@@ -11,10 +11,14 @@ export function BatchFactoryGiantMaterialPendingProgress({ book, batchId, onCont
   const metadata = book?.sourceMetadata || {};
   const jobId = String(metadata.executorJobId || '').trim();
   const pending = Boolean(metadata.contentPending);
+  const originalReadStrategy = String(metadata.originalReadStrategy || 'ocr_first');
+  const persistedOriginalReadError = String(metadata.originalReadError || '').trim();
   const [progress, setProgress] = useState(null);
   const [error, setError] = useState('');
   const [refetching, setRefetching] = useState(false);
+  const [ocrStarting, setOcrStarting] = useState(false);
   const doneRef = useRef(false);
+  const fallbackRef = useRef('');
 
   useEffect(() => {
     doneRef.current = false;
@@ -50,9 +54,12 @@ export function BatchFactoryGiantMaterialPendingProgress({ book, batchId, onCont
                   requiresProofreading: true,
                   giantOcrState: 'succeeded',
                   giantOcrCompletedAt: new Date().toISOString(),
-                  giantOcrCharacters: body.length
+                  giantOcrCharacters: body.length,
+                  originalReadStage: 'completed',
+                  originalReadVia: 'ocr',
+                  originalReadError: '',
+                  contentPending: false
                 };
-                delete nextMetadata.contentPending;
                 await updateBookSource(batchId, latestBook.id, {
                   sourceText: body,
                   sourceMetadata: nextMetadata,
@@ -84,7 +91,14 @@ export function BatchFactoryGiantMaterialPendingProgress({ book, batchId, onCont
           return;
         }
         if (state === 'failed' || state === 'cancelled') {
-          setError(state === 'cancelled' ? '正文读取已取消。' : '正文读取失败。');
+          const failure = state === 'cancelled' ? '正文读取已取消。' : '正文读取失败。';
+          if (originalReadStrategy === 'ocr_first' && fallbackRef.current !== jobId) {
+            fallbackRef.current = jobId;
+            setError(`${failure} 正在自动改用书城获取正文…`);
+            refetchOriginal(true);
+            return;
+          }
+          setError(failure);
           return;
         }
         setProgress(job.progress || null);
@@ -93,25 +107,77 @@ export function BatchFactoryGiantMaterialPendingProgress({ book, batchId, onCont
     tick();
     const timer = setInterval(tick, 5000);
     return () => { stopped = true; clearInterval(timer); };
-  }, [jobId, pending, batchId]);
+  }, [jobId, pending, batchId, originalReadStrategy]);
 
-  async function refetchOriginal() {
+  async function refetchOriginal(automatic = false) {
     if (!batchId || !book?.id || refetching) return;
     setRefetching(true);
     try {
-      await fetchBookOriginal(batchId, book.id);
-      try { await classifyBookPublishMetadata(batchId, book.id, { force: true }); } catch (_) { /* 分类失败不阻断生产，可单书重试 */ }
+      const latestResponse = await getBatch(batchId);
+      const latestBatch = latestResponse?.batch || latestResponse?.data?.batch || latestResponse?.data || latestResponse;
+      const latestBook = findRegisteredGiantMaterialBook(latestBatch?.books, metadata.giantMaterialId) || (latestBatch?.books || []).find(item => item?.id === book.id);
+      if (!latestBook?.id) throw new Error('GIANT_MATERIAL_BOOK_NOT_FOUND');
+      if (String(latestBook.sourceText || '').trim()) {
+        onContentReady?.();
+        return;
+      }
+      await updateBookMetadata(batchId, latestBook.id, {
+        metadata: { ...(latestBook.sourceMetadata || {}), originalReadStage: 'direct', originalReadError: '', contentPending: true },
+        expectedRevision: Number(latestBook.revision || 0)
+      });
+      await fetchBookOriginal(batchId, latestBook.id);
+      try { await classifyBookPublishMetadata(batchId, latestBook.id, { force: true }); } catch (_) { /* 分类失败不阻断生产，可单书重试 */ }
       message.success('已通过书城获取正文');
       onContentReady?.();
     } catch (fetchError) {
-      message.error(String(fetchError?.message || '获取正文失败'));
+      const failure = String(fetchError?.message || '获取正文失败');
+      try {
+        const refreshedResponse = await getBatch(batchId);
+        const refreshedBatch = refreshedResponse?.batch || refreshedResponse?.data?.batch || refreshedResponse?.data || refreshedResponse;
+        const refreshedBook = findRegisteredGiantMaterialBook(refreshedBatch?.books, metadata.giantMaterialId) || (refreshedBatch?.books || []).find(item => item?.id === book.id);
+        if (refreshedBook?.id) {
+          await updateBookMetadata(batchId, refreshedBook.id, {
+            metadata: { ...(refreshedBook.sourceMetadata || {}), originalReadStage: 'failed', originalReadError: failure, contentPending: true },
+            expectedRevision: Number(refreshedBook.revision || 0)
+          });
+        }
+      } catch (_) { /* 原错误优先展示；用户仍可手动重试 */ }
+      setError(failure);
+      if (!automatic) message.error(failure);
     } finally {
       setRefetching(false);
     }
   }
 
   if (!pending || !visible) return null;
-  if (error || !jobId) return <Alert className="batch-factory-giant-pending is-error" type="error" showIcon message={error || '未绑定读取任务'} description={<Button size="small" type="primary" loading={refetching} onClick={refetchOriginal}>原文获取</Button>} onClick={event => event.stopPropagation()} />;
+  async function startOcrFallback() {
+    if (!batchId || !book?.id) return;
+    setOcrStarting(true);
+    try {
+      // 读取最新 revision，避免“直接获取原文”失败后再次派发 OCR 时覆盖其它书卡更新。
+      const latestResponse = await getBatch(batchId);
+      const latestBatch = latestResponse?.batch || latestResponse?.data?.batch || latestResponse?.data || latestResponse;
+      const latestBook = findRegisteredGiantMaterialBook(latestBatch?.books, metadata.giantMaterialId) || (latestBatch?.books || []).find(item => item?.id === book.id);
+      if (!latestBook?.id) throw new Error('GIANT_MATERIAL_BOOK_NOT_FOUND');
+      if (String(latestBook.sourceText || '').trim()) {
+        onContentReady?.();
+        return;
+      }
+      const latestMetadata = latestBook.sourceMetadata || metadata;
+      const durationSeconds = Number(latestMetadata.videoDurationSeconds || 0);
+      if (!(durationSeconds > 0)) throw new Error('素材缺少有效视频时长，无法改用滚屏 OCR。');
+      const job = await createGiantMaterialJob({ materialId: latestMetadata.giantMaterialId, platformBookId: latestMetadata.platformBookId, title: latestMetadata.sourceBookTitle || latestBook.title, videoUrl: latestMetadata.videoUrl, durationSeconds, contentRangeLines: latestMetadata.contentRangeLines });
+      const created = job?.job || job?.data?.job || job;
+      if (!created?.id) throw new Error('GIANT_EXECUTOR_FAILED');
+      await updateBookMetadata(batchId, latestBook.id, {
+        metadata: { ...latestMetadata, executorJobId: created.id, originalReadStage: 'ocr', originalReadError: '', contentPending: true },
+        expectedRevision: Number(latestBook.revision || 0)
+      });
+      setError(''); onContentReady?.();
+    } catch (startError) { setError(String(startError?.message || '等待执行器')); } finally { setOcrStarting(false); }
+  }
+
+  if (error || persistedOriginalReadError || !jobId) return <Alert className="batch-factory-giant-pending is-error" type="error" showIcon message={error || persistedOriginalReadError || '未绑定读取任务'} description={<Space size="small"><Button size="small" type="primary" loading={refetching} onClick={() => refetchOriginal(false)}>重试获取原文</Button><Button size="small" loading={ocrStarting} disabled={refetching} onClick={startOcrFallback}>改用滚屏 OCR</Button></Space>} onClick={event => event.stopPropagation()} />;
   const percent = Math.max(0, Math.min(100, Number(progress?.percent || 0)));
   const seconds = progress?.total ? ` · 视频 ${progress.completed || 0}/${progress.total} 秒` : '';
   const detail = percent > 0 ? `正在读取正文 ${percent}%${seconds}` : '正在排队读取正文…';

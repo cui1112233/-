@@ -55,7 +55,7 @@
 **Consumes:** `buildGiantMaterialPlaceholderIntake(..., originalReadStrategy)`。  
 **Produces:** 每本占位书的策略、阶段与错误字段。
 
-- [ ] **Step 1: 写入失败测试**
+- [x] **Step 1: 写入失败测试**
 
 在 `batchFactoryGiantMaterialImport.test.js` 导入两个 placeholder builder，添加：
 
@@ -79,12 +79,12 @@ test('records direct-first for every book in a multi-ID giant intake', () => {
 });
 ```
 
-- [ ] **Step 2: 确认测试失败**
+- [x] **Step 2: 确认测试失败**
 
 Run: `node --test frontend/src/user/pages/shuihuo/batchFactoryGiantMaterialImport.test.js`  
 Expected: FAIL，字段尚不存在。
 
-- [ ] **Step 3: 最小实现**
+- [x] **Step 3: 最小实现**
 
 在 import helper 增加：
 
@@ -105,7 +105,7 @@ contentPending: true
 
 多书 builder 必须把请求策略传给每个单书 builder。不要改变已有的、代表 OCR 已完成的 `buildGiantMaterialIntake`。
 
-- [ ] **Step 4: 验证并提交**
+- [x] **Step 4: 验证并提交**
 
 Run: `node --test frontend/src/user/pages/shuihuo/batchFactoryGiantMaterialImport.test.js`  
 Expected: PASS.
@@ -124,7 +124,7 @@ git commit -m "feat: persist giant original read strategy"
 **Consumes:** `refillMissingBatchFactoryBookSource`。  
 **Produces:** 保留巨量字段且将 direct fetch 标为已完成的 `captureSource` payload。
 
-- [ ] **Step 1: 写入失败测试**
+- [x] **Step 1: 写入失败测试**
 
 创建 `test/batch-factory-v12-direct-original.test.js`：
 
@@ -156,12 +156,12 @@ test('direct retrieval preserves giant metadata and records bookstore completion
 
 再添加一例非空 `sourceText`，断言抛出 `当前书已有正文，不能覆盖` 且不调用 `fetchDirectOriginal`。
 
-- [ ] **Step 2: 确认测试失败**
+- [x] **Step 2: 确认测试失败**
 
 Run: `node --test test/batch-factory-v12-direct-original.test.js`  
 Expected: FAIL，因为当前 helper 把来源写为 `manual_refetched`。
 
-- [ ] **Step 3: 合并元数据**
+- [x] **Step 3: 合并元数据**
 
 在 `refillMissingBatchFactoryBookSource` 中建立：
 
@@ -189,7 +189,7 @@ const nextMetadata = {
 
 把它传给 `captureSource`。保留现有“正文非空即拒绝”和 HTTP 状态码逻辑。
 
-- [ ] **Step 4: 验证并提交**
+- [x] **Step 4: 验证并提交**
 
 Run:
 
@@ -211,7 +211,7 @@ Expected: PASS.
 **Consumes:** Task 1 metadata；已有 `fetchBookOriginal`、`createGiantMaterialJob`、`getBatch`。  
 **Produces:** direct-first 不创建 executor job；ocr-first 正常创建 executor job。
 
-- [ ] **Step 1: 写入失败的源码测试**
+- [x] **Step 1: 写入失败的源码测试**
 
 在 `BatchFactoryCreateModal.source.test.js` 加入：
 
@@ -225,12 +225,12 @@ assert.match(source, /await createGiantMaterialJob\(/);
 assert.match(source, /if \(giantOriginalReadStrategy === 'direct_first'\)[\s\S]{0,2500}else[\s\S]{0,2500}createGiantMaterialJob/);
 ```
 
-- [ ] **Step 2: 确认测试失败**
+- [x] **Step 2: 确认测试失败**
 
 Run: `node --test frontend/src/user/pages/shuihuo/BatchFactoryCreateModal.source.test.js`  
 Expected: FAIL，开关和分支不存在。
 
-- [ ] **Step 3: 新增 UI 状态**
+- [x] **Step 3: 新增 UI 状态**
 
 从 Antd 导入 `Switch`；添加：
 
@@ -251,7 +251,7 @@ const [giantOriginalReadStrategy, setGiantOriginalReadStrategy] = useState('ocr_
 
 将策略传入 `buildGiantMaterialPlaceholderIntakes`。
 
-- [ ] **Step 4: 实现互斥分派**
+- [x] **Step 4: 实现互斥分派**
 
 创建批量后，逐本刷新最新 batch/book 并保存 `originalReadStage: 'direct'` 或 `'ocr'`、保留 `giantAutomationPlan`。
 
@@ -262,7 +262,7 @@ const [giantOriginalReadStrategy, setGiantOriginalReadStrategy] = useState('ocr_
 
 添加暗色主题复用变量的 `.batch-factory-giant-read-strategy` 样式。
 
-- [ ] **Step 5: 验证并提交**
+- [x] **Step 5: 验证并提交**
 
 Run:
 
@@ -284,7 +284,7 @@ Expected: PASS.
 **Consumes:** Task 1 策略、Task 2 直接取文结果、已有 job API。  
 **Produces:** ocr-first 的一次自动兜底，direct-first 的两个手动恢复按钮。
 
-- [ ] **Step 1: 写入失败源码测试**
+- [x] **Step 1: 写入失败源码测试**
 
 在 `BatchFactoryGiantMaterialFlow.source.test.js` 添加：
 
@@ -298,12 +298,12 @@ assert.match(progress, /createGiantMaterialJob/);
 assert.match(progress, /originalReadStage: 'failed'/);
 ```
 
-- [ ] **Step 2: 确认测试失败**
+- [x] **Step 2: 确认测试失败**
 
 Run: `node --test frontend/src/user/pages/shuihuo/BatchFactoryGiantMaterialFlow.source.test.js`  
 Expected: FAIL，当前仅有一个“原文获取”按钮。
 
-- [ ] **Step 3: 实现一次性自动书城兜底**
+- [x] **Step 3: 实现一次性自动书城兜底**
 
 新增组件内 `fetchDirectOriginal({ automatic = false })`：
 
@@ -313,7 +313,7 @@ Expected: FAIL，当前仅有一个“原文获取”按钮。
 4. 成功后刷新内容；失败写入 `originalReadStage: 'failed'` 和错误文本，保留 `contentPending: true`。
 5. executor job 变为 `failed/cancelled` 时，先写 OCR 错误；仅 `ocr_first` 使用按 jobId 去重的 ref 自动调用一次 `fetchDirectOriginal({ automatic: true })`。
 
-- [ ] **Step 4: 实现人工恢复**
+- [x] **Step 4: 实现人工恢复**
 
 错误状态渲染：
 
@@ -335,7 +335,7 @@ originalReadError: '',
 contentPending: false
 ```
 
-- [ ] **Step 5: 验证并提交**
+- [x] **Step 5: 验证并提交**
 
 Run:
 
@@ -352,7 +352,7 @@ Expected: PASS.
 
 **Files:** No production file changes unless a test exposes a defect.
 
-- [ ] **Step 1: Run scoped regression**
+- [x] **Step 1: Run scoped regression**
 
 ```bash
 node --test \
@@ -366,7 +366,7 @@ cd frontend && npm run build
 
 Expected: PASS. 如有无关的全库失败，记录其实际边界，不宣称全库通过。
 
-- [ ] **Step 2: 复核互斥和来源保护**
+- [x] **Step 2: 复核互斥和来源保护**
 
 Run:
 
@@ -380,4 +380,3 @@ git diff --check origin/v88...HEAD
 - [ ] **Step 3: 交付**
 
 提交任何验证发现的最小修正，报告 branch SHA、测试和 build 结果、以及“书城上游可用性仍是外部依赖”。待合入最新 v88 后，才按精确 SHA 发布公网。
-
