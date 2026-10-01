@@ -426,9 +426,17 @@ function bookVideoReady(book, productionStatus) {
 function NovelMetadata({ books, createdAt, selectedBookIds, onSelectionChange, onViewBook, platformNames, productionStatus, mergeStatus, stageSummaries, batchId, onContentReady }) {
   const selected = new Set(selectedBookIds);
   const allSelected = books.length > 0 && books.every(book => selected.has(book.id));
+  const selectedCount = selectedBookIds.length;
+  const toggleAll = checked => onSelectionChange(checked ? books.map(book => book.id) : []);
   return <div className="batch-factory-novel-list batch-factory-novel-fetch-list batch-factory-novel-list-v13" role="table" aria-label="小说列表">
+    <div className="batch-factory-novel-list-toolbar">
+      <Space size={8}>
+        <Checkbox checked={allSelected} indeterminate={!allSelected && selected.size > 0} onChange={event => toggleAll(event.target.checked)} aria-label="全选小说"><b>序号</b></Checkbox>
+        {selectedCount > 0 && <span className="batch-factory-novel-selected-count">已选 {selectedCount} 本</span>}
+      </Space>
+    </div>
     <div className="batch-factory-novel-list-head" role="row">
-      <span className="is-order"><Checkbox checked={allSelected} indeterminate={!allSelected && selected.size > 0} onChange={event => onSelectionChange(event.target.checked ? books.map(book => book.id) : [])} aria-label="全选小说" /><b>序号</b></span>
+      <span className="is-order">#</span>
       <span>小说</span><span>内容</span><span>风格</span><span>男女频</span><span>状态</span><span>操作</span>
     </div>
     {books.map((book, index) => {

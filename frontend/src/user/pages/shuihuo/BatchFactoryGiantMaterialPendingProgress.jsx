@@ -245,8 +245,8 @@ export function BatchFactoryGiantMaterialPendingProgress({ book, batchId, onCont
         <span className="batch-factory-giant-pending-compact" onClick={event => event.stopPropagation()}>
           <i className="is-error-text">{error || persistedOriginalReadError ? '读取失败' : '未派发OCR'}</i>
           <Space direction="vertical" size={4} className="is-actions">
-            <Button size="small" type="primary" loading={refetching} onClick={() => refetchOriginal(false)}>重试获取原文</Button>
-            <Button size="small" loading={ocrStarting} disabled={refetching} onClick={startOcrFallback}>改用滚屏 OCR</Button>
+            <Button size="small" type="primary" loading={refetching} onClick={() => refetchOriginal(false)}>获取原文</Button>
+            <Button size="small" loading={ocrStarting} disabled={refetching} onClick={startOcrFallback}>滚屏 OCR</Button>
           </Space>
         </span>
       </Tooltip>
