@@ -203,6 +203,6 @@ export default function BatchFactoryWorkbenchPage() {
       {batches.map(batch => <button type="button" className="batch-factory-workbench-card" key={batch.id} onClick={() => openBatch(batch.id)}><FileTextOutlined /><strong>{batch.title || '未命名批量'}</strong><span>{bookCount(batch)} 本小说</span><small>{batch.updatedAt || batch.createdAt || '刚刚创建'}</small></button>)}
       {!batches.length ? <div className="batch-factory-workbench-home-state"><FileTextOutlined /><strong>还没有批量工程</strong><span>新建批量后即可进入每本小说的完整生产工作台。</span><Button type="primary" onClick={() => setCreateOpen(true)}>新建批量</Button></div> : null}
     </section> : null}
-    <BatchFactoryCreateModal open={createOpen} onCancel={() => setCreateOpen(false)} onCreated={async input => { await createBatch(input); setCreateOpen(false); }} />
+    <BatchFactoryCreateModal open={createOpen} onCancel={() => setCreateOpen(false)} onCreated={async input => { const batch = await createBatch(input); setCreateOpen(false); return batch; }} />
   </main>;
 }

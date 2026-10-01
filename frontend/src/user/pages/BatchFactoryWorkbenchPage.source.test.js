@@ -27,4 +27,5 @@ test('creates a batch from an intake when the giant-material flow has already re
 test('returns the created batch so giant-material OCR can bind its executor job', () => {
   const page = fs.readFileSync(pagePath, 'utf8');
   assert.match(page, /if\s*\(!input\?\.automationEnabled\)\s*return batch;/);
+  assert.match(page, /onCreated=\{async input => \{\s*const batch = await createBatch\(input\);\s*setCreateOpen\(false\);\s*return batch;\s*\}\}/s);
 });
