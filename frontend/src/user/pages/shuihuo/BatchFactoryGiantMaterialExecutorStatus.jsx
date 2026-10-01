@@ -1,7 +1,7 @@
 import { Alert, Button, Progress, Space, Tag, message } from 'antd';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createGiantMaterialExecutorClient, normalizeGiantMaterialExecutorStatus } from '../../../shared/api/giantMaterialExecutor.js';
-import { createGiantMaterialPairing, listGiantMaterialExecutors } from '../../../shared/api/giantMaterialExecutorPublic.js';
+import { createGiantMaterialPairing, listGiantMaterialExecutors, getGiantExecutorPreference } from '../../../shared/api/giantMaterialExecutorPublic.js';
 import { selectGiantExecutorHealth } from './giantExecutorHealth.js';
 
 const EXECUTOR_BASE_URL = 'http://127.0.0.1:17861';
@@ -24,6 +24,8 @@ export function BatchFactoryGiantMaterialExecutorStatus({ job, onHealthChange, o
   const [backendOnline, setBackendOnline] = useState(null);
   const [pairingBusy, setPairingBusy] = useState(false);
   const [pairingFallback, setPairingFallback] = useState(null);
+  const [backendExecutorList, setBackendExecutorList] = useState([]);
+  const [preference, setPreference] = useState({ preferredOs: 'windows' });
   const nonce = localNonce();
   const client = useMemo(() => createGiantMaterialExecutorClient({ baseUrl: EXECUTOR_BASE_URL, nonce }), [nonce]);
   // 本机直连常被浏览器"公网页面 → 本机回环"安全策略拦截；后台名单不受影响。
@@ -58,11 +60,25 @@ export function BatchFactoryGiantMaterialExecutorStatus({ job, onHealthChange, o
       const next = await listGiantMaterialExecutors().catch(() => null);
       if (!active) return;
       const list = Array.isArray(next?.executors) ? next.executors : Array.isArray(next?.data?.executors) ? next.data.executors : [];
+      setBackendExecutorList(list);
       const online = list.find(item => item?.online === true) || null;
       setBackendOnline(online ? { online: true, version: online.version || '', os: online.os, bindingState: 'online', state: 'ready', modelReady: true, backendView: true } : null);
     };
     pollBackend();
     const timer = setInterval(pollBackend, 6000);
+    return () => { active = false; clearInterval(timer); };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      try {
+        const value = await getGiantExecutorPreference();
+        if (active) setPreference({ preferredOs: value?.preferredOs || 'windows' });
+      } catch { /* 静默，下一周期重试 */ }
+    };
+    load();
+    const timer = setInterval(load, 10000);
     return () => { active = false; clearInterval(timer); };
   }, []);
 
@@ -118,44 +134,45 @@ export function BatchFactoryGiantMaterialExecutorStatus({ job, onHealthChange, o
     }
   }
 
-  // 紧凑圆点模式：给“新建批量”弹窗顶部用，一行显示在线状态，离线时点击跳设置页（下载/配对）。
+  // 紧凑圆点模式：给"新建批量"弹窗顶部用，一行显示在线状态，离线时点击跳设置页（下载/配对）。
   if (variant === 'dot') {
-    const online = effectiveHealth?.online === true && effectiveHealth?.bindingState === 'online';
-    const dotLabel = completed
-      ? '正文读取已完成'
-      : failed
-        ? '正文读取失败'
-        : !effectiveHealth
-          ? '执行器未安装或未登录'
-          : status.kind === 'needs_pairing'
-            ? '执行器需要配对登录'
-            : status.kind === 'offline'
-              ? BOUND_OFFLINE_LABEL
-              : status.kind === 'connecting'
-                ? '执行器正在登录'
-                : status.kind === 'downloading_model'
-                  ? '正在准备 OCR 环境'
-                  : status.kind === 'failed'
-                    ? '执行器异常'
-                    : status.kind === 'running'
-                      ? (progress > 0 ? `正在读取正文 ${progress}%` : '正在读取正文')
-                      : '执行器已就绪';
-    const version = String(effectiveHealth?.version || '').trim();
+    const platformGroups = {
+      windows: { online: false, cooling: false },
+      darwin: { online: false, cooling: false }
+    };
+    for (const item of backendExecutorList) {
+      const key = String(item.os || '').toLowerCase();
+      if (!platformGroups[key]) continue;
+      if (item.online) platformGroups[key].online = true;
+      if (item.recentFailureAt) platformGroups[key].cooling = true;
+    }
+    if (health?.online === true) {
+      platformGroups.windows.online = true; // 本机客户端存活的兜底显示
+    }
+    const preferred = preference?.preferredOs || 'windows';
+    const preferredLabel = preferred === 'darwin' ? 'macOS' : 'Windows';
+    const fallbackLabel = preferred === 'darwin' ? 'Windows' : 'macOS';
+    let suffix = `优先：${preferredLabel}`;
+    if (platformGroups[preferred].cooling) {
+      suffix = `优先：${preferredLabel}（冷却中，暂用 ${fallbackLabel}）`;
+    } else if (!platformGroups[preferred].online) {
+      suffix = `优先：${preferredLabel}（离线，暂用 ${fallbackLabel}）`;
+    }
     const goToSettings = () => {
       window.history.pushState({}, '', '/settings');
       window.dispatchEvent(new PopStateEvent('popstate'));
     };
-    return <div
-      className={`gme-executor-dot ${online ? 'is-online' : 'is-offline'}${online ? '' : ' is-clickable'}`}
-      onClick={online ? undefined : goToSettings}
-      role={online ? undefined : 'button'}
-      title={online ? undefined : '点击前往设置页下载执行器或完成配对'}
-    >
-      <span className="gme-executor-dot-light" aria-hidden="true" />
-      <span>{dotLabel}</span>
-      {version ? <span className="gme-executor-dot-version">{version}</span> : null}
-      {online ? null : <span className="gme-executor-dot-action">去下载 / 配对</span>}
-    </div>;
+    return (
+      <span className="gme-executor-dot is-dual">
+        <span className={`gme-platform-pill${platformGroups.windows.online ? ' is-online' : ''}${platformGroups.windows.cooling ? ' is-cooling' : ''}`}>
+          <i />Windows
+        </span>
+        <span className={`gme-platform-pill${platformGroups.darwin.online ? ' is-online' : ''}${platformGroups.darwin.cooling ? ' is-cooling' : ''}`}>
+          <i />macOS
+        </span>
+        <span className="gme-executor-dot-version">{suffix}</span>
+      </span>
+    );
   }
 
   return <Alert
