@@ -57,7 +57,7 @@ jobs:
 
           for pid in $(pgrep -x docker || true); do
             command="$(tr '\0' ' ' < "/proc/${pid}/cmdline" 2>/dev/null || true)"
-            if [[ "$command" == "docker pull ${go_image}" || "$command" == "docker pull ${node_image}" ]]; then
+            if [[ "$command" == "docker pull ${go_image}"* || "$command" == "docker pull ${node_image}"* ]]; then
               printf 'ECS_STALLED_PULL_RECOVERY matched_pid=%s command=%s\n' "$pid" "$command"
               matches+=("$pid")
             fi

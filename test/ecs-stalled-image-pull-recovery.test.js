@@ -15,6 +15,7 @@ test('stalled image-pull recovery requires an exact SHA and explicit confirmatio
   assert.match(workflow, /github\.ref == 'refs\/heads\/v88'/);
   assert.match(workflow, /StrictHostKeyChecking=yes/);
   assert.match(workflow, /docker pull/);
+  assert.match(workflow, /docker pull \$\{go_image\}"\*/);
   assert.match(workflow, /kill -TERM/);
   assert.match(workflow, /ECS_STALLED_PULL_RECOVERY_OK/);
   assert.doesNotMatch(workflow, /systemctl|service |docker (restart|stop|rm|compose|system prune|image prune|container prune|builder prune)/);
