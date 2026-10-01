@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -10,6 +11,10 @@ import (
 )
 
 const giantMaterialExecutorBodyLimit = giantmaterialexecutor.MaxResultBytes + (64 << 10)
+
+// giantClaimLongPollWait 是 claim 接口的长轮询等待时长；用变量便于接口测试
+// 即时返回。
+var giantClaimLongPollWait = giantmaterialexecutor.ClaimLongPollWait
 
 func RegisterGiantMaterialExecutorRoutes(root *http.ServeMux, auth BridgeAuth, service *giantmaterialexecutor.Service) {
 	if root == nil || service == nil {
@@ -198,7 +203,11 @@ func RegisterGiantMaterialExecutorRoutes(root *http.ServeMux, auth BridgeAuth, s
 			writeGiantExecutorError(w, http.StatusUnauthorized, "unauthorized")
 			return
 		}
-		claim, err := service.Claim(req.Context(), token)
+		// 长轮询：没活时在服务器侧等待，老版本执行器无需升级即可自动降噪。
+		claim, err := service.ClaimWhenAvailable(req.Context(), token, giantClaimLongPollWait)
+		if errors.Is(err, context.Canceled) {
+			return
+		}
 		if errors.Is(err, giantmaterialexecutor.ErrNoClaimableJob) {
 			w.WriteHeader(http.StatusNoContent)
 			return

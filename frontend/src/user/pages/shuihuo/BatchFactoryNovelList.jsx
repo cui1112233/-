@@ -2171,7 +2171,10 @@ function UploadNetwork({ batch, books, selectedBookIds, productionStatus, mergeS
   }, [mode, defaultOrganizationID]);
   useEffect(() => {
     if (!uploadingBookId || !onRefresh) return undefined;
-    const timer = setInterval(() => { onRefresh().catch(() => {}); }, 1200);
+    const timer = setInterval(() => {
+      if (document.hidden) return; // 切到后台时不刷，上传在服务端照常进行
+      onRefresh().catch(() => {});
+    }, 1200);
     return () => clearInterval(timer);
   }, [uploadingBookId, onRefresh]);
   const publishSessionReady = Boolean(publishSession?.environment?.ok && publishSession?.visible?.ok);
@@ -2592,8 +2595,23 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
       } finally { polling = false; }
     };
     void poll();
-    const timer = setInterval(poll, 3000);
-    return () => { active = false; clearInterval(timer); };
+    // 页面切到后台（最小化/切标签）时暂停轮询，回前台立刻补刷一次再继续，
+    // 避免多人多标签把小服务器刷爆。页面一打开就在后台则等回前台再启动。
+    let timer = document.hidden ? null : setInterval(poll, 5000);
+    const onVisibilityChange = () => {
+      if (document.hidden) {
+        if (timer) { clearInterval(timer); timer = null; }
+      } else if (timer === null) {
+        void poll();
+        timer = setInterval(poll, 5000);
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      active = false;
+      if (timer) clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
   }, [batch?.id]);
   useEffect(() => {
     let active = true;
@@ -2629,8 +2647,23 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
   const hasActiveProduction = (productionStatus?.jobs || []).some(job => (job?.tasks || []).some(task => ['queued', 'running'].includes(String(task?.status || '').toLowerCase())));
   useEffect(() => {
     if (!batch?.id || !(viewingBook || mediaBook || promptBook || hasActiveProduction)) return undefined;
-    const timer = setInterval(() => { loadRuntimeStatus({ quiet: true }); }, hasActiveProduction ? 2000 : 5000);
-    return () => clearInterval(timer);
+    const delay = hasActiveProduction ? 2000 : 5000;
+    const tick = () => { loadRuntimeStatus({ quiet: true }); };
+    // 同自动化轮询：切后台暂停，回前台补刷。
+    let timer = document.hidden ? null : setInterval(tick, delay);
+    const onVisibilityChange = () => {
+      if (document.hidden) {
+        if (timer) { clearInterval(timer); timer = null; }
+      } else if (timer === null) {
+        tick();
+        timer = setInterval(tick, delay);
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      if (timer) clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
   }, [batch?.id, viewingBook?.id, mediaBook?.id, promptBook?.id, hasActiveProduction]);
 
   async function openContentEditor(book) {

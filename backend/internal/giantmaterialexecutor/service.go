@@ -345,6 +345,43 @@ func (s *Service) Claim(ctx context.Context, token string) (ClaimResult, error) 
 	return ClaimResult{Job: executorJobView(record), LeaseToken: leaseToken, LeaseGeneration: record.LeaseGeneration, LeaseExpiresAt: expires}, nil
 }
 
+// ClaimLongPollWait 是没活时 claim 请求在服务器侧最多等待的时间。执行器
+// 用的是无超时 HTTP 客户端，Nginx/Node 转发层余量都大于该值，老版本执行器
+// 无需升级也会被自动“按住”，空转敲门从每秒一次降到每个等待窗口一次。
+const ClaimLongPollWait = 25 * time.Second
+
+// claimLongPollInterval 是等待期间复查数据库的节奏。新任务出现后最坏延迟
+// 一个 interval（OCR 任务本身耗时约十分钟，2 秒领取延迟可忽略）。
+var claimLongPollInterval = 2 * time.Second
+
+// ClaimWhenAvailable 先立刻试领；没活时在服务器侧等待最多 wait，期间定期
+// 复查，一有任务立刻返回；到点仍无任务才返回 ErrNoClaimableJob。客户端
+// 断开（ctx 取消）时立即退出，不继续翻数据库。
+func (s *Service) ClaimWhenAvailable(ctx context.Context, token string, wait time.Duration) (ClaimResult, error) {
+	result, err := s.Claim(ctx, token)
+	if err == nil || !errors.Is(err, ErrNoClaimableJob) || wait <= 0 {
+		return result, err
+	}
+	remaining := wait
+	for remaining > 0 {
+		step := claimLongPollInterval
+		if step > remaining {
+			step = remaining
+		}
+		select {
+		case <-ctx.Done():
+			return ClaimResult{}, ctx.Err()
+		case <-time.After(step):
+		}
+		remaining -= step
+		result, err = s.Claim(ctx, token)
+		if err == nil || !errors.Is(err, ErrNoClaimableJob) {
+			return result, err
+		}
+	}
+	return ClaimResult{}, ErrNoClaimableJob
+}
+
 func (s *Service) canClaimPlatform(ctx context.Context, executor ExecutorRecord, now time.Time) (bool, error) {
 	// 自己刚干砸：先冷却，任何平台都一样
 	callerFailure, err := s.store.LatestPlatformFailure(ctx, executor.OwnerUsername, executor.OS, now.Add(-FailureCooldown))
