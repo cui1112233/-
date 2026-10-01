@@ -130,3 +130,15 @@ test('unified AI reasoning selects extraction, character and scene prompts witho
   assert.match(source, /assets: \{ \.\.\.assets, enabled: true, scene: presetFor\(presetId\) \}/);
   assert.match(source, /video: \{ \.\.\.video, \.\.\.presetValue\(catalog\.find\(item => item\.id === presetId\)\), enabled: true \}/);
 });
+
+test('unified AI reasoning exposes all four constraint layers plus the base-setup switch', () => {
+  assert.match(source, /<b>画面前缀词（智能统一）<\/b>/);
+  assert.match(source, /<b>画质约束<\/b>/);
+  assert.match(source, /<b>画面限制<\/b>/);
+  assert.match(source, /<b>负面提示词<\/b>/);
+  for (const category of ['prefix', 'quality', 'restriction', 'negative']) {
+    assert.match(source, new RegExp(`selectedConstraint\\('${category}'\\)`));
+    assert.match(source, new RegExp(`byConstraint\\('${category}'\\)`));
+    assert.match(source, new RegExp(`updateConstraint\\('${category}', presetId\\)`));
+  }
+});
