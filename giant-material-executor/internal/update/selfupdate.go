@@ -31,7 +31,7 @@ type SelfUpdater struct {
 	PublicKey      ed25519.PublicKey
 	Target         ReleaseTarget
 	Idle           func() bool
-	Apply          func(nextVersion string)
+	Apply          func(nextVersion string) error
 
 	once       sync.Once
 	controller *Controller
@@ -87,7 +87,9 @@ func (u *SelfUpdater) ApplyNow(ctx context.Context) (string, error) {
 	if strings.TrimSpace(status.AvailableVersion) == "" {
 		return "", &CodedError{Code: "UPDATE_NOT_AVAILABLE"}
 	}
-	u.Apply(status.AvailableVersion)
+	if err := u.Apply(status.AvailableVersion); err != nil {
+		return "", err
+	}
 	return status.AvailableVersion, nil
 }
 

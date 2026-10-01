@@ -41,19 +41,18 @@ func startSelfUpdater(ctx context.Context, stop context.CancelFunc, snapshot fun
 			state := snapshot().State
 			return state == agent.StateReady || state == agent.StateFailed || state == agent.StateIdle
 		},
-		Apply: func(nextVersion string) {
+		Apply: func(nextVersion string) error {
 			helper := filepath.Join(root, "GiantMaterialExecutorUpdater")
 			if _, err := os.Stat(helper); err != nil {
-				log.Printf("self update %s not applied: updater helper unavailable: %v", nextVersion, err)
-				return
+				return fmt.Errorf("update helper unavailable: %w", err)
 			}
 			command := exec.Command(helper, "-platform", "macos", "-parent-pid", fmt.Sprint(os.Getpid()), "-app-root", root, "-stage-dir", filepath.Join(stageRoot, nextVersion))
 			if err := command.Start(); err != nil {
-				log.Printf("start update helper failed: %v", err)
-				return
+				return fmt.Errorf("start update helper: %w", err)
 			}
 			log.Printf("PID-scoped update helper started; stopping executor for %s", nextVersion)
 			stop()
+			return nil
 		},
 	}
 	go updater.Run(ctx)

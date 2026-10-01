@@ -88,6 +88,25 @@ func TestSetupPageIsServedFromLoopback(t *testing.T) {
 	}
 }
 
+func TestSetupPageRequiresExplicitLocalUpdateAction(t *testing.T) {
+	server, err := NewServer(ServerConfig{Addr: "127.0.0.1:17861", Origin: "https://example.com", Nonce: "nonce"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/setup", nil))
+	body := rec.Body.String()
+	if strings.Contains(body, `id="applyUpdate" hidden`) {
+		t.Fatal("setup page hides the explicit local update action")
+	}
+	if strings.Contains(body, "正在下载替换，执行器会自动重启") {
+		t.Fatal("setup page still claims that update checks replace the app automatically")
+	}
+	if !strings.Contains(body, "请点击“立即更新”") {
+		t.Fatal("setup page does not explain the required local update confirmation")
+	}
+}
+
 func TestLocalSetupOriginCanPair(t *testing.T) {
 	var pairedCode string
 	server, err := NewServer(ServerConfig{Addr: "127.0.0.1:17861", Origin: "https://example.com", Nonce: "nonce", Callbacks: Callbacks{

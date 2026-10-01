@@ -44,20 +44,19 @@ func startSelfUpdater(ctx context.Context, stop context.CancelFunc, snapshot fun
 		},
 		PublicKey: publicKey,
 		Target:    update.ReleaseTarget{Platform: "windows", Architecture: "amd64"},
-		Apply: func(nextVersion string) {
+		Apply: func(nextVersion string) error {
 			helper := filepath.Join(root, "GiantMaterialExecutorUpdater.exe")
 			if _, err := os.Stat(helper); err != nil {
-				log.Printf("self update %s not applied: updater helper unavailable: %v", nextVersion, err)
-				return
+				return fmt.Errorf("update helper unavailable: %w", err)
 			}
 			command := exec.Command(helper, "-platform", "windows", "-parent-pid", fmt.Sprint(os.Getpid()), "-app-root", root, "-stage-dir", filepath.Join(root, ".updates", nextVersion))
 			command.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
 			if err := command.Start(); err != nil {
-				log.Printf("start update helper failed: %v", err)
-				return
+				return fmt.Errorf("start update helper: %w", err)
 			}
 			log.Printf("PID-scoped update helper started; stopping executor for %s", nextVersion)
 			stop()
+			return nil
 		},
 	}
 	go updater.Run(ctx)
