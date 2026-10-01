@@ -1,3 +1,3 @@
-release_sha=246c6f5f1ee89078249543f78df13a8f495ef579
-scope=node-only: compact novel-list toolbar + wider content column
-requested_at=2026-10-02T01:04:48+08:00
+release_sha=9101e1ee1888840d401463d3a45ecaceec57e5aa
+scope=node-only: horizontal compact buttons + wider content column
+requested_at=2026-10-02T01:48:46+08:00
