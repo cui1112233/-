@@ -174,6 +174,34 @@ func (s *Service) CancelJob(ctx context.Context, owner, id string) (JobView, err
 	return jobView(record), nil
 }
 
+// RetryJob returns a failed or cancelled job to the queue without requiring the
+// client to resend the temporary media URL. It also selects the newest online
+// executor again, so an expired lease cannot keep a retry pinned to an older
+// machine.
+func (s *Service) RetryJob(ctx context.Context, owner, id string) (JobView, error) {
+	owner = strings.TrimSpace(owner)
+	if owner == "" || strings.TrimSpace(id) == "" {
+		return JobView{}, ErrInvalidInput
+	}
+	record, err := s.store.JobForOwner(ctx, owner, strings.TrimSpace(id))
+	if err != nil {
+		return JobView{}, err
+	}
+	if record.State != JobFailed && record.State != JobCancelled {
+		return JobView{}, ErrInvalidJobState
+	}
+	executors, err := s.store.ListExecutors(ctx, owner)
+	if err != nil {
+		return JobView{}, err
+	}
+	record.TargetExecutorID = newestOnlineExecutorID(executors, s.now().UTC())
+	requeued, err := s.store.RequeueJob(ctx, record.ID, record, s.now().UTC())
+	if err != nil {
+		return JobView{}, err
+	}
+	return jobView(requeued), nil
+}
+
 func (s *Service) Claim(ctx context.Context, token string) (ClaimResult, error) {
 	executor, err := s.executorForToken(ctx, token)
 	if err != nil {

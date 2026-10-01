@@ -98,6 +98,20 @@ func RegisterGiantMaterialExecutorRoutes(root *http.ServeMux, auth BridgeAuth, s
 		writeGiantExecutorJSON(w, http.StatusOK, map[string]any{"job": job})
 	})))
 
+	root.Handle("POST /api/shuihuo-production/giant-material-jobs/{id}/retry", auth.Middleware(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		identity, ok := BridgeIdentityFromContext(req.Context())
+		if !ok {
+			writeGiantExecutorError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		job, err := service.RetryJob(req.Context(), identity.Username, req.PathValue("id"))
+		if err != nil {
+			writeGiantExecutorServiceError(w, err)
+			return
+		}
+		writeGiantExecutorJSON(w, http.StatusOK, map[string]any{"job": job})
+	})))
+
 	root.HandleFunc("POST /api/giant-material-executor/v1/pair", func(w http.ResponseWriter, req *http.Request) {
 		var input giantmaterialexecutor.PairInput
 		if err := decodeGiantExecutorJSON(w, req, &input); err != nil {
