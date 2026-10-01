@@ -2952,8 +2952,8 @@ body.batch-factory-column-resizing, body.batch-factory-column-resizing * { curso
 .batch-factory-novel-list-v13{min-width:860px!important}
 .batch-factory-novel-list-v13 .batch-factory-novel-list-head,
 .batch-factory-novel-list-v13 .batch-factory-novel-list-row{
-  display:grid!important;grid-template-columns:60px minmax(220px,1fr) 88px 120px 80px 120px 72px!important;
-  min-width:760px!important;align-items:center
+  display:grid!important;grid-template-columns:60px minmax(220px,1fr) 120px 100px 80px 110px 72px!important;
+  min-width:820px!important;align-items:center
 }
 .batch-factory-novel-list-v13 .batch-factory-novel-list-head>span,
 .batch-factory-novel-list-v13 .batch-factory-novel-list-row>span{min-width:0;padding:8px 10px!important;border-right:1px solid var(--sh-line);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -3003,8 +3003,8 @@ body.batch-factory-column-resizing, body.batch-factory-column-resizing * { curso
 @media(max-width:900px){
   .batch-factory-audio-options-v13{grid-template-columns:1fr}
   .batch-factory-workbench-table .shuihuo-workbench-head,.batch-factory-book-row{min-width:1500px!important}
-  .batch-factory-novel-list-v13{min-width:760px!important}
-  .batch-factory-novel-list-v13 .batch-factory-novel-list-head,.batch-factory-novel-list-v13 .batch-factory-novel-list-row{grid-template-columns:76px minmax(220px,1fr) 68px 130px 80px 110px 70px!important;min-width:760px!important}
+  .batch-factory-novel-list-v13{min-width:820px!important}
+  .batch-factory-novel-list-v13 .batch-factory-novel-list-head,.batch-factory-novel-list-v13 .batch-factory-novel-list-row{grid-template-columns:60px minmax(180px,1fr) 120px 90px 76px 100px 70px!important;min-width:820px!important}
   .batch-factory-follow-audio-control{justify-content:flex-start}.batch-factory-follow-audio-control small{text-align:left}
 }
 /* BF_AUDIO_PLANNING_V13_1_END */
