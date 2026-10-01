@@ -423,3 +423,23 @@ func checkLease(record JobRecord, executorID string, leaseHash SecretHash, gener
 	}
 	return nil
 }
+
+func (s *MySQLStore) GetPreference(ctx context.Context, owner string) (PreferenceRecord, error) {
+	var record PreferenceRecord
+	err := s.db.QueryRowContext(ctx, `SELECT owner_username, preferred_os, updated_at
+FROM giant_executor_preferences WHERE owner_username = ?`, owner).Scan(&record.OwnerUsername, &record.PreferredOS, &record.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return PreferenceRecord{}, ErrPreferenceNotFound
+	}
+	if err != nil {
+		return PreferenceRecord{}, err
+	}
+	return record, nil
+}
+
+func (s *MySQLStore) SavePreference(ctx context.Context, record PreferenceRecord) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO giant_executor_preferences (owner_username, preferred_os, updated_at)
+VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE preferred_os = VALUES(preferred_os), updated_at = VALUES(updated_at)`,
+		record.OwnerUsername, record.PreferredOS, record.UpdatedAt)
+	return err
+}

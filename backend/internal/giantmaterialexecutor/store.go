@@ -21,4 +21,6 @@ type Store interface {
 	SetProgress(context.Context, string, string, SecretHash, int64, JobState, ProgressInput, time.Time) (JobRecord, error)
 	CompleteJob(context.Context, string, string, SecretHash, int64, ResultInput, time.Time) (JobRecord, error)
 	FailJob(context.Context, string, string, SecretHash, int64, FailureInput, time.Time) (JobRecord, error)
+	GetPreference(context.Context, string) (PreferenceRecord, error)
+	SavePreference(context.Context, PreferenceRecord) error
 }

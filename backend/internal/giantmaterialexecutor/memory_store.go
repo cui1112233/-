@@ -11,16 +11,17 @@ import (
 )
 
 type MemoryStore struct {
-	mu        sync.Mutex
-	pairings  map[string]PairingRecord
-	executors map[string]ExecutorRecord
-	tokens    map[string]string
-	jobs      map[string]JobRecord
-	jobKeys   map[string]string
+	mu          sync.Mutex
+	pairings    map[string]PairingRecord
+	executors   map[string]ExecutorRecord
+	tokens      map[string]string
+	jobs        map[string]JobRecord
+	jobKeys     map[string]string
+	preferences map[string]PreferenceRecord
 }
 
 func NewMemoryStore() *MemoryStore {
-	return &MemoryStore{pairings: make(map[string]PairingRecord), executors: make(map[string]ExecutorRecord), tokens: make(map[string]string), jobs: make(map[string]JobRecord), jobKeys: make(map[string]string)}
+	return &MemoryStore{pairings: make(map[string]PairingRecord), executors: make(map[string]ExecutorRecord), tokens: make(map[string]string), jobs: make(map[string]JobRecord), jobKeys: make(map[string]string), preferences: make(map[string]PreferenceRecord)}
 }
 
 func (s *MemoryStore) CreatePairing(_ context.Context, record PairingRecord) error {
@@ -94,6 +95,23 @@ func (s *MemoryStore) ListExecutors(_ context.Context, owner string) ([]Executor
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt.After(out[j].UpdatedAt) })
 	return out, nil
+}
+
+func (s *MemoryStore) GetPreference(_ context.Context, owner string) (PreferenceRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	record, ok := s.preferences[owner]
+	if !ok {
+		return PreferenceRecord{}, ErrPreferenceNotFound
+	}
+	return record, nil
+}
+
+func (s *MemoryStore) SavePreference(_ context.Context, record PreferenceRecord) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.preferences[record.OwnerUsername] = record
+	return nil
 }
 
 func (s *MemoryStore) FindJobByKey(_ context.Context, owner, key string) (JobRecord, error) {

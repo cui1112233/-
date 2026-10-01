@@ -94,6 +94,42 @@ func (s *Service) ListExecutors(ctx context.Context, owner string) ([]ExecutorVi
 	return views, nil
 }
 
+func (s *Service) GetPreference(ctx context.Context, owner string) (PreferenceView, error) {
+	owner = strings.TrimSpace(owner)
+	if owner == "" {
+		return PreferenceView{}, ErrInvalidInput
+	}
+	record, err := s.store.GetPreference(ctx, owner)
+	if errors.Is(err, ErrPreferenceNotFound) {
+		return PreferenceView{PreferredOS: DefaultPreferredOS}, nil
+	}
+	if err != nil {
+		return PreferenceView{}, err
+	}
+	return PreferenceView{PreferredOS: record.PreferredOS, UpdatedAt: record.UpdatedAt}, nil
+}
+
+func (s *Service) SavePreference(ctx context.Context, owner, preferredOS string) (PreferenceView, error) {
+	owner = strings.TrimSpace(owner)
+	preferredOS = strings.ToLower(strings.TrimSpace(preferredOS))
+	if owner == "" {
+		return PreferenceView{}, ErrInvalidInput
+	}
+	if !validExecutorOS(preferredOS) {
+		return PreferenceView{}, ErrInvalidInput
+	}
+	now := s.now().UTC()
+	record := PreferenceRecord{OwnerUsername: owner, PreferredOS: preferredOS, UpdatedAt: now}
+	if err := s.store.SavePreference(ctx, record); err != nil {
+		return PreferenceView{}, err
+	}
+	return PreferenceView{PreferredOS: preferredOS, UpdatedAt: now}, nil
+}
+
+func validExecutorOS(value string) bool {
+	return value == "windows" || value == "darwin"
+}
+
 func (s *Service) CreateJob(ctx context.Context, owner string, input CreateJobInput) (JobView, error) {
 	owner = strings.TrimSpace(owner)
 	if owner == "" || strings.TrimSpace(input.MaterialID) == "" || strings.TrimSpace(input.PlatformBookID) == "" || strings.TrimSpace(input.Title) == "" || strings.TrimSpace(input.ModelVersion) == "" || input.DurationSeconds <= 0 || input.DurationSeconds > 1800 {

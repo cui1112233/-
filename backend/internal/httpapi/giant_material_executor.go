@@ -30,6 +30,41 @@ func RegisterGiantMaterialExecutorRoutes(root *http.ServeMux, auth BridgeAuth, s
 		writeGiantExecutorJSON(w, http.StatusOK, map[string]any{"executors": executors})
 	})))
 
+	root.Handle("GET /api/shuihuo-production/giant-material-executor/preference", auth.Middleware(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		identity, ok := BridgeIdentityFromContext(req.Context())
+		if !ok {
+			writeGiantExecutorError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		preference, err := service.GetPreference(req.Context(), identity.Username)
+		if err != nil {
+			writeGiantExecutorServiceError(w, err)
+			return
+		}
+		writeGiantExecutorJSON(w, http.StatusOK, preference)
+	})))
+
+	root.Handle("PUT /api/shuihuo-production/giant-material-executor/preference", auth.Middleware(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		identity, ok := BridgeIdentityFromContext(req.Context())
+		if !ok {
+			writeGiantExecutorError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		var input struct {
+			PreferredOS string `json:"preferredOs"`
+		}
+		if err := decodeGiantExecutorJSON(w, req, &input); err != nil {
+			writeGiantExecutorError(w, http.StatusBadRequest, "invalid request")
+			return
+		}
+		preference, err := service.SavePreference(req.Context(), identity.Username, input.PreferredOS)
+		if err != nil {
+			writeGiantExecutorServiceError(w, err)
+			return
+		}
+		writeGiantExecutorJSON(w, http.StatusOK, preference)
+	})))
+
 	root.Handle("POST /api/shuihuo-production/giant-material-executor/pairings", auth.Middleware(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		identity, ok := BridgeIdentityFromContext(req.Context())
 		if !ok {
