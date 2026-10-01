@@ -27,7 +27,7 @@ export function SettingsPage() {
   const [loadingExecutors, setLoadingExecutors] = useState(false);
   const [giantMaterialExecutors, setGiantMaterialExecutors] = useState([]);
   const [loadingGiantMaterialExecutors, setLoadingGiantMaterialExecutors] = useState(false);
-  const [giantLatestVersion, setGiantLatestVersion] = useState(null);
+  const [giantLatestVersions, setGiantLatestVersions] = useState({ windows: null, macos: null });
   const [giantPairing, setGiantPairing] = useState(null);
   const [giantPairingBusy, setGiantPairingBusy] = useState(false);
   const [giantPreference, setGiantPreference] = useState({ preferredOs: 'windows' });
@@ -72,9 +72,14 @@ export function SettingsPage() {
 
   useEffect(() => {
     let alive = true;
-    fetch('/downloads/giant-material-executor/latest.json')
-      .then(res => (res.ok ? res.json() : null))
-      .then(data => { if (alive && data && data.version) setGiantLatestVersion(String(data.version)); })
+    Promise.all(['windows', 'macos'].map(async platform => {
+      const response = await fetch(`/downloads/giant-material-executor/releases/${platform}/latest.json`);
+      const data = response.ok ? await response.json() : null;
+      return [platform, data?.version ? String(data.version) : null];
+    }))
+      .then(entries => {
+        if (alive) setGiantLatestVersions(Object.fromEntries(entries));
+      })
       .catch(() => {});
     return () => { alive = false; };
   }, []);
@@ -371,7 +376,7 @@ export function SettingsPage() {
                 <strong>巨量素材读取通道</strong>
                 <span>
                   {giantMaterialExecutors.length} 台已绑定 · {giantMaterialExecutors.filter(item => item.online).length} 台在线
-                  {giantLatestVersion ? ` · 最新版本 ${giantLatestVersion}` : ''}
+                  {giantLatestVersions.windows || giantLatestVersions.macos ? ` · 最新版本 ${giantLatestVersions.windows || giantLatestVersions.macos}` : ''}
                 </span>
               </div>
             </div>
@@ -385,14 +390,16 @@ export function SettingsPage() {
             {giantMaterialExecutors.length > 0 && (
               <ul style={{ listStyle: 'none', margin: '4px 0 0', padding: 0, display: 'flex', flexDirection: 'column', gap: 6, width: '100%' }}>
                 {giantMaterialExecutors.map(item => {
-                  const outdated = item.os === 'windows' && Boolean(giantLatestVersion) && Boolean(item.version) && item.version !== giantLatestVersion;
+                  const platform = item.os === 'darwin' ? 'macos' : item.os === 'windows' ? 'windows' : null;
+                  const latestVersion = platform ? giantLatestVersions[platform] : null;
+                  const outdated = Boolean(latestVersion) && Boolean(item.version) && item.version !== latestVersion;
                   return (
                     <li key={item.id} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, fontSize: 13 }}>
                       <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, background: item.online ? '#52c41a' : '#5b6b79' }} />
                       <strong>{item.name || '未命名设备'}</strong>
                       <span style={{ color: 'var(--legacy-muted, #9bb1c0)' }}>{item.os === 'darwin' ? 'macOS' : item.os === 'windows' ? 'Windows' : item.os || '未知系统'}</span>
                       <span style={{ color: 'var(--legacy-muted, #9bb1c0)' }}>版本 {item.version || '未知（旧版）'}</span>
-                      {outdated && <span style={{ color: '#d48806' }}>待更新 → {giantLatestVersion}</span>}
+                      {outdated && <span style={{ color: '#d48806' }}>可更新至 {latestVersion}</span>}
                       <span style={{ marginLeft: 'auto', color: 'var(--legacy-muted, #9bb1c0)' }}>{item.online ? '在线' : formatLastSeen(item.lastSeenAt)}</span>
                       <Popconfirm title="确定删除这台设备吗？未完成的任务会自动重新排队。"
                         okText="删除" cancelText="取消" onConfirm={() => removeGiantExecutor(item.id)}>
@@ -406,11 +413,11 @@ export function SettingsPage() {
             <div className="settings-executor-actions">
               <Button icon={<RefreshCw size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={loadGiantMaterialExecutors} loading={loadingGiantMaterialExecutors}>刷新状态</Button>
               <Button onClick={createGiantMaterialExecutorPairing} loading={giantPairingBusy}>生成配对码</Button>
-              <Button type="primary" icon={<Download size={16} strokeWidth={1.8} aria-hidden="true" />} href="/downloads/giant-material-executor/GiantMaterialExecutor-windows-x64.zip">下载 Windows 执行器{giantLatestVersion ? ` ${giantLatestVersion}` : ''}</Button>
-              <Button icon={<Download size={16} strokeWidth={1.8} aria-hidden="true" />} href="/downloads/giant-material-executor/GiantMaterialExecutor-macos-universal.zip">下载 macOS 执行器 0.5.3</Button>
+              <Button type="primary" icon={<Download size={16} strokeWidth={1.8} aria-hidden="true" />} href="/downloads/giant-material-executor/GiantMaterialExecutor-windows-x64.zip">下载 Windows 执行器{giantLatestVersions.windows ? ` ${giantLatestVersions.windows}` : ''}</Button>
+              <Button icon={<Download size={16} strokeWidth={1.8} aria-hidden="true" />} href="/downloads/giant-material-executor/GiantMaterialExecutor-macos-universal.zip">下载 macOS 执行器{giantLatestVersions.macos ? ` ${giantLatestVersions.macos}` : ''}</Button>
             </div>
             {giantPairing?.code ? <p className="settings-executor-pairing">配对码：<strong>{giantPairing.code}</strong>（10 分钟内有效）。请在执行器首次启动窗口或本机配对页中输入；绑定成功后这里会显示在线状态。</p> : null}
-            <p className="settings-executor-pairing">Windows 解压后双击 GiantMaterialExecutor.exe，首次使用会单独下载 OCR 模型，已绑定 0.4.0 及以上版本可自动检查更新。macOS 解压后打开 GiantMaterialExecutor.app，使用系统 Vision OCR，无需额外下载模型；首次启动会打开本机配对页。</p>
+            <p className="settings-executor-pairing">Windows 解压后双击 GiantMaterialExecutor.exe；macOS 解压后打开 GiantMaterialExecutor.app。首次绑定一次后会在后台自动连接；有新版本时，请在本机执行器中点击“立即更新”，不会替其他电脑远程更新。</p>
           </div>
         </section>
 
