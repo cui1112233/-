@@ -177,7 +177,7 @@ export function BatchFactoryGiantMaterialPendingProgress({ book, batchId, onCont
     } catch (startError) { setError(String(startError?.message || '等待执行器')); } finally { setOcrStarting(false); }
   }
 
-  if (error || persistedOriginalReadError || !jobId) return <Alert className="batch-factory-giant-pending is-error" type="error" showIcon message={error || persistedOriginalReadError || '未绑定读取任务'} description={<Space size="small"><Button size="small" type="primary" loading={refetching} onClick={() => refetchOriginal(false)}>重试获取原文</Button><Button size="small" loading={ocrStarting} disabled={refetching} onClick={startOcrFallback}>改用滚屏 OCR</Button></Space>} onClick={event => event.stopPropagation()} />;
+  if (error || persistedOriginalReadError || !jobId) return <Alert className="batch-factory-giant-pending is-error" type="error" showIcon message={error || persistedOriginalReadError || 'OCR 任务未派发'} description={<Space size="small"><Button size="small" type="primary" loading={refetching} onClick={() => refetchOriginal(false)}>重试获取原文</Button><Button size="small" loading={ocrStarting} disabled={refetching} onClick={startOcrFallback}>改用滚屏 OCR</Button></Space>} onClick={event => event.stopPropagation()} />;
   const percent = Math.max(0, Math.min(100, Number(progress?.percent || 0)));
   const seconds = progress?.total ? ` · 视频 ${progress.completed || 0}/${progress.total} 秒` : '';
   const detail = percent > 0 ? `正在读取正文 ${percent}%${seconds}` : '正在排队读取正文…';

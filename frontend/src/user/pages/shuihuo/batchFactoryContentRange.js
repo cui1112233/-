@@ -8,11 +8,30 @@ export function contentCaptureCharactersForBook(book) {
   return Number.isInteger(value) && value >= 100 && value <= 100000 ? value : 4000;
 }
 
+function normalizedSourceLine(value) {
+  return String(value || '')
+    .replace(/&nbsp;|\u00a0|　/g, ' ')
+    .replace(/<[^>]*>/g, '')
+    .trim();
+}
+
+function isLeadingPageStateLine(value) {
+  return /^(?:修改中|加载中|正文加载中|请稍候)$/.test(value);
+}
+
+function isPunctuationOnlyLine(value) {
+  return /^[，。！？、；：…·—～~,.!?;:()（）【】\[\]{}「」『』“”"'\-]+$/.test(value);
+}
+
+function usableSourceLines(sourceText) {
+  const lines = String(sourceText || '').split(/\r?\n/).map(normalizedSourceLine).filter(Boolean);
+  let firstContent = 0;
+  while (firstContent < lines.length && isLeadingPageStateLine(lines[firstContent])) firstContent += 1;
+  return lines.slice(firstContent).filter(line => !isPunctuationOnlyLine(line));
+}
+
 export function batchFactoryPreviewText(sourceText, book) {
-  return String(sourceText || '')
-    .split(/\r?\n/)
-    .map(line => line.trim())
-    .filter(Boolean)
+  return usableSourceLines(sourceText)
     .slice(0, contentRangeLinesForBook(book))
     .join('\n');
 }

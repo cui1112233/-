@@ -14,6 +14,14 @@ test('keeps the full original separate from the limited work text', () => {
   assert.equal(source, '一\n二\n三');
 });
 
+test('skips repeated page-state remnants and punctuation-only lines before applying the content range', () => {
+  const source = '修改中&nbsp;\n修改中&nbsp;\n。\n\n陆雪凝推门进来。\n她把伞放在门边。\n窗外下着雨。';
+  const book = { sourceMetadata: { contentRangeLines: 2 } };
+
+  assert.equal(batchFactoryPreviewText(source, book), '陆雪凝推门进来。\n她把伞放在门边。');
+  assert.equal(source.startsWith('修改中&nbsp;'), true);
+});
+
 test('uses only the configured non-empty lines as production text unless a working front exists', () => {
   const book = { sourceMetadata: { contentRangeLines: 5 } };
   const source = '一\n\n二\n三\n四\n五\n六';

@@ -722,6 +722,12 @@ test('repairs legacy empty books in place using their saved platform and Book ID
   assert.match(source, /已获取并写入当前小说正文/);
 });
 
+test('shows cleaned original text and the giant-material read state in the 小说正文 cell', () => {
+  assert.match(source, /const previewText = batchFactoryPreviewText\(book\.sourceText, book\);/);
+  assert.match(source, /<BatchFactoryGiantMaterialPendingProgress book=\{book\} batchId=\{batch\?\.id\} visible/);
+  assert.doesNotMatch(source, /BatchFactoryGiantMaterialPendingProgress book=\{book\} batchId=\{batch\?\.id\} visible=\{false\}/);
+});
+
 test('keeps Batch Factory flush with the workbench while balancing wide-screen columns', () => {
   assert.match(stylesheet, /Keep the production table flush with its container/);
   assert.match(stylesheet, /width: 100%;/);
