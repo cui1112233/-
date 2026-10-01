@@ -315,7 +315,25 @@ func newCredentialStore() (credential.Store, error) {
 		}
 		path = filepath.Join(root, "YizhanShengming", "GiantMaterialExecutor", "credential.bin")
 	}
+	if runtime.GOOS == "darwin" {
+		// Older macOS executors persist a paired device in this restricted local
+		// file. Keep using a valid existing record so an upgrade cannot force a
+		// user to pair again; fresh installs still use the device store.
+		return preferLegacyCredentialStore(credential.NewDeviceStore(path), credential.NewFileStore(path))
+	}
 	return credential.NewDeviceStore(path), nil
+}
+
+func preferLegacyCredentialStore(deviceStore, legacyStore credential.Store) (credential.Store, error) {
+	if deviceStore == nil || legacyStore == nil {
+		return nil, errors.New("credential store is required")
+	}
+	if _, err := legacyStore.Load(); err == nil {
+		return legacyStore, nil
+	} else if !errors.Is(err, credential.ErrNotFound) {
+		return nil, err
+	}
+	return deviceStore, nil
 }
 
 func savePairResult(store credential.Store, result agent.PairResult) error {
