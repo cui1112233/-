@@ -356,7 +356,7 @@ export function SettingsPage() {
               <Button icon={<RefreshCw size={16} strokeWidth={1.8} aria-hidden="true" />} onClick={loadGiantMaterialExecutors} loading={loadingGiantMaterialExecutors}>刷新状态</Button>
               <Button onClick={createGiantMaterialExecutorPairing} loading={giantPairingBusy}>生成配对码</Button>
               <Button type="primary" icon={<Download size={16} strokeWidth={1.8} aria-hidden="true" />} href="/downloads/giant-material-executor/GiantMaterialExecutor-windows-x64.zip">下载 Windows 执行器{giantLatestVersion ? ` ${giantLatestVersion}` : ''}</Button>
-              <Button icon={<Download size={16} strokeWidth={1.8} aria-hidden="true" />} href="/downloads/giant-material-executor/GiantMaterialExecutor-macos-universal.zip">下载 macOS 执行器 0.5.1</Button>
+              <Button icon={<Download size={16} strokeWidth={1.8} aria-hidden="true" />} href="/downloads/giant-material-executor/GiantMaterialExecutor-macos-universal.zip">下载 macOS 执行器 0.5.2</Button>
             </div>
             {giantPairing?.code ? <p className="settings-executor-pairing">配对码：<strong>{giantPairing.code}</strong>（10 分钟内有效）。请在执行器首次启动窗口或本机配对页中输入；绑定成功后这里会显示在线状态。</p> : null}
             <p className="settings-executor-pairing">Windows 解压后双击 GiantMaterialExecutor.exe，首次使用会单独下载 OCR 模型，已绑定 0.4.0 及以上版本可自动检查更新。macOS 解压后打开 GiantMaterialExecutor.app，使用系统 Vision OCR，无需额外下载模型；首次启动会打开本机配对页。</p>

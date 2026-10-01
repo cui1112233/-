@@ -22,7 +22,7 @@ from urllib.parse import urlparse
 
 
 MAX_OUTPUT_BYTES = 2 * 1024 * 1024
-ALLOWED_VIDEO_HOST_SUFFIX = "material.hnqingyuwen.top"
+ALLOWED_VIDEO_HOSTS = {"material.hnqingyuwen.top", "mlzr-material.hnqingyuwen.top"}
 HAN_OR_TEXT = re.compile(r"[\u3400-\u9fffA-Za-z0-9]")
 
 
@@ -231,7 +231,7 @@ def validate_extract_request(request: dict[str, Any]) -> dict[str, Any]:
     duration = request.get("durationSeconds")
     if not job_id:
         raise WorkerError("OCR_INVALID_JOB")
-    if parsed.scheme != "https" or not parsed.hostname.endswith(ALLOWED_VIDEO_HOST_SUFFIX) or parsed.username or parsed.password or parsed.port:
+    if parsed.scheme != "https" or parsed.hostname not in ALLOWED_VIDEO_HOSTS or parsed.username or parsed.password or parsed.port:
         raise WorkerError("OCR_VIDEO_NOT_ALLOWED")
     try:
         duration_value = float(duration)

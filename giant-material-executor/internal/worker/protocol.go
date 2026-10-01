@@ -24,6 +24,11 @@ const (
 	maxEventSize  = 2 << 20
 )
 
+var allowedVideoHosts = map[string]struct{}{
+	"material.hnqingyuwen.top":      {},
+	"mlzr-material.hnqingyuwen.top": {},
+}
+
 type ExtractRequest struct {
 	JobID           string  `json:"jobId"`
 	VideoURL        string  `json:"videoUrl"`
@@ -50,7 +55,10 @@ func EncodeExtractCommand(request ExtractRequest) ([]byte, error) {
 		return nil, errors.New("invalid extract request")
 	}
 	parsed, err := url.Parse(request.VideoURL)
-	if err != nil || parsed.Scheme != "https" || !strings.HasSuffix(parsed.Hostname(), "material.hnqingyuwen.top") || parsed.User != nil || parsed.Port() != "" {
+	if err != nil || parsed.Scheme != "https" || parsed.User != nil || parsed.Port() != "" {
+		return nil, errors.New("extract video URL is not allowed")
+	}
+	if _, allowed := allowedVideoHosts[parsed.Hostname()]; !allowed {
 		return nil, errors.New("extract video URL is not allowed")
 	}
 	return json.Marshal(struct {
