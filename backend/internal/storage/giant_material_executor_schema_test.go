@@ -7,7 +7,7 @@ import (
 
 func TestGiantMaterialExecutorMigrationIsSeparateFromDoubaoExecutor(t *testing.T) {
 	migrations := GiantMaterialExecutorMigrations()
-	if len(migrations) != 1 || migrations[0].Version != 7802001 {
+	if len(migrations) != 2 || migrations[0].Version != 7802001 || migrations[1].Version != 7802002 {
 		t.Fatalf("migrations=%+v", migrations)
 	}
 	joined := strings.Join(migrations[0].SQL, "\n")

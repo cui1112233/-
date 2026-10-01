@@ -148,6 +148,7 @@ type JobRecord struct {
 	DurationSeconds   float64
 	ModelVersion      string
 	ContentRangeLines string
+	TargetExecutorID  string
 	State             JobState
 	CancelRequested   bool
 	Progress          ProgressInput
@@ -170,6 +171,7 @@ type JobView struct {
 	Title             string        `json:"title"`
 	ModelVersion      string        `json:"modelVersion"`
 	ContentRangeLines string        `json:"contentRangeLines,omitempty"`
+	TargetExecutorID  string        `json:"targetExecutorId,omitempty"`
 	State             JobState      `json:"state"`
 	CancelRequested   bool          `json:"cancelRequested"`
 	LeaseExecutorID   string        `json:"leaseExecutorId,omitempty"`

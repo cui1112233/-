@@ -108,7 +108,14 @@ func (s *Service) CreateJob(ctx context.Context, owner string, input CreateJobIn
 	if input.VideoExpiresAt != nil && !input.VideoExpiresAt.After(s.now().UTC()) {
 		return JobView{}, ErrInvalidInput
 	}
-	record := JobRecord{ID: randomID("gme_job_"), OwnerUsername: owner, Platform: PlatformGiantMaterial, MaterialID: strings.TrimSpace(input.MaterialID), PlatformBookID: strings.TrimSpace(input.PlatformBookID), Title: bounded(input.Title, 191), VideoURL: strings.TrimSpace(input.VideoURL), VideoExpiresAt: input.VideoExpiresAt, DurationSeconds: input.DurationSeconds, ModelVersion: bounded(input.ModelVersion, 64), ContentRangeLines: bounded(input.ContentRangeLines, 64), State: JobQueued, CreatedAt: s.now().UTC(), UpdatedAt: s.now().UTC()}
+	now := s.now().UTC()
+	targetExecutorID := ""
+	if executors, listErr := s.store.ListExecutors(ctx, owner); listErr == nil {
+		targetExecutorID = newestOnlineExecutorID(executors, now)
+	} else {
+		return JobView{}, listErr
+	}
+	record := JobRecord{ID: randomID("gme_job_"), OwnerUsername: owner, Platform: PlatformGiantMaterial, MaterialID: strings.TrimSpace(input.MaterialID), PlatformBookID: strings.TrimSpace(input.PlatformBookID), Title: bounded(input.Title, 191), VideoURL: strings.TrimSpace(input.VideoURL), VideoExpiresAt: input.VideoExpiresAt, DurationSeconds: input.DurationSeconds, ModelVersion: bounded(input.ModelVersion, 64), ContentRangeLines: bounded(input.ContentRangeLines, 64), TargetExecutorID: targetExecutorID, State: JobQueued, CreatedAt: now, UpdatedAt: now}
 	key := jobKey(record)
 	if existing, err := s.store.FindJobByKey(ctx, owner, key); err == nil {
 		// 同 key 的失败/取消任务允许重试：用新的视频地址重置为排队状态。
@@ -132,6 +139,23 @@ func (s *Service) CreateJob(ctx context.Context, owner string, input CreateJobIn
 		return JobView{}, err
 	}
 	return jobView(record), nil
+}
+
+func newestOnlineExecutorID(executors []ExecutorRecord, now time.Time) string {
+	var chosen *ExecutorRecord
+	for index := range executors {
+		candidate := &executors[index]
+		if candidate.Platform != PlatformGiantMaterial || candidate.LastSeenAt == nil || candidate.LastSeenAt.Before(now.Add(-OnlineThreshold)) {
+			continue
+		}
+		if chosen == nil || candidate.LastSeenAt.After(*chosen.LastSeenAt) || (candidate.LastSeenAt.Equal(*chosen.LastSeenAt) && candidate.ID > chosen.ID) {
+			chosen = candidate
+		}
+	}
+	if chosen == nil {
+		return ""
+	}
+	return chosen.ID
 }
 
 func (s *Service) GetJob(ctx context.Context, owner, id string) (JobView, error) {
@@ -235,7 +259,7 @@ func (s *Service) executorForToken(ctx context.Context, token string) (ExecutorR
 }
 
 func jobView(record JobRecord) JobView {
-	return JobView{ID: record.ID, Platform: record.Platform, MaterialID: record.MaterialID, PlatformBookID: record.PlatformBookID, Title: record.Title, ModelVersion: record.ModelVersion, ContentRangeLines: record.ContentRangeLines, State: record.State, CancelRequested: record.CancelRequested, LeaseExecutorID: record.LeaseExecutorID, LeaseGeneration: record.LeaseGeneration, LeaseExpiresAt: record.LeaseExpiresAt, Progress: record.Progress, Result: record.Result, ErrorCode: record.ErrorCode, ErrorMessage: record.ErrorMessage, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}
+	return JobView{ID: record.ID, Platform: record.Platform, MaterialID: record.MaterialID, PlatformBookID: record.PlatformBookID, Title: record.Title, ModelVersion: record.ModelVersion, ContentRangeLines: record.ContentRangeLines, TargetExecutorID: record.TargetExecutorID, State: record.State, CancelRequested: record.CancelRequested, LeaseExecutorID: record.LeaseExecutorID, LeaseGeneration: record.LeaseGeneration, LeaseExpiresAt: record.LeaseExpiresAt, Progress: record.Progress, Result: record.Result, ErrorCode: record.ErrorCode, ErrorMessage: record.ErrorMessage, CreatedAt: record.CreatedAt, UpdatedAt: record.UpdatedAt}
 }
 
 func executorJobView(record JobRecord) ExecutorJobView {

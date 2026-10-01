@@ -78,5 +78,8 @@ func GiantMaterialExecutorStatements() []string {
 }
 
 func GiantMaterialExecutorMigrations() []Migration {
-	return []Migration{{Version: 7802001, SQL: GiantMaterialExecutorStatements(), CallbackChecksum: "v78-giant-material-executor-control-plane-v1"}}
+	return []Migration{
+		{Version: 7802001, SQL: GiantMaterialExecutorStatements(), CallbackChecksum: "v78-giant-material-executor-control-plane-v1"},
+		{Version: 7802002, SQL: []string{`ALTER TABLE giant_executor_jobs ADD COLUMN target_executor_id VARCHAR(64) NULL AFTER content_range_lines, ADD KEY idx_giant_executor_jobs_target (target_executor_id, state, created_at)`}, CallbackChecksum: "v88-giant-material-executor-targeted-dispatch-v1"},
+	}
 }
