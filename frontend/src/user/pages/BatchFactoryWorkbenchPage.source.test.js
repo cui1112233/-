@@ -28,4 +28,5 @@ test('returns the created batch so giant-material OCR can bind its executor job'
   const page = fs.readFileSync(pagePath, 'utf8');
   assert.match(page, /if\s*\(!input\?\.automationEnabled\)\s*return batch;/);
   assert.match(page, /onCreated=\{async input => \{\s*const batch = await createBatch\(input\);\s*setCreateOpen\(false\);\s*return batch;\s*\}\}/s);
+  assert.match(page, /onBatchUpdated=\{async batchId => \{\s*const refreshed = asBatch\(await getBatch\(batchId\)\);/s);
 });

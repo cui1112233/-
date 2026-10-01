@@ -77,6 +77,7 @@ test('offers giant material intake through the resident executor', () => {
   assert.match(source, /每行一个巨量素材 ID，数量不限/);
   assert.match(source, /parseGiantMaterialIds/);
   assert.match(source, /BatchFactoryGiantMaterialExecutorStatus/);
+  assert.match(source, /onBatchUpdated\?\.\(batchId\)/);
   assert.doesNotMatch(source, /extractGiantMaterial\(/);
   // 旧单 ID 等待式流程已移除
   assert.doesNotMatch(source, /waitForGiantMaterialJob/);
