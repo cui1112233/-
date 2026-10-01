@@ -118,6 +118,12 @@ func (a *LocalMergeAdapter) run(taskID, batchID string, sources []MergeMedia, op
 	if root == "" {
 		root = os.TempDir()
 	}
+	// 容器重建后挂载的工作目录可能还不存在（首次部署/新卷），先确保它被创建，
+	// 否则 MkdirTemp 会直接报 "stat ...: no such file or directory"，所有合成全挂。
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		a.fail(taskID, err)
+		return
+	}
 	dir, err := os.MkdirTemp(root, "qiantie-local-merge-")
 	if err != nil {
 		a.fail(taskID, err)

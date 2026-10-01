@@ -79,6 +79,49 @@ func TestLocalMergeAdapterCreatesProtectedArtifactForCompletedMerge(t *testing.T
 	}
 }
 
+func TestLocalMergeAdapterCreatesMissingWorkspaceBeforeMerge(t *testing.T) {
+	// 容器重建后挂载的工作目录还没被创建时，合成必须自动建目录并成功，
+	// 而不是 MkdirTemp 直接报 "no such file or directory" 让所有合成失败。
+	missing := filepath.Join(t.TempDir(), "nested", "local-executor-artifacts")
+	if _, err := os.Stat(missing); !os.IsNotExist(err) {
+		t.Fatalf("workspace should not exist yet, stat err=%v", err)
+	}
+	adapter := NewLocalMergeAdapter(localartifact.NewStore(t.TempDir(), 1<<20))
+	adapter.WorkRoot = missing
+	adapter.Downloader = localMergeDownloadFunc(func(_ context.Context, _ []MergeMedia, dir string, _ func(int, int)) ([]string, error) {
+		input := filepath.Join(dir, "input.mp4")
+		return []string{input}, os.WriteFile(input, []byte("input"), 0o600)
+	})
+	adapter.Merger = localMergeRunFunc(func(_ context.Context, _ []string, output string, _ float64) error {
+		return os.WriteFile(output, []byte("0000ftypisom-local-merged-video"), 0o600)
+	})
+
+	queued, err := adapter.Submit(context.Background(), "batch-1", []MergeMedia{{ProductionJobID: "job-1", VideoID: "video-1", MediaURL: "https://media.example/one.mp4", Order: 0}}, MergeOptions{Speed: 1})
+	if err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for {
+		result, pollErr := adapter.Poll(context.Background(), "batch-1", queued)
+		if pollErr != nil {
+			t.Fatalf("poll: %v", pollErr)
+		}
+		if result.Status == MergeFailed {
+			t.Fatalf("merge failed: %s", result.ErrorMessage)
+		}
+		if result.Status == MergeSucceeded {
+			if info, statErr := os.Stat(missing); statErr != nil || !info.IsDir() {
+				t.Fatalf("workspace dir was not created: %v", statErr)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("merge did not finish: %+v", result)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
 type localMergeOutputFunc func(context.Context, string, string) (string, error)
 
 func (fn localMergeOutputFunc) PutMerged(ctx context.Context, taskID, filePath string) (string, error) {

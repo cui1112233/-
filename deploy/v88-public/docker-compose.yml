@@ -16,6 +16,11 @@ services:
       QIANTIE_BATCH_FACTORY_V11_DYNAMIC_TEXT_PROVIDER: ${QIANTIE_BATCH_FACTORY_V11_DYNAMIC_TEXT_PROVIDER:-1}
       QIANTIE_BATCH_FACTORY_V11_PRODUCTION_ENABLED: ${QIANTIE_BATCH_FACTORY_V11_PRODUCTION_ENABLED:-0}
       QIANTIE_BATCH_FACTORY_V11_LOCAL_MERGE_ENABLED: ${QIANTIE_BATCH_FACTORY_V11_LOCAL_MERGE_ENABLED:-1}
+      # 内置合成的成片工作目录必须落在持久卷上：否则 go-api 容器一重建，
+      # 已合成的 mp4 随容器内部目录一起丢失，上传时会 404。
+      QIANTIE_LOCAL_EXECUTOR_ARTIFACT_DIR: /data/local-executor-artifacts
+    volumes:
+      - go_api_artifacts:/data/local-executor-artifacts
     expose:
       - "4000"
     networks:
@@ -136,3 +141,6 @@ volumes:
   shuihuo_objects:
     external: true
     name: v88-public_shuihuo_objects
+  go_api_artifacts:
+    external: true
+    name: v88-public_go_api_artifacts
