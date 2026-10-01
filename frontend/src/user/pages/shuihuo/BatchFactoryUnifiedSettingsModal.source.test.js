@@ -112,10 +112,10 @@ test('unified settings write the opening variants toggle and count at the patch 
   assert.match(source, /openingCount/);
   assert.match(source, /min=\{1\}/);
   assert.match(source, /max=\{8\}/);
-  assert.match(source, /disabled=\{draftPatch\.openingEnabled !== true\}/);
+  assert.match(source, /disabled=\{openingConfig\.enabled !== true\}/);
   assert.match(source, /条（含原始）/);
-  assert.match(source, /\{ \.\.\.draftPatch, openingEnabled/);
-  assert.match(source, /\{ \.\.\.draftPatch, openingCount/);
+  assert.match(source, /draftPatch\.openingEnabled/);
+  assert.match(source, /draftPatch\.openingCount/);
   assert.doesNotMatch(source, /\{ \.\.\.config, openingEnabled/);
 });
 
