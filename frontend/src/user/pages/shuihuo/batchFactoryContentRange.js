@@ -30,6 +30,12 @@ function usableSourceLines(sourceText) {
   return lines.slice(firstContent).filter(line => !isPunctuationOnlyLine(line));
 }
 
+// Detail dialogs, previews and production must use the same cleaned text.
+// The raw upstream response is retained separately in source metadata.
+export function batchFactoryCleanSourceText(sourceText) {
+  return usableSourceLines(sourceText).join('\n');
+}
+
 export function batchFactoryPreviewText(sourceText, book) {
   return usableSourceLines(sourceText)
     .slice(0, contentRangeLinesForBook(book))

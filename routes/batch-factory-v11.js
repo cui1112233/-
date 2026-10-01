@@ -927,14 +927,12 @@ function batchFactoryProductionText(book) {
   const source = String(book?.workingFrontContent || book?.sourceText || '');
   const configured = Number(book?.sourceMetadata?.contentRangeLines);
   const limit = Number.isInteger(configured) && configured > 0 ? Math.min(configured, 500) : 5;
-  const lines = [];
-  for (const line of source.split(/\r?\n/)) {
-    const value = line.trim();
-    if (!value) continue;
-    lines.push(value);
-    if (lines.length >= limit) break;
-  }
-  return lines.join('\n');
+  const lines = source.split(/\r?\n/).map(line => String(line || '')
+    .replace(/&nbsp;|\u00a0|　/g, ' ')
+    .replace(/<[^>]*>/g, '')
+    .trim()).filter(Boolean);
+  while (lines.length && /^(?:修改中|加载中|正文加载中|请稍候)$/.test(lines[0])) lines.shift();
+  return lines.filter(line => !/^[，。！？、；：…·—～~,.!?;:()（）【】\[\]{}「」『』“”"'\-]+$/.test(line)).slice(0, limit).join('\n');
 }
 
 function imageSizeForAspectRatio(aspectRatio) {
@@ -2165,6 +2163,7 @@ module.exports = {
   automationCompilePayload,
   automationSettingsWithResolvedConstraintBodies,
   safeAutomationStatus,
+  batchFactoryProductionText,
   splitVideoPresetBody,
   listBatchFactory121Organizations,
   fetchBatchFactory121Media,

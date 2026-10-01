@@ -30,10 +30,21 @@ const {
   persisted121PublicationMetadata,
   v11JSONRequest,
   safeAutomationStatus,
+  batchFactoryProductionText,
   splitVideoPresetBody,
   singleBookDirectorStageTarget,
   generateOpeningVariantsAfterSingleDirector
 } = require('./batch-factory-v11');
+
+test('keeps book-city loading placeholders out of automated production text', () => {
+  assert.equal(
+    batchFactoryProductionText({
+      sourceText: '修改中&nbsp;\n。\n第一段 <b>正文</b>\n第二段正文',
+      sourceMetadata: { contentRangeLines: 2 }
+    }),
+    '第一段 正文\n第二段正文'
+  );
+});
 
 test('keeps a V12 book submission on the Node-owned 121 publisher', () => {
   assert.deepEqual(

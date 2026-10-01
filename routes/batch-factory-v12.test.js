@@ -90,11 +90,26 @@ test('batch factory direct fetch returns per-book results without creating Novel
   });
 });
 
+test('removes book-city loading remnants from production text but keeps the upstream raw backup', async () => {
+  const response = await fetchBatchFactoryOriginals({
+    platform: '3',
+    bookIds: ['558154'],
+    maxTxt: 4000
+  }, async () => ({
+    text: '修改中&nbsp;\n修改中&nbsp;\n。\n\n第一段 <b>正文</b>\n第二段正文',
+    rawText: '修改中&nbsp;\n修改中&nbsp;\n。\n\n第一段 <b>正文</b>\n第二段正文'
+  }));
+
+  assert.equal(response.results[0].data, '第一段 正文\n第二段正文');
+  assert.equal(response.results[0].rawData, '修改中&nbsp;\n修改中&nbsp;\n。\n\n第一段 <b>正文</b>\n第二段正文');
+  assert.equal(response.results[0].length, '第一段 正文\n第二段正文'.length);
+});
+
 test('refills a legacy empty book from its stored platform and book ID without overwriting an existing source', async () => {
   const calls = [];
   const result = await refillMissingBatchFactoryBookSource({
     book: { id: 'book-1', bookId: '2084012035524801698', platform: '15', revision: 7, sourceText: '', sourceMetadata: { contentCaptureCharacters: 4000 } },
-    fetchDirectOriginal: async input => { calls.push(input); return { text: '抓回来的正文', attempts: 2, bookinfo: { work_title: '白月光回港' } }; },
+    fetchDirectOriginal: async input => { calls.push(input); return { text: '修改中&nbsp;\n。\n抓回来的正文', rawText: '修改中&nbsp;\n。\n抓回来的正文', attempts: 2, bookinfo: { work_title: '白月光回港' } }; },
     captureSource: async input => { calls.push(input); return { book: { ...input, id: 'book-1' } }; },
     now: () => new Date('2026-09-22T00:00:00.000Z')
   });
@@ -103,8 +118,10 @@ test('refills a legacy empty book from its stored platform and book ID without o
     {
       sourceText: '抓回来的正文', expectedRevision: 7,
       sourceMetadata: {
+        contentCaptureCharacters: 4000,
         sourceMode: 'manual_refetched', sourceFetchedAt: '2026-09-22T00:00:00.000Z',
-        sourceFetchAttempts: 2, sourceCaptureCharacters: 4000, sourceBookId: '2084012035524801698', sourceBookTitle: '白月光回港'
+        sourceFetchAttempts: 2, sourceCaptureCharacters: 4000, sourceBookId: '2084012035524801698', sourceBookTitle: '白月光回港',
+        sourceOriginalRaw: '修改中&nbsp;\n。\n抓回来的正文'
       }
     }
   ]);

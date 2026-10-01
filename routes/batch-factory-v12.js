@@ -66,6 +66,31 @@ function isV12DeletionPath(value) {
   return /^\/api\/batch-factory\/v12\/batches\/[^/]+(?:\/books\/[^/]+)?$/.test(parsed.pathname);
 }
 
+// Some book cities return a transient page-state line (for example "修改中")
+// before the actual novel text. Keep the upstream response separately for
+// audit/recovery, but never let browser placeholders enter AI production.
+function normalizedBatchFactorySourceLine(value) {
+  return String(value || '')
+    .replace(/&nbsp;|\u00a0|　/g, ' ')
+    .replace(/<[^>]*>/g, '')
+    .trim();
+}
+
+function isBatchFactoryLeadingPageStateLine(value) {
+  return /^(?:修改中|加载中|正文加载中|请稍候)$/.test(value);
+}
+
+function isBatchFactoryPunctuationOnlyLine(value) {
+  return /^[，。！？、；：…·—～~,.!?;:()（）【】\[\]{}「」『』“”"'\-]+$/.test(value);
+}
+
+function cleanBatchFactorySourceText(value) {
+  const lines = String(value || '').split(/\r?\n/).map(normalizedBatchFactorySourceLine).filter(Boolean);
+  let firstContent = 0;
+  while (firstContent < lines.length && isBatchFactoryLeadingPageStateLine(lines[firstContent])) firstContent += 1;
+  return lines.slice(firstContent).filter(line => !isBatchFactoryPunctuationOnlyLine(line)).join('\n');
+}
+
 async function fetchBatchFactoryOriginals(payload, fetchDirectOriginal) {
   const numericPlatform = Number(payload?.platform);
   if (!Number.isInteger(numericPlatform) || numericPlatform <= 0) throw new Error('无效的平台 ID');
@@ -77,13 +102,15 @@ async function fetchBatchFactoryOriginals(payload, fetchDirectOriginal) {
   const results = await Promise.all(bookIds.map(async bookId => {
     try {
       const fetched = await fetchDirectOriginal({ bookId, platformId: String(numericPlatform), maxTxt });
-      const data = String(fetched?.text || '');
+      const rawData = String(fetched?.rawText || fetched?.text || '');
+      const data = cleanBatchFactorySourceText(fetched?.text || '');
       if (!data) throw new Error('没有返回正文');
       return {
         bookId,
         platform: numericPlatform,
         status: 'ok',
         data,
+        rawData,
         error: null,
         length: data.length,
         attempts: fetched.attempts,
@@ -168,7 +195,8 @@ async function refillMissingBatchFactoryBookSource({ book, fetchDirectOriginal, 
   const maxTxt = Number(book?.sourceMetadata?.contentCaptureCharacters || 4000);
   if (!bookId || !platformId || !Number.isInteger(maxTxt) || maxTxt < 100 || maxTxt > 100000) throw new Error('当前书缺少可用的书城、Book ID 或正文范围');
   const fetched = await fetchDirectOriginal({ bookId, platformId, maxTxt });
-  const sourceText = String(fetched?.text || '').trim();
+  const rawSourceText = String(fetched?.rawText || fetched?.text || '').trim();
+  const sourceText = cleanBatchFactorySourceText(fetched?.text || '');
   if (!sourceText) throw new Error('没有返回正文');
   const existingMetadata = book?.sourceMetadata && typeof book.sourceMetadata === 'object'
     ? book.sourceMetadata
@@ -184,6 +212,7 @@ async function refillMissingBatchFactoryBookSource({ book, fetchDirectOriginal, 
       sourceFetchAttempts: Number(fetched?.attempts || 0),
       sourceCaptureCharacters: maxTxt,
       sourceBookId: bookId,
+      sourceOriginalRaw: rawSourceText,
       ...(isGiantMaterial ? {
         originalReadStage: 'completed',
         originalReadVia: 'bookstore',
@@ -316,6 +345,7 @@ module.exports = {
   V12_BASE,
   batchFactoryBatchListSummary,
   classifyBatchFactoryBooks,
+  cleanBatchFactorySourceText,
   fetchBatchFactoryOriginals,
   refillMissingBatchFactoryBookSource,
   isNativeV12H3Path,
