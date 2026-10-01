@@ -281,6 +281,50 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated, onBatchUpda
     }
   }
 
+  async function queueGiantOcrFallback(batchId, entry, giantAutomationPlan, directReadError = '') {
+    const durationSeconds = Number(entry.item.material?.durationSeconds || entry.item.material?.duration || 0);
+    if (!(durationSeconds > 0)) throw new Error('QINGYU_VIDEO_DURATION_MISSING');
+    const createdResponse = await createGiantMaterialJob({
+      materialId: entry.item.id,
+      platformBookId: entry.book.platformBookId || entry.book.bookId,
+      title: entry.book.title,
+      videoUrl: entry.item.material.videoUrl,
+      durationSeconds,
+      modelVersion: 'windows-paddleocr-v1',
+      contentRangeLines
+    });
+    const createdJob = createdResponse?.job || createdResponse?.data?.job || createdResponse;
+    if (!createdJob?.id) throw new Error('GIANT_EXECUTOR_FAILED');
+
+    let latestError;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        const latestResponse = await getBatch(batchId);
+        const latestBatch = latestResponse?.batch || latestResponse?.data?.batch || latestResponse?.data || latestResponse;
+        const latestBook = findRegisteredGiantMaterialBook(latestBatch?.books, entry.item.id);
+        if (!latestBook?.id) throw new Error('GIANT_MATERIAL_BOOK_NOT_FOUND');
+        await updateBookMetadata(batchId, latestBook.id, {
+          metadata: {
+            ...(latestBook.sourceMetadata || {}),
+            executorJobId: createdJob.id,
+            contentPending: true,
+            originalReadStage: 'ocr',
+            originalReadError: '',
+            directOriginalReadError: directReadError,
+            giantOcrState: String(createdJob.state || 'queued').toLowerCase(),
+            giantAutomationPlan
+          },
+          expectedRevision: Number(latestBook.revision || 0)
+        });
+        return createdJob;
+      } catch (bindError) {
+        latestError = bindError;
+        if (Number(bindError?.status) !== 409) break;
+      }
+    }
+    throw latestError || new Error('GIANT_EXECUTOR_FAILED');
+  }
+
   async function submitGiantMaterial({ scheduledRun = false, automationRun = false } = {}) {
     if (!title.trim()) return message.warning('请填写作品名称');
     const items = giantItems.filter(item => item.status === 'resolved');
@@ -343,21 +387,29 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated, onBatchUpda
             try {
               await fetchBookOriginal(batchId, book.id);
             } catch (directFetchError) {
-              const refreshedResponse = await getBatch(batchId);
-              const refreshedBatch = refreshedResponse?.batch || refreshedResponse?.data?.batch || refreshedResponse?.data || refreshedResponse;
-              const refreshedBook = findRegisteredGiantMaterialBook(refreshedBatch?.books, entry.item.id);
-              if (refreshedBook?.id) {
-                await updateBookMetadata(batchId, refreshedBook.id, {
-                  metadata: {
-                    ...(refreshedBook.sourceMetadata || {}),
-                    originalReadStage: 'failed',
-                    originalReadError: normalizedError(directFetchError, '书城获取原文失败'),
-                    contentPending: true
-                  },
-                  expectedRevision: Number(refreshedBook.revision || 0)
-                });
+              const directReadError = normalizedError(directFetchError, '书城获取原文失败');
+              try {
+                await queueGiantOcrFallback(batchId, entry, giantAutomationPlan, directReadError);
+                message.info(`书城获取失败，已自动转为滚屏 OCR：${entry.book.title || entry.item.id}`);
+                queued += 1;
+                continue;
+              } catch (fallbackError) {
+                const refreshedResponse = await getBatch(batchId);
+                const refreshedBatch = refreshedResponse?.batch || refreshedResponse?.data?.batch || refreshedResponse?.data || refreshedResponse;
+                const refreshedBook = findRegisteredGiantMaterialBook(refreshedBatch?.books, entry.item.id);
+                if (refreshedBook?.id) {
+                  await updateBookMetadata(batchId, refreshedBook.id, {
+                    metadata: {
+                      ...(refreshedBook.sourceMetadata || {}),
+                      originalReadStage: 'failed',
+                      originalReadError: `${directReadError}；自动转滚屏 OCR 失败：${normalizedError(fallbackError, '执行器任务派发失败')}`,
+                      contentPending: true
+                    },
+                    expectedRevision: Number(refreshedBook.revision || 0)
+                  });
+                }
+                throw fallbackError;
               }
-              throw directFetchError;
             }
             if (giantAutomationPlan?.presetId) {
               try {
@@ -619,7 +671,7 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated, onBatchUpda
       <Switch checked={giantOriginalReadStrategy === 'direct_first'} onChange={checked => setGiantOriginalReadStrategy(checked ? 'direct_first' : 'ocr_first')} />
       <span>优先直接获取原文</span>
       <small>{giantOriginalReadStrategy === 'direct_first'
-        ? '先通过书城和 Book ID 获取正文；失败后可手动改用滚屏 OCR。'
+        ? '先通过书城和 Book ID 获取正文；失败后自动改用滚屏 OCR。'
         : '先读取视频滚屏；失败后自动通过书城获取正文。'}</small>
     </div> : null}
 

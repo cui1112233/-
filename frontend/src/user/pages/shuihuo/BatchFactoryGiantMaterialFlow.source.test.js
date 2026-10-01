@@ -34,10 +34,10 @@ test('giant original reads fall back safely and expose both recovery actions', (
   assert.match(progress, /persistedOriginalReadError/);
 });
 
-test('direct-first starts automation only after direct source retrieval and persists a failure', () => {
+test('direct-first automatically hands a failed book-city read to OCR before reporting a failure', () => {
   const source = read('BatchFactoryCreateModal.jsx');
   assert.match(source, /await fetchBookOriginal\(batchId, book\.id\)/);
+  assert.match(source, /await queueGiantOcrFallback\(batchId, entry, giantAutomationPlan, directReadError\)/);
+  assert.match(source, /书城获取失败，已自动转为滚屏 OCR/);
   assert.match(source, /await startBatchAutomation\(batchId, giantAutomationPlan\)/);
-  assert.match(source, /originalReadStage: 'failed'/);
-  assert.match(source, /originalReadError: normalizedError\(directFetchError/);
 });
