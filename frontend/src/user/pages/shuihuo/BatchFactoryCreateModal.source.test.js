@@ -83,3 +83,12 @@ test('offers giant material intake through the resident executor', () => {
   assert.doesNotMatch(source, /waitForGiantMaterialJob/);
   assert.doesNotMatch(source, /读取并创建/);
 });
+
+test('lets giant batches choose a mutually exclusive original acquisition priority', () => {
+  assert.match(source, /优先直接获取原文/);
+  assert.match(source, /const \[giantOriginalReadStrategy, setGiantOriginalReadStrategy\] = useState\('ocr_first'\)/);
+  assert.match(source, /originalReadStrategy: giantOriginalReadStrategy/);
+  assert.match(source, /giantOriginalReadStrategy === 'direct_first'/);
+  assert.match(source, /await fetchBookOriginal\(batchId, book\.id\)/);
+  assert.match(source, /await createGiantMaterialJob\(/);
+});

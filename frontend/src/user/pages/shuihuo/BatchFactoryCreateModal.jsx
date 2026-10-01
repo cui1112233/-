@@ -1,7 +1,7 @@
-import { Alert, Button, Input, InputNumber, Modal, Select, Space, Tag, message } from 'antd';
+import { Alert, Button, Input, InputNumber, Modal, Select, Space, Switch, Tag, message } from 'antd';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getWorkshopPlatforms } from '../../../shared/api/novelFetchWorkshop';
-import { createNovelFetchIntake, fetchDirectOriginals, getBatch, getBatchAutomationStatus, listAutomationPresets, listBatches, updateBookMetadata } from '../../../shared/api/batchFactoryV11';
+import { createNovelFetchIntake, fetchBookOriginal, fetchDirectOriginals, getBatch, getBatchAutomationStatus, listAutomationPresets, listBatches, updateBookMetadata } from '../../../shared/api/batchFactoryV11';
 import { batchFactoryPlatformOptions } from './batchFactoryPlatformOptions';
 import { buildManualBatchSubmission, manualBookIDsFromInput, removePlatformGroup, replacePlatformGroup, totalGroupBookCount, upsertPlatformGroup } from './batchFactoryManualFetch';
 import { formatBeijingDatetimeLocal, normalizeAutomationConcurrency, parseBeijingDatetimeLocal } from './batchFactoryAutomationSchedule';
@@ -89,6 +89,7 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated, onBatchUpda
   const [giantBusy, setGiantBusy] = useState(false);
   const [giantError, setGiantError] = useState('');
   const [executorHealth, setExecutorHealth] = useState(null);
+  const [giantOriginalReadStrategy, setGiantOriginalReadStrategy] = useState('ocr_first');
   const giantControllerRef = useRef(null);
 
   async function loadPlatforms() {
@@ -143,6 +144,7 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated, onBatchUpda
     setGiantBusy(false);
     setGiantError('');
     setExecutorHealth(null);
+    setGiantOriginalReadStrategy('ocr_first');
     setTitle('');
     setInputText('');
     setScheduleDialogOpen(false);
@@ -287,7 +289,7 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated, onBatchUpda
     if ((scheduledRun || automationRun) && !automationPresetID) return message.warning('请选择自动化预设');
     const scheduledAtISO = scheduledRun ? parseBeijingDatetimeLocal(scheduledAt) : '';
     if (scheduledRun && (!scheduledAtISO || new Date(scheduledAtISO).getTime() <= Date.now())) return message.warning('北京时间自动启动时间需要晚于现在');
-    if (executorHealth?.online !== true) return message.warning('巨量素材执行器未安装或未登录，请先在执行器配置页完成配对');
+    if (giantOriginalReadStrategy !== 'direct_first' && executorHealth?.online !== true) return message.warning('巨量素材执行器未安装或未登录，请先在执行器配置页完成配对');
     const missingDuration = items.find(item => !(Number(item.material?.durationSeconds || item.material?.duration || 0) > 0));
     if (missingDuration) return message.warning(`素材 ${missingDuration.id} 没有有效的视频时长，暂时不能交给执行器处理`);
     const selected = items.map(item => ({ item, book: selectGiantMaterialBook(item.material, item.selectedBookKey) }));
@@ -300,7 +302,7 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated, onBatchUpda
       const importedAt = new Date().toISOString();
       const intakePayload = buildGiantMaterialPlaceholderIntakes(
         selected.map(entry => ({ giantMaterialId: entry.item.id, material: entry.item.material, book: entry.book })),
-        { contentRangeLines, importedAt }
+        { contentRangeLines, importedAt, originalReadStrategy: giantOriginalReadStrategy }
       );
       const intakeResponse = await createNovelFetchIntake(intakePayload);
       const intake = intakeResponse?.intake || intakeResponse;
@@ -322,6 +324,19 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated, onBatchUpda
       let queued = 0;
       for (const entry of selected) {
         try {
+          if (giantOriginalReadStrategy === 'direct_first') {
+            const latestResponse = await getBatch(batchId);
+            const latestBatch = latestResponse?.batch || latestResponse?.data?.batch || latestResponse?.data || latestResponse;
+            const book = findRegisteredGiantMaterialBook(latestBatch?.books, entry.item.id);
+            if (!book?.id) throw new Error('GIANT_MATERIAL_BOOK_NOT_FOUND');
+            await updateBookMetadata(batchId, book.id, {
+              metadata: { ...(book.sourceMetadata || {}), originalReadStage: 'direct', originalReadError: '', contentPending: true },
+              expectedRevision: Number(book.revision || 0)
+            });
+            await fetchBookOriginal(batchId, book.id);
+            queued += 1;
+            continue;
+          }
           const durationSeconds = Number(entry.item.material.durationSeconds || entry.item.material.duration || 0);
           const createdResponse = await createGiantMaterialJob({
             materialId: entry.item.id,
@@ -348,6 +363,8 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated, onBatchUpda
                   ...(book.sourceMetadata || {}),
                   executorJobId: createdJob.id,
                   contentPending: true,
+                  originalReadStage: 'ocr',
+                  originalReadError: '',
                   giantOcrState: String(createdJob.state || 'queued').toLowerCase(),
                   giantAutomationPlan: (scheduledRun || automationRun) ? {
                     scheduledAt: scheduledAtISO,
@@ -567,6 +584,13 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated, onBatchUpda
       rows={isGiantMaterial ? 3 : 9}
       placeholder={isGiantMaterial ? '每行一个巨量素材 ID，数量不限\n例如：7689285355255727121' : '每行一本小说，可粘贴 ID、书名、男女频、风格、标签、推荐理由、评级。\n示例：2080989285751305136\t重生书\t女频\t现代爽文\t重生,逆袭\t女主逆袭\tS'}
     />
+    {isGiantMaterial ? <div className="batch-factory-giant-read-strategy">
+      <Switch checked={giantOriginalReadStrategy === 'direct_first'} onChange={checked => setGiantOriginalReadStrategy(checked ? 'direct_first' : 'ocr_first')} />
+      <span>优先直接获取原文</span>
+      <small>{giantOriginalReadStrategy === 'direct_first'
+        ? '先通过书城和 Book ID 获取正文；失败后可手动改用滚屏 OCR。'
+        : '先读取视频滚屏；失败后自动通过书城获取正文。'}</small>
+    </div> : null}
 
     {isGiantMaterial && giantItems.length ? <div className="batch-factory-giant-items">
       {giantItems.map((item, index) => <div key={`${item.id}-${index}`} className={item.status === 'error' ? 'batch-factory-giant-item is-error' : 'batch-factory-giant-item'}>
