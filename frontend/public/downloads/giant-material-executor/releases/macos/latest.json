@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "version": "0.6.0",
+  "platform": "macos",
+  "architecture": "universal",
+  "url": "http://115.190.156.223:3000/downloads/giant-material-executor/releases/macos/GiantMaterialExecutor-macos-universal-0.6.0.zip",
+  "sha256": "a07243ff064f3eafe19093a755af6df4a0d2ea4fe01e98ddb4bf7f9ebb0ccede",
+  "minimumExecutorVersion": "0.5.0",
+  "publishedAt": "2026-10-01T07:27:03Z",
+  "signature": "W4Txhdyt5mbROYonboznDY5u/1hoEFL/Uj9UOcR5Vd4X4JTfT9LuFN1i7e8EdDZhCVo0Q/WsgqujvlSeoQdWBg=="
+}
