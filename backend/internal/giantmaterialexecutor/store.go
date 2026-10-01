@@ -11,6 +11,7 @@ type Store interface {
 	ExecutorByTokenHash(context.Context, SecretHash) (ExecutorRecord, error)
 	UpdateHeartbeat(context.Context, string, HeartbeatInput, time.Time) error
 	ListExecutors(context.Context, string) ([]ExecutorRecord, error)
+	LatestPlatformFailure(context.Context, string, string, time.Time) (*time.Time, error)
 	FindJobByKey(context.Context, string, string) (JobRecord, error)
 	CreateJob(context.Context, JobRecord) error
 	JobForOwner(context.Context, string, string) (JobRecord, error)

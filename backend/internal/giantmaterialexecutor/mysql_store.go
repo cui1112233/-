@@ -112,6 +112,23 @@ FROM giant_executors WHERE owner_username = ? ORDER BY updated_at DESC, id ASC`,
 	return out, rows.Err()
 }
 
+func (s *MySQLStore) LatestPlatformFailure(ctx context.Context, owner, osName string, since time.Time) (*time.Time, error) {
+	var latest sql.NullTime
+	err := s.db.QueryRowContext(ctx, `SELECT MAX(e.created_at)
+FROM giant_executor_job_events e
+WHERE e.event_type = 'failed' AND e.created_at >= ?
+AND e.executor_id IN (SELECT id FROM giant_executors WHERE owner_username = ? AND os = ?)`,
+		since, owner, osName).Scan(&latest)
+	if err != nil {
+		return nil, err
+	}
+	if !latest.Valid {
+		return nil, nil
+	}
+	value := latest.Time
+	return &value, nil
+}
+
 const jobSelect = `SELECT j.id, j.owner_username, j.platform, j.material_id, j.platform_book_id, j.title,
  j.video_url, j.video_expires_at, j.duration_seconds, j.model_version, j.content_range_lines, j.state, j.cancel_requested,
  j.progress_completed, j.progress_total, j.progress_percent, j.lease_executor_id, j.lease_token_hash,
@@ -173,24 +190,38 @@ func (s *MySQLStore) ClaimJob(ctx context.Context, executor ExecutorRecord, leas
 	}
 	defer tx.Rollback()
 	record, err := queryJobTx(ctx, tx, jobSelect+` WHERE j.owner_username = ? AND j.platform = ? AND j.cancel_requested = FALSE
- AND (j.state = ? OR (j.lease_expires_at IS NOT NULL AND j.lease_expires_at <= ? AND j.state NOT IN (?, ?, ?)))
- ORDER BY j.created_at ASC, j.id ASC LIMIT 1 FOR UPDATE SKIP LOCKED`, executor.OwnerUsername, PlatformGiantMaterial, JobQueued, now, JobSucceeded, JobFailed, JobCancelled)
+ AND (j.state = ?
+ OR (j.lease_expires_at IS NOT NULL AND j.lease_expires_at <= ? AND j.state NOT IN (?, ?, ?))
+ OR (j.state IN (?, ?, ?, ?) AND j.lease_expires_at > ? AND j.progress_changed_at IS NOT NULL AND j.progress_changed_at <= ?))
+ ORDER BY j.created_at ASC, j.id ASC LIMIT 1 FOR UPDATE SKIP LOCKED`,
+		executor.OwnerUsername, PlatformGiantMaterial, JobQueued,
+		now, JobSucceeded, JobFailed, JobCancelled,
+		JobLeased, JobRunning, JobCleaning, JobUploading,
+		now, now.Add(-StuckProgressLimit))
 	if errors.Is(err, sql.ErrNoRows) {
 		return JobRecord{}, ErrNoClaimableJob
 	}
 	if err != nil {
 		return JobRecord{}, err
 	}
+	wasStuck := record.State != JobQueued
 	record.State = JobLeased
 	record.LeaseExecutorID = executor.ID
 	record.LeaseTokenHash = leaseHash
 	record.LeaseGeneration++
 	record.LeaseExpiresAt = &expires
 	record.UpdatedAt = now
-	if _, err := tx.ExecContext(ctx, `UPDATE giant_executor_jobs SET state = ?, lease_executor_id = ?, lease_token_hash = ?, lease_generation = ?, lease_expires_at = ?, error_code = NULL, error_message = NULL, updated_at = ? WHERE id = ?`, JobLeased, executor.ID, leaseHash[:], record.LeaseGeneration, expires, now, record.ID); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE giant_executor_jobs
+SET state = ?, lease_executor_id = ?, lease_token_hash = ?, lease_generation = ?, lease_expires_at = ?,
+ progress_changed_at = ?, error_code = NULL, error_message = NULL, updated_at = ? WHERE id = ?`,
+		JobLeased, executor.ID, leaseHash[:], record.LeaseGeneration, expires, now, now, record.ID); err != nil {
 		return JobRecord{}, err
 	}
-	if err := appendEvent(ctx, tx, record.ID, executor.ID, "claimed", JobLeased, "", now); err != nil {
+	eventType := "claimed"
+	if wasStuck {
+		eventType = "stuck_reclaimed"
+	}
+	if err := appendEvent(ctx, tx, record.ID, executor.ID, eventType, JobLeased, "", now); err != nil {
 		return JobRecord{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -216,7 +247,12 @@ func (s *MySQLStore) SetProgress(ctx context.Context, executorID, id string, lea
 		record.State = next
 		record.Progress = progress
 		record.UpdatedAt = now
-		if _, err := tx.ExecContext(ctx, `UPDATE giant_executor_jobs SET state = ?, progress_completed = ?, progress_total = ?, progress_percent = ?, updated_at = ? WHERE id = ?`, next, progress.Completed, progress.Total, progress.Percent, now, id); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE giant_executor_jobs
+SET state = ?, progress_completed = ?, progress_total = ?, progress_percent = ?,
+ progress_changed_at = CASE WHEN progress_completed <> ? OR progress_total <> ? OR progress_percent <> ? THEN ? ELSE progress_changed_at END,
+ updated_at = ? WHERE id = ?`,
+			next, progress.Completed, progress.Total, progress.Percent,
+			progress.Completed, progress.Total, progress.Percent, now, now, id); err != nil {
 			return err
 		}
 		return appendEvent(ctx, tx, id, executorID, "progress", next, "", now)
@@ -286,7 +322,7 @@ func (s *MySQLStore) RequeueJob(ctx context.Context, id string, update JobRecord
 	record.Progress = ProgressInput{}
 	record.UpdatedAt = now
 	if _, err := tx.ExecContext(ctx, `UPDATE giant_executor_jobs SET state = ?, cancel_requested = FALSE, title = ?, video_url = ?, video_expires_at = ?, duration_seconds = ?, content_range_lines = ?,
-	 lease_executor_id = NULL, lease_token_hash = NULL, lease_generation = ?, lease_expires_at = NULL,
+	 lease_executor_id = NULL, lease_token_hash = NULL, lease_generation = ?, lease_expires_at = NULL, progress_changed_at = NULL,
 	 error_code = NULL, error_message = NULL, progress_completed = 0, progress_total = 0, progress_percent = 0, updated_at = ?
 	 WHERE id = ?`, record.State, record.Title, record.VideoURL, record.VideoExpiresAt, record.DurationSeconds, record.ContentRangeLines, record.LeaseGeneration, now, id); err != nil {
 		return JobRecord{}, err

@@ -191,17 +191,64 @@ func (s *Service) Claim(ctx context.Context, token string) (ClaimResult, error) 
 	if err != nil {
 		return ClaimResult{}, err
 	}
+	now := s.now().UTC()
+	allowed, err := s.canClaimPlatform(ctx, executor, now)
+	if err != nil {
+		return ClaimResult{}, err
+	}
+	if !allowed {
+		return ClaimResult{}, ErrNoClaimableJob
+	}
 	leaseToken, err := randomToken()
 	if err != nil {
 		return ClaimResult{}, err
 	}
-	now := s.now().UTC()
 	expires := now.Add(JobLeaseTTL)
 	record, err := s.store.ClaimJob(ctx, executor, hashSecret(leaseToken), expires, now)
 	if err != nil {
 		return ClaimResult{}, err
 	}
 	return ClaimResult{Job: executorJobView(record), LeaseToken: leaseToken, LeaseGeneration: record.LeaseGeneration, LeaseExpiresAt: expires}, nil
+}
+
+func (s *Service) canClaimPlatform(ctx context.Context, executor ExecutorRecord, now time.Time) (bool, error) {
+	// 自己刚干砸：先冷却，任何平台都一样
+	callerFailure, err := s.store.LatestPlatformFailure(ctx, executor.OwnerUsername, executor.OS, now.Add(-FailureCooldown))
+	if err != nil {
+		return false, err
+	}
+	if callerFailure != nil {
+		return false, nil
+	}
+	preference, err := s.GetPreference(ctx, executor.OwnerUsername)
+	if err != nil {
+		return false, err
+	}
+	preferred := preference.PreferredOS
+	if executor.OS == preferred {
+		// 它就是偏好平台且没在冷却：恢复优先
+		return true, nil
+	}
+	preferredFailure, err := s.store.LatestPlatformFailure(ctx, executor.OwnerUsername, preferred, now.Add(-FailureCooldown))
+	if err != nil {
+		return false, err
+	}
+	if preferredFailure != nil {
+		// 偏好平台在冷却：非偏好平台兜底
+		return true, nil
+	}
+	executors, err := s.store.ListExecutors(ctx, executor.OwnerUsername)
+	if err != nil {
+		return false, err
+	}
+	for _, item := range executors {
+		if item.OS == preferred && item.LastSeenAt != nil && !item.LastSeenAt.Before(now.Add(-OnlineThreshold)) {
+			// 偏好平台在岗：单子留给它
+			return false, nil
+		}
+	}
+	// 偏好平台不在线：兜底
+	return true, nil
 }
 
 func (s *Service) Renew(ctx context.Context, token, jobID string, lease LeaseCredential) (LeaseView, error) {

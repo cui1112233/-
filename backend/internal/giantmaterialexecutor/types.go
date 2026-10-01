@@ -26,6 +26,8 @@ const (
 	PairingTTL               = 10 * time.Minute
 	JobLeaseTTL              = 60 * time.Second
 	OnlineThreshold          = 45 * time.Second
+	FailureCooldown          = 5 * time.Minute
+	StuckProgressLimit       = 10 * time.Minute
 	HeartbeatIntervalSeconds = 15
 	MaxResultBytes           = 2 << 20
 	DefaultPreferredOS       = "windows"

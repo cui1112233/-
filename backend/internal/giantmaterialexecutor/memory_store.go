@@ -11,17 +11,19 @@ import (
 )
 
 type MemoryStore struct {
-	mu          sync.Mutex
-	pairings    map[string]PairingRecord
-	executors   map[string]ExecutorRecord
-	tokens      map[string]string
-	jobs        map[string]JobRecord
-	jobKeys     map[string]string
-	preferences map[string]PreferenceRecord
+	mu              sync.Mutex
+	pairings        map[string]PairingRecord
+	executors       map[string]ExecutorRecord
+	tokens          map[string]string
+	jobs            map[string]JobRecord
+	jobKeys         map[string]string
+	preferences     map[string]PreferenceRecord
+	progressChanged map[string]time.Time
+	lastFailure     map[string]time.Time
 }
 
 func NewMemoryStore() *MemoryStore {
-	return &MemoryStore{pairings: make(map[string]PairingRecord), executors: make(map[string]ExecutorRecord), tokens: make(map[string]string), jobs: make(map[string]JobRecord), jobKeys: make(map[string]string), preferences: make(map[string]PreferenceRecord)}
+	return &MemoryStore{pairings: make(map[string]PairingRecord), executors: make(map[string]ExecutorRecord), tokens: make(map[string]string), jobs: make(map[string]JobRecord), jobKeys: make(map[string]string), preferences: make(map[string]PreferenceRecord), progressChanged: make(map[string]time.Time), lastFailure: make(map[string]time.Time)}
 }
 
 func (s *MemoryStore) CreatePairing(_ context.Context, record PairingRecord) error {
@@ -95,6 +97,26 @@ func (s *MemoryStore) ListExecutors(_ context.Context, owner string) ([]Executor
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt.After(out[j].UpdatedAt) })
 	return out, nil
+}
+
+func (s *MemoryStore) LatestPlatformFailure(_ context.Context, owner, osName string, since time.Time) (*time.Time, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var latest *time.Time
+	for executorID, failedAt := range s.lastFailure {
+		if failedAt.Before(since) {
+			continue
+		}
+		executor, ok := s.executors[executorID]
+		if !ok || executor.OwnerUsername != owner || executor.OS != osName {
+			continue
+		}
+		copyTime := failedAt
+		if latest == nil || copyTime.After(*latest) {
+			latest = &copyTime
+		}
+	}
+	return latest, nil
 }
 
 func (s *MemoryStore) GetPreference(_ context.Context, owner string) (PreferenceRecord, error) {
@@ -192,6 +214,7 @@ func (s *MemoryStore) RequeueJob(_ context.Context, id string, update JobRecord,
 	record.Progress = ProgressInput{}
 	record.UpdatedAt = now
 	s.jobs[id] = record
+	delete(s.progressChanged, id)
 	return record, nil
 }
 
@@ -203,7 +226,18 @@ func (s *MemoryStore) ClaimJob(_ context.Context, executor ExecutorRecord, lease
 		if candidate.OwnerUsername != executor.OwnerUsername || candidate.Platform != PlatformGiantMaterial || candidate.CancelRequested || candidate.State == JobCancelled || candidate.State == JobSucceeded || candidate.State == JobFailed {
 			continue
 		}
-		claimable := candidate.State == JobQueued || (candidate.LeaseExpiresAt != nil && !candidate.LeaseExpiresAt.After(now))
+		stuck := false
+		switch candidate.State {
+		case JobLeased, JobRunning, JobCleaning, JobUploading:
+			if candidate.LeaseExpiresAt != nil && candidate.LeaseExpiresAt.After(now) {
+				if pc, ok := s.progressChanged[candidate.ID]; ok && !pc.After(now.Add(-StuckProgressLimit)) {
+					stuck = true
+				}
+			}
+		}
+		claimable := candidate.State == JobQueued ||
+			(candidate.LeaseExpiresAt != nil && !candidate.LeaseExpiresAt.After(now)) ||
+			stuck
 		if !claimable {
 			continue
 		}
@@ -225,6 +259,7 @@ func (s *MemoryStore) ClaimJob(_ context.Context, executor ExecutorRecord, lease
 	record.ErrorCode = ""
 	record.ErrorMessage = ""
 	s.jobs[record.ID] = record
+	s.progressChanged[record.ID] = now
 	return record, nil
 }
 
@@ -250,6 +285,9 @@ func (s *MemoryStore) SetProgress(_ context.Context, executorID, id string, leas
 	}
 	if err := validJobTransition(record.State, next); err != nil {
 		return JobRecord{}, err
+	}
+	if record.Progress.Completed != progress.Completed || record.Progress.Total != progress.Total || record.Progress.Percent != progress.Percent {
+		s.progressChanged[id] = now
 	}
 	record.State = next
 	record.Progress = progress
@@ -287,6 +325,7 @@ func (s *MemoryStore) FailJob(_ context.Context, executorID, id string, leaseHas
 	record.ErrorMessage = bounded(failure.Message, 512)
 	record.UpdatedAt = now
 	s.jobs[id] = record
+	s.lastFailure[executorID] = now
 	return record, nil
 }
 
