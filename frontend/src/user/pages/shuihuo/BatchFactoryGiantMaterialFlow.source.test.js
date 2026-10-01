@@ -28,8 +28,8 @@ test('giant original reads fall back safely and expose both recovery actions', (
   assert.match(progress, /originalReadStrategy/);
   assert.match(progress, /originalReadStrategy === 'ocr_first'/);
   assert.match(progress, /自动改用书城获取正文/);
-  assert.match(progress, /获取原文/);
-  assert.match(progress, /滚屏 OCR/);
+  assert.match(progress, /获取正文/);
+  assert.match(progress, />OCR</);
   assert.match(progress, /createGiantMaterialJob/);
   assert.match(progress, /persistedOriginalReadError/);
 });
