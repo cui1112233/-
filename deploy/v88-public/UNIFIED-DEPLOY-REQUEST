@@ -1,3 +1,3 @@
-release_sha=90a16b6d424d2772502a1c2ab134e9eb4ff689f6
-scope=feat: opening variants for structured storyboard and auto opening after single-book director regeneration
-requested_at=2026-10-01T19:45:46+08:00
+release_sha=354354f6ba96bccfbce38b3d8eb22d7821872ced
+scope=fix: expose batch-opening-meta preset in admin preset library plot-adaptation section
+requested_at=2026-10-01T20:46:12+08:00
