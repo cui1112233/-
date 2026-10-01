@@ -6,10 +6,8 @@ import (
 	"context"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sync"
-	"syscall"
 
 	"qiantie/giant-material-executor/internal/agent"
 	"qiantie/giant-material-executor/internal/update"
@@ -24,6 +22,11 @@ func startSelfUpdater(ctx context.Context, stop context.CancelFunc, snapshot fun
 		log.Printf("self update disabled: executable path unavailable")
 		return nil
 	}
+	publicKey, err := update.PublicKeyFromBase64(bakedUpdatePublicKey)
+	if err != nil {
+		log.Printf("self update disabled: signed update key unavailable")
+		return nil
+	}
 	updater := &update.SelfUpdater{
 		Root:           root,
 		CurrentVersion: version,
@@ -36,20 +39,13 @@ func startSelfUpdater(ctx context.Context, stop context.CancelFunc, snapshot fun
 			state := snapshot().State
 			return state == agent.StateReady || state == agent.StateFailed || state == agent.StateIdle
 		},
-		Apply: func(nextVersion string) {
-			log.Printf("self update %s ready; restarting executor", nextVersion)
-			applyPath := filepath.Join(root, ".updates", "apply-update.cmd")
-			command := exec.Command("cmd", "/C", applyPath)
-			// Start the handoff script before stopping this process.
-			command.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
-			if err := command.Start(); err != nil {
-				log.Printf("start apply-update.cmd failed: %v; keep running on %s", err, version)
-				return
-			}
-			log.Printf("apply-update.cmd started; exiting for update")
-			stop()
-		},
+		PublicKey: publicKey,
+		Target:    update.ReleaseTarget{Platform: "windows", Architecture: "amd64"},
+		// Apply is assigned with the PID-scoped updater helper in Task 3. Until
+		// then this is deliberately nil, so a signed check cannot revive the old
+		// image-name-wide replacement script.
 	}
+	_ = stop
 	go updater.Run(ctx)
 	log.Printf("self update enabled root=%s current=%s", root, version)
 	return updater

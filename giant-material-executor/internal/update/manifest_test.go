@@ -81,3 +81,10 @@ func TestVerifyReleaseManifestRejectsDifferentPlatform(t *testing.T) {
 		t.Fatalf("CodeOf(err) = %q, want UPDATE_PLATFORM_MISMATCH (err=%v)", CodeOf(err), err)
 	}
 }
+
+func TestPublicKeyFromBase64RejectsInvalidKey(t *testing.T) {
+	_, err := PublicKeyFromBase64("not-a-public-key")
+	if CodeOf(err) != "UPDATE_MANIFEST_SIGNATURE_INVALID" {
+		t.Fatalf("CodeOf(err) = %q, want UPDATE_MANIFEST_SIGNATURE_INVALID (err=%v)", CodeOf(err), err)
+	}
+}

@@ -140,6 +140,16 @@ func validReleaseTarget(platform, architecture string) bool {
 	}
 }
 
+// PublicKeyFromBase64 decodes the release key embedded at build time. A bad
+// key disables self-update rather than accepting an unsigned manifest.
+func PublicKeyFromBase64(value string) (ed25519.PublicKey, error) {
+	decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(value))
+	if err != nil || len(decoded) != ed25519.PublicKeySize {
+		return nil, &CodedError{Code: "UPDATE_MANIFEST_SIGNATURE_INVALID"}
+	}
+	return ed25519.PublicKey(decoded), nil
+}
+
 func validVersion(value string) bool {
 	parts := strings.Split(strings.TrimSpace(value), ".")
 	return len(parts) == 3 && parts[0] != "" && parts[1] != "" && parts[2] != "" && allNumeric(parts)

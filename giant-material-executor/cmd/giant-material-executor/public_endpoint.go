@@ -16,6 +16,10 @@ const defaultPublicAPIURL = "http://127.0.0.1:4000"
 // 无需知道服务器地址，直接填配对码即可绑定。
 var bakedPublicAPIURL = ""
 
+// bakedUpdatePublicKey is an Ed25519 public key encoded as base64. The
+// release build injects it with -ldflags; without it, self-update stays off.
+var bakedUpdatePublicKey = ""
+
 func normalizePublicAPIURL(raw string) (string, error) {
 	value := strings.TrimSpace(raw)
 	if value == "" {
