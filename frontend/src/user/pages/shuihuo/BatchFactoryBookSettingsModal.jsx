@@ -12,7 +12,7 @@ import { batchFactoryPreviewText } from './batchFactoryContentRange';
 const ENGINE_MODEL_OVERRIDE_FIELDS = ['textModelId', 'imageModelId', 'videoModelId', 'videoProvider', 'aspectRatio', 'imageAspectRatio', 'videoAspectRatio', 'videoResolution', 'productionMode', 'storyboardDurationLimit', 'maxVideoDuration', 'fixedSingleVideo', 'audioPlanningEnabled', 'audioMergeEnabled', 'audioDurationSeconds', 'audioDurationFingerprint', 'tts'];
 const ENGINE_PUBLISH_OVERRIDE_FIELDS = ['publishRewriteEnabled', 'publishSettings'];
 const ENGINE_OVERRIDE_FIELDS = [...ENGINE_MODEL_OVERRIDE_FIELDS, ...ENGINE_PUBLISH_OVERRIDE_FIELDS];
-const BOOK_OVERRIDE_FIELDS = [...ENGINE_OVERRIDE_FIELDS, 'starredCharacterNames', 'aiPromptConfig'];
+const BOOK_OVERRIDE_FIELDS = [...ENGINE_OVERRIDE_FIELDS, 'starredCharacterNames', 'openingEnabled', 'openingCount', 'aiPromptConfig'];
 const PUBLISH_CATALOG_FIELDS = new Set(['websiteProfiles', 'websiteStyleCatalog', 'organizations', 'organizationOptions']);
 export const AI_REGION_KEYS = new Map([
   ['assets', 'assets'],
@@ -208,6 +208,11 @@ export function buildBookRegionUpdate(inherited, bookPatch, region, edited, engi
   if (region === 'assets') {
     if (!equal(inherited?.starredCharacterNames, edited?.starredCharacterNames)) patch.starredCharacterNames = edited?.starredCharacterNames || [];
     else if (Object.hasOwn(bookPatch || {}, 'starredCharacterNames')) restoreKeys.push('starredCharacterNames');
+    // 换开头是统一配置根级字段，单书只存与批量不同的值，拨回相同值即恢复继承。
+    for (const key of ['openingEnabled', 'openingCount']) {
+      if (!equal(inherited?.[key], edited?.[key])) patch[key] = edited?.[key];
+      else if (Object.hasOwn(bookPatch || {}, key)) restoreKeys.push(key);
+    }
   }
   const rawBookAI = bookPatch?.aiPromptConfig && typeof bookPatch.aiPromptConfig === 'object' ? { ...bookPatch.aiPromptConfig } : {};
   const moduleKeys = region === 'video' || region === 'media' ? ['video'] : [moduleKey];
@@ -361,7 +366,7 @@ export function BatchFactoryBookSettingsModal({ open, batch, book, activeRegion 
       ? Object.hasOwn(bookPatch, 'publishRewriteEnabled') || Object.hasOwn(bookPatch, 'publishSettings')
       : ENGINE_MODEL_OVERRIDE_FIELDS.some(key => Object.hasOwn(bookPatch, key))
     : region === 'assets'
-      ? Object.hasOwn(bookPatch, 'starredCharacterNames') || Object.hasOwn(bookPatch.aiPromptConfig || {}, 'assets')
+      ? Object.hasOwn(bookPatch, 'starredCharacterNames') || Object.hasOwn(bookPatch, 'openingEnabled') || Object.hasOwn(bookPatch, 'openingCount') || Object.hasOwn(bookPatch.aiPromptConfig || {}, 'assets')
     : region === 'video'
       ? Object.hasOwn(bookPatch.aiPromptConfig || {}, 'video')
       : Boolean(moduleKey && Object.hasOwn(bookPatch.aiPromptConfig || {}, moduleKey));
@@ -573,6 +578,14 @@ export function BatchFactoryBookSettingsModal({ open, batch, book, activeRegion 
         <label className="batch-factory-engine-field"><span><b>星标人物聚焦</b><small>与公网剧本生成一致：只作为导演分镜的剧情与镜头聚焦变量，不等同于分镜资产灰显。</small></span><Select mode="multiple" allowClear value={starredCharacterNames} options={characterOptions} placeholder={characterOptions.length ? '选择已提取的人物' : '请先提取人物资产'} onChange={starredCharacterNames => patch({ starredCharacterNames })} /></label>
         <Button onClick={() => { onClose?.(); onOpenBookAssets?.(book); }}>维护当前书人物场景预设</Button>
       </RuleModule>
+      <ConfigCard title="换开头（当前书覆盖）" description={`不改这里就跟随批量统一配置。批量当前：${inherited.openingEnabled === true ? `开启 · ${inherited.openingCount ?? 4} 条（含原始）` : '关闭'}；调整后只影响当前这一本书。`}>
+        <div className="batch-factory-engine-grid">
+          <label className="batch-factory-engine-field"><span><b>换开头</b><small>2 个及以上分镜的书为分镜一生成多个开场变体并分别合成上传；数量含原始开头</small></span><Space>
+            <Switch checked={form.openingEnabled === true} onChange={enabled => patch({ openingEnabled: enabled })} />
+            <InputNumber min={1} max={8} precision={0} disabled={form.openingEnabled !== true} value={form.openingCount ?? 4} onChange={value => patch({ openingCount: value ?? 4 })} addonAfter="条（含原始）" />
+          </Space></label>
+        </div>
+      </ConfigCard>
     </>;
   } else if (region === 'constraints') {
     body = <RuleModule title="智能统一" value={constraintRules} onChange={updateConstraintRules}>
