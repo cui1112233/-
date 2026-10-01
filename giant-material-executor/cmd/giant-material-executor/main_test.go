@@ -3,11 +3,36 @@ package main
 import (
 	"errors"
 	"path/filepath"
+	"runtime"
 	"testing"
+	"time"
 
 	"qiantie/giant-material-executor/internal/agent"
 	"qiantie/giant-material-executor/internal/credential"
 )
+
+func TestDefaultPythonCommandMatchesPlatform(t *testing.T) {
+	want := "python3"
+	if runtime.GOOS == "windows" {
+		want = "python"
+	}
+	if got := defaultPythonCommand(); got != want {
+		t.Fatalf("python command=%q, want %q", got, want)
+	}
+}
+
+func TestDefaultPythonCommandHonorsOverride(t *testing.T) {
+	t.Setenv("GIANT_MATERIAL_PYTHON", "/custom/python")
+	if got := defaultPythonCommand(); got != "/custom/python" {
+		t.Fatalf("python command=%q, want override", got)
+	}
+}
+
+func TestPublicAPIClientTimeoutLeavesRoomForServerClaimLongPoll(t *testing.T) {
+	if publicAPIClientTimeout <= 25*time.Second {
+		t.Fatalf("public API timeout=%s, must exceed the server's 25s claim long-poll window", publicAPIClientTimeout)
+	}
+}
 
 func TestNormalizePublicAPIURLRequiresHTTPHost(t *testing.T) {
 	cases := []struct {
