@@ -106,16 +106,19 @@ test('treats the legacy novel-fetch browser session as the same shared 121 login
   assert.match(source, /SESSION_CHECK_NAMES\s*=\s*\[\s*'视频管理系统登录会话',\s*'121 后台登录会话',\s*'目标站登录会话'\s*\]/);
 });
 
-test('unified settings write the opening variants toggle and count at the patch root', () => {
+test('unified engine settings write the opening variants toggle and count at the patch root', () => {
   assert.match(source, /换开头/);
   assert.match(source, /openingEnabled/);
   assert.match(source, /openingCount/);
   assert.match(source, /min=\{1\}/);
   assert.match(source, /max=\{8\}/);
-  assert.match(source, /disabled=\{openingConfig\.enabled !== true\}/);
+  assert.match(source, /disabled=\{value\.openingEnabled !== true\}/);
   assert.match(source, /条（含原始）/);
-  assert.match(source, /draftPatch\.openingEnabled/);
-  assert.match(source, /draftPatch\.openingCount/);
+  assert.match(source, /patch\(\{ openingEnabled: enabled, openingCount: value\.openingCount \?\? 4 \}\)/);
+  assert.match(source, /patch\(\{ openingCount: count \?\? 4 \}\)/);
+  // 换开头是根级生产开关，不得塞进 AI 推理草稿或 aiPromptConfig
+  assert.doesNotMatch(source, /openingConfig/);
+  assert.doesNotMatch(source, /onOpeningChange/);
   assert.doesNotMatch(source, /\{ \.\.\.config, openingEnabled/);
 });
 

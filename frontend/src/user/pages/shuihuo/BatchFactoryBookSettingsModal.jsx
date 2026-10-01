@@ -201,6 +201,11 @@ export function buildBookRegionUpdate(inherited, bookPatch, region, edited, engi
       if (!equal(inherited?.[key], edited?.[key])) patch[key] = edited?.[key];
       else if (Object.hasOwn(bookPatch || {}, key)) restoreKeys.push(key);
     }
+    // 换开头是统一配置根级的生产开关，与“固定开头”同属引擎配置；单书只存差异，拨回相同值即恢复继承。
+    for (const key of ['openingEnabled', 'openingCount']) {
+      if (!equal(inherited?.[key], edited?.[key])) patch[key] = edited?.[key];
+      else if (Object.hasOwn(bookPatch || {}, key)) restoreKeys.push(key);
+    }
     return { patch, restoreKeys };
   }
   const moduleKey = region === 'media' ? 'video' : AI_REGION_KEYS.get(region);
@@ -208,11 +213,6 @@ export function buildBookRegionUpdate(inherited, bookPatch, region, edited, engi
   if (region === 'assets') {
     if (!equal(inherited?.starredCharacterNames, edited?.starredCharacterNames)) patch.starredCharacterNames = edited?.starredCharacterNames || [];
     else if (Object.hasOwn(bookPatch || {}, 'starredCharacterNames')) restoreKeys.push('starredCharacterNames');
-    // 换开头是统一配置根级字段，单书只存与批量不同的值，拨回相同值即恢复继承。
-    for (const key of ['openingEnabled', 'openingCount']) {
-      if (!equal(inherited?.[key], edited?.[key])) patch[key] = edited?.[key];
-      else if (Object.hasOwn(bookPatch || {}, key)) restoreKeys.push(key);
-    }
   }
   const rawBookAI = bookPatch?.aiPromptConfig && typeof bookPatch.aiPromptConfig === 'object' ? { ...bookPatch.aiPromptConfig } : {};
   const moduleKeys = region === 'video' || region === 'media' ? ['video'] : [moduleKey];
@@ -364,9 +364,9 @@ export function BatchFactoryBookSettingsModal({ open, batch, book, activeRegion 
   const hasBookOverride = region === 'engine'
     ? engineTab === 'publish'
       ? Object.hasOwn(bookPatch, 'publishRewriteEnabled') || Object.hasOwn(bookPatch, 'publishSettings')
-      : ENGINE_MODEL_OVERRIDE_FIELDS.some(key => Object.hasOwn(bookPatch, key))
+      : ENGINE_MODEL_OVERRIDE_FIELDS.some(key => Object.hasOwn(bookPatch, key)) || Object.hasOwn(bookPatch, 'openingEnabled') || Object.hasOwn(bookPatch, 'openingCount')
     : region === 'assets'
-      ? Object.hasOwn(bookPatch, 'starredCharacterNames') || Object.hasOwn(bookPatch, 'openingEnabled') || Object.hasOwn(bookPatch, 'openingCount') || Object.hasOwn(bookPatch.aiPromptConfig || {}, 'assets')
+      ? Object.hasOwn(bookPatch, 'starredCharacterNames') || Object.hasOwn(bookPatch.aiPromptConfig || {}, 'assets')
     : region === 'video'
       ? Object.hasOwn(bookPatch.aiPromptConfig || {}, 'video')
       : Boolean(moduleKey && Object.hasOwn(bookPatch.aiPromptConfig || {}, moduleKey));
@@ -524,6 +524,13 @@ export function BatchFactoryBookSettingsModal({ open, batch, book, activeRegion 
             <InheritedField label="视频分辨率" field="videoResolution" value={form.videoResolution || '720p'} inherited={inherited.videoResolution || '720p'} options={[{ value: '480p', label: '480p' }, { value: '720p', label: '720p' }, { value: '1080p', label: '1080p' }]} loading={false} onChange={videoResolution => patch({ videoResolution })} />
           </div>
           <InheritedFixedVideoSwitch value={form.fixedSingleVideo} inherited={inherited.fixedSingleVideo} onChange={fixedSingleVideo => patch({ fixedSingleVideo })} />
+          <Space style={{ justifyContent: 'space-between', width: '100%' }}>
+            <span><b>换开头</b><small style={{ display: 'block', color: '#94a3b8' }}>2 个及以上分镜的书为分镜一生成多个开场变体并分别合成上传；不改这里就跟随批量（批量当前：{inherited.openingEnabled === true ? `开启 · ${inherited.openingCount ?? 4} 条（含原始）` : '关闭'}）</small></span>
+            <Space>
+              <Switch checked={form.openingEnabled === true} onChange={enabled => patch({ openingEnabled: enabled, openingCount: form.openingCount ?? inherited.openingCount ?? 4 })} />
+              <InputNumber min={1} max={8} precision={0} disabled={form.openingEnabled !== true} value={form.openingCount ?? inherited.openingCount ?? 4} onChange={count => patch({ openingCount: count ?? 4 })} addonAfter="条（含原始）" />
+            </Space>
+          </Space>
           </ConfigCard>
 
           <ConfigCard title="配音与时长" description="读取当前生产正文；读取时长不会自动打开任何跟随功能。"><section className="batch-factory-book-audio-content">
@@ -578,14 +585,6 @@ export function BatchFactoryBookSettingsModal({ open, batch, book, activeRegion 
         <label className="batch-factory-engine-field"><span><b>星标人物聚焦</b><small>与公网剧本生成一致：只作为导演分镜的剧情与镜头聚焦变量，不等同于分镜资产灰显。</small></span><Select mode="multiple" allowClear value={starredCharacterNames} options={characterOptions} placeholder={characterOptions.length ? '选择已提取的人物' : '请先提取人物资产'} onChange={starredCharacterNames => patch({ starredCharacterNames })} /></label>
         <Button onClick={() => { onClose?.(); onOpenBookAssets?.(book); }}>维护当前书人物场景预设</Button>
       </RuleModule>
-      <ConfigCard title="换开头（当前书覆盖）" description={`不改这里就跟随批量统一配置。批量当前：${inherited.openingEnabled === true ? `开启 · ${inherited.openingCount ?? 4} 条（含原始）` : '关闭'}；调整后只影响当前这一本书。`}>
-        <div className="batch-factory-engine-grid">
-          <label className="batch-factory-engine-field"><span><b>换开头</b><small>2 个及以上分镜的书为分镜一生成多个开场变体并分别合成上传；数量含原始开头</small></span><Space>
-            <Switch checked={form.openingEnabled === true} onChange={enabled => patch({ openingEnabled: enabled })} />
-            <InputNumber min={1} max={8} precision={0} disabled={form.openingEnabled !== true} value={form.openingCount ?? 4} onChange={value => patch({ openingCount: value ?? 4 })} addonAfter="条（含原始）" />
-          </Space></label>
-        </div>
-      </ConfigCard>
     </>;
   } else if (region === 'constraints') {
     body = <RuleModule title="智能统一" value={constraintRules} onChange={updateConstraintRules}>

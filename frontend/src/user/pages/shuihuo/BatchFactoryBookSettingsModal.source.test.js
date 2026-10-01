@@ -82,14 +82,15 @@ test('single-book assets independently override extraction, character and scene 
   assert.match(source, /const moduleKeys = region === 'video' \|\| region === 'media' \? \['video'\] : \[moduleKey\]/);
 });
 
-test('single-book assets can override opening variants and restore batch inheritance', () => {
+test('single-book engine settings can override opening variants and restore batch inheritance', () => {
   assert.match(source, /'openingEnabled', 'openingCount'/);
   assert.match(source, /for \(const key of \['openingEnabled', 'openingCount'\]\)/);
-  assert.match(source, /换开头（当前书覆盖）/);
   assert.match(source, /form\.openingEnabled === true/);
-  assert.match(source, /patch\(\{ openingEnabled: enabled \}\)/);
-  assert.match(source, /patch\(\{ openingCount: value \?\? 4 \}\)/);
+  assert.match(source, /patch\(\{ openingEnabled: enabled, openingCount: form\.openingCount \?\? inherited\.openingCount \?\? 4 \}\)/);
+  assert.match(source, /patch\(\{ openingCount: count \?\? 4 \}\)/);
   assert.match(source, /Object\.hasOwn\(bookPatch, 'openingEnabled'\)/);
+  // 换开头属于引擎配置，不再出现在资产设置卡
+  assert.doesNotMatch(source, /换开头（当前书覆盖）/);
 });
 
 test('keeps storyboard duration in engine configuration instead of video settings', () => {

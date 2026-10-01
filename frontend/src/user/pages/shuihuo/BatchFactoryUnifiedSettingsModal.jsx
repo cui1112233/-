@@ -82,6 +82,7 @@ export function BatchFactoryEngineSettingsForm({ value, onChange, sections = ['m
       <label className="batch-factory-engine-field"><span><b>配音音色</b></span><Select value={tts.voice} options={voices} onChange={voice => patch({ tts: { ...tts, voice } })} /></label>
       <label className="batch-factory-engine-field"><span><b>配音风格</b></span><Select value={tts.style} options={styles} onChange={style => patch({ tts: { ...tts, style } })} /></label>
       <label className="batch-factory-engine-field"><span><b>语速</b></span><InputNumber min={0.5} max={2} step={0.1} value={tts.speed} onChange={speed => patch({ tts: { ...tts, speed: speed ?? DEFAULT_TTS.speed } })} /></label>
+      <label className="batch-factory-engine-field"><span><b>换开头</b><small>开启后，2 个及以上分镜的书为分镜一生成多个开场变体并分别合成上传；数量含原始开头</small></span><Space><Switch checked={value.openingEnabled === true} onChange={enabled => patch({ openingEnabled: enabled, openingCount: value.openingCount ?? 4 })} /><InputNumber min={1} max={8} precision={0} disabled={value.openingEnabled !== true} value={value.openingCount ?? 4} onChange={count => patch({ openingCount: count ?? 4 })} addonAfter="条（含原始）" /></Space></label>
     </div></section>
     {modelsError ? <Alert type="warning" showIcon message="模型目录暂不可用" description={<Space direction="vertical"><span>{modelsError}</span><Button size="small" onClick={() => setModelReloadKey(value => value + 1)}>重试读取模型</Button></Space>} /> : null}
     {!modelsLoading && !modelsError && !models.length ? <Alert type="warning" showIcon message="个人中心没有已启用模型" description={<Space direction="vertical"><span>请先在个人中心按文本、图片、视频类型新增并启用模型，再返回当前批量作品选择。</span><Button type="link" href="/api-config">前往个人中心配置模型</Button></Space>} /> : null}
@@ -217,7 +218,7 @@ function BatchFactoryPublishSettingsForm({ value, onChange, active }) {
   </>;
 }
 
-export function BatchFactoryAiReasoningForm({ value, onChange, opening, onOpeningChange }) {
+export function BatchFactoryAiReasoningForm({ value, onChange }) {
   const [catalog, setCatalog] = useState([]);
   const config = value && typeof value === 'object' ? value : {};
   const assets = config.assets || {};
@@ -225,8 +226,6 @@ export function BatchFactoryAiReasoningForm({ value, onChange, opening, onOpenin
   const derivedOpening = config.derivedOpening || {};
   const video = config.video || {};
   const visual = config.visual || {};
-  const openingConfig = opening && typeof opening === 'object' ? opening : {};
-  const changeOpening = typeof onOpeningChange === 'function' ? onOpeningChange : () => {};
   useEffect(() => {
     let active = true;
     Promise.all([listSystemPresetCatalog('script'), listSystemPresetCatalog('batch-factory')]).then(results => {
@@ -250,7 +249,6 @@ export function BatchFactoryAiReasoningForm({ value, onChange, opening, onOpenin
       <label className="batch-factory-engine-field"><span><b>人物场景道具提取提示词</b></span><Select allowClear value={assets.extraction?.presetId || undefined} options={bySlot('script.asset-extraction')} placeholder="选择已发布预设词" onChange={presetId => onChange({ ...config, assets: { ...assets, enabled: true, extraction: presetFor(presetId) } })} /></label>
       <label className="batch-factory-engine-field"><span><b>人物提示词</b></span><Select allowClear value={assets.character?.presetId || undefined} options={bySlot('batch.character-meta')} placeholder="选择已发布预设词" onChange={presetId => onChange({ ...config, assets: { ...assets, enabled: true, character: presetFor(presetId) } })} /></label>
       <label className="batch-factory-engine-field"><span><b>场景提示词</b></span><Select allowClear value={assets.scene?.presetId || undefined} options={bySlot('batch.scene-meta')} placeholder="选择已发布预设词" onChange={presetId => onChange({ ...config, assets: { ...assets, enabled: true, scene: presetFor(presetId) } })} /></label>
-      <label className="batch-factory-engine-field"><span><b>换开头</b><small>2 个及以上分镜的书为分镜一生成多个开场变体并分别合成上传</small></span><Space><Switch checked={openingConfig.enabled === true} onChange={enabled => changeOpening({ enabled, count: openingConfig.count ?? 4 })} /><InputNumber min={1} max={8} precision={0} disabled={openingConfig.enabled !== true} value={openingConfig.count ?? 4} onChange={value => changeOpening({ enabled: openingConfig.enabled === true, count: value ?? 4 })} addonAfter="条（含原始）" /></Space></label>
     </div></section>
     <section className="batch-factory-engine-card"><header><b>约束设置</b><small>画面前缀、画质、画面限制和负面提示词在这里统一选择；不选的类别不会注入，可在单书配置里单独覆盖。</small></header><div className="batch-factory-engine-card-body batch-factory-engine-grid">
       <label className="batch-factory-engine-field"><span><b>画面前缀词（智能统一）</b></span><Select allowClear value={selectedConstraint('prefix')} options={byConstraint('prefix')} placeholder="选择系统预设" onChange={presetId => updateConstraint('prefix', presetId)} /></label>
@@ -323,7 +321,7 @@ export function BatchFactoryUnifiedSettingsModal({ open, batch, onClose, onSaved
   return <><Modal title={<Space><Tooltip title="自动化预设"><Button type="text" icon={<SettingOutlined />} aria-label="自动化预设" onClick={openPresetManager} /></Tooltip><span>统一配置</span></Space>} open={open} onCancel={onClose} width={980} destroyOnClose={false} className="batch-factory-unified-settings-modal" footer={<Space><Button onClick={onClose}>取消</Button><Button type="primary" loading={saving} onClick={save}>保存统一配置</Button></Space>}>
     <Tabs items={[
       { key: 'models', label: '模型配置', children: <BatchFactoryEngineSettingsForm value={draftPatch} onChange={setDraftPatch} sections={['models', 'audio']} active={open} /> },
-      { key: 'reasoning', label: 'AI 推理', children: <BatchFactoryAiReasoningForm value={draftPatch.aiPromptConfig} onChange={aiPromptConfig => setDraftPatch(current => ({ ...current, aiPromptConfig }))} opening={{ enabled: draftPatch.openingEnabled === true, count: draftPatch.openingCount ?? 4 }} onOpeningChange={next => setDraftPatch(current => ({ ...current, openingEnabled: next.enabled, openingCount: next.count ?? 4 }))} /> },
+      { key: 'reasoning', label: 'AI 推理', children: <BatchFactoryAiReasoningForm value={draftPatch.aiPromptConfig} onChange={aiPromptConfig => setDraftPatch(current => ({ ...current, aiPromptConfig }))} /> },
       { key: 'publish', label: '发布统一', children: <BatchFactoryPublishSettingsForm value={draftPatch} onChange={setDraftPatch} active={open} /> }
     ]} />
   </Modal>
