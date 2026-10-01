@@ -6,6 +6,7 @@ import (
 )
 
 type Store interface {
+	EnsureIdentityUniqueIndex(context.Context) error
 	CreatePairing(context.Context, PairingRecord) error
 	PairExecutor(context.Context, SecretHash, string, ExecutorRecord, time.Time) (ExecutorRecord, error)
 	ExecutorByTokenHash(context.Context, SecretHash) (ExecutorRecord, error)

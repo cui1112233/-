@@ -4,12 +4,30 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"time"
+
+	"github.com/go-sql-driver/mysql"
 )
 
 type MySQLStore struct{ db *sql.DB }
 
 func NewMySQLStore(db *sql.DB) *MySQLStore { return &MySQLStore{db: db} }
+
+func (s *MySQLStore) EnsureIdentityUniqueIndex(ctx context.Context) error {
+	var count int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(1) FROM information_schema.statistics
+WHERE table_schema = DATABASE() AND table_name = 'giant_executors'
+AND index_name = 'uq_giant_executors_identity'`).Scan(&count); err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+	_, err := s.db.ExecContext(ctx, `ALTER TABLE giant_executors
+ADD UNIQUE KEY uq_giant_executors_identity (owner_username, os, device_name)`)
+	return err
+}
 
 func (s *MySQLStore) CreatePairing(ctx context.Context, record PairingRecord) error {
 	_, err := s.db.ExecContext(ctx, `INSERT INTO giant_executor_pairings
@@ -19,21 +37,36 @@ VALUES (?, ?, ?, ?, ?, NULL, ?)`, record.ID, record.OwnerUsername, record.Platfo
 }
 
 func (s *MySQLStore) PairExecutor(ctx context.Context, codeHash SecretHash, platform string, executor ExecutorRecord, now time.Time) (ExecutorRecord, error) {
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		record, retryable, err := s.pairExecutorTx(ctx, codeHash, platform, executor, now)
+		if err == nil {
+			return record, nil
+		}
+		if !retryable {
+			return ExecutorRecord{}, err
+		}
+		lastErr = err
+	}
+	return ExecutorRecord{}, lastErr
+}
+
+func (s *MySQLStore) pairExecutorTx(ctx context.Context, codeHash SecretHash, platform string, executor ExecutorRecord, now time.Time) (ExecutorRecord, bool, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return ExecutorRecord{}, err
+		return ExecutorRecord{}, isRetryableMySQLError(err), err
 	}
 	defer tx.Rollback()
 	var pairing PairingRecord
 	var consumed sql.NullTime
 	if err := tx.QueryRowContext(ctx, `SELECT id, owner_username, platform, expires_at, consumed_at, created_at
 FROM giant_executor_pairings WHERE code_hash = ? FOR UPDATE`, codeHash[:]).Scan(&pairing.ID, &pairing.OwnerUsername, &pairing.Platform, &pairing.ExpiresAt, &consumed, &pairing.CreatedAt); errors.Is(err, sql.ErrNoRows) {
-		return ExecutorRecord{}, ErrPairingInvalid
+		return ExecutorRecord{}, false, ErrPairingInvalid
 	} else if err != nil {
-		return ExecutorRecord{}, err
+		return ExecutorRecord{}, isRetryableMySQLError(err), err
 	}
 	if consumed.Valid || pairing.Platform != platform || !pairing.ExpiresAt.After(now) {
-		return ExecutorRecord{}, ErrPairingInvalid
+		return ExecutorRecord{}, false, ErrPairingInvalid
 	}
 	executor.OwnerUsername = pairing.OwnerUsername
 	var existingID string
@@ -41,38 +74,63 @@ FROM giant_executor_pairings WHERE code_hash = ? FOR UPDATE`, codeHash[:]).Scan(
 WHERE owner_username = ? AND os = ? AND device_name = ?
 ORDER BY updated_at DESC, id ASC LIMIT 1 FOR UPDATE`,
 		executor.OwnerUsername, executor.OS, executor.DeviceName).Scan(&existingID)
-	switch {
-	case errors.Is(lookupErr, sql.ErrNoRows):
+	if errors.Is(lookupErr, sql.ErrNoRows) {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO giant_executors
 (id, owner_username, platform, token_hash, device_name, os, app_version, last_seen_at, created_at, updated_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`, executor.ID, executor.OwnerUsername, executor.Platform,
 			executor.TokenHash[:], executor.DeviceName, executor.OS, executor.Version,
 			executor.CreatedAt, executor.UpdatedAt); err != nil {
-			return ExecutorRecord{}, err
+			var mysqlErr *mysql.MySQLError
+			if errors.As(err, &mysqlErr) && mysqlErr.Number == 1062 {
+				// 并发配对竞态：身份行已被另一事务插入，同一事务内重新锁定该行后走 UPDATE。
+				reErr := tx.QueryRowContext(ctx, `SELECT id FROM giant_executors
+WHERE owner_username = ? AND os = ? AND device_name = ?
+ORDER BY updated_at DESC, id ASC LIMIT 1 FOR UPDATE`,
+					executor.OwnerUsername, executor.OS, executor.DeviceName).Scan(&existingID)
+				switch {
+				case reErr == nil:
+					// 查到了竞争事务插入的行，下面统一走 UPDATE 分支。
+				case errors.Is(reErr, sql.ErrNoRows):
+					return ExecutorRecord{}, false, err
+				default:
+					return ExecutorRecord{}, isRetryableMySQLError(reErr), reErr
+				}
+			} else {
+				return ExecutorRecord{}, isRetryableMySQLError(err), err
+			}
 		}
-	case lookupErr != nil:
-		return ExecutorRecord{}, lookupErr
-	default:
+	} else if lookupErr != nil {
+		return ExecutorRecord{}, isRetryableMySQLError(lookupErr), lookupErr
+	}
+	if existingID != "" {
 		executor.ID = existingID
 		executor.UpdatedAt = now
 		if _, err := tx.ExecContext(ctx, `UPDATE giant_executors
 SET token_hash = ?, app_version = ?, updated_at = ? WHERE id = ?`,
 			executor.TokenHash[:], executor.Version, now, existingID); err != nil {
-			return ExecutorRecord{}, err
+			return ExecutorRecord{}, isRetryableMySQLError(err), err
 		}
 	}
 	result, err := tx.ExecContext(ctx, `UPDATE giant_executor_pairings SET consumed_at = ? WHERE id = ? AND consumed_at IS NULL`, now, pairing.ID)
 	if err != nil {
-		return ExecutorRecord{}, err
+		return ExecutorRecord{}, isRetryableMySQLError(err), err
 	}
 	rows, err := result.RowsAffected()
 	if err != nil || rows != 1 {
-		return ExecutorRecord{}, ErrPairingInvalid
+		return ExecutorRecord{}, false, ErrPairingInvalid
 	}
 	if err := tx.Commit(); err != nil {
-		return ExecutorRecord{}, err
+		return ExecutorRecord{}, isRetryableMySQLError(err), err
 	}
-	return executor, nil
+	return executor, false, nil
+}
+
+func isRetryableMySQLError(err error) bool {
+	var mysqlErr *mysql.MySQLError
+	if errors.As(err, &mysqlErr) {
+		return mysqlErr.Number == 1213 || mysqlErr.Number == 1205
+	}
+	return false
 }
 
 func (s *MySQLStore) ExecutorByTokenHash(ctx context.Context, hash SecretHash) (ExecutorRecord, error) {
@@ -94,11 +152,14 @@ FROM giant_executors WHERE token_hash = ?`, hash[:]).Scan(&record.ID, &record.Ow
 }
 
 func (s *MySQLStore) UpdateHeartbeat(ctx context.Context, id string, input HeartbeatInput, now time.Time) error {
+	deviceName := strings.TrimSpace(input.DeviceName)
+	osName := strings.TrimSpace(input.OS)
+	version := strings.TrimSpace(input.Version)
 	result, err := s.db.ExecContext(ctx, `UPDATE giant_executors SET
  device_name = CASE WHEN ? = '' THEN device_name ELSE ? END,
  os = CASE WHEN ? = '' THEN os ELSE ? END,
  app_version = CASE WHEN ? = '' THEN app_version ELSE ? END,
- last_seen_at = ?, updated_at = ? WHERE id = ?`, input.DeviceName, input.DeviceName, input.OS, input.OS, input.Version, input.Version, now, now, id)
+ last_seen_at = ?, updated_at = ? WHERE id = ?`, deviceName, deviceName, osName, osName, version, version, now, now, id)
 	if err != nil {
 		return err
 	}

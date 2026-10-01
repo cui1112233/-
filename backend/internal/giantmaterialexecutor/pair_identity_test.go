@@ -78,3 +78,9 @@ func TestPairDifferentOSCreatesSeparateExecutor(t *testing.T) {
 		t.Fatalf("executors=%+v err=%v", executors, err)
 	}
 }
+
+func TestEnsureIdentityUniqueIndexMemoryNoOp(t *testing.T) {
+	if err := NewMemoryStore().EnsureIdentityUniqueIndex(context.Background()); err != nil {
+		t.Fatalf("EnsureIdentityUniqueIndex memory no-op: %v", err)
+	}
+}

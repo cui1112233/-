@@ -26,6 +26,8 @@ func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{pairings: make(map[string]PairingRecord), executors: make(map[string]ExecutorRecord), tokens: make(map[string]string), jobs: make(map[string]JobRecord), jobKeys: make(map[string]string), preferences: make(map[string]PreferenceRecord), progressChanged: make(map[string]time.Time), lastFailure: make(map[string]time.Time)}
 }
 
+func (s *MemoryStore) EnsureIdentityUniqueIndex(_ context.Context) error { return nil }
+
 func (s *MemoryStore) CreatePairing(_ context.Context, record PairingRecord) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -58,6 +60,7 @@ func (s *MemoryStore) PairExecutor(_ context.Context, codeHash SecretHash, platf
 		delete(s.tokens, secretHashKey(old.TokenHash))
 		executor.ID = existingID
 		executor.UpdatedAt = now
+		executor.LastSeenAt = old.LastSeenAt
 		s.executors[existingID] = executor
 		s.tokens[secretHashKey(executor.TokenHash)] = existingID
 	} else {

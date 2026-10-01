@@ -54,11 +54,15 @@ func (s *Service) Pair(ctx context.Context, input PairInput) (PairResult, error)
 	if err := validateDeviceFields(input.DeviceName, input.OS, input.Version); err != nil {
 		return PairResult{}, err
 	}
+	osName := strings.ToLower(strings.TrimSpace(input.OS))
+	if !validExecutorOS(osName) {
+		return PairResult{}, ErrInvalidInput
+	}
 	token, err := randomToken()
 	if err != nil {
 		return PairResult{}, err
 	}
-	executor := ExecutorRecord{ID: randomID("gme_exec_"), Platform: PlatformGiantMaterial, TokenHash: hashSecret(token), DeviceName: strings.TrimSpace(input.DeviceName), OS: strings.TrimSpace(input.OS), Version: strings.TrimSpace(input.Version), CreatedAt: s.now().UTC(), UpdatedAt: s.now().UTC()}
+	executor := ExecutorRecord{ID: randomID("gme_exec_"), Platform: PlatformGiantMaterial, TokenHash: hashSecret(token), DeviceName: strings.TrimSpace(input.DeviceName), OS: osName, Version: strings.TrimSpace(input.Version), CreatedAt: s.now().UTC(), UpdatedAt: s.now().UTC()}
 	created, err := s.store.PairExecutor(ctx, hashPairingCode(input.Code), PlatformGiantMaterial, executor, s.now().UTC())
 	if err != nil {
 		return PairResult{}, err
