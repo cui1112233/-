@@ -18,14 +18,6 @@ import (
 	"time"
 )
 
-// ReleaseManifest 是服务器上的最新版本说明书（latest.json）。
-// 执行器定期读取它，发现比自己新的版本就自动下载替换。
-type ReleaseManifest struct {
-	Version string `json:"version"`
-	SHA256  string `json:"sha256"`
-	URL     string `json:"url,omitempty"`
-}
-
 // SelfUpdater 负责执行器的自动更新：
 // 定期拉取 latest.json → 版本比当前新且空闲时 → 下载 zip → SHA256 校验 →
 // 解压到 .updates/<version>/ → 生成 apply-update.cmd → 通过 Apply 回调重启生效。
