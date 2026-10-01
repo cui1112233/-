@@ -59,7 +59,11 @@ var allowedTransitions = map[State]map[State]bool{
 		StatePairing:          true,
 		StateDownloadingModel: true,
 		StateReady:            true,
-		StateStopping:         true,
+		// The OCR worker remains resident after completing a task. The next
+		// claimed job therefore starts directly from idle instead of requiring
+		// a synthetic ready transition.
+		StateRunning:  true,
+		StateStopping: true,
 	},
 	StatePairing: {
 		StateIdle:             true,
