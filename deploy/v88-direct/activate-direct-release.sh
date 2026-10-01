@@ -42,9 +42,15 @@ rollback() {
   echo "STATUS=ROLLBACK release failed, restoring previous state (exit=$status)" >&2
   if [ -n "$PREV_TARGET" ] && [ -d "$DIRECT_ROOT/$PREV_TARGET" ]; then
     ln -sfn "$PREV_TARGET" "$DIRECT_ROOT/current"
+    if [ -n "$PREV_SHA" ]; then set_env DIRECT_RELEASE_SHA "$PREV_SHA"; fi
+    docker compose -f "$BASE_COMPOSE" -f "$OVERRIDE" up -d --no-deps --force-recreate --pull never go-api v88-node >/dev/null 2>&1 || true
+  else
+    # First direct release has no prior release symlink. Restore the base
+    # image runtime rather than mounting the failed, partial release again.
+    rm -f "$DIRECT_ROOT/current"
+    set_env DIRECT_RELEASE_SHA ""
+    docker compose -f "$BASE_COMPOSE" up -d --no-deps --force-recreate --pull never go-api v88-node >/dev/null 2>&1 || true
   fi
-  if [ -n "$PREV_SHA" ]; then set_env DIRECT_RELEASE_SHA "$PREV_SHA"; fi
-  docker compose -f "$BASE_COMPOSE" -f "$OVERRIDE" up -d --no-deps --force-recreate --pull never go-api v88-node >/dev/null 2>&1 || true
   exit "$status"
 }
 trap rollback ERR

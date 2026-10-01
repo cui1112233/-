@@ -44,6 +44,10 @@ $goOut   = Join-Path $staging 'go\qiantie'
 $nodeOut = Join-Path $staging 'node'
 if (Test-Path $staging) { Remove-Item $staging -Recurse -Force }
 New-Item -ItemType Directory -Force -Path (Join-Path $staging 'go'), $nodeOut | Out-Null
+# The production compose file mounts persistent volumes at these child paths.
+# They must already exist in the read-only /app release mount before Docker
+# attaches those volumes, otherwise a first direct release cannot start Node.
+New-Item -ItemType Directory -Force -Path (Join-Path $nodeOut 'data'), (Join-Path $nodeOut 'outputs') | Out-Null
 
 # 2) 交叉编译 Go（Linux amd64 单文件，与线上镜像同架构）---------------------
 Step '交叉编译 Go 后端（linux/amd64 单文件）'
