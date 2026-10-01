@@ -81,7 +81,7 @@ git commit -m "ci: add ECS image pull diagnostic"
 - Consumes: the manually dispatched Task 1 workflow run.
 - Produces: a stated root cause and exactly one follow-up repair hypothesis.
 
-- [ ] **Step 1: Dispatch the workflow from its committed V88 source**
+- [x] **Step 1: Dispatch the workflow from its committed V88 source**
 
 Run:
 
@@ -91,7 +91,7 @@ gh workflow run v88-ecs-image-pull-diagnostic.yml --ref v88 -f release_sha=<fail
 
 Expected: a diagnostic run begins without publishing images or touching production services.
 
-- [ ] **Step 2: Read only the diagnostic summary and relevant failure lines**
+- [x] **Step 2: Read only the diagnostic summary and relevant failure lines**
 
 Run:
 
@@ -101,6 +101,32 @@ gh run view <run-id> --log
 
 Expected: evidence distinguishes storage exhaustion, stuck Docker daemon, DNS/connectivity failure, and image-layer extraction failure.
 
-- [ ] **Step 3: Propose one evidence-backed repair**
+- [x] **Step 3: Propose one evidence-backed repair**
 
 Do not increase the 15-minute timeout merely to mask the issue. If storage is exhausted, prepare a recoverable cleanup proposal; if registry connectivity is unhealthy, repair the registry/network boundary; if Docker is wedged, diagnose the daemon before restart.
+
+### Task 3: Reclaim only unused Docker images after confirmed storage exhaustion
+
+**Files:**
+- Create: `.github/workflows/v88-ecs-unused-image-cleanup.yml`
+- Test: `test/ecs-unused-image-cleanup.test.js`
+
+**Interfaces:**
+- Consumes: a required exact confirmation string `PRUNE_UNUSED_IMAGES` and the existing protected ECS SSH key.
+- Produces: before/after free-space and Docker-reclaimable-size summaries. It removes only images not referenced by any container; it must not touch containers, volumes, networks, database files, or services.
+
+- [x] **Step 1: Write a failing static safety test**
+
+The test must require a manual-only workflow, exact confirmation validation, a fixed known-host key, `docker image prune -a --force`, and before/after `df` plus `docker system df`. It must reject compose, system prune, volume prune, container prune, `docker rm`, restart, and service-control commands.
+
+- [x] **Step 2: Create the restricted cleanup workflow**
+
+Use `workflow_dispatch` from `v88` only. Validate the confirmation value before SSH. On ECS, print capacity and Docker summaries, run only `docker image prune -a --force`, then print the same summaries again. Use bounded SSH and no shell interpolation of workflow input.
+
+- [ ] **Step 3: Verify and commit**
+
+Run the cleanup workflow's targeted test, YAML parse, command-safety scan, and `git diff --check`; commit with a cleanup-specific message.
+
+- [ ] **Step 4: Dispatch once and verify release readiness**
+
+Run the cleanup workflow with the exact confirmation. Confirm free disk is materially higher before manually dispatching the unified public release for the same `v88` SHA.
