@@ -459,8 +459,12 @@ func (s *DirectorService) RunOpeningVariants(ctx context.Context, owner, batchID
 	}
 	storyboard := book.DirectorRevision.Output.Storyboard
 	first, followUps := storyboard[0], storyboard[1:]
-	if strings.TrimSpace(first.FinalPrompt) == "" {
-		return nil, nil // H3 结构化分镜：变体无法注入确定性编译，按规则跳过
+	// SD 直出分镜的整段提示词存于 FinalPrompt；结构化分镜只有镜头/动作描述，
+	// 由 storyboardVideoPrompt 渲染成“镜头画面”文本。两种形态都可以生成换开头：
+	// 变体本身是分镜一整段开场的重写，编译时走整段提示词路径，外层约束照常注入。
+	// 只有连可渲染的分镜一正文都拿不到（异常空数据）时才跳过。
+	if strings.TrimSpace(storyboardVideoPrompt(first)) == "" {
+		return nil, nil
 	}
 	count := rawInt(effective, "openingCount", 4)
 	if count < 1 || count > 8 {

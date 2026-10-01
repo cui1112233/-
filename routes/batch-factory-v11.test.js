@@ -30,7 +30,9 @@ const {
   persisted121PublicationMetadata,
   v11JSONRequest,
   safeAutomationStatus,
-  splitVideoPresetBody
+  splitVideoPresetBody,
+  singleBookDirectorStageTarget,
+  generateOpeningVariantsAfterSingleDirector
 } = require('./batch-factory-v11');
 
 test('keeps a V12 book submission on the Node-owned 121 publisher', () => {
@@ -855,6 +857,94 @@ test('enrichment keeps the selected character renderer while dropping retired wr
   assert.equal(config.originalDirector.body, '原文导演规则');
   assert.equal(config.viralDirector.body, '爆款导演规则');
   assert.equal(config.prefix, undefined);
+});
+
+test('single-book director target matches only POST stages/director for one book', () => {
+  const path = '/api/batch-factory/v11/batches/batch-1/books/book-1/stages/director';
+  assert.deepEqual(singleBookDirectorStageTarget({ method: 'POST' }, path), { batchId: 'batch-1', bookId: 'book-1' });
+  assert.equal(singleBookDirectorStageTarget({ method: 'GET' }, path), null);
+  assert.equal(singleBookDirectorStageTarget({ method: 'POST' }, '/api/batch-factory/v11/batches/batch-1/books/book-1/stages/opening'), null);
+  assert.equal(singleBookDirectorStageTarget({ method: 'POST' }, '/api/batch-factory/v11/batches/batch-1/books/book-1/stages/director/extra'), null);
+});
+
+function singleDirectorOptions({ openingEnabled, metaBody, fetchImpl }) {
+  const batch = {
+    id: 'batch-1',
+    settingsState: { patch: { openingEnabled, textModelId: 'text-1' } },
+    books: [{
+      id: 'book-1',
+      settingsState: { patch: {} },
+      videos: [
+        { id: 'v0', settingsState: { patch: {} } },
+        { id: 'v1', settingsState: { patch: {} } }
+      ]
+    }]
+  };
+  return {
+    req: { username: 'alice', auth: { account: { isOwner: true } } },
+    target: { batchId: 'batch-1', bookId: 'book-1' },
+    options: {
+      goBaseUrl: 'http://go.local',
+      bridgeSecret: 'secret',
+      presetStore: { getPublished: id => (id === 'batch-opening-meta' && metaBody ? { id, body: metaBody } : null), listAll: () => [] },
+      memberStore: { getMember: username => ({ username, active: true, role: 'manager' }), canUseApi: () => true },
+      configReader: () => ({ modelCatalog: [{ id: 'text-1', kind: 'text', enabled: true, baseUrl: 'https://text.example/v1', modelId: 'gpt-x', credential: 'key', displayName: '文本X' }] }),
+      fetchImpl
+    },
+    batch
+  };
+}
+
+test('after single-book director, opening variants are generated with the meta preset and text provider', async () => {
+  const posts = [];
+  let batchGetCount = 0;
+  const ctx = singleDirectorOptions({
+    openingEnabled: true,
+    metaBody: '换开头元规则正文',
+    fetchImpl: async (url, init = {}) => {
+      if (init.method === 'POST' && url.endsWith('/stages/opening')) {
+        posts.push({ url, body: JSON.parse(init.body) });
+        return new Response(JSON.stringify({ runs: [{ stage: 'opening', status: 'succeeded' }] }), { status: 201 });
+      }
+      if (url.endsWith('/batches/batch-1') && (!init.method || init.method === 'GET')) {
+        batchGetCount += 1;
+        if (batchGetCount === 1) return new Response(JSON.stringify({ batch: ctx.batch }), { status: 200 });
+        const withVariants = JSON.parse(JSON.stringify(ctx.batch));
+        withVariants.books[0].videos[0].settingsState.patch.openingVariants = [
+          { index: 1, status: 'success', prompt: '变体一：茶盏碎裂。' },
+          { index: 2, status: 'failed', prompt: '' }
+        ];
+        return new Response(JSON.stringify({ batch: withVariants }), { status: 200 });
+      }
+      throw new Error(`unexpected ${init.method || 'GET'} ${url}`);
+    }
+  });
+  const result = await generateOpeningVariantsAfterSingleDirector(ctx.req, ctx.target, ctx.options);
+  assert.deepEqual(result, { triggered: true, generated: 1, succeeded: true, reason: '' });
+  assert.equal(posts.length, 1);
+  assert.match(posts[0].url, /books\/book-1\/stages\/opening$/);
+  assert.equal(posts[0].body.mode, 'force');
+  assert.equal(posts[0].body.openingMeta.presetId, 'batch-opening-meta');
+  assert.equal(posts[0].body.openingMeta.body, '换开头元规则正文');
+  assert.equal(posts[0].body.textProvider.model, 'gpt-x');
+});
+
+test('single-book director does not call opening when the switch is off', async () => {
+  const posts = [];
+  const ctx = singleDirectorOptions({
+    openingEnabled: false,
+    metaBody: '元规则',
+    fetchImpl: async (url, init = {}) => {
+      if (init.method === 'POST' && url.endsWith('/stages/opening')) {
+        posts.push(url);
+        return new Response(JSON.stringify({ runs: [] }), { status: 201 });
+      }
+      return new Response(JSON.stringify({ batch: ctx.batch }), { status: 200 });
+    }
+  });
+  const result = await generateOpeningVariantsAfterSingleDirector(ctx.req, ctx.target, ctx.options);
+  assert.equal(posts.length, 0);
+  assert.equal(result.triggered, false);
 });
 
 test('execution refreshes the selected preset snapshot to the latest published name, version and body', async () => {

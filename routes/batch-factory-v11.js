@@ -117,6 +117,55 @@ function directorBookPath(pathname) {
   return match ? { batchId: decodeURIComponent(match[1]), bookId: decodeURIComponent(match[2]) } : null;
 }
 
+// 单书“视频获取-提取 / 重新生成导演分镜”走的 stages/director 精确入口。
+function singleBookDirectorStageTarget(req, pathname) {
+  if (req.method !== 'POST') return null;
+  const match = String(pathname || '').match(/^\/api\/batch-factory\/v11\/batches\/([^/]+)\/books\/([^/]+)\/stages\/director$/);
+  return match ? { batchId: decodeURIComponent(match[1]), bookId: decodeURIComponent(match[2]) } : null;
+}
+
+// 单书导演分镜成功后，若该书开启换开头且分镜数≥2，紧接着自动生成换开头变体，
+// 让单书操作与整批自动化流水线行为一致。换开头失败不拖垮已经成功的导演分镜。
+async function generateOpeningVariantsAfterSingleDirector(req, target, upstreamOptions) {
+  const isOwner = req.auth?.account?.isOwner === true;
+  const goArgs = {
+    username: req.username, isOwner,
+    goBaseUrl: upstreamOptions.goBaseUrl, bridgeSecret: upstreamOptions.bridgeSecret,
+    fetchImpl: upstreamOptions.fetchImpl, now: upstreamOptions.now
+  };
+  const batchPath = `/api/batch-factory/v11/batches/${encodeURIComponent(target.batchId)}`;
+  const loadBatch = async () => {
+    const loaded = await v11JSONRequest({ ...goArgs, method: 'GET', pathname: batchPath });
+    return loaded?.batch || loaded;
+  };
+  const describe = (triggered, generated, succeeded, reason) => ({ triggered, generated, succeeded, reason: reason || '' });
+  const batch = await loadBatch();
+  const book = (Array.isArray(batch?.books) ? batch.books : []).find(item => String(item?.id) === String(target.bookId));
+  if (!book) return describe(false, 0, false, '当前书不存在，已跳过换开头');
+  const settings = automationEffectiveSettings(batch, book);
+  const videos = Array.isArray(book.videos) ? book.videos : [];
+  if (settings.openingEnabled !== true) return describe(false, 0, false, '未开启换开头，已跳过');
+  if (videos.length < 2) return describe(false, 0, false, '分镜不足 2 个，已跳过换开头');
+  const metaBody = String(resolveSystemPresetBody(upstreamOptions.presetStore, 'batch-opening-meta') || '').trim();
+  if (!metaBody) return describe(true, 0, false, '换开头元提示词预设没有可用正文');
+  const textModelId = String(settings.textModelId || '').trim();
+  const payload = {
+    mode: 'force',
+    requestId: `bf11-opening-single-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    textProvider: requestTextProvider({ username: req.username, body: { textModelId } }, upstreamOptions, textModelId),
+    openingMeta: { presetId: 'batch-opening-meta', presetName: '换开头元提示词', presetSlot: 'batch.opening-meta', presetVersion: 1, presetKey: 'batch-opening-meta', body: metaBody, constraintCategory: '' }
+  };
+  const openingPath = `/api/batch-factory/v11/batches/${encodeURIComponent(target.batchId)}/books/${encodeURIComponent(target.bookId)}/stages/opening`;
+  await v11JSONRequest({ ...goArgs, method: 'POST', pathname: openingPath, payload });
+  const afterBatch = await loadBatch();
+  const afterBook = (Array.isArray(afterBatch?.books) ? afterBatch.books : []).find(item => String(item?.id) === String(target.bookId));
+  const variants = afterBook?.videos?.[0]?.settingsState?.patch?.openingVariants;
+  const generated = Array.isArray(variants)
+    ? variants.filter(variant => variant?.status === 'success' && String(variant?.prompt || '').trim()).length
+    : 0;
+  return describe(true, generated, generated > 0, generated > 0 ? '' : '本次未生成可用换开头变体，可重试失败步骤');
+}
+
 function styleSystemBookPath(pathname) {
   const match = String(pathname || '').match(/^\/api\/batch-factory\/v11\/batches\/([^/]+)\/books\/([^/]+)\/(?:assets|stages\/assets)$/);
   return match ? { batchId: decodeURIComponent(match[1]), bookId: decodeURIComponent(match[2]) } : null;
@@ -2039,6 +2088,24 @@ function createBatchFactoryV11Router(options = {}) {
       if (execution) {
         await refreshBatchFactoryPresetSnapshot({ username: req.username, isOwner: req.auth?.account?.isOwner === true, ...execution, goBaseUrl: upstreamOptions.goBaseUrl, bridgeSecret: upstreamOptions.bridgeSecret, presetStore: upstreamOptions.presetStore, fetchImpl: upstreamOptions.fetchImpl, now: upstreamOptions.now });
       }
+      // 单书导演分镜：自己转发（req.body 已注入文本模型等参数），成功后按该书
+      // 换开头开关自动补生成变体；换开头失败不影响导演分镜成功结果。
+      const directorTarget = singleBookDirectorStageTarget(req, parsed.pathname);
+      if (directorTarget) {
+        const directorPath = `/api/batch-factory/v11/batches/${encodeURIComponent(directorTarget.batchId)}/books/${encodeURIComponent(directorTarget.bookId)}/stages/director`;
+        const summary = await v11JSONRequest({
+          username: req.username, isOwner: req.auth?.account?.isOwner === true, method: 'POST', pathname: directorPath,
+          payload: req.body, goBaseUrl: upstreamOptions.goBaseUrl, bridgeSecret: upstreamOptions.bridgeSecret,
+          fetchImpl: upstreamOptions.fetchImpl, now: upstreamOptions.now
+        });
+        let openingVariants = { triggered: false, generated: 0, succeeded: false, reason: '' };
+        try {
+          openingVariants = await generateOpeningVariantsAfterSingleDirector(req, directorTarget, upstreamOptions);
+        } catch (openingError) {
+          openingVariants = { triggered: true, generated: 0, succeeded: false, reason: String(openingError?.message || '换开头生成失败，可重试失败步骤') };
+        }
+        return res.status(201).json({ summary, openingVariants });
+      }
       return await proxyV11Request(req, res, {
         ...upstreamOptions,
         transformJSONResponse: redactBatchFactorySystemPromptBodies
@@ -2085,6 +2152,8 @@ module.exports = {
   imageGenerationEndpoint,
   textCompletionEndpoint,
   directorBookPath,
+  singleBookDirectorStageTarget,
+  generateOpeningVariantsAfterSingleDirector,
   styleSystemBookPath,
   batchFactory121PublishPath,
   batchFactoryBookClassificationPath,

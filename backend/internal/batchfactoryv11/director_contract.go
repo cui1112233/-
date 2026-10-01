@@ -341,7 +341,9 @@ func BuildOpeningVariantsContract(book Book, first DirectorVideo, followUps []Di
 	system += fmt.Sprintf("\n\n【本次任务】需要变体数量：%d。单段时长上限：%d 秒。", variantCount, maxVideoDuration)
 	var user strings.Builder
 	user.WriteString("小说标题：" + book.Title + "\n\n")
-	user.WriteString("【原分镜一（VIDEO01）提示词】\n" + strings.TrimSpace(first.FinalPrompt) + "\n")
+	// 原分镜一与后续分镜统一走 storyboardVideoPrompt：SD 直出时它返回整段
+	// FinalPrompt（行为不变），结构化分镜时把镜头/动作描述渲染成“镜头画面”文本。
+	user.WriteString("【原分镜一（VIDEO01）提示词】\n" + strings.TrimSpace(storyboardVideoPrompt(first)) + "\n")
 	for index, video := range followUps {
 		label := fmt.Sprintf("分镜%d（VIDEO%02d）提示词", index+2, index+2)
 		user.WriteString("\n【" + label + "】\n" + strings.TrimSpace(storyboardVideoPrompt(video)) + "\n")

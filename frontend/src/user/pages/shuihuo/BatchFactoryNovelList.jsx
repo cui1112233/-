@@ -2756,7 +2756,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
         if (settings.fixedSingleVideo === true) throw new Error('固定开头只生产 VIDEO01，请先关闭固定开头后再使用分镜规划跟随配音。');
         await ensureBookAudioDuration(book);
       }
-      await runBookStage(batch.id, book.id, stage, {
+      const stageResult = await runBookStage(batch.id, book.id, stage, {
         mode: requestedMode,
         ...(usesSelectedH3VideoPreset(settings) ? { h3: true } : {}),
         videoId,
@@ -2767,7 +2767,14 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
       if (stage === 'director' && usesSelectedH3VideoPreset(settings)) await compileBookH3Videos(book);
       await Promise.all([refreshBatch(), loadRuntimeStatus({ quiet: true })]);
       const labels = { assets: mode === 'force' ? '已重新生成资产；分镜和 VIDEO 未改动' : '已生成资产', director: mode === 'force' ? '已重新生成文案' : '已生成文案', image: mode === 'force' ? '已重新生成图片' : '已生成图片', video: mode === 'force' ? '已创建新的视频候选版本' : '已提交视频生成' };
-      message.success(labels[stage] || '当前小说阶段已提交。');
+      const baseLabel = labels[stage] || '当前小说阶段已提交。';
+      if (stage === 'director' && stageResult?.openingVariants?.triggered) {
+        const ov = stageResult.openingVariants;
+        if (ov.succeeded) message.success(`${baseLabel}；已自动生成 ${ov.generated} 个换开头变体，可在分镜一点击“查看换开头提示词”。`);
+        else message.warning(`${baseLabel}；但换开头变体未生成：${ov.reason || '可重试失败步骤'}`);
+      } else {
+        message.success(baseLabel);
+      }
     } catch (error) {
       // A provider can reject a request synchronously (quota, moderation, or
       // invalid input).  Reload the persisted stage run as well as the book so

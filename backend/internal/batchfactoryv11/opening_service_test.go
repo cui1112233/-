@@ -88,11 +88,55 @@ func TestRunOpeningVariantsSkipsWhenDisabledOrSingleStoryboard(t *testing.T) {
 	})
 }
 
-func TestRunOpeningVariantsSkipsH3StructuredFirstStoryboard(t *testing.T) {
-	// H3 structured storyboards carry shots instead of a verbatim FinalPrompt;
-	// variants cannot be compiled deterministically there and must be skipped.
-	store, batch, book := seedOpeningBook(t, true, 4, []DirectorVideo{
+func TestRunOpeningVariantsGeneratesForStructuredFirstStoryboard(t *testing.T) {
+	// 结构化分镜用镜头/动作描述而不是整段 FinalPrompt；换开头必须照样生成，
+	// 契约里把分镜一渲染成“镜头画面”文本喂给元提示词模型。
+	structured := []DirectorVideo{
 		{DurationSec: 10, VideoDesc: "林晚进入客厅", Shots: []DirectorShot{{StartSec: 0, EndSec: 10, ShotType: "中景", Camera: "缓慢推轨", Description: "林晚进入客厅"}}},
+		{DurationSec: 10, VideoDesc: "陆沉推门而入", Shots: []DirectorShot{{StartSec: 0, EndSec: 10, ShotType: "全景", Camera: "固定", Description: "陆沉推门而入"}}},
+	}
+	store, batch, book := seedOpeningBook(t, true, 4, structured)
+	reply := strings.Join([]string{
+		"===VARIANT 1===",
+		"时长：10秒",
+		"变体一：茶盏砸落大理石地面碎裂，争吵爆发。",
+		"",
+		"===VARIANT 2===",
+		"时长：10秒",
+		"变体二：雨夜推门而入，两人对视沉默。",
+	}, "\n")
+	provider := &queuedDirectorProvider{values: []string{reply}}
+	variants, err := (&DirectorService{Store: store, Provider: provider}).RunOpeningVariants(context.Background(), "alice", batch.ID, book.ID, PresetSnapshot{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(variants) != 3 {
+		t.Fatalf("variants = %d, want 3 (2 success + 1 failed)", len(variants))
+	}
+	if variants[0].Status != "success" || variants[0].DurationSec != 10 || !strings.Contains(variants[0].Prompt, "茶盏砸落") {
+		t.Fatalf("variant[0] = %#v", variants[0])
+	}
+	if len(provider.calls) != 1 {
+		t.Fatalf("provider calls = %d, want 1", len(provider.calls))
+	}
+	call := provider.calls[0]
+	if !strings.Contains(call.UserPrompt, "镜头画面") || !strings.Contains(call.UserPrompt, "林晚进入客厅") {
+		t.Fatalf("structured VIDEO01 must be rendered into the contract user prompt:\n%s", call.UserPrompt)
+	}
+	if !strings.Contains(call.UserPrompt, "陆沉推门而入") {
+		t.Fatalf("follow-up storyboard must stay in the contract user prompt:\n%s", call.UserPrompt)
+	}
+	saved := openingVariantsFromPatch(t, store, batch.ID, book.ID, book.Videos[0].ID)
+	if len(saved) != 3 || saved[0].Status != "success" || !strings.Contains(saved[0].Prompt, "茶盏砸落") {
+		t.Fatalf("VIDEO01 patch must persist openingVariants, got %#v", saved)
+	}
+}
+
+func TestRunOpeningVariantsSkipsBlankFirstStoryboard(t *testing.T) {
+	// 分镜一既没有整段提示词，也没有任何镜头/动作描述（异常空数据）时，
+	// 无法构造换开头契约，必须静默跳过且不调用模型。
+	store, batch, book := seedOpeningBook(t, true, 4, []DirectorVideo{
+		{DurationSec: 10},
 		{DurationSec: 10, FinalPrompt: "分镜二：陆沉推门而入。"},
 	})
 	provider := &queuedDirectorProvider{}
@@ -104,7 +148,7 @@ func TestRunOpeningVariantsSkipsH3StructuredFirstStoryboard(t *testing.T) {
 		t.Fatalf("variants = %d, want 0", len(variants))
 	}
 	if len(provider.calls) != 0 {
-		t.Fatalf("provider must not be called for H3 structured storyboard, calls=%d", len(provider.calls))
+		t.Fatalf("provider must not be called for a blank first storyboard, calls=%d", len(provider.calls))
 	}
 }
 
