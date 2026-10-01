@@ -54,11 +54,15 @@ func (s *Service) Pair(ctx context.Context, input PairInput) (PairResult, error)
 	if err := validateDeviceFields(input.DeviceName, input.OS, input.Version); err != nil {
 		return PairResult{}, err
 	}
+	osName := strings.ToLower(strings.TrimSpace(input.OS))
+	if !validExecutorOS(osName) {
+		return PairResult{}, ErrInvalidInput
+	}
 	token, err := randomToken()
 	if err != nil {
 		return PairResult{}, err
 	}
-	executor := ExecutorRecord{ID: randomID("gme_exec_"), Platform: PlatformGiantMaterial, TokenHash: hashSecret(token), DeviceName: strings.TrimSpace(input.DeviceName), OS: strings.TrimSpace(input.OS), Version: strings.TrimSpace(input.Version), CreatedAt: s.now().UTC(), UpdatedAt: s.now().UTC()}
+	executor := ExecutorRecord{ID: randomID("gme_exec_"), Platform: PlatformGiantMaterial, TokenHash: hashSecret(token), DeviceName: strings.TrimSpace(input.DeviceName), OS: osName, Version: strings.TrimSpace(input.Version), CreatedAt: s.now().UTC(), UpdatedAt: s.now().UTC()}
 	created, err := s.store.PairExecutor(ctx, hashPairingCode(input.Code), PlatformGiantMaterial, executor, s.now().UTC())
 	if err != nil {
 		return PairResult{}, err
@@ -87,11 +91,78 @@ func (s *Service) ListExecutors(ctx context.Context, owner string) ([]ExecutorVi
 		return nil, err
 	}
 	now := s.now().UTC()
+	failures, err := s.store.RecentFailures(ctx, owner, now.Add(-FailureCooldown))
+	if err != nil {
+		return nil, err
+	}
 	views := make([]ExecutorView, 0, len(records))
 	for _, record := range records {
+		if value, ok := failures[record.ID]; ok {
+			copyValue := value
+			views = append(views, ExecutorView{
+				ID: record.ID, Name: record.DeviceName, Platform: record.Platform, OS: record.OS,
+				Version: record.Version, Online: record.LastSeenAt != nil && !record.LastSeenAt.Before(now.Add(-OnlineThreshold)),
+				LastSeenAt: record.LastSeenAt, RecentFailureAt: &copyValue,
+			})
+			continue
+		}
 		views = append(views, ExecutorView{ID: record.ID, Name: record.DeviceName, Platform: record.Platform, OS: record.OS, Version: record.Version, Online: record.LastSeenAt != nil && !record.LastSeenAt.Before(now.Add(-OnlineThreshold)), LastSeenAt: record.LastSeenAt})
 	}
 	return views, nil
+}
+
+func (s *Service) ConsolidateExecutors(ctx context.Context) (int, error) {
+	return s.store.ConsolidateDuplicateExecutors(ctx, s.now().UTC())
+}
+
+func (s *Service) DeleteExecutor(ctx context.Context, owner, id string) error {
+	owner = strings.TrimSpace(owner)
+	id = strings.TrimSpace(id)
+	if owner == "" || id == "" {
+		return ErrInvalidInput
+	}
+	return s.store.DeleteExecutor(ctx, owner, id, s.now().UTC())
+}
+
+// EnsureIdentityUniqueIndex 包装 store 同名方法（0a260d61 引入；Service 层需补此方法供 app.go 调用）
+func (s *Service) EnsureIdentityUniqueIndex(ctx context.Context) error {
+	return s.store.EnsureIdentityUniqueIndex(ctx)
+}
+
+func (s *Service) GetPreference(ctx context.Context, owner string) (PreferenceView, error) {
+	owner = strings.TrimSpace(owner)
+	if owner == "" {
+		return PreferenceView{}, ErrInvalidInput
+	}
+	record, err := s.store.GetPreference(ctx, owner)
+	if errors.Is(err, ErrPreferenceNotFound) {
+		return PreferenceView{PreferredOS: DefaultPreferredOS}, nil
+	}
+	if err != nil {
+		return PreferenceView{}, err
+	}
+	return PreferenceView{PreferredOS: record.PreferredOS, UpdatedAt: record.UpdatedAt}, nil
+}
+
+func (s *Service) SavePreference(ctx context.Context, owner, preferredOS string) (PreferenceView, error) {
+	owner = strings.TrimSpace(owner)
+	preferredOS = strings.ToLower(strings.TrimSpace(preferredOS))
+	if owner == "" {
+		return PreferenceView{}, ErrInvalidInput
+	}
+	if !validExecutorOS(preferredOS) {
+		return PreferenceView{}, ErrInvalidInput
+	}
+	now := s.now().UTC()
+	record := PreferenceRecord{OwnerUsername: owner, PreferredOS: preferredOS, UpdatedAt: now}
+	if err := s.store.SavePreference(ctx, record); err != nil {
+		return PreferenceView{}, err
+	}
+	return PreferenceView{PreferredOS: preferredOS, UpdatedAt: now}, nil
+}
+
+func validExecutorOS(value string) bool {
+	return value == "windows" || value == "darwin"
 }
 
 func (s *Service) CreateJob(ctx context.Context, owner string, input CreateJobInput) (JobView, error) {
@@ -109,11 +180,18 @@ func (s *Service) CreateJob(ctx context.Context, owner string, input CreateJobIn
 		return JobView{}, ErrInvalidInput
 	}
 	now := s.now().UTC()
-	targetExecutorID := ""
-	if executors, listErr := s.store.ListExecutors(ctx, owner); listErr == nil {
-		targetExecutorID = newestOnlineExecutorID(executors, now)
-	} else {
-		return JobView{}, listErr
+	// 新任务钉选：用户显式设置过平台偏好时，优先该平台里最新、未冷却的
+	// 设备，偏好平台没人能干活才兜底其他平台；从未设置过偏好（只有系统
+	// 默认值）时沿用"钉给最新在线设备"的老行为；全都冷却时留空走公共池。
+	preferredOS := ""
+	if preferenceRecord, preferenceErr := s.store.GetPreference(ctx, owner); preferenceErr == nil {
+		preferredOS = preferenceRecord.PreferredOS
+	} else if !errors.Is(preferenceErr, ErrPreferenceNotFound) {
+		return JobView{}, preferenceErr
+	}
+	targetExecutorID, err := s.pickTargetExecutor(ctx, owner, preferredOS, now)
+	if err != nil {
+		return JobView{}, err
 	}
 	record := JobRecord{ID: randomID("gme_job_"), OwnerUsername: owner, Platform: PlatformGiantMaterial, MaterialID: strings.TrimSpace(input.MaterialID), PlatformBookID: strings.TrimSpace(input.PlatformBookID), Title: bounded(input.Title, 191), VideoURL: strings.TrimSpace(input.VideoURL), VideoExpiresAt: input.VideoExpiresAt, DurationSeconds: input.DurationSeconds, ModelVersion: bounded(input.ModelVersion, 64), ContentRangeLines: bounded(input.ContentRangeLines, 64), TargetExecutorID: targetExecutorID, State: JobQueued, CreatedAt: now, UpdatedAt: now}
 	key := jobKey(record)
@@ -141,21 +219,44 @@ func (s *Service) CreateJob(ctx context.Context, owner string, input CreateJobIn
 	return jobView(record), nil
 }
 
-func newestOnlineExecutorID(executors []ExecutorRecord, now time.Time) string {
-	var chosen *ExecutorRecord
-	for index := range executors {
-		candidate := &executors[index]
-		if candidate.Platform != PlatformGiantMaterial || candidate.LastSeenAt == nil || candidate.LastSeenAt.Before(now.Add(-OnlineThreshold)) {
-			continue
+// pickTargetExecutor 选择新任务的钉选目标。preferredOS 非空时先在该平台
+// 的在线、未冷却设备里选最新；偏好平台没有能干活的设备才兜底其他平台；
+// 全都在冷却时返回空串，任务留在公共池等待冷却结束。preferredOS 为空表示
+// 不按偏好过滤（显式 RetryJob 沿用"选最新在线设备"语义）。
+func (s *Service) pickTargetExecutor(ctx context.Context, owner, preferredOS string, now time.Time) (string, error) {
+	executors, err := s.store.ListExecutors(ctx, owner)
+	if err != nil {
+		return "", err
+	}
+	pick := func(wantOS string) string {
+		var chosen *ExecutorRecord
+		for index := range executors {
+			candidate := &executors[index]
+			if candidate.Platform != PlatformGiantMaterial || candidate.LastSeenAt == nil || candidate.LastSeenAt.Before(now.Add(-OnlineThreshold)) {
+				continue
+			}
+			if wantOS != "" && candidate.OS != wantOS {
+				continue
+			}
+		
+			if failure, failureErr := s.store.LatestPlatformFailure(ctx, owner, candidate.OS, now.Add(-FailureCooldown)); failureErr != nil || failure != nil {
+				continue
+			}
+			if chosen == nil || candidate.LastSeenAt.After(*chosen.LastSeenAt) || (candidate.LastSeenAt.Equal(*chosen.LastSeenAt) && candidate.ID > chosen.ID) {
+				chosen = candidate
+			}
 		}
-		if chosen == nil || candidate.LastSeenAt.After(*chosen.LastSeenAt) || (candidate.LastSeenAt.Equal(*chosen.LastSeenAt) && candidate.ID > chosen.ID) {
-			chosen = candidate
+		if chosen == nil {
+			return ""
+		}
+		return chosen.ID
+	}
+	if preferredOS != "" {
+		if id := pick(preferredOS); id != "" {
+			return id, nil
 		}
 	}
-	if chosen == nil {
-		return ""
-	}
-	return chosen.ID
+	return pick(""), nil
 }
 
 func (s *Service) GetJob(ctx context.Context, owner, id string) (JobView, error) {
@@ -190,11 +291,12 @@ func (s *Service) RetryJob(ctx context.Context, owner, id string) (JobView, erro
 	if record.State != JobFailed && record.State != JobCancelled {
 		return JobView{}, ErrInvalidJobState
 	}
-	executors, err := s.store.ListExecutors(ctx, owner)
+	// 显式重试不按平台偏好过滤（用户手动重试通常就想交给最新上线的设备），
+	// 但仍绕开正在失败冷却中的设备；全都冷却时留空走公共池。
+	record.TargetExecutorID, err = s.pickTargetExecutor(ctx, owner, "", s.now().UTC())
 	if err != nil {
 		return JobView{}, err
 	}
-	record.TargetExecutorID = newestOnlineExecutorID(executors, s.now().UTC())
 	requeued, err := s.store.RequeueJob(ctx, record.ID, record, s.now().UTC())
 	if err != nil {
 		return JobView{}, err
@@ -207,17 +309,80 @@ func (s *Service) Claim(ctx context.Context, token string) (ClaimResult, error) 
 	if err != nil {
 		return ClaimResult{}, err
 	}
+	now := s.now().UTC()
 	leaseToken, err := randomToken()
 	if err != nil {
 		return ClaimResult{}, err
 	}
-	now := s.now().UTC()
 	expires := now.Add(JobLeaseTTL)
-	record, err := s.store.ClaimJob(ctx, executor, hashSecret(leaseToken), expires, now)
+	// 第一步：明确点名给本执行器的定向重试任务优先领取。平台偏好门控
+	// 不拦截显式定向（任务指定谁就是谁），但失败冷却这道安全门仍然生效。
+	callerFailure, err := s.store.LatestPlatformFailure(ctx, executor.OwnerUsername, executor.OS, now.Add(-FailureCooldown))
+	if err != nil {
+		return ClaimResult{}, err
+	}
+	if callerFailure == nil {
+		record, claimErr := s.store.ClaimJob(ctx, executor, hashSecret(leaseToken), expires, now, true)
+		if claimErr == nil {
+			return ClaimResult{Job: executorJobView(record), LeaseToken: leaseToken, LeaseGeneration: record.LeaseGeneration, LeaseExpiresAt: expires}, nil
+		}
+		if !errors.Is(claimErr, ErrNoClaimableJob) {
+			return ClaimResult{}, claimErr
+		}
+	}
+	// 第二步：没有点名任务时，才走平台偏好门控领取公共池任务。
+	allowed, err := s.canClaimPlatform(ctx, executor, now)
+	if err != nil {
+		return ClaimResult{}, err
+	}
+	if !allowed {
+		return ClaimResult{}, ErrNoClaimableJob
+	}
+	record, err := s.store.ClaimJob(ctx, executor, hashSecret(leaseToken), expires, now, false)
 	if err != nil {
 		return ClaimResult{}, err
 	}
 	return ClaimResult{Job: executorJobView(record), LeaseToken: leaseToken, LeaseGeneration: record.LeaseGeneration, LeaseExpiresAt: expires}, nil
+}
+
+func (s *Service) canClaimPlatform(ctx context.Context, executor ExecutorRecord, now time.Time) (bool, error) {
+	// 自己刚干砸：先冷却，任何平台都一样
+	callerFailure, err := s.store.LatestPlatformFailure(ctx, executor.OwnerUsername, executor.OS, now.Add(-FailureCooldown))
+	if err != nil {
+		return false, err
+	}
+	if callerFailure != nil {
+		return false, nil
+	}
+	preference, err := s.GetPreference(ctx, executor.OwnerUsername)
+	if err != nil {
+		return false, err
+	}
+	preferred := preference.PreferredOS
+	if executor.OS == preferred {
+		// 它就是偏好平台且没在冷却：恢复优先
+		return true, nil
+	}
+	preferredFailure, err := s.store.LatestPlatformFailure(ctx, executor.OwnerUsername, preferred, now.Add(-FailureCooldown))
+	if err != nil {
+		return false, err
+	}
+	if preferredFailure != nil {
+		// 偏好平台在冷却：非偏好平台兜底
+		return true, nil
+	}
+	executors, err := s.store.ListExecutors(ctx, executor.OwnerUsername)
+	if err != nil {
+		return false, err
+	}
+	for _, item := range executors {
+		if item.OS == preferred && item.LastSeenAt != nil && !item.LastSeenAt.Before(now.Add(-OnlineThreshold)) {
+			// 偏好平台在岗：单子留给它
+			return false, nil
+		}
+	}
+	// 偏好平台不在线：兜底
+	return true, nil
 }
 
 func (s *Service) Renew(ctx context.Context, token, jobID string, lease LeaseCredential) (LeaseView, error) {
@@ -363,4 +528,80 @@ func randomID(prefix string) string {
 		return fmt.Sprintf("%s%x", prefix, time.Now().UnixNano())
 	}
 	return prefix + base64.RawURLEncoding.EncodeToString(bytes)
+}
+
+type executorCandidate struct {
+	id        string
+	version   string
+	lastSeen  *time.Time
+	updatedAt time.Time
+}
+
+func pickKeeping(list []executorCandidate) string {
+	target := list[0]
+	for _, item := range list[1:] {
+		cmp := compareVersion(item.version, target.version)
+		if cmp > 0 ||
+			(cmp == 0 && compareSeen(item.lastSeen, target.lastSeen) > 0) ||
+			(cmp == 0 && compareSeen(item.lastSeen, target.lastSeen) == 0 && item.updatedAt.After(target.updatedAt)) {
+			target = item
+		}
+	}
+	return target.id
+}
+
+func compareVersion(a, b string) int {
+	pa := strings.Split(strings.TrimSpace(a), ".")
+	pb := strings.Split(strings.TrimSpace(b), ".")
+	n := len(pa)
+	if len(pb) > n {
+		n = len(pb)
+	}
+	for i := 0; i < n; i++ {
+		var x, y int
+		if i < len(pa) {
+			x = atoiOrZero(pa[i])
+		}
+		if i < len(pb) {
+			y = atoiOrZero(pb[i])
+		}
+		if x != y {
+			if x > y {
+				return 1
+			}
+			return -1
+		}
+	}
+	return 0
+}
+
+func atoiOrZero(value string) int {
+	value = strings.TrimSpace(value)
+	out := 0
+	for _, r := range value {
+		if r < '0' || r > '9' {
+			return 0
+		}
+		out = out*10 + int(r-'0')
+	}
+	return out
+}
+
+func compareSeen(a, b *time.Time) int {
+	if a == nil && b == nil {
+		return 0
+	}
+	if a == nil {
+		return -1
+	}
+	if b == nil {
+		return 1
+	}
+	if a.After(*b) {
+		return 1
+	}
+	if b.After(*a) {
+		return -1
+	}
+	return 0
 }

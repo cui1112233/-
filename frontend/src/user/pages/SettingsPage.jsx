@@ -1,10 +1,15 @@
-import { Button, Form, Input, List, Select, Slider, Switch, Typography, message } from 'antd';
+import { Button, Form, Input, List, Popconfirm, Segmented, Select, Slider, Switch, Typography, message } from 'antd';
 import { Download, FolderOpen, RefreshCw, Save, Video } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { getConfig, saveConfig } from '../../shared/api/config';
 import { getCurrentUsername } from '../../shared/api/auth';
 import { apiRequest } from '../../shared/api/client';
-import { createGiantMaterialPairing } from '../../shared/api/giantMaterialExecutorPublic';
+import {
+  createGiantMaterialPairing,
+  getGiantExecutorPreference,
+  saveGiantExecutorPreference,
+  deleteGiantMaterialExecutor
+} from '../../shared/api/giantMaterialExecutorPublic';
 import { PET_COMPANION_SETTINGS_EVENT, readCompanionSpeechState, writeCompanionSpeechState } from '../../shared/pet/companionSpeech';
 import { DEFAULT_PET_ID, dispatchPetSelection, getPetDefinition, getPetOptions, previewPetSelection } from '../../shared/pet/petCatalog';
 
@@ -25,6 +30,7 @@ export function SettingsPage() {
   const [giantLatestVersion, setGiantLatestVersion] = useState(null);
   const [giantPairing, setGiantPairing] = useState(null);
   const [giantPairingBusy, setGiantPairingBusy] = useState(false);
+  const [giantPreference, setGiantPreference] = useState({ preferredOs: 'windows' });
   const [pairing, setPairing] = useState(null);
   const [companionActive, setCompanionActive] = useState(() => readCompanionSpeechState(getCurrentUsername()).active);
   const username = getCurrentUsername();
@@ -53,6 +59,10 @@ export function SettingsPage() {
     try {
       const result = await apiRequest('/api/shuihuo-production/giant-material-executors', { suppressGlobalError: true });
       setGiantMaterialExecutors(Array.isArray(result.executors) ? result.executors : []);
+      try {
+        const prefResp = await getGiantExecutorPreference();
+        setGiantPreference({ preferredOs: prefResp?.preferredOs || 'windows' });
+      } catch (_) { /* 偏好接口可能尚未就绪，下一周期重试 */ }
     } catch (error) {
       message.error(error.message || '读取巨量素材执行器失败');
     } finally { setLoadingGiantMaterialExecutors(false); }
@@ -87,6 +97,25 @@ export function SettingsPage() {
       message.success('配对码已生成，请在本地执行器中输入');
     } catch (error) { message.error(error.message || '生成配对码失败'); }
   }
+
+  const changeGiantPreference = async (value) => {
+    const previous = giantPreference?.preferredOs || 'windows';
+    if (value === previous) return;
+    setGiantPreference({ preferredOs: value });
+    try {
+      const saved = await saveGiantExecutorPreference(value);
+      setGiantPreference({ preferredOs: saved?.preferredOs || value });
+    } catch (error) {
+      setGiantPreference({ preferredOs: previous });
+      message.error('偏好保存失败，请重试');
+    }
+  };
+
+  const removeGiantExecutor = async (executorId) => {
+    await deleteGiantMaterialExecutor(executorId);
+    message.success('设备已删除，未完成任务已重新排队');
+    await loadGiantMaterialExecutors();
+  };
 
   useEffect(() => {
     let alive = true;
@@ -176,6 +205,17 @@ export function SettingsPage() {
       setListing(false);
     }
   }
+
+  const giantPreferenceHint = (() => {
+    const selected = giantPreference?.preferredOs || 'windows';
+    const devices = giantMaterialExecutors.filter(item => String(item.os || '').toLowerCase() === selected);
+    const label = selected === 'darwin' ? 'macOS' : 'Windows';
+    const fallback = selected === 'darwin' ? 'Windows' : 'macOS';
+    if (!devices.length) return `当前没有绑定的 ${label} 设备，任务仍会交给 ${fallback}`;
+    if (devices.some(item => item.recentFailureAt)) return `${label} 刚读取失败（冷却中），任务暂交给 ${fallback}`;
+    if (!devices.some(item => item.online)) return `${label} 当前离线，任务仍会交给 ${fallback}`;
+    return '';
+  })();
 
   return (
     <div className="utility-page settings-page">
@@ -335,6 +375,13 @@ export function SettingsPage() {
                 </span>
               </div>
             </div>
+            <div className="settings-giant-preference">
+              <span className="settings-giant-preference-label">优先读取平台</span>
+              <Segmented size="small" value={giantPreference?.preferredOs || 'windows'}
+                options={[{ label: 'Windows', value: 'windows' }, { label: 'macOS', value: 'darwin' }]}
+                onChange={changeGiantPreference} />
+              {giantPreferenceHint ? <span className="settings-giant-preference-hint">{giantPreferenceHint}</span> : null}
+            </div>
             {giantMaterialExecutors.length > 0 && (
               <ul style={{ listStyle: 'none', margin: '4px 0 0', padding: 0, display: 'flex', flexDirection: 'column', gap: 6, width: '100%' }}>
                 {giantMaterialExecutors.map(item => {
@@ -347,6 +394,10 @@ export function SettingsPage() {
                       <span style={{ color: 'var(--legacy-muted, #9bb1c0)' }}>版本 {item.version || '未知（旧版）'}</span>
                       {outdated && <span style={{ color: '#d48806' }}>待更新 → {giantLatestVersion}</span>}
                       <span style={{ marginLeft: 'auto', color: 'var(--legacy-muted, #9bb1c0)' }}>{item.online ? '在线' : formatLastSeen(item.lastSeenAt)}</span>
+                      <Popconfirm title="确定删除这台设备吗？未完成的任务会自动重新排队。"
+                        okText="删除" cancelText="取消" onConfirm={() => removeGiantExecutor(item.id)}>
+                        <Button size="small" type="text" danger>删除</Button>
+                      </Popconfirm>
                     </li>
                   );
                 })}

@@ -330,6 +330,26 @@ func BuildWorkingFrontRewriteContract(book Book, opening PresetSnapshot) PromptC
 	}
 }
 
+// BuildOpeningVariantsContract asks the meta-prompt model for N alternative
+// VIDEO01 openings. Follow-up storyboard prompts are included so every variant
+// can be checked against the shot it must hand over to.
+func BuildOpeningVariantsContract(book Book, first DirectorVideo, followUps []DirectorVideo, meta PresetSnapshot, variantCount, maxVideoDuration int) PromptContract {
+	system := strings.TrimSpace(meta.Body)
+	if system == "" {
+		system = strings.TrimSpace(`你是短剧开场变体导演。为分镜一生成多个画面感更强、且能自然衔接分镜二的开场变体提示词；人物、场景、剧情走向与时长协议必须与原分镜一致。每个变体用 ===VARIANT N=== 分段，首行为 时长：X秒。`)
+	}
+	system += fmt.Sprintf("\n\n【本次任务】需要变体数量：%d。单段时长上限：%d 秒。", variantCount, maxVideoDuration)
+	var user strings.Builder
+	user.WriteString("小说标题：" + book.Title + "\n\n")
+	user.WriteString("【原分镜一（VIDEO01）提示词】\n" + strings.TrimSpace(first.FinalPrompt) + "\n")
+	for index, video := range followUps {
+		label := fmt.Sprintf("分镜%d（VIDEO%02d）提示词", index+2, index+2)
+		user.WriteString("\n【" + label + "】\n" + strings.TrimSpace(storyboardVideoPrompt(video)) + "\n")
+	}
+	user.WriteString(fmt.Sprintf("\n需要变体数量：%d", variantCount))
+	return PromptContract{SystemPrompt: system, UserPrompt: user.String(), Temperature: 0.8, MaxTokens: 8000}
+}
+
 // BuildAssetExtractionContract intentionally asks for assets only. It is used
 // by the asset modal's regeneration action and must never create or replace
 // storyboard/VIDEO records.

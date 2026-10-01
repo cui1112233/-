@@ -292,6 +292,9 @@ func (s *MemoryStore) UpdateBookStageRun(_ context.Context, owner, id string, va
 	if value.ErrorMessage != "" || next.Status == ProductionSucceeded {
 		next.ErrorMessage = productionError(errText(value.ErrorMessage))
 	}
+	if value.InputRevision != "" {
+		next.InputRevision = value.InputRevision
+	}
 	next.UpdatedAt = time.Now().UTC()
 	s.bookStageRuns[id] = memoryOwned[BookStageRun]{Owner: owner, Value: next}
 	return next, nil

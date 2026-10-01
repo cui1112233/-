@@ -12,6 +12,7 @@ type BookStage string
 const (
 	BookStageAssets   BookStage = "assets"
 	BookStageDirector BookStage = "director"
+	BookStageOpening  BookStage = "opening"
 	BookStageVisual   BookStage = "visual"
 	BookStageImage    BookStage = "image"
 	BookStageVideo    BookStage = "video"
@@ -47,7 +48,7 @@ type BookStageRunRepository interface {
 
 func validBookStage(value BookStage) bool {
 	switch value {
-	case BookStageAssets, BookStageDirector, BookStageVisual, BookStageImage, BookStageVideo:
+	case BookStageAssets, BookStageDirector, BookStageOpening, BookStageVisual, BookStageImage, BookStageVideo:
 		return true
 	default:
 		return false

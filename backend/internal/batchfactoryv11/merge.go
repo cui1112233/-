@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -40,23 +41,24 @@ type MergeOptions struct {
 }
 
 type MergeJob struct {
-	ID              string       `json:"id"`
-	Owner           string       `json:"-"`
-	BatchID         string       `json:"batchId"`
-	BookID          string       `json:"bookId,omitempty"`
-	RequestID       string       `json:"requestId"`
-	TimingMode      string       `json:"timingMode,omitempty"`
-	Speed           float64      `json:"speed,omitempty"`
-	ProviderTaskID  string       `json:"providerTaskId,omitempty"`
-	Status          MergeState   `json:"status"`
-	ProgressPhase   string       `json:"progressPhase,omitempty"`
-	ProgressCurrent int          `json:"progressCurrent,omitempty"`
-	ProgressTotal   int          `json:"progressTotal,omitempty"`
-	Sources         []MergeMedia `json:"sources"`
-	OutputURL       string       `json:"outputUrl,omitempty"`
-	ErrorMessage    string       `json:"errorMessage,omitempty"`
-	CreatedAt       time.Time    `json:"createdAt"`
-	UpdatedAt       time.Time    `json:"updatedAt"`
+	ID                  string       `json:"id"`
+	Owner               string       `json:"-"`
+	BatchID             string       `json:"batchId"`
+	BookID              string       `json:"bookId,omitempty"`
+	OpeningVariantIndex int          `json:"openingVariantIndex,omitempty"`
+	RequestID           string       `json:"requestId"`
+	TimingMode          string       `json:"timingMode,omitempty"`
+	Speed               float64      `json:"speed,omitempty"`
+	ProviderTaskID      string       `json:"providerTaskId,omitempty"`
+	Status              MergeState   `json:"status"`
+	ProgressPhase       string       `json:"progressPhase,omitempty"`
+	ProgressCurrent     int          `json:"progressCurrent,omitempty"`
+	ProgressTotal       int          `json:"progressTotal,omitempty"`
+	Sources             []MergeMedia `json:"sources"`
+	OutputURL           string       `json:"outputUrl,omitempty"`
+	ErrorMessage        string       `json:"errorMessage,omitempty"`
+	CreatedAt           time.Time    `json:"createdAt"`
+	UpdatedAt           time.Time    `json:"updatedAt"`
 }
 
 type MergeAdapter interface {
@@ -137,17 +139,98 @@ func normalizeMergeState(value MergeState) MergeState {
 }
 
 func (s *MergeService) SubmitBatchMerge(ctx context.Context, owner, batchID, requestID string, options MergeOptions) (MergeJob, error) {
-	return s.submitMerge(ctx, owner, batchID, "", requestID, options)
+	return s.submitMerge(ctx, owner, batchID, "", requestID, options, 0)
 }
 
-// SubmitBookMerge produces one final video for exactly one novel. It shares the
-// same source-selection contract as batch merge but never mixes another book's
-// storyboard media into this book's deliverable.
-func (s *MergeService) SubmitBookMerge(ctx context.Context, owner, batchID, bookID, requestID string, options MergeOptions) (MergeJob, error) {
+// SubmitBookMerge produces one final video per opening variant for exactly one
+// novel. It shares the same source-selection contract as batch merge but never
+// mixes another book's storyboard media into this book's deliverable. Without
+// successful opening variants it returns exactly one job, matching the legacy
+// behavior.
+func (s *MergeService) SubmitBookMerge(ctx context.Context, owner, batchID, bookID, requestID string, options MergeOptions) ([]MergeJob, error) {
 	if strings.TrimSpace(bookID) == "" {
-		return MergeJob{}, fmt.Errorf("%w: book id is required", ErrInvalid)
+		return nil, fmt.Errorf("%w: book id is required", ErrInvalid)
 	}
-	return s.submitMerge(ctx, owner, batchID, strings.TrimSpace(bookID), requestID, options)
+	bookID = strings.TrimSpace(bookID)
+	if s == nil || !s.Enabled {
+		return nil, fmt.Errorf("%w: merge is not enabled", ErrUnavailable)
+	}
+	if s.Store == nil {
+		return nil, ErrUnavailable
+	}
+	batch, err := s.Store.GetBatch(ctx, owner, batchID)
+	if err != nil {
+		return nil, err
+	}
+	var book Book
+	found := false
+	for _, candidate := range batch.Books {
+		if candidate.ID == bookID {
+			book = candidate
+			found = true
+			break
+		}
+	}
+	indices := []int{0}
+	if found && len(book.Videos) >= 2 && rawBool(ResolveSettings(batch.SettingsState.Patch, book.SettingsState.Patch), "openingEnabled", false) {
+		for _, variant := range successfulOpeningVariants(book.Videos[0]) {
+			indices = append(indices, variant.Index)
+		}
+	}
+	if len(indices) > 1 {
+		// A half-ready variant set must not leave partial merge jobs behind:
+		// validate every variant's opening media before creating any job.
+		if err := s.validateOpeningVariantMedia(ctx, owner, batchID, book, indices); err != nil {
+			return nil, err
+		}
+	}
+	jobs := make([]MergeJob, 0, len(indices))
+	for _, variantIndex := range indices {
+		roundRequestID := requestID
+		if variantIndex > 0 {
+			roundRequestID = requestID + "-v" + strconv.Itoa(variantIndex)
+		}
+		job, submitErr := s.submitMerge(ctx, owner, batchID, bookID, roundRequestID, options, variantIndex)
+		if submitErr != nil {
+			return nil, submitErr
+		}
+		jobs = append(jobs, job)
+	}
+	return jobs, nil
+}
+
+// validateOpeningVariantMedia proves every opening variant of VIDEO01 has a
+// completed production task before SubmitBookMerge creates any merge job.
+func (s *MergeService) validateOpeningVariantMedia(ctx context.Context, owner, batchID string, book Book, indices []int) error {
+	productionRepository, ok := s.Store.(ProductionRepository)
+	if !ok {
+		return ErrUnavailable
+	}
+	if book.DirectorRevision == nil {
+		return fmt.Errorf("%w: book %s is not ready for merge", ErrConflict, book.ID)
+	}
+	productionJobs, err := productionRepository.ListProductionJobs(ctx, owner, batchID)
+	if err != nil {
+		return err
+	}
+	tasks := productionTaskSelections(productionJobs, book.ID, book.DirectorRevision.ID)
+	firstVideo := book.Videos[0]
+	for _, variantIndex := range indices {
+		if _, selectable := selectedProductionTask(firstVideo, openingVariantTasks(tasks[firstVideo.ID], variantIndex)); !selectable {
+			return fmt.Errorf("%w: book %s has VIDEOs without completed media", ErrConflict, book.ID)
+		}
+	}
+	return nil
+}
+
+func openingVariantTasks(candidates []productionTaskSelection, variantIndex int) []productionTaskSelection {
+	out := make([]productionTaskSelection, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate.Task.OpeningVariantIndex == variantIndex {
+			out = append(out, candidate)
+		}
+	}
+	return out
 }
 
 // RegisterUploadedMerge records an already uploaded HTTPS MP4 as a finished
@@ -187,7 +270,7 @@ func (s *MergeService) RegisterUploadedMerge(ctx context.Context, owner, batchID
 }
 
 func sameMergeVersion(left, right MergeJob) bool {
-	if left.BookID != right.BookID {
+	if left.BookID != right.BookID || left.OpeningVariantIndex != right.OpeningVariantIndex {
 		return false
 	}
 	return left.Speed-right.Speed < 0.000001 && right.Speed-left.Speed < 0.000001
@@ -230,7 +313,7 @@ func (s *MergeService) mergeVersion(ctx context.Context, repository MergeReposit
 	return overwritten, true, nil
 }
 
-func (s *MergeService) submitMerge(ctx context.Context, owner, batchID, onlyBookID, requestID string, options MergeOptions) (MergeJob, error) {
+func (s *MergeService) submitMerge(ctx context.Context, owner, batchID, onlyBookID, requestID string, options MergeOptions, variantIndex int) (MergeJob, error) {
 	if s == nil || !s.Enabled {
 		return MergeJob{}, fmt.Errorf("%w: merge is not enabled", ErrUnavailable)
 	}
@@ -299,7 +382,14 @@ func (s *MergeService) submitMerge(ctx context.Context, owner, batchID, onlyBook
 			}
 		}
 		for _, video := range mediaVideos {
-			selection, found := selectedProductionTask(video, tasks[video.ID])
+			candidates := tasks[video.ID]
+			// Book merge picks the media produced for this exact opening
+			// variant of VIDEO01; every other storyboard keeps the main
+			// version selected by the user or the latest success.
+			if onlyBookID != "" && video.ID == book.Videos[0].ID {
+				candidates = openingVariantTasks(candidates, variantIndex)
+			}
+			selection, found := selectedProductionTask(video, candidates)
 			if !found || selection.Task.Status != ProductionSucceeded || strings.TrimSpace(selection.Task.MediaURL) == "" {
 				return MergeJob{}, fmt.Errorf("%w: book %s has VIDEOs without completed media", ErrConflict, book.ID)
 			}
@@ -337,7 +427,7 @@ func (s *MergeService) submitMerge(ctx context.Context, owner, batchID, onlyBook
 		}
 	}
 	now := time.Now().UTC()
-	candidate := MergeJob{Owner: owner, BatchID: batchID, BookID: onlyBookID, RequestID: requestID, TimingMode: options.TimingMode, Speed: options.Speed, Status: MergeQueued, ProgressPhase: "queued", ProgressTotal: len(sources), Sources: sources, CreatedAt: now, UpdatedAt: now}
+	candidate := MergeJob{Owner: owner, BatchID: batchID, BookID: onlyBookID, OpeningVariantIndex: variantIndex, RequestID: requestID, TimingMode: options.TimingMode, Speed: options.Speed, Status: MergeQueued, ProgressPhase: "queued", ProgressTotal: len(sources), Sources: sources, CreatedAt: now, UpdatedAt: now}
 	job, reused, err := s.mergeVersion(ctx, repository, owner, batchID, candidate)
 	if err != nil {
 		return MergeJob{}, err

@@ -77,9 +77,22 @@ func GiantMaterialExecutorStatements() []string {
 	}
 }
 
+func GiantMaterialExecutorV2Statements() []string {
+	return []string{
+		`CREATE TABLE IF NOT EXISTS giant_executor_preferences (
+  owner_username VARCHAR(191) NOT NULL PRIMARY KEY,
+  preferred_os VARCHAR(32) NOT NULL,
+  updated_at DATETIME(6) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+		`ALTER TABLE giant_executor_jobs ADD COLUMN progress_changed_at DATETIME(6) NULL`,
+		`UPDATE giant_executor_jobs SET progress_changed_at = updated_at WHERE progress_changed_at IS NULL`,
+	}
+}
+
 func GiantMaterialExecutorMigrations() []Migration {
 	return []Migration{
 		{Version: 7802001, SQL: GiantMaterialExecutorStatements(), CallbackChecksum: "v78-giant-material-executor-control-plane-v1"},
 		{Version: 7802002, SQL: []string{`ALTER TABLE giant_executor_jobs ADD COLUMN target_executor_id VARCHAR(64) NULL AFTER content_range_lines, ADD KEY idx_giant_executor_jobs_target (target_executor_id, state, created_at)`}, CallbackChecksum: "v88-giant-material-executor-targeted-dispatch-v1"},
+		{Version: 7802003, SQL: GiantMaterialExecutorV2Statements(), CallbackChecksum: "v78-giant-material-executor-preferences-v1"},
 	}
 }

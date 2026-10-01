@@ -318,7 +318,18 @@ export function BatchFactoryUnifiedSettingsModal({ open, batch, onClose, onSaved
   return <><Modal title={<Space><Tooltip title="自动化预设"><Button type="text" icon={<SettingOutlined />} aria-label="自动化预设" onClick={openPresetManager} /></Tooltip><span>统一配置</span></Space>} open={open} onCancel={onClose} width={980} destroyOnClose={false} className="batch-factory-unified-settings-modal" footer={<Space><Button onClick={onClose}>取消</Button><Button type="primary" loading={saving} onClick={save}>保存统一配置</Button></Space>}>
     <Tabs items={[
       { key: 'models', label: '模型配置', children: <BatchFactoryEngineSettingsForm value={draftPatch} onChange={setDraftPatch} sections={['models', 'audio']} active={open} /> },
-      { key: 'reasoning', label: 'AI 推理', children: <BatchFactoryAiReasoningForm value={draftPatch.aiPromptConfig} onChange={aiPromptConfig => setDraftPatch(current => ({ ...current, aiPromptConfig }))} /> },
+      { key: 'reasoning', label: 'AI 推理', children: <Space direction="vertical" size={16} style={{ width: '100%' }}>
+        <BatchFactoryAiReasoningForm value={draftPatch.aiPromptConfig} onChange={aiPromptConfig => setDraftPatch(current => ({ ...current, aiPromptConfig }))} />
+        <section className="batch-factory-engine-card"><header><b>换开头</b><small>换开头变体写入统一配置根级，供全链路生产与合成消费。</small></header><div className="batch-factory-engine-card-body">
+          <Space style={{ justifyContent: 'space-between', width: '100%' }}>
+            <span><b>换开头</b><small style={{ display: 'block', color: '#94a3b8' }}>开启后，2 个及以上分镜的书会为分镜一生成多个开场变体并分别合成上传。</small></span>
+            <Space>
+              <Switch checked={draftPatch.openingEnabled === true} onChange={enabled => setDraftPatch({ ...draftPatch, openingEnabled: enabled, openingCount: draftPatch.openingCount ?? 4 })} />
+              <InputNumber min={1} max={8} precision={0} disabled={draftPatch.openingEnabled !== true} value={draftPatch.openingCount ?? 4} onChange={value => setDraftPatch({ ...draftPatch, openingCount: value ?? 4 })} addonAfter="条（含原始）" />
+            </Space>
+          </Space>
+        </div></section>
+      </Space> },
       { key: 'publish', label: '发布统一', children: <BatchFactoryPublishSettingsForm value={draftPatch} onChange={setDraftPatch} active={open} /> }
     ]} />
   </Modal>

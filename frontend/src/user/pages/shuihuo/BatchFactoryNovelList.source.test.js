@@ -63,7 +63,6 @@ test('renders an uncompiled H3 card as readable storyboard text with a complete 
   assert.match(precompiled, />编译最终提示词<\/Button>/);
   assert.match(precompiled, />编辑<\/Button>/);
   assert.match(precompiled, />生成视频<\/Button>/);
-  assert.match(precompiled, />查看候选版本<\/Button>/);
   assert.match(precompiled, />查看 H3 Trace<\/Button>/);
   assert.match(precompiled, />重试<\/Button>/);
 });
@@ -79,6 +78,7 @@ test('makes a saved unified configuration authoritative for every book', () => {
   assert.doesNotMatch(toolbar, />AI 推理<\/Button>/);
   assert.match(source, /BatchFactoryUnifiedSettingsModal/);
   assert.match(source, /const UNIFIED_CONFIGURATION_KEYS = \[/);
+  assert.match(source, /UNIFIED_CONFIGURATION_KEYS = \[[\s\S]*?'openingEnabled', 'openingCount'[\s\S]*?\]/);
   assert.match(source, /async function syncUnifiedSettingsToBooks\(currentBatch\)/);
   assert.match(source, /restoreKeys: UNIFIED_CONFIGURATION_KEYS/);
   assert.match(source, /await syncUnifiedSettingsToBooks\(savedBatch\)/);
@@ -1095,6 +1095,17 @@ test('loads protected local merge files through the authenticated media boundary
 
 test('keeps production polling failures inside the task panel', () => {
   assert.match(source, /getProductionStatus\(batch\.id, \{ suppressGlobalError: true \}\)/);
+});
+
+test('shows opening variant prompts from the VIDEO01 card instead of candidate versions', () => {
+  assert.match(source, /openingVariants/);
+  assert.match(source, /查看换开头提示词/);
+  assert.match(source, /分镜一（原始）/);
+  assert.match(source, /AI 未生成出该变体/);
+  assert.match(source, /engineSettings\.openingEnabled === true/);
+  assert.doesNotMatch(source, /查看候选版本/);
+  assert.doesNotMatch(source, /onViewVideoCandidates/);
+  assert.doesNotMatch(source, /onViewVisualCandidates/);
 });
 
 test('uses the VIDEO card plus button only for local MP4 upload', () => {

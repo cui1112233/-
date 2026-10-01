@@ -84,6 +84,31 @@ func registerDirectorRoutes(mux *http.ServeMux, service *batchfactoryv11.Directo
 		}
 		writeJSON(w, http.StatusCreated, map[string]any{"hook": value})
 	})
+	mux.HandleFunc("POST /api/batch-factory/v11/batches/{batchId}/books/{bookId}/opening-variants", func(w http.ResponseWriter, r *http.Request) {
+		owner, ok := bridgeOwner(r)
+		if !ok {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			return
+		}
+		var input struct {
+			OpeningMeta  batchfactoryv11.PresetSnapshot `json:"openingMeta"`
+			TextProvider *textProviderInput             `json:"textProvider"`
+		}
+		if !decodeJSON(w, r, &input) {
+			return
+		}
+		runner, err := directorForRequest(service, input.TextProvider)
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		variants, err := runner.RunOpeningVariants(r.Context(), owner, r.PathValue("batchId"), r.PathValue("bookId"), input.OpeningMeta)
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, map[string]any{"variants": variants})
+	})
 	mux.HandleFunc("POST /api/batch-factory/v11/batches/{batchId}/books/{bookId}/hooks/{hookId}/approve", func(w http.ResponseWriter, r *http.Request) {
 		owner, ok := bridgeOwner(r)
 		if !ok {

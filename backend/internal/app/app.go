@@ -43,6 +43,12 @@ func Build(ctx context.Context, cfg config.Config, db *sql.DB, register func(*ht
 	videoRegistry := batchfactoryv11.NewMemoryVideoProviderRegistry()
 	localExecutorService := localexecutor.NewService(localexecutor.NewMySQLStore(db), nil)
 	giantMaterialExecutorService := giantmaterialexecutor.NewService(giantmaterialexecutor.NewMySQLStore(db), nil)
+	if _, err := giantMaterialExecutorService.ConsolidateExecutors(ctx); err != nil {
+		return nil, err
+	}
+	if err := giantMaterialExecutorService.EnsureIdentityUniqueIndex(ctx); err != nil {
+		return nil, err
+	}
 	giantMaterialResolver := giantmaterialresolver.NewClient(nil, cfg.QingyuMaterialSelectURL, cfg.QingyuN8AdminToken)
 	artifactStore := localartifact.NewStore(cfg.LocalExecutorArtifactDir, cfg.LocalExecutorArtifactMaxBytes)
 	var production *batchfactoryv11.ProductionService

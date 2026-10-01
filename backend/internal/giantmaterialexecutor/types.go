@@ -18,6 +18,8 @@ var (
 	ErrInvalidJobState      = errors.New("invalid giant material job state")
 	ErrJobConflict          = errors.New("giant material job conflict")
 	ErrResultTooLarge       = errors.New("giant material result is too large")
+	ErrPreferenceNotFound   = errors.New("giant material executor preference not found")
+	ErrExecutorNotFound     = errors.New("giant material executor not found")
 )
 
 const (
@@ -25,8 +27,11 @@ const (
 	PairingTTL               = 10 * time.Minute
 	JobLeaseTTL              = 60 * time.Second
 	OnlineThreshold          = 45 * time.Second
+	FailureCooldown          = 5 * time.Minute
+	StuckProgressLimit       = 10 * time.Minute
 	HeartbeatIntervalSeconds = 15
 	MaxResultBytes           = 2 << 20
+	DefaultPreferredOS       = "windows"
 )
 
 type SecretHash [32]byte
@@ -80,13 +85,14 @@ type ExecutorRecord struct {
 }
 
 type ExecutorView struct {
-	ID         string     `json:"id"`
-	Name       string     `json:"name"`
-	Platform   string     `json:"platform"`
-	OS         string     `json:"os"`
-	Version    string     `json:"version"`
-	Online     bool       `json:"online"`
-	LastSeenAt *time.Time `json:"lastSeenAt,omitempty"`
+	ID              string     `json:"id"`
+	Name            string     `json:"name"`
+	Platform        string     `json:"platform"`
+	OS              string     `json:"os"`
+	Version         string     `json:"version"`
+	Online          bool       `json:"online"`
+	LastSeenAt      *time.Time `json:"lastSeenAt,omitempty"`
+	RecentFailureAt *time.Time `json:"recentFailureAt,omitempty"`
 }
 
 type JobState string
@@ -226,4 +232,15 @@ func (r JobRecord) MarshalPayload() ([]byte, error) {
 		DurationSeconds float64    `json:"durationSeconds"`
 		ModelVersion    string     `json:"modelVersion"`
 	}{r.MaterialID, r.PlatformBookID, r.Title, r.VideoURL, r.VideoExpiresAt, r.DurationSeconds, r.ModelVersion})
+}
+
+type PreferenceRecord struct {
+	OwnerUsername string
+	PreferredOS   string
+	UpdatedAt     time.Time
+}
+
+type PreferenceView struct {
+	PreferredOS string    `json:"preferredOs"`
+	UpdatedAt   time.Time `json:"updatedAt,omitempty"`
 }

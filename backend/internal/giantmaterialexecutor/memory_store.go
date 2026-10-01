@@ -11,16 +11,74 @@ import (
 )
 
 type MemoryStore struct {
-	mu        sync.Mutex
-	pairings  map[string]PairingRecord
-	executors map[string]ExecutorRecord
-	tokens    map[string]string
-	jobs      map[string]JobRecord
-	jobKeys   map[string]string
+	mu              sync.Mutex
+	pairings        map[string]PairingRecord
+	executors       map[string]ExecutorRecord
+	tokens          map[string]string
+	jobs            map[string]JobRecord
+	jobKeys         map[string]string
+	preferences     map[string]PreferenceRecord
+	progressChanged map[string]time.Time
+	lastFailure     map[string]time.Time
 }
 
 func NewMemoryStore() *MemoryStore {
-	return &MemoryStore{pairings: make(map[string]PairingRecord), executors: make(map[string]ExecutorRecord), tokens: make(map[string]string), jobs: make(map[string]JobRecord), jobKeys: make(map[string]string)}
+	return &MemoryStore{pairings: make(map[string]PairingRecord), executors: make(map[string]ExecutorRecord), tokens: make(map[string]string), jobs: make(map[string]JobRecord), jobKeys: make(map[string]string), preferences: make(map[string]PreferenceRecord), progressChanged: make(map[string]time.Time), lastFailure: make(map[string]time.Time)}
+}
+
+func (s *MemoryStore) EnsureIdentityUniqueIndex(_ context.Context) error { return nil }
+
+func (s *MemoryStore) ConsolidateDuplicateExecutors(_ context.Context, now time.Time) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	type groupKey struct {
+		owner, osName, deviceName string
+	}
+	groups := make(map[groupKey][]executorCandidate)
+	for id, item := range s.executors {
+		key := groupKey{item.OwnerUsername, item.OS, item.DeviceName}
+		groups[key] = append(groups[key], executorCandidate{
+			id: id, version: item.Version, lastSeen: item.LastSeenAt, updatedAt: item.UpdatedAt,
+		})
+	}
+	merged := 0
+	for _, candidates := range groups {
+		if len(candidates) < 2 {
+			continue
+		}
+		keeping := pickKeeping(candidates)
+		for _, item := range candidates {
+			if item.id == keeping {
+				continue
+			}
+			for _, job := range s.jobs {
+				if job.LeaseExecutorID == item.id {
+					job.LeaseExecutorID = keeping
+					s.jobs[job.ID] = job
+				}
+			}
+			delete(s.executors, item.id)
+			merged++
+		}
+	}
+	return merged, nil
+}
+
+func (s *MemoryStore) RecentFailures(_ context.Context, owner string, since time.Time) (map[string]time.Time, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make(map[string]time.Time)
+	for executorID, failedAt := range s.lastFailure {
+		if failedAt.Before(since) {
+			continue
+		}
+		executor, ok := s.executors[executorID]
+		if !ok || executor.OwnerUsername != owner {
+			continue
+		}
+		out[executorID] = failedAt
+	}
+	return out, nil
 }
 
 func (s *MemoryStore) CreatePairing(_ context.Context, record PairingRecord) error {
@@ -41,8 +99,27 @@ func (s *MemoryStore) PairExecutor(_ context.Context, codeHash SecretHash, platf
 	pairing.ConsumedAt = &consumed
 	s.pairings[secretHashKey(codeHash)] = pairing
 	executor.OwnerUsername = pairing.OwnerUsername
-	s.executors[executor.ID] = executor
-	s.tokens[secretHashKey(executor.TokenHash)] = executor.ID
+	var existingID string
+	for id, item := range s.executors {
+		if item.OwnerUsername != pairing.OwnerUsername || item.OS != executor.OS || item.DeviceName != executor.DeviceName {
+			continue
+		}
+		if existingID == "" || item.UpdatedAt.After(s.executors[existingID].UpdatedAt) {
+			existingID = id
+		}
+	}
+	if existingID != "" {
+		old := s.executors[existingID]
+		delete(s.tokens, secretHashKey(old.TokenHash))
+		executor.ID = existingID
+		executor.UpdatedAt = now
+		executor.LastSeenAt = old.LastSeenAt
+		s.executors[existingID] = executor
+		s.tokens[secretHashKey(executor.TokenHash)] = existingID
+	} else {
+		s.executors[executor.ID] = executor
+		s.tokens[secretHashKey(executor.TokenHash)] = executor.ID
+	}
 	return executor, nil
 }
 
@@ -94,6 +171,43 @@ func (s *MemoryStore) ListExecutors(_ context.Context, owner string) ([]Executor
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt.After(out[j].UpdatedAt) })
 	return out, nil
+}
+
+func (s *MemoryStore) LatestPlatformFailure(_ context.Context, owner, osName string, since time.Time) (*time.Time, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var latest *time.Time
+	for executorID, failedAt := range s.lastFailure {
+		if failedAt.Before(since) {
+			continue
+		}
+		executor, ok := s.executors[executorID]
+		if !ok || executor.OwnerUsername != owner || executor.OS != osName {
+			continue
+		}
+		copyTime := failedAt
+		if latest == nil || copyTime.After(*latest) {
+			latest = &copyTime
+		}
+	}
+	return latest, nil
+}
+
+func (s *MemoryStore) GetPreference(_ context.Context, owner string) (PreferenceRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	record, ok := s.preferences[owner]
+	if !ok {
+		return PreferenceRecord{}, ErrPreferenceNotFound
+	}
+	return record, nil
+}
+
+func (s *MemoryStore) SavePreference(_ context.Context, record PreferenceRecord) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.preferences[record.OwnerUsername] = record
+	return nil
 }
 
 func (s *MemoryStore) FindJobByKey(_ context.Context, owner, key string) (JobRecord, error) {
@@ -175,18 +289,39 @@ func (s *MemoryStore) RequeueJob(_ context.Context, id string, update JobRecord,
 	record.Progress = ProgressInput{}
 	record.UpdatedAt = now
 	s.jobs[id] = record
+	delete(s.progressChanged, id)
 	return record, nil
 }
 
-func (s *MemoryStore) ClaimJob(_ context.Context, executor ExecutorRecord, leaseHash SecretHash, expires, now time.Time) (JobRecord, error) {
+func (s *MemoryStore) ClaimJob(_ context.Context, executor ExecutorRecord, leaseHash SecretHash, expires, now time.Time, targetedOnly bool) (JobRecord, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var picked *JobRecord
 	for _, candidate := range s.jobs {
-		if candidate.OwnerUsername != executor.OwnerUsername || candidate.Platform != PlatformGiantMaterial || candidate.TargetExecutorID != "" && candidate.TargetExecutorID != executor.ID || candidate.CancelRequested || candidate.State == JobCancelled || candidate.State == JobSucceeded || candidate.State == JobFailed {
+		if candidate.OwnerUsername != executor.OwnerUsername || candidate.Platform != PlatformGiantMaterial || candidate.CancelRequested || candidate.State == JobCancelled || candidate.State == JobSucceeded || candidate.State == JobFailed {
 			continue
 		}
-		claimable := candidate.State == JobQueued || (candidate.LeaseExpiresAt != nil && !candidate.LeaseExpiresAt.After(now))
+		if targetedOnly {
+			// 只领明确点名给本执行器的任务（定向重试），平台偏好门控不拦截。
+			if candidate.TargetExecutorID != executor.ID {
+				continue
+			}
+		} else if candidate.TargetExecutorID != "" {
+			// 公共池：点名给别人的任务不参与普通领取。
+			continue
+		}
+		stuck := false
+		switch candidate.State {
+		case JobLeased, JobRunning, JobCleaning, JobUploading:
+			if candidate.LeaseExpiresAt != nil && candidate.LeaseExpiresAt.After(now) {
+				if pc, ok := s.progressChanged[candidate.ID]; ok && !pc.After(now.Add(-StuckProgressLimit)) {
+					stuck = true
+				}
+			}
+		}
+		claimable := candidate.State == JobQueued ||
+			(candidate.LeaseExpiresAt != nil && !candidate.LeaseExpiresAt.After(now)) ||
+			stuck
 		if !claimable {
 			continue
 		}
@@ -208,6 +343,7 @@ func (s *MemoryStore) ClaimJob(_ context.Context, executor ExecutorRecord, lease
 	record.ErrorCode = ""
 	record.ErrorMessage = ""
 	s.jobs[record.ID] = record
+	s.progressChanged[record.ID] = now
 	return record, nil
 }
 
@@ -233,6 +369,9 @@ func (s *MemoryStore) SetProgress(_ context.Context, executorID, id string, leas
 	}
 	if err := validJobTransition(record.State, next); err != nil {
 		return JobRecord{}, err
+	}
+	if record.Progress.Completed != progress.Completed || record.Progress.Total != progress.Total || record.Progress.Percent != progress.Percent {
+		s.progressChanged[id] = now
 	}
 	record.State = next
 	record.Progress = progress
@@ -270,6 +409,7 @@ func (s *MemoryStore) FailJob(_ context.Context, executorID, id string, leaseHas
 	record.ErrorMessage = bounded(failure.Message, 512)
 	record.UpdatedAt = now
 	s.jobs[id] = record
+	s.lastFailure[executorID] = now
 	return record, nil
 }
 
@@ -303,4 +443,38 @@ func bounded(value string, max int) string {
 		return value[:max]
 	}
 	return value
+}
+
+func (s *MemoryStore) DeleteExecutor(_ context.Context, owner, id string, now time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	record, ok := s.executors[id]
+	if !ok || record.OwnerUsername != owner {
+		return ErrExecutorNotFound
+	}
+	delete(s.tokens, secretHashKey(record.TokenHash))
+	delete(s.lastFailure, id)
+	for jobID, job := range s.jobs {
+		terminal := false
+		switch job.State {
+		case JobSucceeded, JobFailed, JobCancelled:
+			terminal = true
+		}
+		if job.LeaseExecutorID == id && !terminal {
+			job.State = JobQueued
+			job.CancelRequested = false
+			job.LeaseExecutorID = ""
+			job.LeaseTokenHash = SecretHash{}
+			job.LeaseExpiresAt = nil
+			job.LeaseGeneration++
+			job.Progress = ProgressInput{}
+			job.ErrorCode = ""
+			job.ErrorMessage = ""
+			job.UpdatedAt = now
+			s.jobs[jobID] = job
+			delete(s.progressChanged, jobID)
+		}
+	}
+	delete(s.executors, id)
+	return nil
 }

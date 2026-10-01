@@ -528,6 +528,32 @@ func adoptV11MergeProgressLedger(ctx context.Context, tx *sql.Tx) (bool, error) 
 	return v11ColumnsExist(ctx, tx, "batch_factory_v11_merge_jobs", "timing_mode", "speed", "progress_phase", "progress_current", "progress_total")
 }
 
+func adoptV11OpeningVariantLedger(ctx context.Context, tx *sql.Tx) (bool, error) {
+	for _, column := range []struct {
+		table string
+		name  string
+		sql   string
+	}{
+		{"batch_factory_v11_production_tasks", "opening_variant_index", `ALTER TABLE batch_factory_v11_production_tasks ADD COLUMN opening_variant_index INT NOT NULL DEFAULT 0 AFTER video_id`},
+		{"batch_factory_v11_merge_jobs", "opening_variant_index", `ALTER TABLE batch_factory_v11_merge_jobs ADD COLUMN opening_variant_index INT NOT NULL DEFAULT 0 AFTER book_id`},
+	} {
+		exists, err := v11ColumnExists(ctx, tx, column.table, column.name)
+		if err != nil {
+			return false, err
+		}
+		if !exists {
+			if _, err := tx.ExecContext(ctx, column.sql); err != nil {
+				return false, err
+			}
+		}
+	}
+	productionOK, err := v11ColumnsExist(ctx, tx, "batch_factory_v11_production_tasks", "opening_variant_index")
+	if err != nil || !productionOK {
+		return false, err
+	}
+	return v11ColumnsExist(ctx, tx, "batch_factory_v11_merge_jobs", "opening_variant_index")
+}
+
 func V11BookAssetImagesStatements() []string {
 	return []string{
 		`CREATE TABLE IF NOT EXISTS batch_factory_v11_book_asset_images (
@@ -607,6 +633,17 @@ func V11MergeProgressStatements() []string {
 	}
 }
 
+// V11OpeningVariantStatements records which alternative opening variant (0 =
+// original director prompt) each production task and book-level merge job used.
+// The adopt callback adds the columns idempotently so installations that
+// already carry them are adopted without rerunning non-idempotent ALTER TABLE.
+func V11OpeningVariantStatements() []string {
+	return []string{
+		`ALTER TABLE batch_factory_v11_production_tasks ADD COLUMN opening_variant_index INT NOT NULL DEFAULT 0 AFTER video_id`,
+		`ALTER TABLE batch_factory_v11_merge_jobs ADD COLUMN opening_variant_index INT NOT NULL DEFAULT 0 AFTER book_id`,
+	}
+}
+
 func V11Migrations() []Migration {
 	return []Migration{
 		{Version: 1100001, SQL: V11FoundationStatements(), CallbackChecksum: "batch-factory-v11-foundation-v1"},
@@ -637,6 +674,7 @@ func V11Migrations() []Migration {
 		{Version: 1100018, SQL: V11MergeSourceDurationStatements(), CallbackChecksum: "batch-factory-v11-merge-source-durations-v1"},
 		{Version: 1100019, SQL: V11ProductionLibraryStatements(), CallbackChecksum: "batch-factory-v11-production-library-v1"},
 		{Version: 1100020, SQL: V11MergeProgressStatements(), CallbackChecksum: "batch-factory-v11-merge-progress-v1", Adopt: adoptV11MergeProgressLedger},
+		{Version: 1100021, SQL: V11OpeningVariantStatements(), CallbackChecksum: "batch-factory-v11-opening-variant-v1", Adopt: adoptV11OpeningVariantLedger},
 	}
 }
 

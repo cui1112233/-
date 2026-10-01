@@ -400,12 +400,17 @@ func workerScriptPath() string {
 
 func localDeviceName() string {
 	if current, err := user.Current(); err == nil && strings.TrimSpace(current.Username) != "" {
+		if runtime.GOOS == "darwin" {
+			if hostname, hostErr := os.Hostname(); hostErr == nil && strings.TrimSpace(hostname) != "" {
+				return strings.TrimSpace(hostname) + "/" + strings.TrimSpace(current.Username)
+			}
+		}
 		return current.Username
 	}
 	if hostname, err := os.Hostname(); err == nil && strings.TrimSpace(hostname) != "" {
 		return hostname
 	}
-	return "windows-executor"
+	return "giant-executor"
 }
 
 func modelPreparer(supervisor *worker.Supervisor) func(context.Context, string) error {

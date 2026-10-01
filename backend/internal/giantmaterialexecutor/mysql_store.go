@@ -4,12 +4,144 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"time"
+
+	"github.com/go-sql-driver/mysql"
 )
 
 type MySQLStore struct{ db *sql.DB }
 
 func NewMySQLStore(db *sql.DB) *MySQLStore { return &MySQLStore{db: db} }
+
+func (s *MySQLStore) EnsureIdentityUniqueIndex(ctx context.Context) error {
+	var count int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(1) FROM information_schema.statistics
+WHERE table_schema = DATABASE() AND table_name = 'giant_executors'
+AND index_name = 'uq_giant_executors_identity'`).Scan(&count); err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+	_, err := s.db.ExecContext(ctx, `ALTER TABLE giant_executors
+ADD UNIQUE KEY uq_giant_executors_identity (owner_username, os, device_name)`)
+	return err
+}
+
+func (s *MySQLStore) ConsolidateDuplicateExecutors(ctx context.Context, now time.Time) (int, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT owner_username, os, device_name
+FROM giant_executors GROUP BY owner_username, os, device_name HAVING COUNT(*) > 1`)
+	if err != nil {
+		return 0, err
+	}
+	type groupRow struct{ owner, osName, deviceName string }
+	groups := make([]groupRow, 0)
+	for rows.Next() {
+		var group groupRow
+		if err := rows.Scan(&group.owner, &group.osName, &group.deviceName); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		groups = append(groups, group)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	merged := 0
+	for _, group := range groups {
+		if err := s.consolidateOneGroup(ctx, group.owner, group.osName, group.deviceName, now); err != nil {
+			return merged, err
+		}
+		merged++
+	}
+	return merged, nil
+}
+
+func (s *MySQLStore) consolidateOneGroup(ctx context.Context, owner, osName, deviceName string, now time.Time) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	rows, err := tx.QueryContext(ctx, `SELECT id, app_version, last_seen_at, updated_at
+FROM giant_executors WHERE owner_username = ? AND os = ? AND device_name = ? ORDER BY id ASC FOR UPDATE`,
+		owner, osName, deviceName)
+	if err != nil {
+		return err
+	}
+	candidates := make([]executorCandidate, 0)
+	for rows.Next() {
+		var item executorCandidate
+		var lastSeen sql.NullTime
+		if err := rows.Scan(&item.id, &item.version, &lastSeen, &item.updatedAt); err != nil {
+			rows.Close()
+			return err
+		}
+		if lastSeen.Valid {
+			seen := lastSeen.Time
+			item.lastSeen = &seen
+		}
+		candidates = append(candidates, item)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil || len(candidates) < 2 {
+		return err
+	}
+	keeping := pickKeeping(candidates)
+	oldIDs := make([]string, 0, len(candidates)-1)
+	for _, item := range candidates {
+		if item.id != keeping {
+			oldIDs = append(oldIDs, item.id)
+		}
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(oldIDs)), ",")
+	args := make([]any, 0, len(oldIDs)+1)
+	args = append(args, keeping)
+	for _, id := range oldIDs {
+		args = append(args, id)
+	}
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE giant_executor_jobs SET lease_executor_id = ? WHERE lease_executor_id IN (`+placeholders+`)`, args...); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE giant_executor_job_events SET executor_id = ? WHERE executor_id IN (`+placeholders+`)`, args...); err != nil {
+		return err
+	}
+	deleteArgs := make([]any, 0, len(oldIDs))
+	for _, id := range oldIDs {
+		deleteArgs = append(deleteArgs, id)
+	}
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM giant_executors WHERE id IN (`+placeholders+`)`, deleteArgs...); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *MySQLStore) RecentFailures(ctx context.Context, owner string, since time.Time) (map[string]time.Time, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT executor_id, MAX(created_at)
+FROM giant_executor_job_events
+WHERE event_type = 'failed' AND created_at >= ?
+AND executor_id IN (SELECT id FROM giant_executors WHERE owner_username = ?)
+GROUP BY executor_id`, since, owner)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[string]time.Time)
+	for rows.Next() {
+		var id string
+		var value time.Time
+		if err := rows.Scan(&id, &value); err != nil {
+			return nil, err
+		}
+		out[id] = value
+	}
+	return out, rows.Err()
+}
 
 func (s *MySQLStore) CreatePairing(ctx context.Context, record PairingRecord) error {
 	_, err := s.db.ExecContext(ctx, `INSERT INTO giant_executor_pairings
@@ -19,40 +151,100 @@ VALUES (?, ?, ?, ?, ?, NULL, ?)`, record.ID, record.OwnerUsername, record.Platfo
 }
 
 func (s *MySQLStore) PairExecutor(ctx context.Context, codeHash SecretHash, platform string, executor ExecutorRecord, now time.Time) (ExecutorRecord, error) {
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		record, retryable, err := s.pairExecutorTx(ctx, codeHash, platform, executor, now)
+		if err == nil {
+			return record, nil
+		}
+		if !retryable {
+			return ExecutorRecord{}, err
+		}
+		lastErr = err
+	}
+	return ExecutorRecord{}, lastErr
+}
+
+func (s *MySQLStore) pairExecutorTx(ctx context.Context, codeHash SecretHash, platform string, executor ExecutorRecord, now time.Time) (ExecutorRecord, bool, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return ExecutorRecord{}, err
+		return ExecutorRecord{}, isRetryableMySQLError(err), err
 	}
 	defer tx.Rollback()
 	var pairing PairingRecord
 	var consumed sql.NullTime
 	if err := tx.QueryRowContext(ctx, `SELECT id, owner_username, platform, expires_at, consumed_at, created_at
 FROM giant_executor_pairings WHERE code_hash = ? FOR UPDATE`, codeHash[:]).Scan(&pairing.ID, &pairing.OwnerUsername, &pairing.Platform, &pairing.ExpiresAt, &consumed, &pairing.CreatedAt); errors.Is(err, sql.ErrNoRows) {
-		return ExecutorRecord{}, ErrPairingInvalid
+		return ExecutorRecord{}, false, ErrPairingInvalid
 	} else if err != nil {
-		return ExecutorRecord{}, err
+		return ExecutorRecord{}, isRetryableMySQLError(err), err
 	}
 	if consumed.Valid || pairing.Platform != platform || !pairing.ExpiresAt.After(now) {
-		return ExecutorRecord{}, ErrPairingInvalid
+		return ExecutorRecord{}, false, ErrPairingInvalid
 	}
 	executor.OwnerUsername = pairing.OwnerUsername
-	if _, err := tx.ExecContext(ctx, `INSERT INTO giant_executors
+	var existingID string
+	lookupErr := tx.QueryRowContext(ctx, `SELECT id FROM giant_executors
+WHERE owner_username = ? AND os = ? AND device_name = ?
+ORDER BY updated_at DESC, id ASC LIMIT 1 FOR UPDATE`,
+		executor.OwnerUsername, executor.OS, executor.DeviceName).Scan(&existingID)
+	if errors.Is(lookupErr, sql.ErrNoRows) {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO giant_executors
 (id, owner_username, platform, token_hash, device_name, os, app_version, last_seen_at, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`, executor.ID, executor.OwnerUsername, executor.Platform, executor.TokenHash[:], executor.DeviceName, executor.OS, executor.Version, executor.CreatedAt, executor.UpdatedAt); err != nil {
-		return ExecutorRecord{}, err
+VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`, executor.ID, executor.OwnerUsername, executor.Platform,
+			executor.TokenHash[:], executor.DeviceName, executor.OS, executor.Version,
+			executor.CreatedAt, executor.UpdatedAt); err != nil {
+			var mysqlErr *mysql.MySQLError
+			if errors.As(err, &mysqlErr) && mysqlErr.Number == 1062 {
+				// 并发配对竞态：身份行已被另一事务插入，同一事务内重新锁定该行后走 UPDATE。
+				reErr := tx.QueryRowContext(ctx, `SELECT id FROM giant_executors
+WHERE owner_username = ? AND os = ? AND device_name = ?
+ORDER BY updated_at DESC, id ASC LIMIT 1 FOR UPDATE`,
+					executor.OwnerUsername, executor.OS, executor.DeviceName).Scan(&existingID)
+				switch {
+				case reErr == nil:
+					// 查到了竞争事务插入的行，下面统一走 UPDATE 分支。
+				case errors.Is(reErr, sql.ErrNoRows):
+					return ExecutorRecord{}, false, err
+				default:
+					return ExecutorRecord{}, isRetryableMySQLError(reErr), reErr
+				}
+			} else {
+				return ExecutorRecord{}, isRetryableMySQLError(err), err
+			}
+		}
+	} else if lookupErr != nil {
+		return ExecutorRecord{}, isRetryableMySQLError(lookupErr), lookupErr
+	}
+	if existingID != "" {
+		executor.ID = existingID
+		executor.UpdatedAt = now
+		if _, err := tx.ExecContext(ctx, `UPDATE giant_executors
+SET token_hash = ?, app_version = ?, updated_at = ? WHERE id = ?`,
+			executor.TokenHash[:], executor.Version, now, existingID); err != nil {
+			return ExecutorRecord{}, isRetryableMySQLError(err), err
+		}
 	}
 	result, err := tx.ExecContext(ctx, `UPDATE giant_executor_pairings SET consumed_at = ? WHERE id = ? AND consumed_at IS NULL`, now, pairing.ID)
 	if err != nil {
-		return ExecutorRecord{}, err
+		return ExecutorRecord{}, isRetryableMySQLError(err), err
 	}
 	rows, err := result.RowsAffected()
 	if err != nil || rows != 1 {
-		return ExecutorRecord{}, ErrPairingInvalid
+		return ExecutorRecord{}, false, ErrPairingInvalid
 	}
 	if err := tx.Commit(); err != nil {
-		return ExecutorRecord{}, err
+		return ExecutorRecord{}, isRetryableMySQLError(err), err
 	}
-	return executor, nil
+	return executor, false, nil
+}
+
+func isRetryableMySQLError(err error) bool {
+	var mysqlErr *mysql.MySQLError
+	if errors.As(err, &mysqlErr) {
+		return mysqlErr.Number == 1213 || mysqlErr.Number == 1205
+	}
+	return false
 }
 
 func (s *MySQLStore) ExecutorByTokenHash(ctx context.Context, hash SecretHash) (ExecutorRecord, error) {
@@ -74,11 +266,14 @@ FROM giant_executors WHERE token_hash = ?`, hash[:]).Scan(&record.ID, &record.Ow
 }
 
 func (s *MySQLStore) UpdateHeartbeat(ctx context.Context, id string, input HeartbeatInput, now time.Time) error {
+	deviceName := strings.TrimSpace(input.DeviceName)
+	osName := strings.TrimSpace(input.OS)
+	version := strings.TrimSpace(input.Version)
 	result, err := s.db.ExecContext(ctx, `UPDATE giant_executors SET
  device_name = CASE WHEN ? = '' THEN device_name ELSE ? END,
  os = CASE WHEN ? = '' THEN os ELSE ? END,
  app_version = CASE WHEN ? = '' THEN app_version ELSE ? END,
- last_seen_at = ?, updated_at = ? WHERE id = ?`, input.DeviceName, input.DeviceName, input.OS, input.OS, input.Version, input.Version, now, now, id)
+ last_seen_at = ?, updated_at = ? WHERE id = ?`, deviceName, deviceName, osName, osName, version, version, now, now, id)
 	if err != nil {
 		return err
 	}
@@ -110,6 +305,23 @@ FROM giant_executors WHERE owner_username = ? ORDER BY updated_at DESC, id ASC`,
 		out = append(out, record)
 	}
 	return out, rows.Err()
+}
+
+func (s *MySQLStore) LatestPlatformFailure(ctx context.Context, owner, osName string, since time.Time) (*time.Time, error) {
+	var latest sql.NullTime
+	err := s.db.QueryRowContext(ctx, `SELECT MAX(e.created_at)
+FROM giant_executor_job_events e
+WHERE e.event_type = 'failed' AND e.created_at >= ?
+AND e.executor_id IN (SELECT id FROM giant_executors WHERE owner_username = ? AND os = ?)`,
+		since, owner, osName).Scan(&latest)
+	if err != nil {
+		return nil, err
+	}
+	if !latest.Valid {
+		return nil, nil
+	}
+	value := latest.Time
+	return &value, nil
 }
 
 const jobSelect = `SELECT j.id, j.owner_username, j.platform, j.material_id, j.platform_book_id, j.title,
@@ -166,32 +378,53 @@ func (s *MySQLStore) CancelJob(ctx context.Context, owner, id string, now time.T
 	return record, nil
 }
 
-func (s *MySQLStore) ClaimJob(ctx context.Context, executor ExecutorRecord, leaseHash SecretHash, expires, now time.Time) (JobRecord, error) {
+func (s *MySQLStore) ClaimJob(ctx context.Context, executor ExecutorRecord, leaseHash SecretHash, expires, now time.Time, targetedOnly bool) (JobRecord, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return JobRecord{}, err
 	}
 	defer tx.Rollback()
+	targetFilter := "AND j.target_executor_id IS NULL"
+	args := []any{executor.OwnerUsername, PlatformGiantMaterial}
+	if targetedOnly {
+		// 只领明确点名给本执行器的任务（定向重试），平台偏好门控不拦截。
+		targetFilter = "AND j.target_executor_id = ?"
+		args = append(args, executor.ID)
+	}
+	args = append(args, JobQueued,
+		now, JobSucceeded, JobFailed, JobCancelled,
+		JobLeased, JobRunning, JobCleaning, JobUploading,
+		now, now.Add(-StuckProgressLimit))
 	record, err := queryJobTx(ctx, tx, jobSelect+` WHERE j.owner_username = ? AND j.platform = ? AND j.cancel_requested = FALSE
-	AND (j.target_executor_id IS NULL OR j.target_executor_id = ?)
-	AND (j.state = ? OR (j.lease_expires_at IS NOT NULL AND j.lease_expires_at <= ? AND j.state NOT IN (?, ?, ?)))
-	ORDER BY j.created_at ASC, j.id ASC LIMIT 1 FOR UPDATE SKIP LOCKED`, executor.OwnerUsername, PlatformGiantMaterial, executor.ID, JobQueued, now, JobSucceeded, JobFailed, JobCancelled)
+	`+targetFilter+`
+	AND (j.state = ?
+ OR (j.lease_expires_at IS NOT NULL AND j.lease_expires_at <= ? AND j.state NOT IN (?, ?, ?))
+ OR (j.state IN (?, ?, ?, ?) AND j.lease_expires_at > ? AND j.progress_changed_at IS NOT NULL AND j.progress_changed_at <= ?))
+ ORDER BY j.created_at ASC, j.id ASC LIMIT 1 FOR UPDATE SKIP LOCKED`, args...)
 	if errors.Is(err, sql.ErrNoRows) {
 		return JobRecord{}, ErrNoClaimableJob
 	}
 	if err != nil {
 		return JobRecord{}, err
 	}
+	wasStuck := record.State != JobQueued
 	record.State = JobLeased
 	record.LeaseExecutorID = executor.ID
 	record.LeaseTokenHash = leaseHash
 	record.LeaseGeneration++
 	record.LeaseExpiresAt = &expires
 	record.UpdatedAt = now
-	if _, err := tx.ExecContext(ctx, `UPDATE giant_executor_jobs SET state = ?, lease_executor_id = ?, lease_token_hash = ?, lease_generation = ?, lease_expires_at = ?, error_code = NULL, error_message = NULL, updated_at = ? WHERE id = ?`, JobLeased, executor.ID, leaseHash[:], record.LeaseGeneration, expires, now, record.ID); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE giant_executor_jobs
+SET state = ?, lease_executor_id = ?, lease_token_hash = ?, lease_generation = ?, lease_expires_at = ?,
+ progress_changed_at = ?, error_code = NULL, error_message = NULL, updated_at = ? WHERE id = ?`,
+		JobLeased, executor.ID, leaseHash[:], record.LeaseGeneration, expires, now, now, record.ID); err != nil {
 		return JobRecord{}, err
 	}
-	if err := appendEvent(ctx, tx, record.ID, executor.ID, "claimed", JobLeased, "", now); err != nil {
+	eventType := "claimed"
+	if wasStuck {
+		eventType = "stuck_reclaimed"
+	}
+	if err := appendEvent(ctx, tx, record.ID, executor.ID, eventType, JobLeased, "", now); err != nil {
 		return JobRecord{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -217,7 +450,12 @@ func (s *MySQLStore) SetProgress(ctx context.Context, executorID, id string, lea
 		record.State = next
 		record.Progress = progress
 		record.UpdatedAt = now
-		if _, err := tx.ExecContext(ctx, `UPDATE giant_executor_jobs SET state = ?, progress_completed = ?, progress_total = ?, progress_percent = ?, updated_at = ? WHERE id = ?`, next, progress.Completed, progress.Total, progress.Percent, now, id); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE giant_executor_jobs
+SET state = ?, progress_completed = ?, progress_total = ?, progress_percent = ?,
+ progress_changed_at = CASE WHEN progress_completed <> ? OR progress_total <> ? OR progress_percent <> ? THEN ? ELSE progress_changed_at END,
+ updated_at = ? WHERE id = ?`,
+			next, progress.Completed, progress.Total, progress.Percent,
+			progress.Completed, progress.Total, progress.Percent, now, now, id); err != nil {
 			return err
 		}
 		return appendEvent(ctx, tx, id, executorID, "progress", next, "", now)
@@ -288,7 +526,7 @@ func (s *MySQLStore) RequeueJob(ctx context.Context, id string, update JobRecord
 	record.Progress = ProgressInput{}
 	record.UpdatedAt = now
 	if _, err := tx.ExecContext(ctx, `UPDATE giant_executor_jobs SET state = ?, cancel_requested = FALSE, title = ?, video_url = ?, video_expires_at = ?, duration_seconds = ?, content_range_lines = ?, target_executor_id = NULLIF(?, ''),
-	 lease_executor_id = NULL, lease_token_hash = NULL, lease_generation = ?, lease_expires_at = NULL,
+	 lease_executor_id = NULL, lease_token_hash = NULL, lease_generation = ?, lease_expires_at = NULL, progress_changed_at = NULL,
 	 error_code = NULL, error_message = NULL, progress_completed = 0, progress_total = 0, progress_percent = 0, updated_at = ?
 	 WHERE id = ?`, record.State, record.Title, record.VideoURL, record.VideoExpiresAt, record.DurationSeconds, record.ContentRangeLines, record.TargetExecutorID, record.LeaseGeneration, now, id); err != nil {
 		return JobRecord{}, err
@@ -427,4 +665,78 @@ func checkLease(record JobRecord, executorID string, leaseHash SecretHash, gener
 		return ErrStaleLease
 	}
 	return nil
+}
+
+func (s *MySQLStore) GetPreference(ctx context.Context, owner string) (PreferenceRecord, error) {
+	var record PreferenceRecord
+	err := s.db.QueryRowContext(ctx, `SELECT owner_username, preferred_os, updated_at
+FROM giant_executor_preferences WHERE owner_username = ?`, owner).Scan(&record.OwnerUsername, &record.PreferredOS, &record.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return PreferenceRecord{}, ErrPreferenceNotFound
+	}
+	if err != nil {
+		return PreferenceRecord{}, err
+	}
+	return record, nil
+}
+
+func (s *MySQLStore) SavePreference(ctx context.Context, record PreferenceRecord) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO giant_executor_preferences (owner_username, preferred_os, updated_at)
+VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE preferred_os = VALUES(preferred_os), updated_at = VALUES(updated_at)`,
+		record.OwnerUsername, record.PreferredOS, record.UpdatedAt)
+	return err
+}
+
+func (s *MySQLStore) DeleteExecutor(ctx context.Context, owner, id string, now time.Time) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var dbOwner string
+	err = tx.QueryRowContext(ctx, `SELECT owner_username FROM giant_executors WHERE id = ? FOR UPDATE`, id).Scan(&dbOwner)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrExecutorNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if dbOwner != owner {
+		return ErrExecutorNotFound
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT id FROM giant_executor_jobs
+WHERE lease_executor_id = ? AND state NOT IN (?, ?, ?) FOR UPDATE`,
+		id, JobSucceeded, JobFailed, JobCancelled)
+	if err != nil {
+		return err
+	}
+	jobIDs := make([]string, 0)
+	for rows.Next() {
+		var jobID string
+		if err := rows.Scan(&jobID); err != nil {
+			rows.Close()
+			return err
+		}
+		jobIDs = append(jobIDs, jobID)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, jobID := range jobIDs {
+		if _, err := tx.ExecContext(ctx, `UPDATE giant_executor_jobs
+SET state = 'queued', cancel_requested = FALSE, lease_executor_id = NULL, lease_token_hash = NULL,
+ lease_expires_at = NULL, lease_generation = lease_generation + 1,
+ progress_completed = 0, progress_total = 0, progress_percent = 0, progress_changed_at = NULL,
+ error_code = NULL, error_message = NULL, updated_at = ? WHERE id = ?`, now, jobID); err != nil {
+			return err
+		}
+		if err := appendEvent(ctx, tx, jobID, "", "requeued", JobQueued, "", now); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM giant_executors WHERE id = ?`, id); err != nil {
+		return err
+	}
+	return tx.Commit()
 }

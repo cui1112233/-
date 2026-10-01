@@ -35,6 +35,23 @@ export function cancelGiantMaterialJob(jobId) {
   return apiRequest(`${JOBS_PATH}/${encodeURIComponent(jobId)}/cancel`, { method: 'PUT', body: '{}' });
 }
 
+const PREFERENCE_PATH = '/api/shuihuo-production/giant-material-executor/preference';
+
+export function getGiantExecutorPreference() {
+  return apiRequest(PREFERENCE_PATH);
+}
+
+export function saveGiantExecutorPreference(preferredOs) {
+  return apiRequest(PREFERENCE_PATH, {
+    method: 'PUT',
+    body: JSON.stringify({ preferredOs: String(preferredOs || 'windows') })
+  });
+}
+
+export function deleteGiantMaterialExecutor(executorId) {
+  return apiRequest(`${EXECUTORS_PATH}/${encodeURIComponent(executorId)}`, { method: 'DELETE' });
+}
+
 export async function waitForGiantMaterialJob(jobId, { signal, onState = () => {}, intervalMs = 1000, maxPolls = 3600 } = {}) {
   for (let poll = 0; poll < maxPolls; poll += 1) {
     if (signal?.aborted) throw new DOMException('The operation was aborted', 'AbortError');
