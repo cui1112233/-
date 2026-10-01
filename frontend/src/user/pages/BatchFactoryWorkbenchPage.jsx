@@ -168,7 +168,7 @@ export default function BatchFactoryWorkbenchPage() {
     }).catch(error => {
       if (mountedRef.current) message.warning(`男女频与风格暂未识别：${error?.message || '可在单书中重试；不影响生产。'}`);
     });
-    if (!input?.automationEnabled) return;
+    if (!input?.automationEnabled) return batch;
     try {
       await startBatchAutomation(batch.id, {
         scheduledAt: input.scheduledAt || '',
@@ -180,6 +180,7 @@ export default function BatchFactoryWorkbenchPage() {
     } catch (requestError) {
       message.warning(`批量工程已创建，但自动生产启动失败：${requestError?.message || '请进入工程后手动启动'}`);
     }
+    return batch;
   }
 
   if (activeBatch) {
