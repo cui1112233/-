@@ -2970,6 +2970,10 @@ body.batch-factory-column-resizing, body.batch-factory-column-resizing * { curso
 .batch-factory-giant-pending .ant-progress{margin:0}
 .batch-factory-giant-pending .ant-progress-line{padding-bottom:0}
 .batch-factory-giant-pending .ant-progress-text{font-size:10px;color:var(--sh-muted)}
+/* 窄列错误态：一行红字 + 竖排恢复按钮，完整报错在 Tooltip 里 */
+.batch-factory-giant-pending-compact{display:inline-flex;flex-direction:column;align-items:flex-start;gap:4px;max-width:100%;margin-top:4px;cursor:default}
+.batch-factory-giant-pending-compact .is-error-text{color:#ff8f8f;font-size:11px;line-height:1.4;font-style:normal;white-space:nowrap}
+.batch-factory-giant-pending-compact .is-actions{align-items:flex-start}
 
 /* 新建批量弹窗：巨量素材多 ID 解析清单 */
 .batch-factory-giant-items { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; max-height: 220px; overflow-y: auto; }

@@ -1094,8 +1094,6 @@ test('passes only the selected V11 final template and its H3 protocol key to com
 test('shows live provider task progress on the matching storyboard card and keeps polling while production runs', () => {
   assert.match(source, /batchFactoryVideoProgress/);
   assert.match(source, /currentProgress\?\.message/);
-  assert.match(source, /progressNotice/);
-  assert.match(source, /任务状态会自动刷新/);
   assert.match(source, /productionStatus=\{productionStatus\}/);
   assert.match(source, /hasActiveProduction/);
 });

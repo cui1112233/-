@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Alert, Button, message, Progress, Space } from 'antd';
+import { Alert, Button, message, Progress, Space, Tooltip } from 'antd';
 import { classifyBookPublishMetadata, fetchBookOriginal, getBatch, getBatchAutomationStatus, startBatchAutomation, updateBookMetadata, updateBookSource } from '../../../shared/api/batchFactoryV11.js';
 import { findRegisteredGiantMaterialBook } from './batchFactoryGiantMaterialImport.js';
 import { createGiantMaterialJob, getGiantMaterialJob } from '../../../shared/api/giantMaterialExecutorPublic.js';
@@ -236,7 +236,22 @@ export function BatchFactoryGiantMaterialPendingProgress({ book, batchId, onCont
   }, [visible, pending, batchId, book?.id, book?.revision, book?.sourceText, jobId, persistedOriginalReadError, originalReadStrategy]);
 
   if (!pending || !visible) return null;
-  if (error || persistedOriginalReadError || !jobId) return <Alert className="batch-factory-giant-pending is-error" type="error" showIcon message={error || persistedOriginalReadError || 'OCR 任务未派发'} description={<Space size="small"><Button size="small" type="primary" loading={refetching} onClick={() => refetchOriginal(false)}>重试获取原文</Button><Button size="small" loading={ocrStarting} disabled={refetching} onClick={startOcrFallback}>改用滚屏 OCR</Button></Space>} onClick={event => event.stopPropagation()} />;
+  if (error || persistedOriginalReadError || !jobId) {
+    // 窄列（小说列表弹窗“内容”格）放不下整块 Alert：错误全文进悬浮提示，行内只留
+    // 一行红字 + 竖排两个恢复按钮，避免文字/按钮被挤断行。
+    const detail = String(error || persistedOriginalReadError || 'OCR 任务未派发');
+    return (
+      <Tooltip title={detail}>
+        <span className="batch-factory-giant-pending-compact" onClick={event => event.stopPropagation()}>
+          <i className="is-error-text">{error || persistedOriginalReadError ? '读取失败' : '未派发OCR'}</i>
+          <Space direction="vertical" size={4} className="is-actions">
+            <Button size="small" type="primary" loading={refetching} onClick={() => refetchOriginal(false)}>重试获取原文</Button>
+            <Button size="small" loading={ocrStarting} disabled={refetching} onClick={startOcrFallback}>改用滚屏 OCR</Button>
+          </Space>
+        </span>
+      </Tooltip>
+    );
+  }
   const percent = Math.max(0, Math.min(100, Number(progress?.percent || 0)));
   const seconds = progress?.total ? ` · 视频 ${progress.completed || 0}/${progress.total} 秒` : '';
   const detail = percent > 0 ? `正在读取正文 ${percent}%${seconds}` : '正在排队读取正文…';
