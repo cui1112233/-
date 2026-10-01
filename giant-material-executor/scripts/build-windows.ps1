@@ -1,6 +1,7 @@
 param(
   [string]$Version = "0.1.0",
   [string]$ControlURL = "http://115.190.156.223",
+  [string]$UpdatePublicKey = "",
   [string]$OutputRoot = "$(Join-Path $PSScriptRoot '..\dist\windows-x64')"
 )
 
@@ -26,8 +27,10 @@ try {
   # windowsgui makes double-clicking the EXE open the native pairing window
   # instead of briefly showing a console window and then disappearing.
   # -X main.bakedPublicAPIURL 烧入控制服务地址，用户无需手填。
-  & go build -trimpath -ldflags "-s -w -H=windowsgui -X main.version=$Version -X main.bakedPublicAPIURL=$ControlURL" -o $binary ./cmd/giant-material-executor
+  & go build -trimpath -ldflags "-s -w -H=windowsgui -X main.version=$Version -X main.bakedPublicAPIURL=$ControlURL -X main.bakedUpdatePublicKey=$UpdatePublicKey" -o $binary ./cmd/giant-material-executor
   if ($LASTEXITCODE -ne 0) { throw "go build failed" }
+  & go build -trimpath -ldflags "-s -w -H=windowsgui" -o (Join-Path $stage 'GiantMaterialExecutorUpdater.exe') ./cmd/giant-material-executor-updater
+  if ($LASTEXITCODE -ne 0) { throw "updater build failed" }
   Copy-Item (Join-Path $moduleRoot 'worker\ocr_worker.py') (Join-Path $stage 'worker\ocr_worker.py')
   Copy-Item (Join-Path $moduleRoot 'worker\requirements-lock.txt') (Join-Path $stage 'worker\requirements-lock.txt')
   Copy-Item (Join-Path $moduleRoot 'portable\README-Windows.txt') (Join-Path $stage 'README-Windows.txt')
