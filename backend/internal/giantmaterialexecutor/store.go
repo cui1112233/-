@@ -27,4 +27,5 @@ type Store interface {
 	FailJob(context.Context, string, string, SecretHash, int64, FailureInput, time.Time) (JobRecord, error)
 	GetPreference(context.Context, string) (PreferenceRecord, error)
 	SavePreference(context.Context, PreferenceRecord) error
+	DeleteExecutor(context.Context, string, string, time.Time) error
 }

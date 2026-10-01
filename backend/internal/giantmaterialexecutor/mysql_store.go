@@ -674,3 +674,57 @@ VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE preferred_os = VALUES(preferred_os), up
 		record.OwnerUsername, record.PreferredOS, record.UpdatedAt)
 	return err
 }
+
+func (s *MySQLStore) DeleteExecutor(ctx context.Context, owner, id string, now time.Time) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var dbOwner string
+	err = tx.QueryRowContext(ctx, `SELECT owner_username FROM giant_executors WHERE id = ? FOR UPDATE`, id).Scan(&dbOwner)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrExecutorNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if dbOwner != owner {
+		return ErrExecutorNotFound
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT id FROM giant_executor_jobs
+WHERE lease_executor_id = ? AND state NOT IN (?, ?, ?) FOR UPDATE`,
+		id, JobSucceeded, JobFailed, JobCancelled)
+	if err != nil {
+		return err
+	}
+	jobIDs := make([]string, 0)
+	for rows.Next() {
+		var jobID string
+		if err := rows.Scan(&jobID); err != nil {
+			rows.Close()
+			return err
+		}
+		jobIDs = append(jobIDs, jobID)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, jobID := range jobIDs {
+		if _, err := tx.ExecContext(ctx, `UPDATE giant_executor_jobs
+SET state = 'queued', cancel_requested = FALSE, lease_executor_id = NULL, lease_token_hash = NULL,
+ lease_expires_at = NULL, lease_generation = lease_generation + 1,
+ progress_completed = 0, progress_total = 0, progress_percent = 0, progress_changed_at = NULL,
+ error_code = NULL, error_message = NULL, updated_at = ? WHERE id = ?`, now, jobID); err != nil {
+			return err
+		}
+		if err := appendEvent(ctx, tx, jobID, "", "requeued", JobQueued, "", now); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM giant_executors WHERE id = ?`, id); err != nil {
+		return err
+	}
+	return tx.Commit()
+}

@@ -30,6 +30,19 @@ func RegisterGiantMaterialExecutorRoutes(root *http.ServeMux, auth BridgeAuth, s
 		writeGiantExecutorJSON(w, http.StatusOK, map[string]any{"executors": executors})
 	})))
 
+	root.Handle("DELETE /api/shuihuo-production/giant-material-executors/{id}", auth.Middleware(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		identity, ok := BridgeIdentityFromContext(req.Context())
+		if !ok {
+			writeGiantExecutorError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		if err := service.DeleteExecutor(req.Context(), identity.Username, req.PathValue("id")); err != nil {
+			writeGiantExecutorServiceError(w, err)
+			return
+		}
+		writeGiantExecutorJSON(w, http.StatusOK, map[string]any{"ok": true})
+	})))
+
 	root.Handle("GET /api/shuihuo-production/giant-material-executor/preference", auth.Middleware(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		identity, ok := BridgeIdentityFromContext(req.Context())
 		if !ok {
@@ -294,6 +307,8 @@ func writeGiantExecutorServiceError(w http.ResponseWriter, err error) {
 	case errors.Is(err, giantmaterialexecutor.ErrExecutorUnauthorized):
 		writeGiantExecutorError(w, http.StatusUnauthorized, "unauthorized")
 	case errors.Is(err, giantmaterialexecutor.ErrJobNotFound):
+		writeGiantExecutorError(w, http.StatusNotFound, err.Error())
+	case errors.Is(err, giantmaterialexecutor.ErrExecutorNotFound):
 		writeGiantExecutorError(w, http.StatusNotFound, err.Error())
 	case errors.Is(err, giantmaterialexecutor.ErrNoClaimableJob), errors.Is(err, giantmaterialexecutor.ErrStaleLease), errors.Is(err, giantmaterialexecutor.ErrJobCancelled), errors.Is(err, giantmaterialexecutor.ErrInvalidJobState), errors.Is(err, giantmaterialexecutor.ErrJobConflict):
 		writeGiantExecutorError(w, http.StatusConflict, err.Error())

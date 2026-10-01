@@ -19,6 +19,7 @@ var (
 	ErrJobConflict          = errors.New("giant material job conflict")
 	ErrResultTooLarge       = errors.New("giant material result is too large")
 	ErrPreferenceNotFound   = errors.New("giant material executor preference not found")
+	ErrExecutorNotFound     = errors.New("giant material executor not found")
 )
 
 const (

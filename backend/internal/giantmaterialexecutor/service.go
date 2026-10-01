@@ -115,6 +115,15 @@ func (s *Service) ConsolidateExecutors(ctx context.Context) (int, error) {
 	return s.store.ConsolidateDuplicateExecutors(ctx, s.now().UTC())
 }
 
+func (s *Service) DeleteExecutor(ctx context.Context, owner, id string) error {
+	owner = strings.TrimSpace(owner)
+	id = strings.TrimSpace(id)
+	if owner == "" || id == "" {
+		return ErrInvalidInput
+	}
+	return s.store.DeleteExecutor(ctx, owner, id, s.now().UTC())
+}
+
 // EnsureIdentityUniqueIndex 包装 store 同名方法（0a260d61 引入；Service 层需补此方法供 app.go 调用）
 func (s *Service) EnsureIdentityUniqueIndex(ctx context.Context) error {
 	return s.store.EnsureIdentityUniqueIndex(ctx)

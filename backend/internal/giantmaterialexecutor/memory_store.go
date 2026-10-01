@@ -434,3 +434,37 @@ func bounded(value string, max int) string {
 	}
 	return value
 }
+
+func (s *MemoryStore) DeleteExecutor(_ context.Context, owner, id string, now time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	record, ok := s.executors[id]
+	if !ok || record.OwnerUsername != owner {
+		return ErrExecutorNotFound
+	}
+	delete(s.tokens, secretHashKey(record.TokenHash))
+	delete(s.lastFailure, id)
+	for jobID, job := range s.jobs {
+		terminal := false
+		switch job.State {
+		case JobSucceeded, JobFailed, JobCancelled:
+			terminal = true
+		}
+		if job.LeaseExecutorID == id && !terminal {
+			job.State = JobQueued
+			job.CancelRequested = false
+			job.LeaseExecutorID = ""
+			job.LeaseTokenHash = SecretHash{}
+			job.LeaseExpiresAt = nil
+			job.LeaseGeneration++
+			job.Progress = ProgressInput{}
+			job.ErrorCode = ""
+			job.ErrorMessage = ""
+			job.UpdatedAt = now
+			s.jobs[jobID] = job
+			delete(s.progressChanged, jobID)
+		}
+	}
+	delete(s.executors, id)
+	return nil
+}
