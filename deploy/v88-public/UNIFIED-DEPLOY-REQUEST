@@ -1,3 +1,3 @@
-release_sha=a104cf106c2c8551ce0f148d8039fa343265ceeb
-scope=add quality and negative constraint selectors to unified AI reasoning settings (also carries giant executor 0.6.0 already on v88)
-requested_at=2026-10-01T16:10:00+08:00
+release_sha=3b5a4673fa74990e9c9a9aaed8a30bb44c8ef648
+scope=move opening-variants toggle from assets into engine settings (unified models card and single-book engine core card); frontend only
+requested_at=2026-10-01T16:40:00+08:00
