@@ -56,11 +56,12 @@ class ResidentWorkerProtocolTest(unittest.TestCase):
         worker = Worker(output, extractor=extractor)
         worker.handle_command({"type": "extract", "jobId": "legacy", "videoUrl": "https://material.hnqingyuwen.top/video.mp4", "durationSeconds": 1})
         worker.handle_command({"type": "extract", "jobId": "mlzr", "videoUrl": "https://mlzr-material.hnqingyuwen.top/video.mp4", "durationSeconds": 1})
+        worker.handle_command({"type": "extract", "jobId": "ml", "videoUrl": "https://ml-material.hnqingyuwen.top/video.mp4", "durationSeconds": 1})
         self.assertTrue(worker.wait_until_idle(timeout=2))
         worker.handle_command({"type": "extract", "jobId": "lookalike", "videoUrl": "https://evilmaterial.hnqingyuwen.top/video.mp4", "durationSeconds": 1})
 
         events = [json.loads(line) for line in output.getvalue().splitlines()]
-        self.assertEqual(calls, ["legacy", "mlzr"])
+        self.assertEqual(calls, ["legacy", "mlzr", "ml"])
         self.assertEqual(events[-2]["code"], "OCR_VIDEO_NOT_ALLOWED")
 
     def test_cancel_emits_one_failure_then_idle(self):

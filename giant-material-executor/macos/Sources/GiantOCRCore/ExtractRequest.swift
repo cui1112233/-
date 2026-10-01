@@ -17,7 +17,7 @@ public func validateExtractRequest(jobID: String, videoURL: String, duration: Do
     guard !jobID.isEmpty else { throw ExtractValidationError.invalidJob }
     guard let url = URL(string: videoURL),
           url.scheme == "https",
-          ["material.hnqingyuwen.top", "mlzr-material.hnqingyuwen.top"].contains(url.host),
+          ["material.hnqingyuwen.top", "mlzr-material.hnqingyuwen.top", "ml-material.hnqingyuwen.top"].contains(url.host),
           url.port == nil,
           url.user == nil,
           url.password == nil,
