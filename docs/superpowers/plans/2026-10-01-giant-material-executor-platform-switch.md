@@ -475,7 +475,7 @@ func TestFailureCooldownFallbackAndTrialRestore(t *testing.T) {
 		t.Fatal(err)
 	}
 	winClaim, err := service.Claim(context.Background(), winToken)
-	if err != nil || winClaim.Job.ID != job.ID || winClaim.LeaseGeneration != 2 {
+	if err != nil || winClaim.Job.ID != job.ID || winClaim.LeaseGeneration != 3 {
 		t.Fatalf("windows fallback=%+v err=%v", winClaim, err)
 	}
 	if _, err := service.Claim(context.Background(), macToken); !errors.Is(err, ErrNoClaimableJob) {
@@ -505,7 +505,7 @@ func TestFailureCooldownFallbackAndTrialRestore(t *testing.T) {
 	heartbeatExecutorVersion(t, service, winToken, "windows", "win-box", "0.4.9")
 	heartbeatExecutorVersion(t, service, macToken, "darwin", "mac-box", "0.5.0")
 	trial, err := service.Claim(context.Background(), macToken)
-	if err != nil || trial.Job.ID != job.ID || trial.LeaseGeneration != 3 {
+	if err != nil || trial.Job.ID != job.ID || trial.LeaseGeneration != 5 {
 		t.Fatalf("trial restore=%+v err=%v", trial, err)
 	}
 }
@@ -614,22 +614,32 @@ AND e.executor_id IN (SELECT id FROM giant_executors WHERE owner_username = ? AN
 }
 ```
 
-- [ ] **Step 6: Memory 实现**（从当前 failed 状态的 job 推导，事件表在内存模式不存储）
+- [ ] **Step 6: Memory 实现**（内存模式用"失败台账"保留失败事实，任务重新排队也不丢）
+
+MemoryStore 结构体加字段 `lastFailure map[string]time.Time`（键 executorID；在 Step 10 与 progressChanged 一起初始化）。
+
+FailJob 现有实现末尾（state 已改为 JobFailed 之后）加一行记录：
+
+```go
+s.lastFailure[executorID] = now
+```
+
+然后加：
 
 ```go
 func (s *MemoryStore) LatestPlatformFailure(_ context.Context, owner, osName string, since time.Time) (*time.Time, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var latest *time.Time
-	for _, job := range s.jobs {
-		if job.OwnerUsername != owner || job.State != JobFailed || job.LeaseExecutorID == "" || job.UpdatedAt.Before(since) {
+	for executorID, failedAt := range s.lastFailure {
+		if failedAt.Before(since) {
 			continue
 		}
-		executor, ok := s.executors[job.LeaseExecutorID]
-		if !ok || executor.OS != osName {
+		executor, ok := s.executors[executorID]
+		if !ok || executor.OwnerUsername != owner || executor.OS != osName {
 			continue
 		}
-		copyTime := job.UpdatedAt
+		copyTime := failedAt
 		if latest == nil || copyTime.After(*latest) {
 			latest = &copyTime
 		}
@@ -659,33 +669,43 @@ if !allowed {
 
 ```go
 func (s *Service) canClaimPlatform(ctx context.Context, executor ExecutorRecord, now time.Time) (bool, error) {
+	// 自己刚干砸：先冷却，任何平台都一样
+	callerFailure, err := s.store.LatestPlatformFailure(ctx, executor.OwnerUsername, executor.OS, now.Add(-FailureCooldown))
+	if err != nil {
+		return false, err
+	}
+	if callerFailure != nil {
+		return false, nil
+	}
 	preference, err := s.GetPreference(ctx, executor.OwnerUsername)
 	if err != nil {
 		return false, err
 	}
 	preferred := preference.PreferredOS
+	if executor.OS == preferred {
+		// 它就是偏好平台且没在冷却：恢复优先
+		return true, nil
+	}
 	preferredFailure, err := s.store.LatestPlatformFailure(ctx, executor.OwnerUsername, preferred, now.Add(-FailureCooldown))
 	if err != nil {
 		return false, err
 	}
-	preferredCooling := preferredFailure != nil
-	if executor.OS == preferred {
-		return !preferredCooling, nil
+	if preferredFailure != nil {
+		// 偏好平台在冷却：非偏好平台兜底
+		return true, nil
 	}
 	executors, err := s.store.ListExecutors(ctx, executor.OwnerUsername)
 	if err != nil {
 		return false, err
 	}
-	preferredOnline := false
 	for _, item := range executors {
 		if item.OS == preferred && item.LastSeenAt != nil && !item.LastSeenAt.Before(now.Add(-OnlineThreshold)) {
-			preferredOnline = true
+			// 偏好平台在岗：单子留给它
+			return false, nil
 		}
 	}
-	if !preferredOnline {
-		return true, nil
-	}
-	return preferredCooling, nil
+	// 偏好平台不在线：兜底
+	return true, nil
 }
 ```
 
@@ -752,7 +772,7 @@ RequeueJob 的 UPDATE 中增加 `progress_changed_at = NULL`（与 lease 字段�
 
 - [ ] **Step 10: Memory ClaimJob/SetProgress/Requeue 对齐**
 
-MemoryStore 结构体加 `progressChanged map[string]time.Time`，构造函数初始化。
+MemoryStore 结构体加 `progressChanged map[string]time.Time`、`lastFailure map[string]time.Time`，构造函数初始化两个 map。
 
 ClaimJob 循环中，在现有 `claimable` 计算前增加 stuck 判定，并把最终 claimable 改为：
 
@@ -1396,13 +1416,15 @@ func (s *MemoryStore) RecentFailures(_ context.Context, owner string, since time
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := make(map[string]time.Time)
-	for _, job := range s.jobs {
-		if job.OwnerUsername != owner || job.State != JobFailed || job.LeaseExecutorID == "" || job.UpdatedAt.Before(since) {
+	for executorID, failedAt := range s.lastFailure {
+		if failedAt.Before(since) {
 			continue
 		}
-		if existing, ok := out[job.LeaseExecutorID]; !ok || job.UpdatedAt.After(existing) {
-			out[job.LeaseExecutorID] = job.UpdatedAt
+		executor, ok := s.executors[executorID]
+		if !ok || executor.OwnerUsername != owner {
+			continue
 		}
+		out[executorID] = failedAt
 	}
 	return out, nil
 }
@@ -1633,6 +1655,7 @@ func (s *MemoryStore) DeleteExecutor(_ context.Context, owner, id string, now ti
 		}
 	}
 	delete(s.executors, id)
+	delete(s.lastFailure, id)
 	return nil
 }
 ```
@@ -2106,4 +2129,4 @@ Expected: `{"preferredOs":"windows"}`；SHOW COLUMNS FROM giant_executor_jobs LI
 - Spec 覆盖：偏好存储(T1)、claim 判定在线/冷却/离线(T2)、试岗恢复(T2)、进行中不抢(T2 既有租约机制+测试)、配对认设备(T3)、一次性合并(T4)、删除设备(T5)、设备名 Mac 规则——见下注；设置页/顶部条(T6)、验收与发布(T7) 均有对应任务。
 - 注：设计 §6.4 的 Mac 设备名"电脑名+用户名"源码改动已落入 Task 6 Step 6（`giant-material-executor/cmd/giant-material-executor/main.go`，仅源码不打包；Windows 行为不变）。
 - 类型/命名一致性：`PreferenceView.PreferredOS`（Go）/ `preferredOs`（JSON）、`ExecutorView.RecentFailureAt`（Go）/ `recentFailureAt`（JSON）、Store 方法名在各任务间统一。
-- 已知边界（设计已确认）：内存 Store 无事件表，失败信息从当前 failed job 推导（requeue 后不可见），仅影响内存测试；删除设备后其历史失败与平台的关联不再可查。
+- 已知边界（设计已确认）：内存 Store 用进程内失败台账（`lastFailure`）保留失败事实，重启进程后丢失（仅测试/本地模式；MySQL 事件表持久）；删除设备后其历史失败与平台的关联不再可查。
