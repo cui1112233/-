@@ -1,3 +1,3 @@
-release_sha=1e15056a66d42f94db3511f41aec3f1b64a19a6f
-scope=giant material original acquisition priority: direct bookstore retrieval with OCR fallback and recoverable per-book status
-requested_at=2026-10-01T19:05:56+08:00
+release_sha=2fbf840a1e74418a2ac5623c1d77d06af90bb436
+scope=perf: giant executor long-poll claim + pause batch factory background polling; fix local merge workspace MkdirAll and persist artifacts volume
+requested_at=2026-10-01T19:06:56+08:00
