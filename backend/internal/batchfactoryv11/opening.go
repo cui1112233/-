@@ -26,10 +26,13 @@ func openingVariantLabel(index int) string {
 }
 
 // parseOpeningVariants splits the meta-prompt reply into one OpeningVariant per
-// ===VARIANT N=== section. Every requested slot is returned: sections the model
-// never produced (or produced with an invalid duration/body) come back as
-// status "failed" with an empty prompt so the UI can mark them.
-func parseOpeningVariants(raw string, maxVideoDuration, variantCount int) []OpeningVariant {
+// ===VARIANT N=== section. The original VIDEO01 duration is authoritative:
+// changing only the opening picture must not ask the model to infer timing
+// again. A model-supplied duration is accepted as optional metadata and is
+// rejected only when it is explicitly outside the configured limit.
+// Every requested slot is returned so the UI can mark genuinely missing or
+// empty variants without blocking on harmless output-format drift.
+func parseOpeningVariants(raw string, maxVideoDuration, originalDuration, variantCount int) []OpeningVariant {
 	out := make([]OpeningVariant, 0, variantCount)
 	for index := 1; index <= variantCount; index++ {
 		out = append(out, OpeningVariant{Index: index, Label: openingVariantLabel(index), Status: "failed", FailureReason: "模型未输出该变体分段"})
@@ -49,26 +52,36 @@ func parseOpeningVariants(raw string, maxVideoDuration, variantCount int) []Open
 			end = markers[i+1][0]
 		}
 		body := strings.TrimSpace(text[marker[1]:end])
-		lines := strings.SplitN(body, "\n", 2)
-		durationMatch := sdDurationPattern.FindStringSubmatch(strings.TrimSpace(lines[0]))
-		prompt := ""
-		if len(lines) > 1 {
-			prompt = strings.TrimSpace(lines[1])
+		lines := strings.Split(body, "\n")
+		promptLines := make([]string, 0, len(lines))
+		explicitDuration := 0
+		for _, line := range lines {
+			durationMatch := sdDurationPattern.FindStringSubmatch(strings.TrimSpace(line))
+			if durationMatch == nil || explicitDuration > 0 {
+				promptLines = append(promptLines, line)
+				continue
+			}
+			parsed, err := strconv.Atoi(durationMatch[1])
+			if err != nil || parsed < 1 || parsed > maxVideoDuration {
+				out[number-1].FailureReason = fmt.Sprintf("时长必须在 1-%d 秒之间", maxVideoDuration)
+				explicitDuration = -1
+				break
+			}
+			explicitDuration = parsed
 		}
-		if durationMatch == nil {
-			out[number-1].FailureReason = "未识别到有效时长"
+		if explicitDuration < 0 {
 			continue
 		}
+		prompt := strings.TrimSpace(strings.Join(promptLines, "\n"))
 		if prompt == "" {
 			out[number-1].FailureReason = "变体正文为空"
 			continue
 		}
-		duration, err := strconv.Atoi(durationMatch[1])
-		if err != nil || duration < 1 || duration > maxVideoDuration {
-			out[number-1].FailureReason = fmt.Sprintf("时长必须在 1-%d 秒之间", maxVideoDuration)
+		if originalDuration < 1 || originalDuration > maxVideoDuration {
+			out[number-1].FailureReason = "原分镜时长无效"
 			continue
 		}
-		out[number-1] = OpeningVariant{Index: number, Label: openingVariantLabel(number), Prompt: prompt, Status: "success", DurationSec: duration}
+		out[number-1] = OpeningVariant{Index: number, Label: openingVariantLabel(number), Prompt: prompt, Status: "success", DurationSec: originalDuration}
 	}
 	return out
 }

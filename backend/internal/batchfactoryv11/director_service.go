@@ -493,7 +493,7 @@ func (s *DirectorService) RunOpeningVariants(ctx context.Context, owner, batchID
 	if err != nil {
 		return nil, err
 	}
-	variants := parseOpeningVariants(text, snapshot.MaxVideoDuration, variantCount)
+	variants := parseOpeningVariants(text, snapshot.MaxVideoDuration, first.DurationSec, variantCount)
 	merged, err := s.saveOpeningVariants(ctx, owner, batchID, bookID, book.Videos[0].ID, variants)
 	if err != nil {
 		return nil, err
