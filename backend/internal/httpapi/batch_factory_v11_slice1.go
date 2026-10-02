@@ -15,6 +15,10 @@ type batchRuntimeIndexReader interface {
 	GetBatchRuntimeIndex(context.Context, string, string) (batchfactoryv11.Batch, error)
 }
 
+type batchRecoveryIndexLister interface {
+	ListBatchRecoveryIndex(context.Context, string) ([]batchfactoryv11.Batch, error)
+}
+
 func registerSliceOneRoutes(mux *http.ServeMux, store batchfactoryv11.Store) {
 	mux.HandleFunc("POST /api/batch-factory/v11/intakes/manual", func(w http.ResponseWriter, r *http.Request) {
 		owner, ok := bridgeOwner(r)
@@ -191,6 +195,25 @@ func registerSliceOneRoutes(mux *http.ServeMux, store batchfactoryv11.Store) {
 			return
 		}
 		writeJSON(w, http.StatusCreated, map[string]any{"batch": batch})
+	})
+	mux.HandleFunc("GET /api/batch-factory/v11/batches/recovery-index", func(w http.ResponseWriter, r *http.Request) {
+		owner, ok := bridgeOwner(r)
+		if !ok {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			return
+		}
+		var batches []batchfactoryv11.Batch
+		var err error
+		if lister, ok := store.(batchRecoveryIndexLister); ok {
+			batches, err = lister.ListBatchRecoveryIndex(r.Context(), owner)
+		} else {
+			batches, err = store.ListBatches(r.Context(), owner)
+		}
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"batches": batches})
 	})
 	mux.HandleFunc("GET /api/batch-factory/v11/batches/{batchId}/runtime-index", func(w http.ResponseWriter, r *http.Request) {
 		owner, ok := bridgeOwner(r)

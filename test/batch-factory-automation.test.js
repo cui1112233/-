@@ -911,6 +911,26 @@ test('recovery sweep backfills a completed giant OCR result without starting aut
   assert.equal(setup.recoveries.length, 0);
 });
 
+test('recovery sweep reconciles from its lightweight list payload without reloading the full batch', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-recovery-lightweight-'));
+  const setup = recoveryFixture();
+  setup.batch.books[0].sourceMetadata.executorJobId = 'giant-job-complete';
+  let fullLoads = 0;
+  let reconciled = 0;
+  setup.adapter.loadBatch = async () => { fullLoads += 1; throw new Error('full batch must not be loaded by recovery sweep'); };
+  setup.adapter.reconcileGiantMaterialSource = async () => { reconciled += 1; return { state: 'waiting' }; };
+  const controller = createBatchFactoryAutomationController({
+    adapter: setup.adapter, statePath: path.join(directory, 'state.json'),
+    pollMs: 60_000, recoveryEnabled: false, logger: silentLogger()
+  });
+  setup.setController(controller);
+
+  await controller.runRecovery();
+
+  assert.equal(fullLoads, 0);
+  assert.equal(reconciled, 1);
+});
+
 test('recovery sweep restarts only a source-failed giant batch after live text arrives', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-recovery-live-source-'));
   const setup = recoveryFixture({ savedPlan: { runMode: 'video_no_submit', concurrency: 1 } });

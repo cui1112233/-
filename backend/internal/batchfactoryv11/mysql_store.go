@@ -545,6 +545,66 @@ func (s *MySQLStore) GetBatchRuntimeIndex(ctx context.Context, owner, id string)
 	return batch, nil
 }
 
+// ListBatchRecoveryIndex returns the smallest payload needed by the periodic
+// giant-material recovery sweep. In particular it does not hydrate videos,
+// director revisions or assets for every historical batch on every sweep.
+func (s *MySQLStore) ListBatchRecoveryIndex(ctx context.Context, owner string) ([]Batch, error) {
+	const query = `SELECT ba.id,ba.revision,ba.created_at,ba.updated_at,COALESCE(bsp.patch_json,JSON_OBJECT()),b.id,b.revision,COALESCE(r.source_text,''),r.source_metadata_json,COALESCE(d.content,''),COALESCE(ksp.patch_json,JSON_OBJECT()) FROM batch_factory_v11_books b JOIN batch_factory_v11_book_records r ON r.book_id=b.id JOIN batch_factory_v11_batches ba ON ba.id=b.batch_id AND ba.owner_username=b.owner_username LEFT JOIN batch_factory_v11_settings_patches bsp ON bsp.scope_type='batch' AND bsp.scope_id=ba.id AND bsp.owner_username=ba.owner_username LEFT JOIN batch_factory_v11_settings_patches ksp ON ksp.scope_type='book' AND ksp.scope_id=b.id AND ksp.owner_username=b.owner_username LEFT JOIN batch_factory_v11_drafts d ON d.owner_username=b.owner_username AND d.draft_key=CONCAT('working-front:',b.id) AND d.kind='working-front-content' AND d.scope=ba.id WHERE b.owner_username=? AND JSON_UNQUOTE(JSON_EXTRACT(r.source_metadata_json,'$.sourceMode'))='giant_material' ORDER BY ba.created_at DESC,ba.id DESC,b.ordinal,b.id`
+	rows, err := s.db.QueryContext(ctx, query, owner)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []Batch{}
+	batchIndexes := map[string]int{}
+	decodePatch := func(raw []byte) (SettingsPatch, error) {
+		patch := SettingsPatch{}
+		if len(raw) == 0 {
+			return patch, nil
+		}
+		if err := json.Unmarshal(raw, &patch); err != nil {
+			return nil, err
+		}
+		return normalizeLegacyNestedPatch(patch), nil
+	}
+	for rows.Next() {
+		var batchID, bookID, sourceText, workingContent string
+		var batchRevision, bookRevision int64
+		var createdAt, updatedAt time.Time
+		var batchPatchRaw, metadataRaw, bookPatchRaw []byte
+		if err := rows.Scan(&batchID, &batchRevision, &createdAt, &updatedAt, &batchPatchRaw, &bookID, &bookRevision, &sourceText, &metadataRaw, &workingContent, &bookPatchRaw); err != nil {
+			return nil, err
+		}
+		index, ok := batchIndexes[batchID]
+		if !ok {
+			batchPatch, err := decodePatch(batchPatchRaw)
+			if err != nil {
+				return nil, err
+			}
+			index = len(out)
+			batchIndexes[batchID] = index
+			out = append(out, Batch{
+				ID: batchID, Revision: batchRevision, CreatedAt: createdAt, UpdatedAt: updatedAt,
+				SettingsState: SettingsState{Patch: batchPatch, Revision: batchRevision}, Books: []Book{},
+			})
+		}
+		bookPatch, err := decodePatch(bookPatchRaw)
+		if err != nil {
+			return nil, err
+		}
+		out[index].Books = append(out[index].Books, Book{
+			ID: bookID, BatchID: batchID, Revision: bookRevision, SourceText: sourceText,
+			WorkingFrontContent: workingContent, SourceMetadata: decodeSourceMetadata(metadataRaw),
+			SettingsState: SettingsState{Patch: bookPatch, Revision: bookRevision},
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (s *MySQLStore) DeleteBook(ctx context.Context, owner, batchID, bookID string) error {
 	if strings.TrimSpace(owner) == "" || strings.TrimSpace(batchID) == "" || strings.TrimSpace(bookID) == "" {
 		return ErrInvalid

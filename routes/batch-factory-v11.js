@@ -36,6 +36,10 @@ const MODEL_FIELDS = {
   videoModelId: { kind: 'video', label: '视频模型' }
 };
 
+function batchFactoryRecoveryIndexPath() {
+  return '/api/batch-factory/v11/batches/recovery-index';
+}
+
 function validateBatchFactoryModelPatch({ username, patch, memberStore, accountStore, account, configReader = readConfig } = {}) {
   for (const [field, { kind, label }] of Object.entries(MODEL_FIELDS)) {
     const modelId = String(object(patch)[field] || '').trim();
@@ -2307,7 +2311,7 @@ function createBatchFactoryV11Router(options = {}) {
       listBatches: async (username, isOwner) => {
         const result = await v11JSONRequest({
           username, isOwner, method: 'GET',
-          pathname: '/api/batch-factory/v11/batches',
+          pathname: batchFactoryRecoveryIndexPath(),
           goBaseUrl: upstreamOptions.goBaseUrl, bridgeSecret: upstreamOptions.bridgeSecret,
           fetchImpl: upstreamOptions.fetchImpl, now: upstreamOptions.now
         });
@@ -2556,6 +2560,7 @@ function createBatchFactoryV11Router(options = {}) {
 }
 
 module.exports = {
+  batchFactoryRecoveryIndexPath,
   repairLegacyExecutionOverrides,
   validateBatchFactoryModelPatch,
   sanitizeAutomationPresetConfig,
