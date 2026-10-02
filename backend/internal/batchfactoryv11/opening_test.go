@@ -30,6 +30,16 @@ func TestParseOpeningVariants(t *testing.T) {
 	}
 }
 
+func TestParseOpeningVariantsAcceptsInlineMarkerAndDuration(t *testing.T) {
+	variants := parseOpeningVariants("===VARIANT 1=== 时长：10秒\n开头正文", 15, 1)
+	if len(variants) != 1 {
+		t.Fatalf("variants = %d, want 1", len(variants))
+	}
+	if variants[0].Status != "success" || variants[0].DurationSec != 10 || variants[0].Prompt != "开头正文" {
+		t.Fatalf("variant = %#v", variants[0])
+	}
+}
+
 func TestParseOpeningVariantsFillsMissingAsFailed(t *testing.T) {
 	raw := "===VARIANT 1===\n时长：10秒\n正文"
 	variants := parseOpeningVariants(raw, 15, 3)

@@ -11,14 +11,15 @@ import (
 // OpeningVariant is one AI-generated alternative opening prompt for VIDEO01.
 // Index 0 is reserved for the original director prompt and is never stored here.
 type OpeningVariant struct {
-	Index       int    `json:"index"`
-	Label       string `json:"label"`
-	Prompt      string `json:"prompt"`
-	Status      string `json:"status"`
-	DurationSec int    `json:"durationSec,omitempty"`
+	Index         int    `json:"index"`
+	Label         string `json:"label"`
+	Prompt        string `json:"prompt"`
+	Status        string `json:"status"`
+	DurationSec   int    `json:"durationSec,omitempty"`
+	FailureReason string `json:"failureReason,omitempty"`
 }
 
-var openingVariantSectionPattern = regexp.MustCompile(`(?m)^===VARIANT\s*(\d+)\s*===\s*$`)
+var openingVariantSectionPattern = regexp.MustCompile(`(?m)===VARIANT\s*(\d+)\s*===`)
 
 func openingVariantLabel(index int) string {
 	return fmt.Sprintf("分镜一 | 换开头%d", index)
@@ -31,7 +32,7 @@ func openingVariantLabel(index int) string {
 func parseOpeningVariants(raw string, maxVideoDuration, variantCount int) []OpeningVariant {
 	out := make([]OpeningVariant, 0, variantCount)
 	for index := 1; index <= variantCount; index++ {
-		out = append(out, OpeningVariant{Index: index, Label: openingVariantLabel(index), Status: "failed"})
+		out = append(out, OpeningVariant{Index: index, Label: openingVariantLabel(index), Status: "failed", FailureReason: "模型未输出该变体分段"})
 	}
 	text := strings.TrimSpace(raw)
 	if text == "" || variantCount <= 0 {
@@ -54,11 +55,17 @@ func parseOpeningVariants(raw string, maxVideoDuration, variantCount int) []Open
 		if len(lines) > 1 {
 			prompt = strings.TrimSpace(lines[1])
 		}
-		if durationMatch == nil || prompt == "" {
+		if durationMatch == nil {
+			out[number-1].FailureReason = "未识别到有效时长"
+			continue
+		}
+		if prompt == "" {
+			out[number-1].FailureReason = "变体正文为空"
 			continue
 		}
 		duration, err := strconv.Atoi(durationMatch[1])
 		if err != nil || duration < 1 || duration > maxVideoDuration {
+			out[number-1].FailureReason = fmt.Sprintf("时长必须在 1-%d 秒之间", maxVideoDuration)
 			continue
 		}
 		out[number-1] = OpeningVariant{Index: number, Label: openingVariantLabel(number), Prompt: prompt, Status: "success", DurationSec: duration}
