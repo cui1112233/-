@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { PUBLIC_DIR, createAuthRuntime, readConfig } = require('./lib/shared');
+const { readReleaseInfo } = require('./lib/release-info');
 const { apiAuth } = require('./middleware/auth');
 const { createDeletedAccountGuard } = require('./middleware/deleted-account-guard');
 const { createPresetStore } = require('./lib/preset-store');
@@ -93,6 +94,14 @@ function shuihuoAiRequestMeta(req) {
       : { scope: 'image', feature: 'image', tokenEstimate: false };
   }
   return null;
+}
+
+function appBuildInfo({ env = process.env, rootDir } = {}) {
+  return {
+    app_version: 'v78.3.0.3',
+    build_id: 'v78.3.0.3-remote-workbench-20260819-r1',
+    ...readReleaseInfo({ env, ...(rootDir ? { rootDir } : {}) })
+  };
 }
 
 function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptConstraintPromptStore, shuihuoGateway, agentStore, agentSkillStore, agentResponder, errorLogStore, novelPanelAiDiagnosticStore, novelPanelHistoryStore, novelPanelPremiumStore, novelFetchStore, memberStore, usageStore, passkeyStore, accountRecoveryStore, mailer, configReader, configWriter, tosCleaner } = {}) {
@@ -415,7 +424,7 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
 
   // 路由挂载
   app.get('/api/build-info', (req, res) => {
-    res.json({ app_version: 'v78.3.0.3', build_id: 'v78.3.0.3-remote-workbench-20260819-r1' });
+    res.json(appBuildInfo());
   });
   app.use('/api/login', createAuthRouter(authRuntime, resolvedMemberStore, { passkeyStore: resolvedPasskeyStore })); // POST /api/login
   // Deleted-account tombstones are checked before legacy mutation paths.
@@ -576,4 +585,4 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
   return app;
 }
 
-module.exports = { createApp };
+module.exports = { createApp, appBuildInfo };
