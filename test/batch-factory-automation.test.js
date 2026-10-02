@@ -589,6 +589,26 @@ test('a giant OCR task with an expired executor lease fails and frees its automa
   assert.match(status.books[0].error, /租约已过期/);
 });
 
+test('a queued giant OCR task is failed during the preflight sweep even when it is not next in line', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-preflight-giant-'));
+  const { batch, adapter } = fixture();
+  batch.books.push({
+    id: 'book-2', bookId: '102', title: '排在后面的巨量书', sourceText: '',
+    sourceMetadata: { sourceMode: 'giant_material', contentPending: true, executorJobId: 'giant-job-later' },
+    settingsState: { patch: {} }, assetRecords: [], videos: []
+  });
+  adapter.reconcileGiantMaterialSource = async () => ({ state: 'queued' });
+  const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} } });
+
+  await controller.start({ owner: 'user', batchId: batch.id, concurrency: 1 });
+  for (let i = 0; i < 2; i += 1) { await controller.tick(); await wait(); }
+
+  const status = controller.status({ owner: 'user', batchId: batch.id });
+  const giant = status.books.find(book => book.bookId === 'book-2');
+  assert.equal(giant.status, 'failed');
+  assert.match(giant.message, /未被执行器领取/);
+});
+
 test('reload migrates historic unclaimed giant OCR blocks into failed books', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-giant-migrate-'));
   const statePath = path.join(directory, 'state.json');
