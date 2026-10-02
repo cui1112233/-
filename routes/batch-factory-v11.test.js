@@ -35,11 +35,44 @@ const {
   createBatchFactoryV11Router,
   repairLegacyExecutionOverrides,
   validateBatchFactoryModelPatch,
+  resolveBatchFactoryRuntimeSettings,
   batchFactoryProductionText,
   splitVideoPresetBody,
   singleBookDirectorStageTarget,
   generateOpeningVariantsAfterSingleDirector
 } = require('./batch-factory-v11');
+
+test('runtime settings inherit the current enabled account default using its catalogue ID', () => {
+  const batch = { settingsState: { patch: { aiPromptConfig: { assets: { enabled: true } } } } };
+  const book = { settingsState: { patch: { aiPromptConfig: { visual: { enabled: false } } } };
+  const configReader = username => {
+    assert.equal(username, 'alice');
+    return { model: 'provider-default', modelCatalog: [
+      { id: 'account-default', kind: 'text', modelId: 'provider-default', enabled: true }
+    ] };
+  };
+  assert.deepEqual(resolveBatchFactoryRuntimeSettings({ username: 'alice', batch, book, configReader }), {
+    textModelId: 'account-default',
+    aiPromptConfig: { assets: { enabled: true }, visual: { enabled: false } },
+    publishSettings: {}
+  });
+});
+
+test('runtime account inheritance respects explicit book selections and blank clears', () => {
+  const batch = { settingsState: { patch: { textModelId: 'batch-text' } } };
+  const configReader = () => { throw new Error('explicit selection must not read a fallback'); };
+  for (const textModelId of ['book-text', '']) {
+    const book = { settingsState: { patch: { textModelId } } };
+    assert.equal(resolveBatchFactoryRuntimeSettings({ username: 'alice', batch, book, configReader }).textModelId, textModelId);
+  }
+});
+
+test('runtime settings do not inherit a disabled account default', () => {
+  const settings = resolveBatchFactoryRuntimeSettings({ username: 'alice', batch: {}, book: {},
+    configReader: () => ({ model: 'account-disabled', modelCatalog: [{ id: 'account-disabled', modelId: 'provider-disabled', kind: 'text', enabled: false }] })
+  });
+  assert.equal(Object.hasOwn(settings, 'textModelId'), false);
+});
 
 function repairFixture(patches, configSnapshot = { textModelId: 'old', videoModelId: 'old-video' }) {
   const batch = { id: 'batch-1', settingsState: { patch: { textModelId: 'current' } }, books: patches.map((patch, i) => ({ id: `book-${i + 1}`, revision: 7, settingsState: { patch } })) };

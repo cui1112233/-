@@ -28,12 +28,23 @@ const STATUS_PATH = '/api/batch-factory/v11/video-provider/status';
 const AI_PROMPT_MODULES = ['assets', 'constraints', 'hook', 'originalDirector', 'viralDirector', 'video', 'visual'];
 function object(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
 
+const MODEL_FIELDS = {
+  textModelId: { kind: 'text', label: '文本模型' },
+  imageModelId: { kind: 'image', label: '图片模型' },
+  videoModelId: { kind: 'video', label: '视频模型' }
+};
+
 function validateBatchFactoryModelPatch({ username, patch, memberStore, accountStore, account, configReader = readConfig } = {}) {
-  for (const [key, kind] of [['textModelId', 'text'], ['imageModelId', 'image'], ['videoModelId', 'video']]) {
-    const modelId = String(object(patch)[key] || '').trim();
+  for (const [field, { kind, label }] of Object.entries(MODEL_FIELDS)) {
+    const modelId = String(object(patch)[field] || '').trim();
     if (!modelId) continue;
-    resolveRuntimeModel({ username, kind, modelId, memberStore, accountStore, account, configReader });
+    try {
+      resolveRuntimeModel({ username, kind, modelId, memberStore, accountStore, account, configReader });
+    } catch (_) {
+      throw requestError(`${label}不可用、未配置或尚未启用`, 422, 'BATCH_FACTORY_MODEL_UNAVAILABLE');
+    }
   }
+  return patch;
 }
 
 function sanitizeAutomationPresetConfig(value) {
@@ -170,17 +181,29 @@ async function applyAutomationPresetToBatch({ username, isOwner, batch, preset, 
 // 纯函数：传入批量设置快照和账号配置，返回补齐后的快照。
 function applyEngineConfigInheritance(snapshot, accountConfig) {
   const patch = { ...object(snapshot) };
-  if (String(patch.textModelId || '').trim()) return patch;
+  if (Object.hasOwn(patch, 'textModelId')) return patch;
   const catalog = Array.isArray(accountConfig?.modelCatalog) ? accountConfig.modelCatalog : [];
   const defaultModel = String(accountConfig?.model || '').trim();
   // 默认模型在目录里被明确停用就不继承；目录无记录的老配置按"用户自选"照用。
   const catalogEntry = defaultModel
-    ? catalog.find(item => String(item?.modelId || item?.id || '') === defaultModel)
+    ? catalog.find(item => item?.kind === 'text' && [item?.id, item?.modelId].some(value => String(value || '').trim() === defaultModel))
     : null;
   if (defaultModel && (!catalogEntry || catalogEntry.enabled !== false)) {
-    patch.textModelId = defaultModel;
+    patch.textModelId = String(catalogEntry?.id || defaultModel).trim();
   }
   return patch;
+}
+
+function resolveBatchFactoryRuntimeSettings({ username, batch, book, settings, configReader = readConfig } = {}) {
+  const current = settings === undefined ? automationEffectiveSettings(batch, book) : object(settings);
+  if (Object.hasOwn(current, 'textModelId')) return current;
+  return applyEngineConfigInheritance(current, configReader(username));
+}
+
+function validateBatchFactoryRuntimeSettings({ username, isOwner = false, batch, book, settings, ...options } = {}) {
+  const effective = resolveBatchFactoryRuntimeSettings({ username, batch, book, settings, configReader: options.configReader || readConfig });
+  validateBatchFactoryModelPatch({ ...options, username, account: { isOwner }, patch: effective });
+  return effective;
 }
 
 // The saved plan authorizes recovery and retains its run timing. Execution
@@ -316,7 +339,7 @@ async function generateOpeningVariantsAfterSingleDirector(req, target, upstreamO
   const batch = await loadBatch();
   const book = (Array.isArray(batch?.books) ? batch.books : []).find(item => String(item?.id) === String(target.bookId));
   if (!book) return describe(false, 0, false, '当前书不存在，已跳过换开头');
-  const settings = automationEffectiveSettings(batch, book);
+  const settings = resolveBatchFactoryRuntimeSettings({ username: req.username, batch, book, configReader: upstreamOptions.configReader || readConfig });
   const videos = Array.isArray(book.videos) ? book.videos : [];
   if (settings.openingEnabled !== true) return describe(false, 0, false, '未开启换开头，已跳过');
   if (videos.length < 2) return describe(false, 0, false, '分镜不足 2 个，已跳过换开头');
@@ -1549,7 +1572,6 @@ function batchFactoryModelExecutionPath(req, pathname) {
 async function validateBatchFactoryExecutionModels(req, target, options) {
   // Manual dispatch often sends only a text model and provider. Go still reads
   // persisted image/video selections, so validate live inheritance first.
-  const validation = { ...options, username: req.username, account: req.auth?.account };
   const loaded = await v11JSONRequest({
     ...options, username: req.username, isOwner: req.auth?.account?.isOwner === true,
     method: 'GET', pathname: `/api/batch-factory/v11/batches/${encodeURIComponent(target.batchId)}`
@@ -1560,12 +1582,10 @@ async function validateBatchFactoryExecutionModels(req, target, options) {
   if (target.bookId) {
     const book = books.find(item => String(item?.id) === String(target.bookId));
     if (!book) throw requestError('当前书不存在', 404, 'BOOK_NOT_FOUND');
-    validateBatchFactoryModelPatch({ ...validation, patch: automationEffectiveSettings(batch, book) });
+    return validateBatchFactoryRuntimeSettings({ ...options, username: req.username, isOwner: req.auth?.account?.isOwner === true, batch, book });
   } else {
-    validateBatchFactoryModelPatch({ ...validation, patch: batch?.settingsState?.patch });
-    for (const book of books) {
-      validateBatchFactoryModelPatch({ ...validation, patch: automationEffectiveSettings(batch, book) });
-    }
+    const effective = (books.length ? books : [undefined]).map(book => validateBatchFactoryRuntimeSettings({ ...options, username: req.username, isOwner: req.auth?.account?.isOwner === true, batch, book }));
+    return effective[0];
   }
 }
 
@@ -1764,6 +1784,10 @@ function automationEffectiveSettings(batch, book) {
   return {
     ...batchPatch,
     ...bookPatch,
+    aiPromptConfig: {
+      ...object(batchPatch.aiPromptConfig),
+      ...object(bookPatch.aiPromptConfig)
+    },
     publishSettings: {
       ...object(batchPatch.publishSettings),
       ...object(bookPatch.publishSettings)
@@ -2025,8 +2049,7 @@ function createBatchFactoryV11Router(options = {}) {
         const batchId = batch.id;
         const bookId = book.id;
         const pathname = `/api/batch-factory/v11/batches/${encodeURIComponent(batchId)}/books/${encodeURIComponent(bookId)}/stages/${encodeURIComponent(stage)}`;
-        const settings = frozenSettings || automationEffectiveSettings(batch, book);
-        validateBatchFactoryModelPatch({ ...upstreamOptions, username, account: { isOwner }, patch: settings });
+        const settings = validateBatchFactoryRuntimeSettings({ ...upstreamOptions, username, isOwner, batch, book, settings: frozenSettings });
         if (!frozenSettings) {
           await refreshBatchFactoryPresetSnapshot({
             username, isOwner, batchId, bookId,
@@ -2064,7 +2087,7 @@ function createBatchFactoryV11Router(options = {}) {
         });
       },
       prepareAudioPlanning: async ({ owner: username, isOwner, batch, book, settings }) => {
-        validateBatchFactoryModelPatch({ ...upstreamOptions, username, account: { isOwner }, patch: settings });
+        settings = validateBatchFactoryRuntimeSettings({ ...upstreamOptions, username, isOwner, batch, book, settings });
         const input = batchFactoryProductionText(book);
         if (!input) throw requestError('当前书没有可用于配音的生产内容', 422, 'AUTOMATION_TTS_SOURCE_REQUIRED');
         const tts = { voice: 'zh-CN-XiaoxiaoNeural', style: 'general', speed: 1.8, pitch: 10, ...object(settings.tts) };
@@ -2087,8 +2110,7 @@ function createBatchFactoryV11Router(options = {}) {
         const bookId = book.id;
         const stage = String(lastFailed?.stage || '').trim();
         const pathname = `/api/batch-factory/v11/batches/${encodeURIComponent(batchId)}/books/${encodeURIComponent(bookId)}/stages/retry`;
-        const settings = frozenSettings || automationEffectiveSettings(batch, book);
-        validateBatchFactoryModelPatch({ ...upstreamOptions, username, account: { isOwner }, patch: settings });
+        const settings = validateBatchFactoryRuntimeSettings({ ...upstreamOptions, username, isOwner, batch, book, settings: frozenSettings });
         await refreshBatchFactoryPresetSnapshot({
           username, isOwner, batchId, bookId,
           goBaseUrl: upstreamOptions.goBaseUrl, bridgeSecret: upstreamOptions.bridgeSecret,
@@ -2139,7 +2161,7 @@ function createBatchFactoryV11Router(options = {}) {
         });
       },
       compileDirector: async ({ owner: username, isOwner, batch, book, settings }) => {
-        validateBatchFactoryModelPatch({ ...upstreamOptions, username, account: { isOwner }, patch: settings });
+        settings = validateBatchFactoryRuntimeSettings({ ...upstreamOptions, username, isOwner, batch, book, settings });
         const document = automationH3Document(book);
         if (!Array.isArray(document?.director_cards) || !document.director_cards.length) return null;
         const compileSettings = automationSettingsWithResolvedConstraintBodies(settings, upstreamOptions.presetStore);
@@ -2249,11 +2271,8 @@ function createBatchFactoryV11Router(options = {}) {
       //    保存计划控制执行模式与时间，生产阶段读取当前批量配置。
       startRecovery: async ({ owner, isOwner, batch, savedPlan }) => {
         const recovered = liveGiantAutomationRecovery(batch, savedPlan);
-        const validation = { ...upstreamOptions, username: owner, account: { isOwner } };
-        validateBatchFactoryModelPatch({ ...validation, patch: batch?.settingsState?.patch });
-        for (const book of Array.isArray(batch?.books) ? batch.books : []) {
-          validateBatchFactoryModelPatch({ ...validation, patch: book?.settingsState?.patch });
-        }
+        const books = Array.isArray(batch?.books) && batch.books.length ? batch.books : [undefined];
+        for (const book of books) validateBatchFactoryRuntimeSettings({ ...upstreamOptions, username: owner, isOwner, batch, book });
         return automation.start({
           owner,
           isOwner,
@@ -2374,7 +2393,7 @@ function createBatchFactoryV11Router(options = {}) {
           patch: isPromptConfigPath(req, parsed.pathname) ? req.body?.patch : req.body
         });
       }
-      if (modelExecution) await validateBatchFactoryExecutionModels(req, modelExecution, upstreamOptions);
+      const effectiveModels = modelExecution ? await validateBatchFactoryExecutionModels(req, modelExecution, upstreamOptions) : null;
       const imageGeneration = batchAssetImageGenerationPath(parsed.pathname);
       if (req.method === 'POST' && imageGeneration) {
         const result = await generateBatchFactoryAssetImages({
@@ -2438,7 +2457,7 @@ function createBatchFactoryV11Router(options = {}) {
         req.body = { ...payload, derivedOpening: resolveDerivedOpeningPrompt(promptPresetId, upstreamOptions.presetStore) };
       }
       if (directorTextModelPath(req, parsed.pathname)) {
-        req.body = { ...(req.body || {}), textProvider: requestTextProvider(req, upstreamOptions) };
+        req.body = { ...(req.body || {}), textProvider: requestTextProvider(req, upstreamOptions, Object.hasOwn(object(req.body), 'textModelId') ? req.body.textModelId : effectiveModels?.textModelId) };
       }
       await prepareProviderRequest(req, upstreamOptions, parsed.pathname);
       if (isPromptConfigPath(req, parsed.pathname)) {
@@ -2553,6 +2572,7 @@ module.exports = {
   acquireBatchFactorySmartUnifiedBaseline,
   upstreamErrorMessage,
   applyEngineConfigInheritance,
+  resolveBatchFactoryRuntimeSettings,
   liveGiantAutomationRecovery,
   createBatchFactoryV11Router
 };

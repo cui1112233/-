@@ -959,6 +959,95 @@ test('router startRecovery honors its saved plan without copying preset configur
 // "继承引擎配置"纯函数测试
 const { applyEngineConfigInheritance } = require('../routes/batch-factory-v11');
 
+async function runRecoveryWithRealStageAdapter(t, { batchPatch = {}, bookPatch = {}, defaultEnabled = true } = {}) {
+  const orchestrator = require('../lib/batch-factory-v11/automation-orchestrator');
+  const originalFactory = orchestrator.createBatchFactoryAutomationController;
+  let controller;
+  let adapter;
+  const outgoing = [];
+  const batch = {
+    id: 'batch-1', settingsState: { patch: { automationPresetSnapshot: { id: 'p1', name: '冻结预设', version: 1 }, ...batchPatch } },
+    books: [{ id: 'book-1', sourceText: '真实生产正文', settingsState: { patch: bookPatch }, assetRecords: [], videos: [] }]
+  };
+  const statePath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-real-stage-')), 'state.json');
+  const configReader = () => ({ model: 'provider-default', modelCatalog: [
+    { id: 'account-default', kind: 'text', modelId: 'provider-default', enabled: defaultEnabled, baseUrl: 'http://default.local/v1', credential: 'default-fixture-key' },
+    { id: 'book-text', kind: 'text', modelId: 'provider-book', enabled: true, baseUrl: 'http://book.local/v1', credential: 'book-fixture-key' },
+    { id: 'batch-text', kind: 'text', modelId: 'provider-batch', enabled: true, baseUrl: 'http://batch.local/v1', credential: 'batch-fixture-key' }
+  ] });
+  orchestrator.createBatchFactoryAutomationController = options => {
+    adapter = options.adapter;
+    controller = originalFactory(options);
+    return controller;
+  };
+  delete require.cache[require.resolve('../routes/batch-factory-v11')];
+  try {
+    require('../routes/batch-factory-v11').createBatchFactoryV11Router({
+      automationStatePath: statePath, automationPollMs: 60_000, automationRecoveryEnabled: false,
+      automationPresetStore: {}, configReader,
+      memberStore: { getMember: username => ({ username, active: true, role: 'manager' }) },
+      goBaseUrl: 'http://go.local', bridgeSecret: 'fixture-secret', logger: silentLogger(),
+      fetchImpl: async (url, init) => {
+        const pathname = new URL(url).pathname;
+        if (init.method === 'GET' && pathname === '/api/batch-factory/v11/batches/batch-1') return new Response(JSON.stringify({ batch }));
+        if (init.method === 'GET' && /\/(?:status|merge-status)$/.test(pathname)) return new Response(JSON.stringify({ jobs: [] }));
+        if (init.method === 'GET' && pathname.endsWith('/stages')) return new Response(JSON.stringify({ summary: { runs: [] } }));
+        assert.equal(init.method, 'POST');
+        assert.equal(pathname, '/api/batch-factory/v11/batches/batch-1/books/book-1/stages/assets');
+        outgoing.push(JSON.parse(init.body));
+        return new Response(JSON.stringify({ ok: true }));
+      }
+    });
+  } finally {
+    orchestrator.createBatchFactoryAutomationController = originalFactory;
+    delete require.cache[require.resolve('../routes/batch-factory-v11')];
+  }
+  t.after(() => controller.cancel({ owner: 'stage-test-user', batchId: batch.id }));
+  await adapter.startRecovery({ owner: 'stage-test-user', isOwner: true, batch, savedPlan: { presetId: 'p1', runMode: 'storyboard_only', concurrency: 1 } });
+  for (let i = 0; i < 4; i += 1) {
+    await controller.tick();
+    await wait();
+    if (outgoing.length || controller.status({ owner: 'stage-test-user', batchId: batch.id }).books?.[0]?.error) break;
+  }
+  const status = controller.status({ owner: 'stage-test-user', batchId: batch.id });
+  await controller.pause({ owner: 'stage-test-user', batchId: batch.id });
+  const saved = Object.values(JSON.parse(fs.readFileSync(statePath, 'utf8')).jobs)[0];
+  assert.equal(Object.hasOwn(saved, 'configSnapshot'), false);
+  assert.deepEqual(batch.books[0].settingsState.patch, bookPatch);
+  return { outgoing, status };
+}
+
+for (const { name, options, model, endpoint } of [
+  { name: 'enabled account default', options: {}, model: 'provider-default', endpoint: 'http://default.local/v1/chat/completions' },
+  { name: 'sparse explicit book model over a disabled default and batch model', options: { batchPatch: { textModelId: 'batch-text' }, bookPatch: { textModelId: 'book-text' }, defaultEnabled: false }, model: 'provider-book', endpoint: 'http://book.local/v1/chat/completions' },
+  { name: 'explicit batch model', options: { batchPatch: { textModelId: 'batch-text' } }, model: 'provider-batch', endpoint: 'http://batch.local/v1/chat/completions' }
+]) {
+  test(`real controller and stage adapter dispatch the ${name}`, async t => {
+    const { outgoing } = await runRecoveryWithRealStageAdapter(t, options);
+    assert.equal(outgoing.length, 1);
+    assert.equal(outgoing[0].textProvider.model, model);
+    assert.equal(outgoing[0].textProvider.endpoint, endpoint);
+    assert.equal(outgoing[0].mode, 'missing');
+  });
+}
+
+for (const { name, options } of [
+  { name: 'disabled account default', options: { defaultEnabled: false } },
+  { name: 'explicit blank batch model', options: { batchPatch: { textModelId: '' } } },
+  { name: 'sparse explicit blank book model', options: { batchPatch: { textModelId: 'batch-text' }, bookPatch: { textModelId: '' } } }
+]) {
+  test(`real controller and stage adapter reject ${name} before dispatch`, async t => {
+    const { outgoing, status } = await runRecoveryWithRealStageAdapter(t, options);
+    assert.deepEqual(outgoing, []);
+    assert.equal(status.books[0].stage, 'assets');
+    assert.match(status.books[0].error, /选择已启用的文本模型/);
+  });
+}
+
+test('engine inheritance retains an explicit blank model instead of falling back', () => {
+  assert.deepEqual(applyEngineConfigInheritance({ textModelId: '' }, { model: 'default-text', modelCatalog: [] }), { textModelId: '' });
+});
+
 test('engine inheritance fills the account default text model when batch snapshot has none', () => {
   const accountConfig = { model: 'default-text', modelCatalog: [] };
   const result = applyEngineConfigInheritance({}, accountConfig);
