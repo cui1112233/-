@@ -208,6 +208,8 @@ func normalizePlatform(code string) (name, platformID string) {
 		return "常读", "2"
 	case "QM":
 		return "七猫", "3"
+	case "ZH":
+		return "知乎", "15"
 	default:
 		return strings.TrimSpace(code), ""
 	}
@@ -241,6 +243,8 @@ func platformIDForBookCity(name string) string {
 		return "2"
 	case "七猫":
 		return "3"
+	case "知乎":
+		return "15"
 	default:
 		return ""
 	}
