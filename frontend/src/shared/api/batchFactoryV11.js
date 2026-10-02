@@ -471,6 +471,10 @@ export function startBatchAutomation(batchId, payload = {}) {
   return apiRequest(bf11Path(`batches/${id(batchId)}/automation/start`), { method: 'POST', body: body(payload) });
 }
 
+export function repairLegacyAutomationOverrides(batchId) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/automation/repair-legacy-overrides`), { method: 'POST', body: body({}) });
+}
+
 export function pauseBatchAutomation(batchId) {
   return apiRequest(bf11Path(`batches/${id(batchId)}/automation/pause`), { method: 'POST', body: body({}) });
 }
@@ -612,6 +616,7 @@ export default {
   deleteAutomationPreset,
   saveBatchAutomationPreset,
   startBatchAutomation,
+  repairLegacyAutomationOverrides,
   pauseBatchAutomation,
   resumeBatchAutomation,
   retryBatchAutomation,
