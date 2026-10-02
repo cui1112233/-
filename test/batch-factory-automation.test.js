@@ -795,6 +795,8 @@ test('recovery sweep restarts only a source-failed giant batch after live text a
 test('recovery sweep honors the saved plan: video_no_submit with concurrency 1', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-recovery-plan-'));
   const setup = recoveryFixture({ savedPlan: { runMode: 'video_no_submit', concurrency: 1 } });
+  setup.batch.books[0].sourceMetadata.executorJobId = 'giant-job-running';
+  setup.adapter.reconcileGiantMaterialSource = async () => ({ state: 'running', progress: { percent: 1 } });
   const controller = createBatchFactoryAutomationController({
     adapter: setup.adapter, statePath: path.join(directory, 'state.json'),
     pollMs: 60_000, recoveryEnabled: false, logger: silentLogger()
