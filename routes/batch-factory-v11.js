@@ -1399,6 +1399,37 @@ function presetDrivenExecutionPath(req, pathname) {
   return match ? { batchId: decodeURIComponent(match[1] || match[3]), bookId: decodeURIComponent(match[2] || match[4] || '') } : null;
 }
 
+function batchFactoryModelExecutionPath(req, pathname) {
+  if (req.method !== 'POST') return null;
+  const presetExecution = presetDrivenExecutionPath(req, pathname);
+  if (presetExecution) return presetExecution;
+  const match = pathname.match(/^\/api\/batch-factory\/v(?:11|12)\/batches\/([^/]+)\/books\/([^/]+)\/(?:stages\/[^/]+|h3\/(?:director|audio-measurement)|assets\/images\/generate)$/);
+  return match ? { batchId: decodeURIComponent(match[1]), bookId: decodeURIComponent(match[2]) } : null;
+}
+
+async function validateBatchFactoryExecutionModels(req, target, options) {
+  // Manual dispatch often sends only a text model and provider. Go still reads
+  // persisted image/video selections, so validate live inheritance first.
+  const validation = { ...options, username: req.username, account: req.auth?.account };
+  const loaded = await v11JSONRequest({
+    ...options, username: req.username, isOwner: req.auth?.account?.isOwner === true,
+    method: 'GET', pathname: `/api/batch-factory/v11/batches/${encodeURIComponent(target.batchId)}`
+  });
+  const batch = loaded?.batch || loaded;
+  if (!batch?.id) throw requestError('批量作品不存在', 404, 'BATCH_NOT_FOUND');
+  const books = Array.isArray(batch.books) ? batch.books : [];
+  if (target.bookId) {
+    const book = books.find(item => String(item?.id) === String(target.bookId));
+    if (!book) throw requestError('当前书不存在', 404, 'BOOK_NOT_FOUND');
+    validateBatchFactoryModelPatch({ ...validation, patch: automationEffectiveSettings(batch, book) });
+  } else {
+    validateBatchFactoryModelPatch({ ...validation, patch: batch?.settingsState?.patch });
+    for (const book of books) {
+      validateBatchFactoryModelPatch({ ...validation, patch: automationEffectiveSettings(batch, book) });
+    }
+  }
+}
+
 function redactBatchFactorySystemPromptBodies(value, inPromptConfig = false) {
   if (Array.isArray(value)) return value.map(item => redactBatchFactorySystemPromptBodies(item, inPromptConfig));
   if (!plainObject(value)) return value;
@@ -2183,14 +2214,14 @@ function createBatchFactoryV11Router(options = {}) {
   router.use(async (req, res, next) => {
     try {
       const parsed = new URL(req.originalUrl || req.url, 'http://qiantie.local');
-      if (isPromptConfigPath(req, parsed.pathname) || req.method === 'POST' && (
-        presetDrivenExecutionPath(req, parsed.pathname) || /\/batches\/[^/]+\/books\/[^/]+\/stages\/[^/]+$/.test(parsed.pathname)
-      )) {
+      const modelExecution = batchFactoryModelExecutionPath(req, parsed.pathname);
+      if (isPromptConfigPath(req, parsed.pathname) || modelExecution) {
         validateBatchFactoryModelPatch({
           ...upstreamOptions, username: req.username, account: req.auth?.account,
           patch: isPromptConfigPath(req, parsed.pathname) ? req.body?.patch : req.body
         });
       }
+      if (modelExecution) await validateBatchFactoryExecutionModels(req, modelExecution, upstreamOptions);
       const imageGeneration = batchAssetImageGenerationPath(parsed.pathname);
       if (req.method === 'POST' && imageGeneration) {
         const result = await generateBatchFactoryAssetImages({

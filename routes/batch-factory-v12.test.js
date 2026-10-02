@@ -14,6 +14,58 @@ const {
   createBatchFactoryV12Router
 } = require('./batch-factory-v12');
 
+const dispatchValidationCases = [
+  { name: 'video stage inherits and rejects a disabled persisted batch video model', path: 'stages/video', batchPatch: { videoModelId: 'video-disabled' }, body: { mode: 'missing', textModelId: 'text-1', provider: 'doubao_local_executor' }, status: 422, message: /视频模型不可用/ },
+  { name: 'manual retry rejects a disabled inherited video selection before dispatch', path: 'stages/retry', batchPatch: { videoModelId: 'video-disabled' }, body: { textModelId: 'text-1' }, status: 422, message: /视频模型不可用/ },
+  { name: 'book production rejects a disabled inherited video selection before dispatch', path: 'production', batchPatch: { videoModelId: 'video-disabled' }, body: { provider: 'doubao_local_executor' }, status: 422, message: /视频模型不可用/ },
+  { name: 'native H3 director rejects a wrong-kind explicit image selection', path: 'h3/director', body: { textModelId: 'text-1', imageModelId: 'text-1' }, status: 422, message: /图片模型不可用/ },
+  { name: 'native H3 director rejects a removed explicit video selection', path: 'h3/director', body: { textModelId: 'text-1', videoModelId: 'video-removed' }, status: 422, message: /视频模型不可用/ },
+  { name: 'native H3 director inherits and rejects a wrong-kind persisted image selection', path: 'h3/director', batchPatch: { imageModelId: 'text-1' }, body: { textModelId: 'text-1' }, status: 422, message: /图片模型不可用/ },
+  { name: 'native H3 director inherits and rejects a removed persisted video selection', path: 'h3/director', batchPatch: { videoModelId: 'video-removed' }, body: { textModelId: 'text-1' }, status: 422, message: /视频模型不可用/ },
+  { name: 'video stage retains a valid explicit book model over a disabled batch default', path: 'stages/video', batchPatch: { videoModelId: 'video-disabled' }, bookPatch: { videoModelId: 'local-doubao-executor-video' }, body: { textModelId: 'text-1', provider: 'doubao_local_executor' }, status: 201 },
+  { name: 'video stage retains valid batch inheritance when book model fields are missing', path: 'stages/video', batchPatch: { videoModelId: 'local-doubao-executor-video' }, body: { textModelId: 'text-1', provider: 'doubao_local_executor' }, status: 201 }
+];
+
+for (const fixture of dispatchValidationCases) {
+  test(`V12 ${fixture.name}`, async t => {
+    const calls = [];
+    const batch = { id: 'batch-1', settingsState: { patch: { textModelId: 'text-1', ...fixture.batchPatch } },
+      books: [{ id: 'book-1', settingsState: { patch: fixture.bookPatch || {} } }] };
+    const app = express();
+    app.use(express.json());
+    app.use((req, res, next) => { req.username = 'alice'; next(); });
+    app.use('/api/batch-factory/v12', createBatchFactoryV12Router({
+      goBaseUrl: 'http://go.local', bridgeSecret: 'secret', automationController: {},
+      memberStore: { getMember: username => ({ username, active: true, role: 'manager' }) },
+      configReader: () => ({ modelCatalogVersion: 1, modelCatalog: [
+        { id: 'text-1', kind: 'text', enabled: true, baseUrl: 'https://text.example/v1', modelId: 'text-provider', credential: 'test-key' },
+        { id: 'video-disabled', kind: 'video', enabled: false, credential: 'test-key' },
+        { id: 'local-doubao-executor-video', kind: 'video', enabled: true, executorPaired: true }
+      ] }),
+      fetchImpl: async (url, init) => {
+        calls.push({ method: init.method, pathname: new URL(url).pathname, payload: init.body ? JSON.parse(init.body) : undefined });
+        return new Response(JSON.stringify(init.method === 'GET' ? { batch } : { dispatched: true }), { status: init.method === 'GET' ? 200 : 201 });
+      }
+    }));
+    const server = app.listen(0, '127.0.0.1');
+    t.after(() => new Promise(resolve => server.close(resolve)));
+    await new Promise(resolve => server.once('listening', resolve));
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/batch-factory/v12/batches/batch-1/books/book-1/${fixture.path}`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(fixture.body)
+    });
+    assert.equal(response.status, fixture.status);
+    if (fixture.status === 422) {
+      assert.match((await response.json()).error, fixture.message);
+      assert.equal(calls.some(call => call.method !== 'GET'), false, 'invalid effective selections cannot persist or dispatch work');
+    } else {
+      assert.deepEqual(calls, [
+        { method: 'GET', pathname: '/api/batch-factory/v11/batches/batch-1', payload: undefined },
+        { method: 'POST', pathname: '/api/batch-factory/v11/batches/batch-1/books/book-1/stages/video', payload: fixture.body }
+      ]);
+    }
+  });
+}
+
 for (const target of ['settings', 'books/book-1/override']) {
   for (const invalid of [true, false]) {
     test(`V12 ${target} ${invalid ? 'rejects wrong-kind model before persistence' : 'forwards sparse inheritance and valid model fields unchanged'}`, async t => {

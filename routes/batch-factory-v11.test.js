@@ -177,7 +177,7 @@ test('automation revalidates the live catalogue before stage dispatch after a se
     await new Promise(resolve => setTimeout(resolve, 5));
     status = controller.status({ owner: 'alice', batchId: 'batch-1' });
     const saved = JSON.parse(await fs.readFile(path.join(stateDir, 'automation.json'), 'utf8'));
-    if (Object.values(saved.jobs).some(job => job.counts?.total === 1)) {
+    if (Object.values(saved.jobs).some(job => job.state === 'needs_attention')) {
       await new Promise(resolve => setImmediate(resolve));
       break;
     }
