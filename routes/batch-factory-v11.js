@@ -1704,6 +1704,55 @@ function createBatchFactoryV11Router(options = {}) {
         });
         return result?.summary || result;
       },
+      reconcileGiantMaterialSource: async ({ owner: username, isOwner, batch, book }) => {
+        const metadata = object(book?.sourceMetadata);
+        const executorJobId = String(metadata.executorJobId || '').trim();
+        if (!executorJobId) return { state: 'unavailable' };
+        const giant = await v11JSONRequest({
+          username,
+          isOwner,
+          method: 'GET',
+          pathname: `/api/giant-material-jobs/${encodeURIComponent(executorJobId)}`,
+          goBaseUrl: upstreamOptions.goBaseUrl,
+          bridgeSecret: upstreamOptions.bridgeSecret,
+          fetchImpl: upstreamOptions.fetchImpl,
+          now: upstreamOptions.now
+        });
+        const giantJob = giant?.job || giant?.data?.job || giant?.data || giant || {};
+        const state = String(giantJob?.state || '').trim().toLowerCase();
+        if (state === 'succeeded') {
+          const sourceText = String(giantJob?.result?.text || '').trim();
+          if (!sourceText) return { state: 'failed', error: '执行器任务已完成，但没有返回可用正文' };
+          const sourceMetadata = {
+            ...metadata,
+            sourceCompleteness: 'video_excerpt',
+            requiresProofreading: true,
+            giantOcrState: 'succeeded',
+            giantOcrCompletedAt: giantJob?.completedAt || new Date().toISOString(),
+            giantOcrCharacters: sourceText.length,
+            originalReadStage: 'completed',
+            originalReadVia: 'ocr',
+            originalReadError: '',
+            contentPending: false
+          };
+          await v11JSONRequest({
+            username,
+            isOwner,
+            method: 'PUT',
+            pathname: `/api/batch-factory/v11/batches/${encodeURIComponent(batch.id)}/books/${encodeURIComponent(book.id)}/source`,
+            payload: { sourceText, sourceMetadata, expectedRevision: Number(book?.revision || 0) },
+            goBaseUrl: upstreamOptions.goBaseUrl,
+            bridgeSecret: upstreamOptions.bridgeSecret,
+            fetchImpl: upstreamOptions.fetchImpl,
+            now: upstreamOptions.now
+          });
+          return { state: 'succeeded', characters: sourceText.length };
+        }
+        if (state === 'failed' || state === 'cancelled') {
+          return { state, error: String(giantJob?.error || giantJob?.result?.error || '滚屏 OCR 未完成') };
+        }
+        return { state: state || 'waiting', progress: giantJob?.progress || {} };
+      },
       applyExecutionSnapshot: async ({ owner: username, isOwner, batch, book, configSnapshot }) => {
         const currentBook = (Array.isArray(batch?.books) ? batch.books : []).find(item => item?.id === book?.id) || book;
         const base = object(configSnapshot);

@@ -488,6 +488,36 @@ test('giant placeholder book waits for content instead of blocking forever', asy
   assert.equal(status.books[1].stage, 'ready_for_upload');
 });
 
+test('server reconciliation saves a completed giant OCR result without a browser being open', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-giant-reconcile-'));
+  const { batch, adapter } = fixture();
+  batch.books[0].sourceText = '';
+  batch.books[0].sourceMetadata = {
+    sourceMode: 'giant_material',
+    contentPending: true,
+    executorJobId: 'giant-job-1',
+    giantAutomationPlan: { presetId: 'preset-1', runMode: 'storyboard_only' }
+  };
+  let reconciled = 0;
+  adapter.reconcileGiantMaterialSource = async ({ book }) => {
+    reconciled += 1;
+    book.sourceText = '执行器已经识别出的正文';
+    book.sourceMetadata = { ...book.sourceMetadata, contentPending: false, originalReadStage: 'completed', originalReadVia: 'ocr' };
+    return { state: 'succeeded', characters: book.sourceText.length };
+  };
+  const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} } });
+  await controller.start({ owner: 'user', batchId: batch.id, concurrency: 1, runMode: 'storyboard_only' });
+  await wait();
+  let status = controller.status({ owner: 'user', batchId: batch.id });
+  assert.equal(reconciled, 1);
+  assert.equal(status.books[0].stage, 'source');
+  assert.match(status.books[0].message, /正文已回填/);
+  await controller.tick();
+  await wait();
+  status = controller.status({ owner: 'user', batchId: batch.id });
+  assert.notEqual(status.books[0].stage, 'source');
+});
+
 test('non-giant book without source text still blocks as before', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-test-'));
   const { batch, adapter } = fixture();

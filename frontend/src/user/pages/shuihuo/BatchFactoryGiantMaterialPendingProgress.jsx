@@ -71,50 +71,8 @@ export function BatchFactoryGiantMaterialPendingProgress({ book, batchId, onCont
           setProgress({ completed: 100, total: 100, percent: 100 });
           if (!doneRef.current) {
             doneRef.current = true;
-            const body = String(job.result?.text || '').trim();
-            if (body) {
-              try {
-                // 刷新后再写，避免和创建时的 AI 分类/其它弹窗更新抢同一个 revision。
-                const latestResponse = await getBatch(batchId);
-                const latestBatch = latestResponse?.batch || latestResponse?.data?.batch || latestResponse?.data || latestResponse;
-                const latestBook = findRegisteredGiantMaterialBook(latestBatch?.books, metadata.giantMaterialId) || (latestBatch?.books || []).find(item => item?.id === book.id);
-                if (!latestBook?.id) throw new Error('GIANT_MATERIAL_BOOK_NOT_FOUND');
-                if (String(latestBook.sourceText || '').trim()) {
-                  onContentReady?.();
-                  return;
-                }
-                const nextMetadata = {
-                  ...(latestBook.sourceMetadata || {}),
-                  sourceCompleteness: 'video_excerpt',
-                  requiresProofreading: true,
-                  giantOcrState: 'succeeded',
-                  giantOcrCompletedAt: new Date().toISOString(),
-                  giantOcrCharacters: body.length,
-                  originalReadStage: 'completed',
-                  originalReadVia: 'ocr',
-                  originalReadError: '',
-                  contentPending: false
-                };
-                await updateBookSource(batchId, latestBook.id, {
-                  sourceText: body,
-                  sourceMetadata: nextMetadata,
-                  expectedRevision: Number(latestBook.revision || 0)
-                });
-                // 回填后补一次 AI 判断：新建批量弹窗派发的书没有弹窗帮它分类。
-                try { await classifyBookPublishMetadata(batchId, latestBook.id, { force: true }); } catch (_) { /* 分类失败不阻断生产，可单书重试 */ }
-                const plan = nextMetadata.giantAutomationPlan;
-                if (plan?.presetId) {
-                  try {
-                    const result = await startSavedGiantAutomation(batchId, plan);
-                    if (result.started) message.success(result.scheduled ? '正文已回填，自动生产已进入定时队列。' : '正文已回填，已继续自动生产。');
-                  } catch (automationError) {
-                    message.warning(`正文已回填；自动生产请在工作区重试：${automationError?.message || '启动失败'}`);
-                  }
-                }
-              } catch (syncError) {
-                setError(String(syncError?.message || '正文已识别，但回填失败；请刷新后重试。'));
-              }
-            }
+            // OCR 正文由服务端自动回填并继续调度；这里仅展示执行器状态。
+            // 不能再让“某个浏览器标签页是否开着”决定正文和自动化是否落库。
             onContentReady?.();
           }
           return;
