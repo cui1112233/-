@@ -19,6 +19,15 @@ export function modelKindLabel(kind) {
   return isModelKind(kind) ? MODEL_KIND_LABELS[kind] : '';
 }
 
+export function modelSelectOptions(models, kind) {
+  return (Array.isArray(models) ? models : [])
+    .filter(model => model?.kind === kind && String(model?.id || '').trim())
+    .map(model => ({
+      value: model.id,
+      label: model.displayName || model.name || model.modelId || model.id
+    }));
+}
+
 export function getTypedModelSelectState(kind, { models = [], error = '' } = {}) {
   const validKind = isModelKind(kind);
   const safeModels = Array.isArray(models) ? models : [];

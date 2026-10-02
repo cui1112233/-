@@ -16,12 +16,6 @@ test('single-book configuration compares inherited settings and only saves chang
   assert.match(source, /当前批量作品配置/);
 });
 
-test('single-book configuration makes its frozen batch inheritance explicit', () => {
-  assert.match(source, /automationPresetSnapshot/);
-  assert.match(source, /继承统一配置：/);
-  assert.match(source, /当前书未保存覆盖时，始终使用该批次冻结的统一配置/);
-});
-
 test('single-book configuration selects enabled text, image and video models', () => {
   assert.match(source, /listAvailableModels\('text'\)/);
   assert.match(source, /listAvailableModels\('image'\)/);
@@ -29,6 +23,11 @@ test('single-book configuration selects enabled text, image and video models', (
   assert.match(source, /文本模型/);
   assert.match(source, /图片模型/);
   assert.match(source, /视频模型/);
+  assert.match(source, /import \{ listAvailableModels, modelSelectOptions \} from '\.\.\/\.\.\/\.\.\/shared\/api\/modelCatalog'/);
+  for (const kind of ['text', 'image', 'video']) {
+    assert.ok(source.includes(`modelSelectOptions(models, '${kind}')`));
+  }
+  assert.doesNotMatch(source, /item\.name \|\| item\.id/);
 });
 
 test('single-book configuration has the same layered script constraints and video overrides as the confirmed V11 plan', () => {

@@ -1,7 +1,7 @@
 import { SettingOutlined } from '@ant-design/icons';
 import { Alert, Button, Divider, Input, InputNumber, Modal, Segmented, Select, Space, Switch, Tabs, Tooltip, message } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
-import { listAvailableModels } from '../../../shared/api/modelCatalog';
+import { listAvailableModels, modelSelectOptions } from '../../../shared/api/modelCatalog';
 import { checkWebSubmitEnvironment, getWebSubmitConfig, saveWebSubmitConfig, syncWebSubmitConfigs, syncWebSubmitStyles, testWebSubmitVisible } from '../../../shared/api/novelFetch';
 import {
   createAutomationPreset,
@@ -47,10 +47,11 @@ export function BatchFactoryEngineSettingsForm({ value, onChange, sections = ['m
   const patch = next => onChange({ ...value, ...next });
   const tts = { ...DEFAULT_TTS, ...(value.tts || {}) };
   const modelSettingsEnabled = sections.includes('models');
-  const modelOptions = useMemo(() => {
-    const asOptions = kind => models.filter(model => model.kind === kind).map(model => ({ value: model.id, label: model.displayName || model.name || model.modelId || model.id }));
-    return { text: asOptions('text'), image: asOptions('image'), video: asOptions('video') };
-  }, [models]);
+  const modelOptions = useMemo(() => ({
+    text: modelSelectOptions(models, 'text'),
+    image: modelSelectOptions(models, 'image'),
+    video: modelSelectOptions(models, 'video')
+  }), [models]);
   useEffect(() => {
     if (!active || !modelSettingsEnabled) return undefined;
     let alive = true;

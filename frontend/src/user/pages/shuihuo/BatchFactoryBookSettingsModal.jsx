@@ -1,6 +1,6 @@
 import { Alert, Button, Divider, Input, InputNumber, Modal, Popconfirm, Popover, Segmented, Select, Space, Switch, Tabs, message} from 'antd';
 import { useEffect, useMemo, useState } from 'react';
-import { listAvailableModels } from '../../../shared/api/modelCatalog';
+import { listAvailableModels, modelSelectOptions } from '../../../shared/api/modelCatalog';
 import { get121OrganizationOptions, getBatch, listSystemPresetCatalog, saveBookOverride } from '../../../shared/api/batchFactoryV11';
 import { getConfig } from '../../../shared/api/config';
 import { textToSpeech } from '../../../shared/api/tts';
@@ -374,9 +374,9 @@ export function BatchFactoryBookSettingsModal({ open, batch, book, activeRegion 
   }, [open, region, loading, catalog, book?.id, book?.settingsState?.revision]);
 
   const modelOptions = useMemo(() => ({
-    text: models.filter(item => item.kind === 'text').map(item => ({ value: item.id, label: item.name || item.id })),
-    image: models.filter(item => item.kind === 'image').map(item => ({ value: item.id, label: item.name || item.id })),
-    video: models.filter(item => item.kind === 'video').map(item => ({ value: item.id, label: item.name || item.id }))
+    text: modelSelectOptions(models, 'text'),
+    image: modelSelectOptions(models, 'image'),
+    video: modelSelectOptions(models, 'video')
   }), [models]);
   const scriptExtraction = useMemo(() => catalog.script.filter(item => item.slot === 'script.asset-extraction'), [catalog.script]);
   const characterPromptRules = useMemo(() => catalog.batch.filter(item => item.slot === 'batch.character-meta'), [catalog.batch]);
