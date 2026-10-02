@@ -725,6 +725,46 @@ test('rejects a model classification that is not a valid 121 gender and style', 
   assert.throws(() => parseBatchBookClassification('{"gender":"未知","style":"仙侠"}'), /必须返回男女频/);
 });
 
+test('accepts common model JSON drift with Chinese punctuation and single quotes', () => {
+  const result = parseBatchBookClassification(`判断结果如下：
+\`\`\`json
+{'gender'：'女频'，'style'：'现代虐文'，'tags'：['重生'，'复仇']，'reason'：'现代女性复仇线'}
+\`\`\``);
+  assert.deepEqual(result, {
+    gender: '女频',
+    style: '现代虐文',
+    tags: '重生、复仇',
+    reason: '现代女性复仇线'
+  });
+});
+
+test('asks the selected model to repair one invalid classification response before failing', async () => {
+  const calls = [];
+  const book = { id: 'book-1', title: '女主重生复仇', platform: '15', sourceText: '沈薇重生回到离婚前，决定查清真相。', sourceMetadata: {}, revision: 7 };
+  const result = await classifyBatchFactoryBookFor121({
+    username: 'alice', batchId: 'batch-1', bookId: 'book-1', goBaseUrl: 'http://go.local', bridgeSecret: 'bridge', now: () => Date.parse('2026-09-17T01:02:03.000Z'),
+    textProvider: { endpoint: 'http://text.local/v1/chat/completions', apiKey: 'key', model: 'gpt-5.4', displayName: 'GPT-5.4' },
+    fetchImpl: async (url, init = {}) => {
+      calls.push({ url, init });
+      if (init.method === 'GET') return new Response(JSON.stringify({ batch: { id: 'batch-1', books: [book] } }), { status: 200 });
+      if (url === 'http://text.local/v1/chat/completions') {
+        const modelCalls = calls.filter(call => call.url === url).length;
+        const content = modelCalls === 1
+          ? '女频，现代虐文，标签是重生和复仇。'
+          : '{"gender":"女频","style":"现代虐文","tags":["重生","复仇"],"reason":"现代女性复仇线"}';
+        return new Response(JSON.stringify({ choices: [{ message: { content } }] }), { status: 200 });
+      }
+      if (init.method === 'PUT') return new Response(JSON.stringify({ book: { ...book, revision: 8 } }), { status: 200 });
+      throw new Error(`unexpected request: ${init.method} ${url}`);
+    }
+  });
+  assert.equal(result.reused, false);
+  assert.equal(calls.filter(call => call.url === 'http://text.local/v1/chat/completions').length, 2);
+  const repairPayload = JSON.parse(calls.filter(call => call.url === 'http://text.local/v1/chat/completions')[1].init.body);
+  assert.match(repairPayload.messages.at(-1).content, /只返回合法 JSON/);
+  assert.deepEqual(result.classification, { gender: '女频', style: '现代虐文', tags: '重生、复仇', reason: '现代女性复仇线' });
+});
+
 test('uses the runtime fetch when V11 helper receives no injected fetch', async () => {
   const originalFetch = globalThis.fetch;
   const calls = [];

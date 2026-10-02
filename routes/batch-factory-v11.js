@@ -636,15 +636,39 @@ function normalizedBookStyle(value) {
 }
 
 function parseBatchBookClassification(content) {
-  const raw = String(content || '').trim()
-    .replace(/^```(?:json)?\s*/i, '')
-    .replace(/\s*```$/, '');
-  const start = raw.indexOf('{');
-  const end = raw.lastIndexOf('}');
-  if (start < 0 || end < start) throw requestError('AI 判断没有返回 JSON 结果', 502, 'BOOK_CLASSIFICATION_INVALID_RESPONSE');
-  let parsed = {};
-  try { parsed = JSON.parse(raw.slice(start, end + 1)); }
-  catch (_) { throw requestError('AI 判断返回的 JSON 无法解析', 502, 'BOOK_CLASSIFICATION_INVALID_RESPONSE'); }
+  const raw = String(content || '').trim();
+  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  const candidates = [fenced?.[1], raw]
+    .filter(Boolean)
+    .flatMap(candidate => {
+      const start = candidate.indexOf('{');
+      const end = candidate.lastIndexOf('}');
+      return start >= 0 && end >= start ? [candidate.slice(start, end + 1)] : [];
+    });
+  if (!candidates.length) throw requestError('AI 判断没有返回 JSON 结果', 502, 'BOOK_CLASSIFICATION_INVALID_RESPONSE');
+  let parsed;
+  for (const candidate of candidates) {
+    try {
+      parsed = JSON.parse(candidate);
+      break;
+    } catch (_) {
+      // Compatible models occasionally return JavaScript-like JSON with
+      // full-width punctuation or single-quoted keys/values. Normalize only
+      // after strict JSON parsing fails; semantic validation below remains the
+      // authority for what the application accepts.
+      const repaired = candidate
+        .replace(/[“”]/g, '"')
+        .replace(/[‘’]/g, "'")
+        .replace(/：/g, ':')
+        .replace(/，/g, ',')
+        .replace(/'([^'\\]*(?:\\.[^'\\]*)*)'/g, (_, value) => JSON.stringify(value.replace(/\\'/g, "'")));
+      try {
+        parsed = JSON.parse(repaired);
+        break;
+      } catch (_) { /* try the next extracted candidate */ }
+    }
+  }
+  if (!parsed) throw requestError('AI 判断返回的 JSON 无法解析', 502, 'BOOK_CLASSIFICATION_INVALID_RESPONSE');
   const gender = normalizedBookGender(parsed.gender || parsed.genderFrequency || parsed.gender_frequency);
   const style = normalizedBookStyle(parsed.style || parsed.styleType || parsed.style_type);
   if (!gender || !style) {
@@ -709,18 +733,34 @@ async function classifyBatchFactoryBookFor121({ username, isOwner = false, batch
     return { book, classification: { gender: existingGender, style: existingStyle, tags: String(metadata.tags || '').trim(), reason: String(metadata.classifyReason || '').trim() }, reused: true };
   }
   if (!String(book.sourceText || '').trim()) throw requestError('当前小说没有正文，无法识别男女频和风格', 422, 'SOURCE_TEXT_REQUIRED');
-  const response = await fetchImpl(textProvider.endpoint, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${textProvider.apiKey}` },
-    body: JSON.stringify({ model: textProvider.model, messages: batchBookClassificationMessages(book), max_tokens: 700, temperature: 0.1, stream: false }),
-    redirect: 'manual'
-  });
-  const raw = await response.text();
-  let payload = {};
-  try { payload = raw ? JSON.parse(raw) : {}; } catch (_) { /* parser below explains invalid output */ }
   const modelName = String(textProvider.displayName || textProvider.model || '当前文本模型').trim();
-  if (!response.ok) throw requestError(`小说分类模型“${modelName}”请求失败：${payload?.error?.message || payload?.message || `HTTP ${response.status}`}`, 502, 'BOOK_CLASSIFICATION_PROVIDER_FAILED');
-  const classification = parseBatchBookClassification(payload?.choices?.[0]?.message?.content);
+  const requestClassification = async messages => {
+    const response = await fetchImpl(textProvider.endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${textProvider.apiKey}` },
+      body: JSON.stringify({ model: textProvider.model, messages, max_tokens: 700, temperature: 0.1, stream: false }),
+      redirect: 'manual'
+    });
+    const raw = await response.text();
+    let payload = {};
+    try { payload = raw ? JSON.parse(raw) : {}; } catch (_) { /* error below includes the provider status */ }
+    if (!response.ok) throw requestError(`小说分类模型“${modelName}”请求失败：${payload?.error?.message || payload?.message || `HTTP ${response.status}`}`, 502, 'BOOK_CLASSIFICATION_PROVIDER_FAILED');
+    return responseMessageText(payload?.choices?.[0]?.message?.content);
+  };
+  const messages = batchBookClassificationMessages(book);
+  let content = await requestClassification(messages);
+  let classification;
+  try {
+    classification = parseBatchBookClassification(content);
+  } catch (error) {
+    if (error?.code !== 'BOOK_CLASSIFICATION_INVALID_RESPONSE') throw error;
+    content = await requestClassification([
+      ...messages,
+      { role: 'assistant', content: content.slice(0, 4000) || '(空输出)' },
+      { role: 'user', content: '上一条格式不合格。请修正并只返回合法 JSON，不要代码块、解释或其他文字。字段必须是 gender、style、tags、reason；gender 只能是男频或女频，style 必须从系统给出的风格列表中选择。' }
+    ]);
+    classification = parseBatchBookClassification(content);
+  }
   const nextMetadata = {
     ...metadata,
     gender: classification.gender,
