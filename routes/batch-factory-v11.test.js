@@ -44,7 +44,11 @@ const {
 
 test('runtime settings inherit the current enabled account default using its catalogue ID', () => {
   const batch = { settingsState: { patch: { aiPromptConfig: { assets: { enabled: true } } } } };
-  const book = { settingsState: { patch: { aiPromptConfig: { visual: { enabled: false } } } };
+  const book = {
+    settingsState: {
+      patch: { aiPromptConfig: { visual: { enabled: false } } }
+    }
+  };
   const configReader = username => {
     assert.equal(username, 'alice');
     return { model: 'provider-default', modelCatalog: [

@@ -4,7 +4,7 @@ import test from 'node:test';
 
 // Resolve the browser's extensionless client import for the native Node runner.
 const source = readFileSync(new URL('./modelCatalog.js', import.meta.url), 'utf8')
-  .replace("from './client'", `from '${new URL('./client.js', import.meta.url).href}'`);
+  .replace(/from '\.\/client(?:\.js)?'/, `from '${new URL('./client.js', import.meta.url).href}'`);
 const { modelSelectOptions } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 
 test('uses backend displayName for typed model choices', () => {

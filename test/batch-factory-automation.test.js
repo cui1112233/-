@@ -889,7 +889,7 @@ test('recovery sweep runs automatically shortly after controller creation', asyn
 // 上一轮的 "text is not defined" 事故说明：只测编排器、不测路由真实代码，
 // 适配器内部的引用错误会一路漏到公网。这里通过替换编排器工厂，把路由闭包
 // 内部构造的 adapter 捕获出来，直接执行真实的 startRecovery。
-function captureRouterRecoveryAdapter(presetStore) {
+function captureRouterRecoveryAdapter(presetStore, routerOptions = {}) {
   const orchestrator = require('../lib/batch-factory-v11/automation-orchestrator');
   const originalFactory = orchestrator.createBatchFactoryAutomationController;
   let captured = null;
@@ -907,7 +907,8 @@ function captureRouterRecoveryAdapter(presetStore) {
   createBatchFactoryV11Router({
     accountStore: { listAccounts: () => [] },
     automationPresetStore: presetStore,
-    logger: { error() {}, warn() {}, info() {} }
+    logger: { error() {}, warn() {}, info() {} },
+    ...routerOptions
   });
   return {
     adapter: captured,
@@ -937,7 +938,16 @@ test('router startRecovery rejects a missing giant plan instead of defaulting to
 test('router startRecovery honors its saved plan without copying preset configuration', async () => {
   const presets = new Map([['p1', { id: 'p1', name: '夜间', version: 3, config: { textModelId: 'from-preset' } }]]);
   const presetStore = { list: async () => [...presets.values()], get: async (_owner, id) => presets.get(id) };
-  const setup = captureRouterRecoveryAdapter(presetStore);
+  const setup = captureRouterRecoveryAdapter(presetStore, {
+    configReader: () => ({
+      model: 'provider-current-text',
+      modelCatalogVersion: 1,
+      modelCatalog: [{
+        id: 'current-text', kind: 'text', displayName: '当前文本模型', providerType: 'openai_compatible',
+        baseUrl: 'https://models.example.test/v1', modelId: 'provider-current-text', credential: 'test-key', enabled: true
+      }]
+    })
+  });
   try {
     const batch = { id: 'b2', settingsState: { patch: { openingEnabled: false } } };
     await setup.adapter.startRecovery({

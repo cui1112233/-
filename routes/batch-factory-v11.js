@@ -1781,18 +1781,21 @@ function automationVideoProvider(settings = {}) {
 function automationEffectiveSettings(batch, book) {
   const batchPatch = object(batch?.settingsState?.patch);
   const bookPatch = object(book?.settingsState?.patch);
-  return {
+  const settings = {
     ...batchPatch,
     ...bookPatch,
-    aiPromptConfig: {
-      ...object(batchPatch.aiPromptConfig),
-      ...object(bookPatch.aiPromptConfig)
-    },
     publishSettings: {
       ...object(batchPatch.publishSettings),
       ...object(bookPatch.publishSettings)
     }
   };
+  if (Object.hasOwn(batchPatch, 'aiPromptConfig') || Object.hasOwn(bookPatch, 'aiPromptConfig')) {
+    settings.aiPromptConfig = {
+      ...object(batchPatch.aiPromptConfig),
+      ...object(bookPatch.aiPromptConfig)
+    };
+  }
+  return settings;
 }
 
 function automationPublishSettings(batch, book, frozenSettings) {
