@@ -19,7 +19,13 @@ type OpeningVariant struct {
 	FailureReason string `json:"failureReason,omitempty"`
 }
 
-var openingVariantSectionPattern = regexp.MustCompile(`(?m)===VARIANT\s*(\d+)\s*===`)
+// Models occasionally preserve the requested section numbers while drifting
+// from the exact decoration (for example "### VARIANT 1", "**变体 2：**",
+// or "=== 换开头 3 ==="). Treat those as the same machine marker so a
+// harmless Markdown-format change does not discard an otherwise valid slot.
+// Horizontal whitespace is intentional: the match must never consume the
+// following prompt line.
+var openingVariantSectionPattern = regexp.MustCompile(`(?mi)^[\t ]*(?:#{1,6}[\t ]*)?(?:\*{1,2}|_{1,2})?(?:={2,}[\t ]*)?(?:VARIANT|变体|换开头)[\t ]*(\d+)[\t ]*(?:[:：])?[\t ]*(?:={2,})?(?:\*{1,2}|_{1,2})?[\t ]*`)
 
 func openingVariantLabel(index int) string {
 	return fmt.Sprintf("分镜一 | 换开头%d", index)

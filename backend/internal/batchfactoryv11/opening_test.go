@@ -40,6 +40,29 @@ func TestParseOpeningVariantsAcceptsInlineMarkerAndDuration(t *testing.T) {
 	}
 }
 
+func TestParseOpeningVariantsAcceptsCommonModelMarkerDrift(t *testing.T) {
+	raw := strings.Join([]string{
+		"### VARIANT 1",
+		"时长：10秒",
+		"变体一正文",
+		"",
+		"**变体 2：**",
+		"变体二正文",
+		"",
+		"=== 换开头 3 ===",
+		"变体三正文",
+	}, "\n")
+	variants := parseOpeningVariants(raw, 15, 10, 3)
+	for index, variant := range variants {
+		if variant.Status != "success" {
+			t.Fatalf("variant[%d] = %#v, want success", index, variant)
+		}
+	}
+	if !strings.Contains(variants[1].Prompt, "变体二正文") {
+		t.Fatalf("variant[1].prompt = %q", variants[1].Prompt)
+	}
+}
+
 func TestParseOpeningVariantsFillsMissingAsFailed(t *testing.T) {
 	raw := "===VARIANT 1===\n时长：10秒\n正文"
 	variants := parseOpeningVariants(raw, 15, 10, 3)
