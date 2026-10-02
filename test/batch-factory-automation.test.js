@@ -613,3 +613,152 @@ test('books waiting on external conditions do not block later books whose videos
   const state = controller.status({ owner: 'user', batchId: batch.id }).books.find(book => book.bookId === 'book-4');
   assert.equal(state.stage, 'ready_for_upload');
 });
+
+// -------- 巨量批量自动兜底巡查的回归测试 --------
+
+function recoveryFixture({ savedPlan = null, batchId = 'giant-batch-1' } = {}) {
+  const batch = {
+    id: batchId,
+    title: '巨量批量',
+    settingsState: { patch: { publishSettings: { organization: 'org' } } },
+    books: [{
+      id: 'g-book-1', bookId: '201', title: '巨量书', sourceText: '',
+      sourceMetadata: { sourceMode: 'giant_material', contentPending: true, ...(savedPlan ? { giantAutomationPlan: savedPlan } : {}) },
+      settingsState: { patch: {} }, assetRecords: [], videos: []
+    }]
+  };
+  const base = fixture();
+  const recoveries = [];
+  let controller;
+  const adapter = {
+    ...base.adapter,
+    async loadBatch() { return batch; },
+    async listOwners() { return [{ username: 'user', isOwner: true }]; },
+    async listBatches() { return [batch]; },
+    async startRecovery({ owner, batch: currentBatch, savedPlan: plan }) {
+      recoveries.push({ owner, batchId: currentBatch.id, plan });
+      const runModeValue = String(plan?.runMode || 'full_submit');
+      await controller.start({
+        owner,
+        batchId: currentBatch.id,
+        runMode: runModeValue,
+        autoPublish: runModeValue === 'full_submit',
+        concurrency: plan?.concurrency,
+        configSnapshot: currentBatch.settingsState.patch
+      });
+    }
+  };
+  return { batch, adapter, recoveries, setController(value) { controller = value; } };
+}
+
+const silentLogger = () => ({ error() {}, warn() {}, info() {}, debug() {} });
+
+test('recovery sweep auto-starts a giant batch that never got a job as full_submit with auto upload', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-recovery-'));
+  const setup = recoveryFixture();
+  const controller = createBatchFactoryAutomationController({
+    adapter: setup.adapter, statePath: path.join(directory, 'state.json'),
+    pollMs: 60_000, recoveryEnabled: false, logger: silentLogger()
+  });
+  setup.setController(controller);
+  await controller.runRecovery();
+  assert.equal(setup.recoveries.length, 1);
+  assert.equal(setup.recoveries[0].plan, null);
+  const status = controller.status({ owner: 'user', batchId: 'giant-batch-1' });
+  assert.equal(status.state, 'running');
+  assert.equal(status.runMode, 'full_submit');
+  assert.equal(status.autoPublish, true);
+});
+
+test('recovery sweep honors the saved plan: video_no_submit with concurrency 1', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-recovery-plan-'));
+  const setup = recoveryFixture({ savedPlan: { runMode: 'video_no_submit', concurrency: 1 } });
+  const controller = createBatchFactoryAutomationController({
+    adapter: setup.adapter, statePath: path.join(directory, 'state.json'),
+    pollMs: 60_000, recoveryEnabled: false, logger: silentLogger()
+  });
+  setup.setController(controller);
+  await controller.runRecovery();
+  const status = controller.status({ owner: 'user', batchId: 'giant-batch-1' });
+  assert.equal(status.state, 'running');
+  assert.equal(status.runMode, 'video_no_submit');
+  assert.equal(status.autoPublish, false);
+  assert.equal(status.concurrency, 1);
+});
+
+test('recovery sweep never restarts active, paused or cancelled jobs', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-recovery-skip-'));
+  const setup = recoveryFixture();
+  const controller = createBatchFactoryAutomationController({
+    adapter: setup.adapter, statePath: path.join(directory, 'state.json'),
+    pollMs: 60_000, recoveryEnabled: false, logger: silentLogger()
+  });
+  setup.setController(controller);
+  await controller.start({ owner: 'user', batchId: 'giant-batch-1', runMode: 'full_submit', autoPublish: true });
+  await controller.runRecovery();
+  assert.equal(setup.recoveries.length, 0);
+  await controller.pause({ owner: 'user', batchId: 'giant-batch-1' });
+  await controller.runRecovery();
+  assert.equal(setup.recoveries.length, 0);
+  await controller.cancel({ owner: 'user', batchId: 'giant-batch-1' });
+  await controller.runRecovery();
+  assert.equal(setup.recoveries.length, 0);
+});
+
+test('recovery sweep waits for a future scheduled plan and starts once it is due', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-recovery-schedule-'));
+  const setup = recoveryFixture({ savedPlan: { runMode: 'full_submit', scheduledAt: '2999-01-01T00:00:00.000Z' } });
+  const controller = createBatchFactoryAutomationController({
+    adapter: setup.adapter, statePath: path.join(directory, 'state.json'),
+    pollMs: 60_000, recoveryEnabled: false, logger: silentLogger()
+  });
+  setup.setController(controller);
+  await controller.runRecovery();
+  assert.equal(setup.recoveries.length, 0);
+  setup.batch.books[0].sourceMetadata.giantAutomationPlan.scheduledAt = '2000-01-01T00:00:00.000Z';
+  await controller.runRecovery();
+  assert.equal(setup.recoveries.length, 1);
+});
+
+test('recovery sweep ignores non-giant batches and survives a failing recovery attempt', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-recovery-error-'));
+  const setup = recoveryFixture();
+  const normalBatch = {
+    id: 'normal-batch',
+    settingsState: { patch: {} },
+    books: [{ id: 'n-book-1', sourceMetadata: {}, settingsState: { patch: {} } }]
+  };
+  setup.adapter.listBatches = async () => [normalBatch, setup.batch];
+  let failNext = true;
+  const originalStartRecovery = setup.adapter.startRecovery;
+  setup.adapter.startRecovery = async input => {
+    if (failNext) { failNext = false; throw new Error('temporary recovery error'); }
+    return originalStartRecovery(input);
+  };
+  const warnings = [];
+  const controller = createBatchFactoryAutomationController({
+    adapter: setup.adapter, statePath: path.join(directory, 'state.json'),
+    pollMs: 60_000, recoveryEnabled: false,
+    logger: { ...silentLogger(), warn() { warnings.push(1); } }
+  });
+  setup.setController(controller);
+
+  await assert.doesNotReject(controller.runRecovery());
+  assert.equal(setup.recoveries.length, 0); // 尝试失败，不算开工
+  assert.equal(warnings.length, 1);
+  await controller.runRecovery(); // 故障解除，巡查下一轮必须能重新启动
+  assert.equal(setup.recoveries.length, 1);
+  assert.equal(setup.recoveries[0].batchId, 'giant-batch-1');
+});
+
+test('recovery sweep runs automatically shortly after controller creation', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-recovery-auto-'));
+  const setup = recoveryFixture();
+  const controller = createBatchFactoryAutomationController({
+    adapter: setup.adapter, statePath: path.join(directory, 'state.json'),
+    pollMs: 60_000, recoveryMs: 60_000, logger: silentLogger()
+  });
+  setup.setController(controller);
+  await wait(80);
+  assert.equal(setup.recoveries.length, 1);
+});

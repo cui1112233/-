@@ -1684,6 +1684,8 @@ function createBatchFactoryV11Router(options = {}) {
   const automation = options.automationController || createBatchFactoryAutomationController({
     statePath: options.automationStatePath,
     pollMs: options.automationPollMs,
+    recoveryEnabled: options.automationRecoveryEnabled,
+    recoveryMs: options.automationRecoveryMs,
     logger: options.logger || console,
     adapter: {
       loadBatch: async (username, isOwner, batchId) => {
@@ -1972,6 +1974,43 @@ function createBatchFactoryV11Router(options = {}) {
           novelFetchStore: options.novelFetchStore,
           directClient: options.directClient,
           clock: options.clock
+        });
+      },
+      // ---- 巨量批量自动兜底巡查所需的三个适配器 ----
+      // 1) 列出全部账号；只巡查正常状态的账号。
+      listOwners: () => {
+        const accounts = typeof options.accountStore?.listAccounts === 'function' ? options.accountStore.listAccounts() : [];
+        return (Array.isArray(accounts) ? accounts : []).filter(account => account && account.active !== false);
+      },
+      // 2) 列出某个账号名下的全部批量（沿用现有 Go 列表接口，巡查默认 60 秒一次，成本约等于刷新一次工程库）。
+      listBatches: async (username, isOwner) => {
+        const result = await v11JSONRequest({
+          username, isOwner, method: 'GET',
+          pathname: '/api/batch-factory/v11/batches',
+          goBaseUrl: upstreamOptions.goBaseUrl, bridgeSecret: upstreamOptions.bridgeSecret,
+          fetchImpl: upstreamOptions.fetchImpl, now: upstreamOptions.now
+        });
+        return Array.isArray(result?.batches) ? result.batches : [];
+      },
+      // 3) 对"含巨量书但没有活跃 job"的批量补启动：
+      //    有预设按预设跑；没预设就 full_submit + 自动上传到"视频管理系统"，
+      //    配置快照取批量自身的设置（与手动开工路由的兜底完全一致）。
+      startRecovery: async ({ owner, isOwner, batch, savedPlan }) => {
+        const presetId = text(savedPlan?.presetId);
+        const preset = presetId ? await automationPresets.get(owner, presetId) : null;
+        if (presetId && !preset) throw requestError('自动化预设不存在或不属于当前账号', 404, 'AUTOMATION_PRESET_NOT_FOUND');
+        const runModeValue = text(savedPlan?.runMode);
+        const runMode = ['storyboard_only', 'video_no_submit', 'full_submit'].includes(runModeValue) ? runModeValue : 'full_submit';
+        return automation.start({
+          owner,
+          isOwner,
+          batchId: batch.id,
+          scheduledAt: savedPlan?.scheduledAt || '',
+          runMode,
+          autoPublish: runMode === 'full_submit',
+          concurrency: savedPlan?.concurrency,
+          preset: preset ? { id: preset.id, name: preset.name, version: preset.version } : {},
+          configSnapshot: preset?.config || object(batch?.settingsState?.patch)
         });
       }
     }
