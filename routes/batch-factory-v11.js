@@ -1,7 +1,8 @@
 const express = require('express');
 const crypto = require('crypto');
+const fs = require('fs');
 const path = require('path');
-const { getVideoApiKey, readConfig } = require('../lib/shared');
+const { getVideoApiKey, readConfig, getUserConfigPath } = require('../lib/shared');
 const { proxyV11Request, createSignedBridgeHeaders } = require('../lib/batch-factory-v11/go-proxy');
 const { BATCH_FACTORY_PRESET_REQUIREMENTS, isPublishedPresetAllowed, resolveSystemPresetBody } = require('../lib/system-preset-catalog');
 const { listVisibleModels, resolveRuntimeModel } = require('../lib/model-catalog-runtime');
@@ -26,6 +27,24 @@ const CONFIG_PATH = '/api/batch-factory/v11/video-provider/config';
 const STATUS_PATH = '/api/batch-factory/v11/video-provider/status';
 const AI_PROMPT_MODULES = ['assets', 'constraints', 'hook', 'originalDirector', 'viralDirector', 'video', 'visual'];
 function object(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
+
+// "单书继承作品配置、作品继承引擎配置"：批量自身的设置里没选文本模型时，
+// 自动化不能直接卡死，要按老规矩回退到该账号在设置页保存的默认文本模型。
+// 纯函数：传入批量设置快照和账号配置，返回补齐后的快照。
+function applyEngineConfigInheritance(snapshot, accountConfig) {
+  const patch = { ...object(snapshot) };
+  if (String(patch.textModelId || '').trim()) return patch;
+  const catalog = Array.isArray(accountConfig?.modelCatalog) ? accountConfig.modelCatalog : [];
+  const defaultModel = String(accountConfig?.model || '').trim();
+  // 默认模型在目录里被明确停用就不继承；目录无记录的老配置按"用户自选"照用。
+  const catalogEntry = defaultModel
+    ? catalog.find(item => String(item?.modelId || item?.id || '') === defaultModel)
+    : null;
+  if (defaultModel && (!catalogEntry || catalogEntry.enabled !== false)) {
+    patch.textModelId = defaultModel;
+  }
+  return patch;
+}
 
 function resolveV11GoBaseUrl(env = process.env) {
   return String(env.QIANTIE_BATCH_FACTORY_V11_BASE_URL || env.QIANTIE_GO_BASE_URL || 'http://backend:4000').replace(/\/$/, '');
@@ -1993,14 +2012,21 @@ function createBatchFactoryV11Router(options = {}) {
         return Array.isArray(result?.batches) ? result.batches : [];
       },
       // 3) 对"含巨量书但没有活跃 job"的批量补启动：
-      //    有预设按预设跑；没预设就 full_submit + 自动上传到"视频管理系统"，
-      //    配置快照取批量自身的设置（与手动开工路由的兜底完全一致）。
+      //    有预设按预设跑；没预设就 full_submit + 自动上传到"视频管理系统"。
+      //    快照缺文本模型时，按"继承引擎配置"老规矩补账号默认模型，绝不卡死。
       startRecovery: async ({ owner, isOwner, batch, savedPlan }) => {
         const presetId = String(savedPlan?.presetId || '').trim();
         const preset = presetId ? await automationPresets.get(owner, presetId) : null;
         if (presetId && !preset) throw requestError('自动化预设不存在或不属于当前账号', 404, 'AUTOMATION_PRESET_NOT_FOUND');
         const runModeValue = String(savedPlan?.runMode || '').trim();
         const runMode = ['storyboard_only', 'video_no_submit', 'full_submit'].includes(runModeValue) ? runModeValue : 'full_submit';
+        let accountConfig = null;
+        try {
+          accountConfig = JSON.parse(fs.readFileSync(getUserConfigPath(owner), 'utf8'));
+        } catch (error) {
+          accountConfig = null;
+        }
+        const baseSnapshot = preset?.config || object(batch?.settingsState?.patch);
         return automation.start({
           owner,
           isOwner,
@@ -2010,7 +2036,7 @@ function createBatchFactoryV11Router(options = {}) {
           autoPublish: runMode === 'full_submit',
           concurrency: savedPlan?.concurrency,
           preset: preset ? { id: preset.id, name: preset.name, version: preset.version } : {},
-          configSnapshot: preset?.config || object(batch?.settingsState?.patch)
+          configSnapshot: applyEngineConfigInheritance(baseSnapshot, accountConfig)
         });
       }
     }
@@ -2274,5 +2300,6 @@ module.exports = {
   analyzeBatchFactorySmartUnifiedStyle,
   acquireBatchFactorySmartUnifiedBaseline,
   upstreamErrorMessage,
+  applyEngineConfigInheritance,
   createBatchFactoryV11Router
 };

@@ -831,3 +831,33 @@ test('router startRecovery honors saved runMode/concurrency and preset config', 
     setup.restore();
   }
 });
+
+// "继承引擎配置"纯函数测试
+const { applyEngineConfigInheritance } = require('../routes/batch-factory-v11');
+
+test('engine inheritance fills the account default text model when batch snapshot has none', () => {
+  const accountConfig = { model: 'default-text', modelCatalog: [] };
+  const result = applyEngineConfigInheritance({}, accountConfig);
+  assert.equal(result.textModelId, 'default-text');
+});
+
+test('engine inheritance never overrides an explicitly selected batch model', () => {
+  const accountConfig = { model: 'default-text', modelCatalog: [] };
+  const result = applyEngineConfigInheritance({ textModelId: 'batch-pick' }, accountConfig);
+  assert.equal(result.textModelId, 'batch-pick');
+});
+
+test('engine inheritance skips a default model that is explicitly disabled in the catalog', () => {
+  const accountConfig = {
+    model: 'disabled-model',
+    modelCatalog: [{ id: 'disabled-model', kind: 'text', enabled: false }]
+  };
+  const result = applyEngineConfigInheritance({}, accountConfig);
+  assert.equal(result.textModelId, undefined);
+});
+
+test('engine inheritance works for legacy configs without a catalog and tolerates missing config', () => {
+  assert.equal(applyEngineConfigInheritance({}, { model: 'legacy-model' }).textModelId, 'legacy-model');
+  assert.deepEqual(applyEngineConfigInheritance({}, null), {});
+  assert.deepEqual(applyEngineConfigInheritance({ keep: 1 }, { model: '' }), { keep: 1 });
+});
