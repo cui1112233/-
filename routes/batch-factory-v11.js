@@ -2012,10 +2012,11 @@ function createBatchFactoryV11Router(options = {}) {
         return Array.isArray(result?.batches) ? result.batches : [];
       },
       // 3) 对"含巨量书但没有活跃 job"的批量补启动：
-      //    有预设按预设跑；没预设就 full_submit + 自动上传到"视频管理系统"。
-      //    快照缺文本模型时，按"继承引擎配置"老规矩补账号默认模型，绝不卡死。
+      //    只恢复创建时已保存的预设，绝不为旧批次猜测全自动配置。
+      //    已保存的快照缺文本模型时，按"继承引擎配置"补账号默认模型。
       startRecovery: async ({ owner, isOwner, batch, savedPlan }) => {
         const presetId = String(savedPlan?.presetId || '').trim();
+        if (!presetId) throw requestError('巨量素材自动化计划缺失，请在工作台选择预设后手动启动', 409, 'GIANT_AUTOMATION_PLAN_MISSING');
         const preset = presetId ? await automationPresets.get(owner, presetId) : null;
         if (presetId && !preset) throw requestError('自动化预设不存在或不属于当前账号', 404, 'AUTOMATION_PRESET_NOT_FOUND');
         const runModeValue = String(savedPlan?.runMode || '').trim();
