@@ -719,15 +719,6 @@ func loadBatch(ctx context.Context, q batchQueryer, owner, id string) (Batch, er
 			return Batch{}, err
 		}
 		book.SourceMetadata = decodeSourceMetadata(metadata)
-		var working sql.NullString
-		workingErr := q.QueryRowContext(ctx, `SELECT content FROM batch_factory_v11_drafts WHERE owner_username=? AND draft_key=? AND kind='working-front-content' AND scope=?`, owner, "working-front:"+book.ID, b.ID).Scan(&working)
-		if workingErr != nil && !errors.Is(workingErr, sql.ErrNoRows) {
-			rows.Close()
-			return Batch{}, workingErr
-		}
-		if working.Valid {
-			book.WorkingFrontContent = working.String
-		}
 		if book.BookID == "" {
 			book.BookID = book.ID
 		}
@@ -740,6 +731,20 @@ func loadBatch(ctx context.Context, q batchQueryer, owner, id string) (Batch, er
 		return Batch{}, err
 	}
 	rows.Close()
+	// Release the book-list connection before loading per-book drafts. If many
+	// clients open the same batch together, holding one rows cursor per request
+	// while each request asks the pool for another connection can exhaust the
+	// pool and deadlock every authenticated batch read.
+	for i := range b.Books {
+		var working sql.NullString
+		workingErr := q.QueryRowContext(ctx, `SELECT content FROM batch_factory_v11_drafts WHERE owner_username=? AND draft_key=? AND kind='working-front-content' AND scope=?`, owner, "working-front:"+b.Books[i].ID, b.ID).Scan(&working)
+		if workingErr != nil && !errors.Is(workingErr, sql.ErrNoRows) {
+			return Batch{}, workingErr
+		}
+		if working.Valid {
+			b.Books[i].WorkingFrontContent = working.String
+		}
+	}
 	for i := range b.Books {
 		vrows, err := q.QueryContext(ctx, `SELECT v.id,r.label,COALESCE(r.video_prompt,''),COALESCE(r.visual_prompt,''),COALESCE(r.duration_seconds,0),v.compatibility_state,v.revision FROM batch_factory_v11_videos v JOIN batch_factory_v11_video_records r ON r.video_id=v.id WHERE v.batch_id=? AND v.book_id=? AND v.owner_username=? AND v.compatibility_state='active' ORDER BY v.ordinal,v.id`, b.ID, b.Books[i].ID, owner)
 		if err != nil {
