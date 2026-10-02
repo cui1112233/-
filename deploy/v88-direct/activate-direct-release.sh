@@ -25,8 +25,20 @@ RELEASE_DIR="$DIRECT_ROOT/releases/$SHA"
 cd "$DEPLOY_DIR"
 
 # 1) 记录回滚点（当前软链目标 + 当前 .env 中的 DIRECT_RELEASE_SHA）。
+# readlink 返回的是当初写进软链的“原始字符串”：本脚本写的是绝对路径，
+# 历史脚本可能写相对路径。这里统一折算成可直接判断的绝对目录 PREV_DIR。
+# 不折算的话 "$DIRECT_ROOT/$PREV_TARGET" 会拼成 /opt/...//opt/... 这种假路径，
+# 让 -d 判断永远为假：previous 软链永不更新、回滚还会被整个跳过。
 PREV_TARGET="$(readlink "$DIRECT_ROOT/current" 2>/dev/null || true)"
 PREV_SHA="$(grep -E '^DIRECT_RELEASE_SHA=' .env 2>/dev/null | tail -1 | cut -d= -f2 || true)"
+if [ -n "$PREV_TARGET" ]; then
+  case "$PREV_TARGET" in
+    /*) PREV_DIR="$PREV_TARGET" ;;
+    *)  PREV_DIR="$DIRECT_ROOT/$PREV_TARGET" ;;
+  esac
+else
+  PREV_DIR=""
+fi
 
 set_env() {
   local key="$1" value="$2"
@@ -40,8 +52,8 @@ set_env() {
 rollback() {
   local status=$?
   echo "STATUS=ROLLBACK release failed, restoring previous state (exit=$status)" >&2
-  if [ -n "$PREV_TARGET" ] && [ -d "$DIRECT_ROOT/$PREV_TARGET" ]; then
-    ln -sfn "$PREV_TARGET" "$DIRECT_ROOT/current"
+  if [ -n "$PREV_DIR" ] && [ -d "$PREV_DIR" ]; then
+    ln -sfn "$PREV_DIR" "$DIRECT_ROOT/current"
     if [ -n "$PREV_SHA" ]; then set_env DIRECT_RELEASE_SHA "$PREV_SHA"; fi
     docker compose -f "$BASE_COMPOSE" -f "$OVERRIDE" up -d --no-deps --force-recreate --pull never go-api v88-node >/dev/null 2>&1 || true
   else
@@ -87,8 +99,8 @@ if [ "$ext" != "$SHA" ]; then
 fi
 
 # 成功：把上一版记成 previous，方便手工一键回退。
-if [ -n "$PREV_TARGET" ] && [ -d "$DIRECT_ROOT/$PREV_TARGET" ]; then
-  ln -sfn "$DIRECT_ROOT/$PREV_TARGET" "$DIRECT_ROOT/previous"
+if [ -n "$PREV_DIR" ] && [ -d "$PREV_DIR" ]; then
+  ln -sfn "$PREV_DIR" "$DIRECT_ROOT/previous"
 fi
 trap - ERR
-echo "STATUS=DEPLOYED_DIRECT release_sha=$SHA previous=${PREV_TARGET:-none}"
+echo "STATUS=DEPLOYED_DIRECT release_sha=$SHA previous=${PREV_DIR:-none}"
