@@ -486,6 +486,40 @@ func (s *MySQLStore) GetBatch(ctx context.Context, owner, id string) (Batch, err
 	return loadBatch(ctx, s.db, owner, id)
 }
 
+// GetBatchRuntimeIndex returns only the identity data needed by the live
+// runtime summary. The full GetBatch response hydrates every settings patch,
+// director revision, asset and video; doing that every few seconds turns a
+// status poll into thousands of prepared statements on mature batches.
+func (s *MySQLStore) GetBatchRuntimeIndex(ctx context.Context, owner, id string) (Batch, error) {
+	var batch Batch
+	err := s.db.QueryRowContext(ctx, `SELECT b.id,b.revision,b.created_at,b.updated_at FROM batch_factory_v11_batches b WHERE b.id=? AND b.owner_username=?`, id, owner).
+		Scan(&batch.ID, &batch.Revision, &batch.CreatedAt, &batch.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Batch{}, ErrNotFound
+	}
+	if err != nil {
+		return Batch{}, err
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT id,revision FROM batch_factory_v11_books WHERE batch_id=? AND owner_username=? ORDER BY ordinal,id`, id, owner)
+	if err != nil {
+		return Batch{}, err
+	}
+	defer rows.Close()
+	batch.Books = []Book{}
+	for rows.Next() {
+		var book Book
+		if err := rows.Scan(&book.ID, &book.Revision); err != nil {
+			return Batch{}, err
+		}
+		book.BatchID = batch.ID
+		batch.Books = append(batch.Books, book)
+	}
+	if err := rows.Err(); err != nil {
+		return Batch{}, err
+	}
+	return batch, nil
+}
+
 func (s *MySQLStore) DeleteBook(ctx context.Context, owner, batchID, bookID string) error {
 	if strings.TrimSpace(owner) == "" || strings.TrimSpace(batchID) == "" || strings.TrimSpace(bookID) == "" {
 		return ErrInvalid

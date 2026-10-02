@@ -1,6 +1,13 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildBatchFactoryRuntimeSummary } = require('../routes/batch-factory-v12');
+const { buildBatchFactoryRuntimeSummary, batchFactoryRuntimeIndexPath } = require('../routes/batch-factory-v12');
+
+test('runtime summary loads the lightweight batch index instead of the full workbench payload', () => {
+  assert.equal(
+    batchFactoryRuntimeIndexPath('batch 1'),
+    '/api/batch-factory/v11/batches/batch%201/runtime-index'
+  );
+});
 
 test('runtime summary returns one batch payload with every book stage summary', async () => {
   const calls = [];

@@ -286,6 +286,10 @@ async function buildBatchFactoryRuntimeSummary({ batch, automation, loadProducti
   };
 }
 
+function batchFactoryRuntimeIndexPath(batchId) {
+  return `${V11_BASE}/batches/${encodeURIComponent(String(batchId || ''))}/runtime-index`;
+}
+
 function createBatchFactoryV12Router(options = {}) {
   const automationPresetStore = options.automationPresetStore || createAutomationPresetStore({ statePath: options.automationPresetStatePath });
   const legacy = createBatchFactoryV11Router({ ...options, automationPresetStore });
@@ -416,7 +420,7 @@ function createBatchFactoryV12Router(options = {}) {
     const goOptions = { goBaseUrl: options.goBaseUrl, bridgeSecret: options.bridgeSecret, fetchImpl: options.fetchImpl, now: options.now };
     const request = async pathname => v11JSONRequest({ ...account, method: 'GET', pathname, ...goOptions });
     const promise = (async () => {
-      const loaded = await request(`${V11_BASE}/batches/${encodeURIComponent(batchId)}`);
+      const loaded = await request(batchFactoryRuntimeIndexPath(batchId));
       const batch = loaded?.batch || loaded;
       if (!batch?.id) {
         const error = new Error('批量工程不存在');
@@ -497,6 +501,7 @@ module.exports = {
   buildGiantBatchCreatePayload,
   refillMissingBatchFactoryBookSource,
   buildBatchFactoryRuntimeSummary,
+  batchFactoryRuntimeIndexPath,
   isNativeV12H3Path,
 	  isV12DeletionPath,
   routeV12UpstreamPath,
