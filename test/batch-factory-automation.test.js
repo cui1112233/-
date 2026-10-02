@@ -42,17 +42,34 @@ function fixture() {
   };
 }
 
-test('automation advances a book to ready_for_upload without uploading', async () => {
+test('video-only automation advances a book to ready_for_upload without uploading', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-test-'));
   const { adapter } = fixture();
   const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} } });
-  await controller.start({ owner: 'user', batchId: 'batch-1', concurrency: 1 });
+  await controller.start({ owner: 'user', batchId: 'batch-1', concurrency: 1, runMode: 'video_no_submit' });
   for (let i = 0; i < 10; i += 1) { await controller.tick(); await wait(); }
   const status = controller.status({ owner: 'user', batchId: 'batch-1' });
   assert.equal(status.state, 'completed');
   assert.equal(status.counts.ready, 1);
   assert.equal(status.books[0].stage, 'ready_for_upload');
   assert.match(status.books[0].message, /等待人工上传/);
+});
+
+test('automation defaults to full submission after merged video is ready', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-test-'));
+  const { adapter } = fixture();
+  let publishCalls = 0;
+  adapter.publishBook = async () => {
+    publishCalls += 1;
+    return { status: 'confirmed', receipt: { remoteRecord: { found: true, headVideo: true } } };
+  };
+  const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} } });
+  await controller.start({ owner: 'user', batchId: 'batch-1', concurrency: 1 });
+  for (let i = 0; i < 12; i += 1) { await controller.tick(); await wait(); }
+  const status = controller.status({ owner: 'user', batchId: 'batch-1' });
+  assert.equal(status.runMode, 'full_submit');
+  assert.equal(status.books[0].stage, 'uploaded');
+  assert.equal(publishCalls, 1);
 });
 
 test('storyboard-only automation stops after director compilation and never submits VIDEO', async () => {
@@ -221,7 +238,7 @@ test('invalid API keys remain terminal instead of consuming automatic retries', 
   const { adapter } = fixture();
   adapter.runStage = async () => { throw new Error('personal video provider did not create a task: Invalid API key'); };
   const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} } });
-  await controller.start({ owner: 'user', batchId: 'batch-1', concurrency: 2 });
+  await controller.start({ owner: 'user', batchId: 'batch-1', concurrency: 2, runMode: 'video_no_submit' });
   await controller.tick();
   await wait();
   const status = controller.status({ owner: 'user', batchId: 'batch-1' });
@@ -256,7 +273,7 @@ test('starting automation again does not reset a hard failure without an explici
   let attempts = 0;
   adapter.runStage = async () => { attempts += 1; throw new Error('invalid input: director returned invalid JSON'); };
   const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} } });
-  await controller.start({ owner: 'user', batchId: batch.id, concurrency: 1 });
+  await controller.start({ owner: 'user', batchId: batch.id, runMode: 'video_no_submit', concurrency: 1 });
   await wait();
   assert.equal(controller.status({ owner: 'user', batchId: batch.id }).books[0].status, 'failed');
   await controller.start({ owner: 'user', batchId: batch.id, concurrency: 1 });
@@ -476,7 +493,7 @@ test('one blocked book does not erase another completed book', async () => {
   const { batch, adapter } = fixture();
   batch.books.push({ id: 'book-2', bookId: '102', title: '缺正文', sourceText: '', settingsState: { patch: {} }, videos: [] });
   const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} } });
-  await controller.start({ owner: 'user', batchId: 'batch-1', concurrency: 2 });
+  await controller.start({ owner: 'user', batchId: 'batch-1', concurrency: 2, runMode: 'video_no_submit' });
   for (let i = 0; i < 10; i += 1) { await controller.tick(); await wait(); }
   const status = controller.status({ owner: 'user', batchId: 'batch-1' });
   assert.equal(status.state, 'needs_attention');
@@ -503,7 +520,7 @@ test('retry regenerates only a failed VIDEO and then completes', async () => {
   };
   adapter.submitBookMerge = async ({ bookId }) => { merge.jobs.push({ id: 'm-ok', bookId, status: 'succeeded', outputUrl: '/media/merged.mp4' }); };
   const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} } });
-  await controller.start({ owner: 'user', batchId: batch.id, concurrency: 1 });
+  await controller.start({ owner: 'user', batchId: batch.id, concurrency: 1, runMode: 'video_no_submit' });
   for (let i = 0; i < 10; i += 1) {
     await controller.tick();
     await wait();
@@ -525,7 +542,7 @@ test('giant placeholder without an executor task fails that book and lets the ne
   const { batch, adapter } = fixture();
   batch.books.push({ id: 'book-2', bookId: '102', title: '巨量占位', sourceText: '', sourceMetadata: { sourceMode: 'giant_material', contentPending: true }, settingsState: { patch: {} }, assetRecords: [], videos: [] });
   const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} } });
-  await controller.start({ owner: 'user', batchId: 'batch-1', concurrency: 2 });
+  await controller.start({ owner: 'user', batchId: 'batch-1', runMode: 'video_no_submit', concurrency: 2 });
   for (let i = 0; i < 6; i += 1) { await controller.tick(); await wait(); }
   let status = controller.status({ owner: 'user', batchId: 'batch-1' });
   assert.equal(status.books[0].status, 'ready');
@@ -552,7 +569,7 @@ test('automation fetches a giant placeholder directly before requiring an execut
   };
   const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} } });
 
-  await controller.start({ owner: 'user', batchId: batch.id, concurrency: 1 });
+  await controller.start({ owner: 'user', batchId: batch.id, runMode: 'video_no_submit', concurrency: 1 });
   for (let i = 0; i < 10; i += 1) { await controller.tick(); await wait(); }
 
   const status = controller.status({ owner: 'user', batchId: batch.id });
@@ -575,7 +592,7 @@ test('a direct-source failure stops only that giant book and releases the next b
   };
   const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} } });
 
-  await controller.start({ owner: 'user', batchId: batch.id, concurrency: 1 });
+  await controller.start({ owner: 'user', batchId: batch.id, runMode: 'video_no_submit', concurrency: 1 });
   for (let i = 0; i < 10; i += 1) { await controller.tick(); await wait(); }
 
   const status = controller.status({ owner: 'user', batchId: batch.id });
@@ -795,7 +812,7 @@ test('books waiting on external conditions do not block later books whose videos
   adapter.runStage = async ({ book, stage }) => { unexpectedStages.push(`${book.id}:${stage}`); };
 
   const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} } });
-  await controller.start({ owner: 'user', batchId: batch.id, concurrency: 2 });
+  await controller.start({ owner: 'user', batchId: batch.id, runMode: 'video_no_submit', concurrency: 2 });
   // 前两轮把四本书都送入 waiting（1 本等正文，3 本等视频回读）
   await controller.tick(); await wait();
   await controller.tick(); await wait();
