@@ -85,6 +85,12 @@ test('automation preset manager changes the unified draft only after confirmatio
   assert.doesNotMatch(source, /setDraftPatch\(.*saveBatchSettings/);
 });
 
+test('unified configuration identifies the frozen automation preset used to create a giant batch', () => {
+  assert.match(source, /automationPresetSnapshot/);
+  assert.match(source, /本批次已冻结自动化预设/);
+  assert.match(source, /删除或更新当前预设不会改变此批次的自动生产配置/);
+});
+
 test('shows the precise 121 session failure and never reports a failed verification as a completed login', () => {
   assert.doesNotMatch(source, /Boolean\(result\?\.ok && \(result\?\.checks \|\| \[\]\)\.some/);
   assert.match(source, /const hasSession = result => Boolean\(\(result\?\.checks \|\| \[\]\)\.some/);

@@ -46,6 +46,31 @@ function applyEngineConfigInheritance(snapshot, accountConfig) {
   return patch;
 }
 
+// Giant OCR may take long enough that the user changes or deletes a live
+// preset. Recovery must reproduce the batch that was created, not silently
+// switch to today's preset or leave the queue stranded. Legacy batches that
+// never froze a snapshot get an explicit repair message instead of a guess.
+function frozenGiantAutomationRecovery(batch, savedPlan) {
+  const presetID = String(savedPlan?.presetId || '').trim();
+  if (!presetID) throw requestError('巨量素材自动化计划缺失，请在工作台选择预设后手动启动', 409, 'GIANT_AUTOMATION_PLAN_MISSING');
+  const configSnapshot = object(batch?.settingsState?.patch);
+  const snapshot = object(configSnapshot.automationPresetSnapshot);
+  if (!String(snapshot.id || '').trim()) {
+    throw requestError('巨量素材冻结配置缺失：这是旧批次，无法安全猜测预设；请在统一配置中选择后手动启动。', 409, 'GIANT_AUTOMATION_SNAPSHOT_MISSING');
+  }
+  if (String(snapshot.id) !== presetID) {
+    throw requestError('巨量素材冻结配置与读取计划不一致，请在统一配置中重新确认后手动启动。', 409, 'GIANT_AUTOMATION_SNAPSHOT_MISMATCH');
+  }
+  const runModeValue = String(savedPlan?.runMode || '').trim();
+  return {
+    preset: { id: String(snapshot.id), name: String(snapshot.name || '自动化预设'), version: Number(snapshot.version || 0) },
+    configSnapshot,
+    runMode: ['storyboard_only', 'video_no_submit', 'full_submit'].includes(runModeValue) ? runModeValue : 'full_submit',
+    concurrency: Number(savedPlan?.concurrency || 0) || undefined,
+    scheduledAt: String(savedPlan?.scheduledAt || '').trim()
+  };
+}
+
 function resolveV11GoBaseUrl(env = process.env) {
   return String(env.QIANTIE_BATCH_FACTORY_V11_BASE_URL || env.QIANTIE_GO_BASE_URL || 'http://backend:4000').replace(/\/$/, '');
 }
@@ -2015,29 +2040,23 @@ function createBatchFactoryV11Router(options = {}) {
       //    只恢复创建时已保存的预设，绝不为旧批次猜测全自动配置。
       //    已保存的快照缺文本模型时，按"继承引擎配置"补账号默认模型。
       startRecovery: async ({ owner, isOwner, batch, savedPlan }) => {
-        const presetId = String(savedPlan?.presetId || '').trim();
-        if (!presetId) throw requestError('巨量素材自动化计划缺失，请在工作台选择预设后手动启动', 409, 'GIANT_AUTOMATION_PLAN_MISSING');
-        const preset = presetId ? await automationPresets.get(owner, presetId) : null;
-        if (presetId && !preset) throw requestError('自动化预设不存在或不属于当前账号', 404, 'AUTOMATION_PRESET_NOT_FOUND');
-        const runModeValue = String(savedPlan?.runMode || '').trim();
-        const runMode = ['storyboard_only', 'video_no_submit', 'full_submit'].includes(runModeValue) ? runModeValue : 'full_submit';
+        const recovered = frozenGiantAutomationRecovery(batch, savedPlan);
         let accountConfig = null;
         try {
           accountConfig = JSON.parse(fs.readFileSync(getUserConfigPath(owner), 'utf8'));
         } catch (error) {
           accountConfig = null;
         }
-        const baseSnapshot = preset?.config || object(batch?.settingsState?.patch);
         return automation.start({
           owner,
           isOwner,
           batchId: batch.id,
-          scheduledAt: savedPlan?.scheduledAt || '',
-          runMode,
-          autoPublish: runMode === 'full_submit',
-          concurrency: savedPlan?.concurrency,
-          preset: preset ? { id: preset.id, name: preset.name, version: preset.version } : {},
-          configSnapshot: applyEngineConfigInheritance(baseSnapshot, accountConfig)
+          scheduledAt: recovered.scheduledAt,
+          runMode: recovered.runMode,
+          autoPublish: recovered.runMode === 'full_submit',
+          concurrency: recovered.concurrency,
+          preset: recovered.preset,
+          configSnapshot: applyEngineConfigInheritance(recovered.configSnapshot, accountConfig)
         });
       }
     }
@@ -2302,5 +2321,6 @@ module.exports = {
   acquireBatchFactorySmartUnifiedBaseline,
   upstreamErrorMessage,
   applyEngineConfigInheritance,
+  frozenGiantAutomationRecovery,
   createBatchFactoryV11Router
 };

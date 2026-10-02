@@ -241,6 +241,9 @@ func createBatchTx(ctx context.Context, tx *sql.Tx, owner string, input CreateBa
 	batch := Batch{ID: batchID, Title: title, SourceIntakeID: sourceIntakeID, Revision: 1, Books: []Book{}, CreatedAt: now, UpdatedAt: now}
 	for bookOrdinal, rawBook := range input.Books {
 		bi := normalizeNovelFetchBook(rawBook)
+		if len(input.GiantAutomationPlan) > 0 {
+			bi.SourceMetadata = copySourceMetadataWithGiantPlan(bi.SourceMetadata, input.GiantAutomationPlan)
+		}
 		bookID, err := newID("book")
 		if err != nil {
 			return Batch{}, err
@@ -278,7 +281,43 @@ func createBatchTx(ctx context.Context, tx *sql.Tx, owner string, input CreateBa
 		}
 		batch.Books = append(batch.Books, book)
 	}
+	if len(input.InitialBatchSettings) > 0 {
+		encoded, err := json.Marshal(input.InitialBatchSettings)
+		if err != nil {
+			return Batch{}, ErrInvalid
+		}
+		const initialRevision int64 = 2
+		if _, err := tx.ExecContext(ctx, `UPDATE batch_factory_v11_batches SET revision=?,updated_at=? WHERE id=? AND owner_username=?`, initialRevision, now, batchID, owner); err != nil {
+			return Batch{}, err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO batch_factory_v11_settings_patches(scope_type,scope_id,owner_username,batch_id,book_id,video_id,patch_json,revision,updated_at) VALUES(?,?,?,?,?,?,?,?,?)`, string(ScopeBatch), batchID, owner, batchID, nil, nil, encoded, initialRevision, now); err != nil {
+			return Batch{}, err
+		}
+		batch.Revision = initialRevision
+		batch.SettingsState = SettingsState{Patch: cloneSettingsPatch(input.InitialBatchSettings), Revision: initialRevision}
+	}
 	return batch, nil
+}
+
+func copySourceMetadataWithGiantPlan(metadata map[string]any, plan map[string]any) map[string]any {
+	copyMetadata := make(map[string]any, len(metadata)+1)
+	for key, value := range metadata {
+		copyMetadata[key] = value
+	}
+	copyPlan := make(map[string]any, len(plan))
+	for key, value := range plan {
+		copyPlan[key] = value
+	}
+	copyMetadata["giantAutomationPlan"] = copyPlan
+	return copyMetadata
+}
+
+func cloneSettingsPatch(patch SettingsPatch) SettingsPatch {
+	copyPatch := make(SettingsPatch, len(patch))
+	for key, value := range patch {
+		copyPatch[key] = append(json.RawMessage(nil), value...)
+	}
+	return copyPatch
 }
 
 func (s *MySQLStore) UpdateBookMetadata(ctx context.Context, owner, batchID, bookID string, input UpdateBookMetadataInput) (Book, error) {

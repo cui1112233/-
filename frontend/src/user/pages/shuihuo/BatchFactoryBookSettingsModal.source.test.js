@@ -16,6 +16,12 @@ test('single-book configuration compares inherited settings and only saves chang
   assert.match(source, /当前批量作品配置/);
 });
 
+test('single-book configuration makes its frozen batch inheritance explicit', () => {
+  assert.match(source, /automationPresetSnapshot/);
+  assert.match(source, /继承统一配置：/);
+  assert.match(source, /当前书未保存覆盖时，始终使用该批次冻结的统一配置/);
+});
+
 test('single-book configuration selects enabled text, image and video models', () => {
   assert.match(source, /listAvailableModels\('text'\)/);
   assert.match(source, /listAvailableModels\('image'\)/);

@@ -71,6 +71,55 @@ func TestNovelFetchIntakeIsConsumedExactlyOnce(t *testing.T) {
 	}
 }
 
+func TestCreateBatchFromIntakePersistsFrozenAutomationSettings(t *testing.T) {
+	ctx := context.Background()
+	s := NewMemoryStore()
+	intake, err := s.CreateIntake(ctx, "alice", NovelFetchIntakeInput{Books: []CreateBookInput{{
+		ID:             "giant-1",
+		Title:          "巨量素材",
+		SourceMetadata: map[string]any{"sourceMode": "giant_material"},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	batch, err := s.CreateBatchFromIntake(ctx, "alice", intake.ID, CreateBatchInput{
+		InitialBatchSettings: SettingsPatch{
+			"textModelId": raw("text-model-a"),
+			"automationPresetSnapshot": raw(map[string]any{
+				"id":      "preset-1",
+				"name":    "全自动预设",
+				"version": 3,
+			}),
+		},
+		GiantAutomationPlan: map[string]any{
+			"presetId": "preset-1",
+			"runMode":  "immediate",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(batch.SettingsState.Patch["textModelId"]); got != `"text-model-a"` {
+		t.Fatalf("batch settings=%v", batch.SettingsState.Patch)
+	}
+	if batch.SettingsState.Revision == 0 || batch.Revision != batch.SettingsState.Revision {
+		t.Fatalf("batch revision=%d settings=%+v", batch.Revision, batch.SettingsState)
+	}
+	plan, ok := batch.Books[0].SourceMetadata["giantAutomationPlan"].(map[string]any)
+	if !ok || plan["presetId"] != "preset-1" {
+		t.Fatalf("giant plan=%#v", batch.Books[0].SourceMetadata["giantAutomationPlan"])
+	}
+
+	loaded, err := s.GetBatch(ctx, "alice", batch.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(loaded.SettingsState.Patch["automationPresetSnapshot"]); got == "" {
+		t.Fatalf("frozen preset missing after reload: %v", loaded.SettingsState.Patch)
+	}
+}
+
 func TestNovelFetchIntakeAppendsToCurrentBatchAndRetainsSourceBookID(t *testing.T) {
 	ctx := context.Background()
 	s := NewMemoryStore()

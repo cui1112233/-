@@ -7,6 +7,7 @@ const {
   v11JSONRequest
 } = require('./batch-factory-v11');
 const { createMySQLWorkshopStore } = require('../lib/novel-fetch-workshop/mysql-store');
+const { createAutomationPresetStore } = require('../lib/batch-factory-v11/automation-presets');
 
 const V12_BASE = '/api/batch-factory/v12';
 const V11_BASE = '/api/batch-factory/v11';
@@ -29,6 +30,52 @@ function routeV12UpstreamPath(value) {
   const original = String(value || '');
   if (isNativeV12H3Path(original)) return original;
   return rewriteV12PathForLegacyRead(original);
+}
+
+function plainObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function cloneJSON(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+// The browser sends only the selected preset identity.  Resolving and freezing
+// its config here makes creation a single durable server-side operation: a
+// stale tab cannot create a batch and then lose a separate settings save.
+function buildFrozenGiantBatchCreatePayload(body = {}, preset, now = () => new Date()) {
+  const giantAutomation = plainObject(body.giantAutomation);
+  const presetID = String(giantAutomation.presetId || '').trim();
+  if (!presetID || String(preset?.id || '') !== presetID) throw new Error('自动化预设不存在或不属于当前账号');
+  const expectedVersion = Number(giantAutomation.expectedPresetVersion);
+  if (Number.isFinite(expectedVersion) && expectedVersion > 0 && expectedVersion !== Number(preset.version)) {
+    throw new Error('自动化预设版本已变化，请刷新后重试');
+  }
+  const config = plainObject(preset.config);
+  if (!Object.keys(config).length) throw new Error('自动化预设没有可用配置');
+  const runMode = ['storyboard_only', 'video_no_submit', 'full_submit'].includes(String(giantAutomation.runMode || ''))
+    ? String(giantAutomation.runMode)
+    : 'full_submit';
+  const capturedNow = now();
+  const frozenAt = (capturedNow instanceof Date ? capturedNow : new Date(capturedNow)).toISOString();
+  return {
+    title: String(body.title || '').trim(),
+    initialBatchSettings: {
+      ...cloneJSON(config),
+      automationPresetSnapshot: {
+        id: presetID,
+        name: String(preset.name || '自动化预设'),
+        version: Number(preset.version || 0),
+        frozenAt
+      }
+    },
+    giantAutomationPlan: {
+      presetId: presetID,
+      runMode,
+      concurrency: Number(giantAutomation.concurrency || 0) || undefined,
+      scheduledAt: String(giantAutomation.scheduledAt || '').trim()
+    }
+  };
 }
 
 // The project library needs names and counts, not every book's source text,
@@ -251,7 +298,8 @@ async function buildBatchFactoryRuntimeSummary({ batch, automation, loadProducti
 }
 
 function createBatchFactoryV12Router(options = {}) {
-  const legacy = createBatchFactoryV11Router(options);
+  const automationPresetStore = options.automationPresetStore || createAutomationPresetStore({ statePath: options.automationPresetStatePath });
+  const legacy = createBatchFactoryV11Router({ ...options, automationPresetStore });
   const router = express.Router();
   const runtimeSummaryCache = new Map();
   const runtimeSummaryTTL = 4_000;
@@ -283,6 +331,29 @@ function createBatchFactoryV12Router(options = {}) {
       return res.json(result);
     } catch (error) {
       return res.status(400).json({ error: error?.message || '获取内容失败' });
+    }
+  });
+  router.post('/intakes/:intakeId/batches', async (req, res, next) => {
+    const giantAutomation = plainObject(req.body?.giantAutomation);
+    if (!Object.keys(giantAutomation).length) return next();
+    try {
+      const account = { username: req.username, isOwner: req.auth?.account?.isOwner === true };
+      const presetID = String(giantAutomation.presetId || '').trim();
+      const preset = presetID ? await automationPresetStore.get(account.username, presetID) : null;
+      const payload = buildFrozenGiantBatchCreatePayload(req.body || {}, preset, options.now || (() => new Date()));
+      const result = await v11JSONRequest({
+        ...account,
+        method: 'POST',
+        pathname: `${V11_BASE}/intakes/${encodeURIComponent(String(req.params.intakeId || ''))}/batches`,
+        payload,
+        goBaseUrl: options.goBaseUrl,
+        bridgeSecret: options.bridgeSecret,
+        fetchImpl: options.fetchImpl,
+        now: options.now
+      });
+      return res.status(201).json(result);
+    } catch (error) {
+      return res.status(Number(error?.status) || 422).json({ error: error?.message || '创建巨量素材批量失败' });
     }
   });
   router.post('/batches/:batchId/books/:bookId/fetch-original', async (req, res) => {
@@ -419,6 +490,7 @@ module.exports = {
   classifyBatchFactoryBooks,
   cleanBatchFactorySourceText,
   fetchBatchFactoryOriginals,
+  buildFrozenGiantBatchCreatePayload,
   refillMissingBatchFactoryBookSource,
   buildBatchFactoryRuntimeSummary,
   isNativeV12H3Path,

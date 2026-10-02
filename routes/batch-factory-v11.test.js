@@ -30,11 +30,33 @@ const {
   persisted121PublicationMetadata,
   v11JSONRequest,
   safeAutomationStatus,
+  frozenGiantAutomationRecovery,
   batchFactoryProductionText,
   splitVideoPresetBody,
   singleBookDirectorStageTarget,
   generateOpeningVariantsAfterSingleDirector
 } = require('./batch-factory-v11');
+
+test('recovers giant automation from the frozen batch preset after the live preset is deleted', () => {
+  const recovered = frozenGiantAutomationRecovery({
+    settingsState: {
+      patch: {
+        textModelId: 'text-model-a',
+        automationPresetSnapshot: { id: 'preset-1', name: '全自动预设', version: 3, frozenAt: '2026-10-02T10:00:00.000Z' }
+      }
+    }
+  }, { presetId: 'preset-1', runMode: 'full_submit', concurrency: 2 });
+
+  assert.deepEqual(recovered, {
+    preset: { id: 'preset-1', name: '全自动预设', version: 3 },
+    configSnapshot: {
+      textModelId: 'text-model-a',
+      automationPresetSnapshot: { id: 'preset-1', name: '全自动预设', version: 3, frozenAt: '2026-10-02T10:00:00.000Z' }
+    },
+    runMode: 'full_submit', concurrency: 2, scheduledAt: ''
+  });
+  assert.throws(() => frozenGiantAutomationRecovery({ settingsState: { patch: {} } }, { presetId: 'preset-1' }), /冻结配置缺失/);
+});
 
 test('keeps book-city loading placeholders out of automated production text', () => {
   assert.equal(

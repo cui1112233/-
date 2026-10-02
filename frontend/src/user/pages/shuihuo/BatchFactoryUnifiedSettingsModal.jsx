@@ -286,6 +286,9 @@ export function BatchFactoryUnifiedSettingsModal({ open, batch, onClose, onSaved
   const [presetName, setPresetName] = useState('');
   const [presetBusy, setPresetBusy] = useState(false);
   const selectedPreset = presets.find(item => item.id === selectedPresetId);
+	const frozenAutomationPreset = draftPatch?.automationPresetSnapshot && typeof draftPatch.automationPresetSnapshot === 'object'
+	  ? draftPatch.automationPresetSnapshot
+	  : null;
   useEffect(() => {
     if (open) setDraftPatch(normalizeLegacyPatch(batch?.settingsState?.patch));
   }, [open, batch?.id]);
@@ -331,6 +334,7 @@ export function BatchFactoryUnifiedSettingsModal({ open, batch, onClose, onSaved
     finally { setSaving(false); }
   };
   return <><Modal title={<Space><Tooltip title="自动化预设"><Button type="text" icon={<SettingOutlined />} aria-label="自动化预设" onClick={openPresetManager} /></Tooltip><span>统一配置</span></Space>} open={open} onCancel={onClose} width={980} destroyOnClose={false} className="batch-factory-unified-settings-modal" footer={<Space><Button onClick={onClose}>取消</Button><Button type="primary" loading={saving} onClick={save}>保存统一配置</Button></Space>}>
+    {frozenAutomationPreset?.id ? <Alert type="success" showIcon message={`本批次已冻结自动化预设：${frozenAutomationPreset.name || frozenAutomationPreset.id} · v${frozenAutomationPreset.version || 1}`} description="删除或更新当前预设不会改变此批次的自动生产配置；单书默认继承下方统一配置。" style={{ marginBottom: 12 }} /> : null}
     <Tabs items={[
       { key: 'models', label: '模型配置', children: <BatchFactoryEngineSettingsForm value={draftPatch} onChange={setDraftPatch} sections={['models', 'audio']} active={open} /> },
       { key: 'reasoning', label: 'AI 推理', children: <BatchFactoryAiReasoningForm value={draftPatch.aiPromptConfig} onChange={aiPromptConfig => setDraftPatch(current => ({ ...current, aiPromptConfig }))} /> },

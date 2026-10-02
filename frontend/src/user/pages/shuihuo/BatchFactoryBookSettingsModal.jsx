@@ -296,6 +296,9 @@ function ConstraintLayers({ value, records, personalPrompts, loading, saving, ed
 export function BatchFactoryBookSettingsModal({ open, batch, book, activeRegion = 'engine', onClose, onSaved, onOpenBookAssets }) {
   const batchPatch = batch?.settingsState?.patch || {};
   const bookPatch = book?.settingsState?.patch || {};
+	const frozenAutomationPreset = batchPatch?.automationPresetSnapshot && typeof batchPatch.automationPresetSnapshot === 'object'
+	  ? batchPatch.automationPresetSnapshot
+	  : null;
   const region = REGION_LABELS[activeRegion] ? activeRegion : 'engine';
   const inherited = useMemo(() => ({ ...batchPatch, aiPromptConfig: mergePromptConfig(batchPatch.aiPromptConfig, {}), publishSettings: mergePublishSettings(batchPatch.publishSettings, {}) }), [batch?.id, batch?.settingsState?.revision]);
   const [form, setForm] = useState(() => effectiveValues(batchPatch, bookPatch));
@@ -649,6 +652,7 @@ export function BatchFactoryBookSettingsModal({ open, batch, book, activeRegion 
     className={`shuihuo-engine-modal batch-factory-engine-modal${region === 'engine' ? ' batch-factory-book-engine-modal' : ''}`}
     footer={<Space>{hasBookOverride ? <Button danger disabled={saving} onClick={restoreCurrentRegion}>恢复{region === 'engine' ? (engineTab === 'publish' ? '批量发布配置' : '批量模型配置') : '作品配置'}</Button> : null}<Button onClick={onClose}>取消</Button><Button type="primary" loading={saving} onClick={save}>保存{region === 'engine' ? (engineTab === 'publish' ? '当前书发布配置' : '当前书模型配置') : '当前书覆盖'}</Button></Space>}
   >
+		{frozenAutomationPreset?.id ? <Alert type="info" showIcon message={`继承统一配置：${frozenAutomationPreset.name || frozenAutomationPreset.id} · v${frozenAutomationPreset.version || 1}`} description="当前书未保存覆盖时，始终使用该批次冻结的统一配置。" /> : null}
     {region !== 'engine' ? <Alert type="info" showIcon message="继承状态" description="本分区未改动时继续使用当前批量作品配置；保存或恢复只影响当前小说，不会改动同批次其它书。" /> : null}
     {loadError ? <Alert type="warning" showIcon message="配置目录读取失败" description={loadError} /> : null}
     {region !== 'engine' ? <Divider orientation="left">{REGION_LABELS[region]}</Divider> : null}

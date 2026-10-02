@@ -1,7 +1,7 @@
 import { Alert, Button, Input, InputNumber, Modal, Select, Space, Switch, Tag, message } from 'antd';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getWorkshopPlatforms } from '../../../shared/api/novelFetchWorkshop';
-import { createNovelFetchIntake, fetchBookOriginal, fetchDirectOriginals, getBatch, getBatchAutomationStatus, listAutomationPresets, listBatches, saveBatchSettings, startBatchAutomation, updateBookMetadata } from '../../../shared/api/batchFactoryV11';
+import { createNovelFetchIntake, fetchBookOriginal, fetchDirectOriginals, getBatch, getBatchAutomationStatus, listAutomationPresets, listBatches, startBatchAutomation, updateBookMetadata } from '../../../shared/api/batchFactoryV11';
 import { batchFactoryPlatformOptions } from './batchFactoryPlatformOptions';
 import { buildManualBatchSubmission, manualBookIDsFromInput, removePlatformGroup, replacePlatformGroup, totalGroupBookCount, upsertPlatformGroup } from './batchFactoryManualFetch';
 import { automationPresetSnapshot, formatBeijingDatetimeLocal, normalizeAutomationConcurrency, parseBeijingDatetimeLocal } from './batchFactoryAutomationSchedule';
@@ -351,6 +351,15 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated, onBatchUpda
       const intakeResponse = await createNovelFetchIntake(intakePayload);
       const intake = intakeResponse?.intake || intakeResponse;
       if (!intake?.id) throw new Error('GIANT_MATERIAL_INTAKE_FAILED');
+      const selectedPreset = (scheduledRun || automationRun) ? automationPresetSnapshot(automationPresets, automationPresetID) : null;
+      if ((scheduledRun || automationRun) && !selectedPreset) throw new Error('巨量素材自动化预设未能随创建冻结：所选预设不存在或没有可用配置，请重新选择。');
+      const giantAutomationPlan = (scheduledRun || automationRun) ? {
+        scheduledAt: scheduledAtISO,
+        presetId: selectedPreset.id,
+        runMode: automationRunMode,
+        autoPublish: automationRun && automationRunMode === 'full_submit',
+        concurrency: normalizeAutomationConcurrency(automationConcurrency)
+      } : undefined;
       const batch = await onCreated?.({
         intakeId: intake.id,
         title: title.trim(),
@@ -361,38 +370,22 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated, onBatchUpda
         autoPublishEnabled: false,
         presetId: automationPresetID,
         runMode: automationRunMode,
-        automationConcurrency: normalizeAutomationConcurrency(automationConcurrency)
+        automationConcurrency: normalizeAutomationConcurrency(automationConcurrency),
+        giantAutomation: selectedPreset ? {
+          presetId: selectedPreset.id,
+          expectedPresetVersion: selectedPreset.version,
+          runMode: automationRunMode,
+          concurrency: normalizeAutomationConcurrency(automationConcurrency),
+          scheduledAt: scheduledAtISO
+        } : undefined
       });
       const batchId = batch?.id;
       if (!batchId) throw new Error('GIANT_MATERIAL_INTAKE_FAILED');
-      const selectedPreset = (scheduledRun || automationRun) ? automationPresetSnapshot(automationPresets, automationPresetID) : null;
-      if ((scheduledRun || automationRun) && !selectedPreset) throw new Error('巨量素材自动化预设保存失败：所选预设不存在或没有可用配置，请重新选择。');
-      const giantAutomationPlan = (scheduledRun || automationRun) ? {
-        scheduledAt: scheduledAtISO,
-        presetId: selectedPreset.id,
-        runMode: automationRunMode,
-        autoPublish: automationRun && automationRunMode === 'full_submit',
-        concurrency: normalizeAutomationConcurrency(automationConcurrency)
-      } : undefined;
       if (selectedPreset) {
-        let savedPreset = false;
-        let saveError;
-        for (let attempt = 0; attempt < 3; attempt += 1) {
-          try {
-            const latestResponse = await getBatch(batchId);
-            const latestBatch = latestResponse?.batch || latestResponse?.data?.batch || latestResponse?.data || latestResponse;
-            await saveBatchSettings(batchId, {
-              patch: selectedPreset.config,
-              expectedRevision: Number(latestBatch?.settingsState?.revision || 1)
-            });
-            savedPreset = true;
-            break;
-          } catch (error) {
-            saveError = error;
-            if (Number(error?.status) !== 409) break;
-          }
+        const snapshot = batch?.settingsState?.patch?.automationPresetSnapshot;
+        if (String(snapshot?.id || '') !== String(selectedPreset.id)) {
+          throw new Error('巨量素材自动化预设未能随创建冻结，请关闭弹窗后重新创建；尚未派发读取任务。');
         }
-        if (!savedPreset) throw new Error(`巨量素材自动化预设保存失败：${normalizedError(saveError, '请稍后重试')}`);
       }
       let queued = 0;
       for (const entry of selected) {
