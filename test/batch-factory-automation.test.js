@@ -444,3 +444,57 @@ test('non-giant book without source text still blocks as before', async () => {
   const status = controller.status({ owner: 'user', batchId: 'batch-1' });
   assert.equal(status.counts.blocked, 1);
 });
+
+test('books waiting on external conditions do not block later books whose videos are ready', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-waiting-yield-'));
+  const { batch, adapter } = fixture();
+  const readyBook = (id, videoId) => ({
+    id, title: id, sourceText: '正文', settingsState: { patch: {} },
+    assetRecords: [{ id: `asset-${id}`, kind: 'character' }],
+    directorRevision: { id: `director-${id}` },
+    videos: [{ id: videoId, label: 'VIDEO01', visualPrompt: '画面提示词' }]
+  });
+  batch.books = [
+    { id: 'book-1', title: '巨量等正文', sourceText: '', sourceMetadata: { sourceMode: 'giant_material', contentPending: true }, settingsState: { patch: {} }, videos: [] },
+    readyBook('book-2', 'video-2'),
+    readyBook('book-3', 'video-3'),
+    readyBook('book-4', 'video-4')
+  ];
+  const production = { batchId: batch.id, jobs: [
+    { bookId: 'book-2', tasks: [{ videoId: 'video-2', status: 'running' }] },
+    { bookId: 'book-3', tasks: [{ videoId: 'video-3', status: 'running' }] },
+    { bookId: 'book-4', tasks: [{ videoId: 'video-4', status: 'running' }] }
+  ] };
+  const merge = { batchId: batch.id, jobs: [] };
+  const summaries = new Map(['book-2', 'book-3', 'book-4'].map(id => [id, { bookId: id, runs: [{ stage: 'assets', status: 'succeeded' }, { stage: 'director', status: 'succeeded' }] }]));
+  adapter.getStageSummary = async (_owner, _isOwner, _batchId, bookId) => summaries.get(bookId) || { bookId, runs: [] };
+  adapter.getProductionStatus = async () => production;
+  adapter.getMergeStatus = async () => merge;
+  const submittedMerges = [];
+  adapter.submitBookMerge = async ({ bookId }) => {
+    submittedMerges.push(bookId);
+    merge.jobs.push({ id: `merge-${bookId}`, bookId, status: 'running' });
+  };
+  const unexpectedStages = [];
+  adapter.runStage = async ({ book, stage }) => { unexpectedStages.push(`${book.id}:${stage}`); };
+
+  const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} } });
+  await controller.start({ owner: 'user', batchId: batch.id, concurrency: 2 });
+  // 前两轮把四本书都送入 waiting（1 本等正文，3 本等视频回读）
+  await controller.tick(); await wait();
+  await controller.tick(); await wait();
+  // 供应商只回好了排在最后的 book-4
+  const book4Job = production.jobs.find(job => job.bookId === 'book-4');
+  book4Job.tasks = [{ videoId: 'video-4', status: 'succeeded', mediaUrl: '/media/video-4.mp4' }];
+  // 连续多轮巡检：即使前面三本书一直干等，book-4 也必须被发现并提交合成
+  for (let i = 0; i < 5; i += 1) { await controller.tick(); await wait(); }
+  assert.ok(submittedMerges.includes('book-4'), `book-4 should reach merge even while earlier books wait, got: ${submittedMerges.join(',')}`);
+  assert.deepEqual(unexpectedStages, []);
+  // 合成完成后继续自动走到待上传
+  const mergeJob = merge.jobs.find(job => job.bookId === 'book-4');
+  mergeJob.status = 'succeeded';
+  mergeJob.outputUrl = '/media/merged-4.mp4';
+  for (let i = 0; i < 3; i += 1) { await controller.tick(); await wait(); }
+  const state = controller.status({ owner: 'user', batchId: batch.id }).books.find(book => book.bookId === 'book-4');
+  assert.equal(state.stage, 'ready_for_upload');
+});
