@@ -1,5 +1,5 @@
 import { AppstoreOutlined, ClockCircleOutlined, CloseOutlined, DeleteOutlined, DownOutlined, FileTextOutlined, FolderOpenOutlined, PlusOutlined, SearchOutlined, UploadOutlined, UserOutlined, ThunderboltOutlined } from '@ant-design/icons';
-import { Button, Input, Modal, Popconfirm, Select, Switch, Upload, message } from 'antd';
+import { Alert, Button, Input, Modal, Popconfirm, Select, Switch, Upload, message } from 'antd';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { importProject } from '../../../shared/api/shuihuoProduction';
 import { getBatchFactoryMergeCoverBlob, isBatchFactoryMergeCoverURL } from '../../../shared/api/batchFactoryV11';
@@ -69,7 +69,7 @@ function AuthenticatedProjectCover({ src, alt }) {
   return <img ref={imageRef} className="shuihuo-project-card-cover-media" src={protectedCover ? (blobURL || undefined) : src} alt={alt} loading="lazy" />;
 }
 
-export function ProjectsView({ projects, health, onCreate, onImported, onCreateBatch, onOpen, onDelete, onRefresh, openCreateOnLoad = false }) {
+export function ProjectsView({ projects, loadError, health, onCreate, onImported, onCreateBatch, onOpen, onDelete, onRefresh, openCreateOnLoad = false }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [collection, setCollection] = useState('all');
@@ -160,6 +160,7 @@ export function ProjectsView({ projects, health, onCreate, onImported, onCreateB
       <div className="shuihuo-create-actions"><Button className="shuihuo-create-project" type="primary" icon={<PlusOutlined />} onClick={() => setOpen(true)}>创作漫剧</Button><Button className="shuihuo-create-batch" icon={<ThunderboltOutlined />} onClick={() => setBatchOpen(true)}>批量工厂</Button></div>
     </div>
     <div className="shuihuo-project-library-section-title"><UserOutlined /> <strong>个人作品</strong></div>
+    {loadError ? <Alert className="shuihuo-project-load-error" type="warning" showIcon message="作品读取暂时失败" description={loadError} action={<Button size="small" onClick={() => onRefresh?.()}>重试</Button>} /> : null}
     <div className="shuihuo-project-library-toolbar">
       <Input className="shuihuo-project-search" prefix={<SearchOutlined />} value={search} onChange={event => setSearch(event.target.value)} placeholder="搜索作品..." allowClear />
       <button className="shuihuo-project-filter" type="button" onClick={() => setCollection(collection === 'all' ? 'all' : 'all')}><span>{collection === 'all' ? '全部合集' : collection}</span><DownOutlined /></button>
@@ -177,7 +178,7 @@ export function ProjectsView({ projects, health, onCreate, onImported, onCreateB
         <div className="shuihuo-project-card-actions"><Button type="text" icon={<FolderOpenOutlined />} onClick={() => onOpen(project)} aria-label={`打开工作台 ${project.name}`} /><Popconfirm title={isBatchFactoryV11Project(project) ? '删除批量项目？' : '删除项目？此操作不会撤销。'} description={isBatchFactoryV11Project(project) ? '将删除其中全部小说和本地生产记录；不会影响已提交到 121 的内容。' : undefined} okText="删除" cancelText="取消" onConfirm={() => onDelete(project)}><Button type="text" danger icon={<DeleteOutlined />} aria-label={`删除${project.name}`} /></Popconfirm></div>
       </article>;
       })}
-      {!visibleProjects.length ? <div className="shuihuo-empty"><FileTextOutlined /><p>{projects?.length ? '没有匹配的作品' : '还没有项目'}</p><Button onClick={() => setOpen(true)}>从原文或字幕开始</Button><Button className="shuihuo-create-batch" onClick={() => setBatchOpen(true)}>批量工厂</Button></div> : null}
+      {!visibleProjects.length && !loadError ? <div className="shuihuo-empty"><FileTextOutlined /><p>{projects?.length ? '没有匹配的作品' : '还没有项目'}</p><Button onClick={() => setOpen(true)}>从原文或字幕开始</Button><Button className="shuihuo-create-batch" onClick={() => setBatchOpen(true)}>批量工厂</Button></div> : null}
     </div>
     <Modal className="shuihuo-create-project-modal" title="新建漫剧" open={open} onCancel={() => { setOpen(false); reset(); }} footer={<><Button onClick={() => { setOpen(false); reset(); }}>取消</Button><Button type="primary" loading={busy} onClick={submit}>确定创建</Button></>} width={500}>
       <div className="shuihuo-create-collection"><strong>创建合集</strong><Switch size="small" checked={createCollection} onChange={setCreateCollection} /><span>开启后可继承新作品的人物/场景设定</span></div>

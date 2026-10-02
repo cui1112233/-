@@ -23,6 +23,12 @@ services:
       # 合成成品持久卷沿用主 compose 声明，这里显式重复一次以防基础
       # compose 版本较旧缺少该挂载。
       - go_api_artifacts:/data/local-executor-artifacts
+    healthcheck:
+      test: ["CMD", "/qiantie", "healthcheck"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
 
   v88-node:
     environment:

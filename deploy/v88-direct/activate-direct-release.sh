@@ -12,8 +12,8 @@ set -Eeuo pipefail
 SHA="${1:-}"
 [[ "$SHA" =~ ^[0-9a-f]{7,40}$ ]] || { echo "usage: activate-direct-release.sh <git-sha>" >&2; exit 2; }
 
-DIRECT_ROOT='/opt/qiantie/v88/direct'
-DEPLOY_DIR='/opt/qiantie/v88/deploy/v88-public'
+DIRECT_ROOT="${DIRECT_ROOT:-/opt/qiantie/v88/direct}"
+DEPLOY_DIR="${DEPLOY_DIR:-/opt/qiantie/v88/deploy/v88-public}"
 BASE_COMPOSE="$DEPLOY_DIR/docker-compose.yml"
 OVERRIDE="$DIRECT_ROOT/docker-compose.direct.yml"
 RELEASE_DIR="$DIRECT_ROOT/releases/$SHA"
@@ -41,12 +41,31 @@ else
 fi
 
 set_env() {
-  local key="$1" value="$2"
+  local key="$1" value="$2" next_env
   if grep -q "^${key}=" .env; then
-    sed -i "s|^${key}=.*|${key}=${value}|" .env
+    next_env="$(mktemp .env.XXXXXX)"
+    sed "s|^${key}=.*|${key}=${value}|" .env > "$next_env"
+    mv "$next_env" .env
   else
     printf '\n%s=%s\n' "$key" "$value" >> .env
   fi
+}
+
+wait_for_go_api() {
+  local go_container health
+  go_container="$(docker compose -f "$BASE_COMPOSE" -f "$OVERRIDE" ps -q go-api)"
+  [ -n "$go_container" ] || { echo "STATUS=FAILED go-api container was not created" >&2; return 1; }
+  for _ in $(seq 1 45); do
+    health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' "$go_container" 2>/dev/null || true)"
+    if [ "$health" = "healthy" ]; then return 0; fi
+    if [ "$health" = "unhealthy" ]; then
+      echo "STATUS=FAILED go-api healthcheck failed" >&2
+      return 1
+    fi
+    sleep 2
+  done
+  echo "STATUS=FAILED go-api did not become healthy" >&2
+  return 1
 }
 
 rollback() {
@@ -55,14 +74,17 @@ rollback() {
   if [ -n "$PREV_DIR" ] && [ -d "$PREV_DIR" ]; then
     ln -sfn "$PREV_DIR" "$DIRECT_ROOT/current"
     if [ -n "$PREV_SHA" ]; then set_env DIRECT_RELEASE_SHA "$PREV_SHA"; fi
-    docker compose -f "$BASE_COMPOSE" -f "$OVERRIDE" up -d --no-deps --force-recreate --pull never go-api v88-node >/dev/null 2>&1 || true
+    docker compose -f "$BASE_COMPOSE" -f "$OVERRIDE" up -d --no-deps --force-recreate --pull never go-api >/dev/null 2>&1 || true
+    wait_for_go_api >/dev/null 2>&1 || true
+    docker compose -f "$BASE_COMPOSE" -f "$OVERRIDE" up -d --no-deps --force-recreate --pull never v88-node >/dev/null 2>&1 || true
     docker compose -f "$BASE_COMPOSE" restart nginx >/dev/null 2>&1 || true
   else
     # First direct release has no prior release symlink. Restore the base
     # image runtime rather than mounting the failed, partial release again.
     rm -f "$DIRECT_ROOT/current"
     set_env DIRECT_RELEASE_SHA ""
-    docker compose -f "$BASE_COMPOSE" up -d --no-deps --force-recreate --pull never go-api v88-node >/dev/null 2>&1 || true
+    docker compose -f "$BASE_COMPOSE" up -d --no-deps --force-recreate --pull never go-api >/dev/null 2>&1 || true
+    docker compose -f "$BASE_COMPOSE" up -d --no-deps --force-recreate --pull never v88-node >/dev/null 2>&1 || true
     docker compose -f "$BASE_COMPOSE" restart nginx >/dev/null 2>&1 || true
   fi
   exit "$status"
@@ -76,8 +98,11 @@ set_env DIRECT_RELEASE_SHA "$SHA"
 # 3) 校验合并后的 compose 配置。
 docker compose -f "$BASE_COMPOSE" -f "$OVERRIDE" config -q
 
-# 4) 只重建两个应用容器，明确 --pull never，绝不走国外镜像下载。
-docker compose -f "$BASE_COMPOSE" -f "$OVERRIDE" up -d --no-deps --force-recreate --pull never go-api v88-node
+# 4) 先让 Go API 通过容器内健康检查，再切 Node/Nginx。此前同时拉起两个
+# 服务会让 Node 在 Go 尚未监听时先对外响应，进而把暂时的读取失败误显示成空作品库。
+docker compose -f "$BASE_COMPOSE" -f "$OVERRIDE" up -d --no-deps --force-recreate --pull never go-api
+wait_for_go_api
+docker compose -f "$BASE_COMPOSE" -f "$OVERRIDE" up -d --no-deps --force-recreate --pull never v88-node
 
 # Nginx 在启动时会缓存上游容器 IP。Node 重建后必须让它重载一次，否则公网会
 # 继续转发到已退出的旧 IP 并表现为 502；这不改变任何业务数据或依赖容器。

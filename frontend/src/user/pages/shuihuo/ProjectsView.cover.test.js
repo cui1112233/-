@@ -17,3 +17,9 @@ test('private batch merge covers are fetched with the logged-in API client inste
   assert.match(source, /getBatchFactoryMergeCoverBlob/);
   assert.match(source, /AuthenticatedProjectCover/);
 });
+
+test('temporary project-list failure is shown as an error instead of an empty library', () => {
+  assert.match(source, /loadError/);
+  assert.match(source, /作品读取暂时失败/);
+  assert.match(source, /!visibleProjects\.length && !loadError/);
+});
