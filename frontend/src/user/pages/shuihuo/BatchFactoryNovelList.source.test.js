@@ -414,9 +414,9 @@ test('keeps an optional platform-label lookup from surfacing a global API failur
 });
 
 test('keeps persisted production and merge status readable when new work is disabled', () => {
-  assert.match(source, /const \[production, merge\] = await Promise\.all\(\[\s*getProductionStatus\(batch\.id\),\s*getMergeStatus\(batch\.id\)\s*\]\)/);
-  assert.doesNotMatch(source, /productionEnabled \? getProductionStatus/);
-  assert.doesNotMatch(source, /mergeEnabled \? getMergeStatus/);
+  assert.match(source, /getBatchRuntimeSummary\(batch\.id, \{ suppressGlobalError: true \}\)/);
+  assert.match(source, /setProductionStatus\(runtime\?\.production \|\| \{ jobs: \[\] \}\)/);
+  assert.match(source, /setMergeStatus\(runtime\?\.merge \|\| \{ jobs: \[\] \}\)/);
 });
 
 test('persists named AI reasoning presets through the V11 backend and lets users rename and load them', () => {
@@ -563,7 +563,7 @@ test('keeps production status inside 查看资料 instead of the operation colum
   assert.match(source, /小说正文/);
   assert.match(source, /hasActiveProduction/);
   assert.match(source, /viewingBook \|\| mediaBook \|\| promptBook \|\| hasActiveProduction/);
-  assert.match(source, /setInterval\(\(\) => \{ loadRuntimeStatus/);
+  assert.match(source, /const tick = \(\) => \{ loadRuntimeStatus\(\{ quiet: true \}\); \}/);
 });
 
 test('keeps failed runtime status diagnostics actionable in the task log', () => {
@@ -1104,7 +1104,7 @@ test('loads protected local merge files through the authenticated media boundary
 });
 
 test('keeps production polling failures inside the task panel', () => {
-  assert.match(source, /getProductionStatus\(batch\.id, \{ suppressGlobalError: true \}\)/);
+  assert.match(source, /getBatchRuntimeSummary\(batch\.id, \{ suppressGlobalError: true \}\)/);
 });
 
 test('shows opening variant prompts from the VIDEO01 card instead of candidate versions', () => {

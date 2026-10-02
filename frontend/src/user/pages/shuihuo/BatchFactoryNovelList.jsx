@@ -54,9 +54,7 @@ import {
 	compileH3Video,
   getBookStageSummary,
   getDraft,
-  getMergeStatus,
-  getProductionStatus,
-  getBatchAutomationStatus,
+  getBatchRuntimeSummary,
   listAutomationPresets,
   startBatchAutomation,
   pauseBatchAutomation,
@@ -2541,22 +2539,16 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
     if (!batch?.id) return;
     setLogsLoading(true);
     try {
-      const [production, mergeResult] = await Promise.all([
-        // This endpoint is polled continuously. Surface its failure inside
-        // the task panel, rather than renewing a global error banner forever.
-        getProductionStatus(batch.id, { suppressGlobalError: true }),
-        getMergeStatus(batch.id, { suppressGlobalError: true }).catch(error => {
-          // A batch without a merge record is normal. Older Go runtimes use
-          // 404 for that empty state; it is neither an auth failure nor a
-          // reason to keep the workbench polling forever.
-          if (Number(error?.status) === 404) return { jobs: [] };
-          throw error;
-        })
-      ]);
-      setProductionStatus(production);
-      setMergeStatus(mergeResult);
-      await loadStageSummaries();
+      // 一个批量摘要替代“状态 + 合并 + 每本阶段”的浏览器 N+2 次请求。
+      // 服务端合并读取并短缓存，页面只消费同一时刻的快照。
+      const runtime = await getBatchRuntimeSummary(batch.id, { suppressGlobalError: true });
+      setProductionStatus(runtime?.production || { jobs: [] });
+      setMergeStatus(runtime?.merge || { jobs: [] });
+      setStageSummaries(runtime?.stageSummaries || {});
+      const nextAutomation = runtime?.automation || { state: 'idle', counts: { total: 0, ready: 0, running: 0, pending: 0, failed: 0, blocked: 0 } };
+      setAutomationStatus(nextAutomation);
       setLogsError('');
+      return runtime;
     } catch (error) {
       const endpoint = String(error?.source || '').trim();
       const status = Number.isInteger(error?.status) ? `HTTP ${error.status}` : '';
@@ -2586,9 +2578,9 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
       if (polling) return;
       polling = true;
       try {
-        const result = await getBatchAutomationStatus(batch.id);
+        const runtime = await loadRuntimeStatus({ quiet: true });
         if (!active) return;
-        const next = resultData(result, 'automation');
+        const next = runtime?.automation;
         setAutomationStatus(next || { state: 'idle', counts: { total: 0, ready: 0, running: 0, pending: 0, failed: 0, blocked: 0 } });
         if (next?.state === 'running') {
           wasRunning = true;

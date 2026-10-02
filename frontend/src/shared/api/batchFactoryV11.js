@@ -396,6 +396,10 @@ export function getBatchAutomationStatus(batchId) {
   return apiRequest(bf11Path(`batches/${id(batchId)}/automation`), { cache: 'no-store' });
 }
 
+export function getBatchRuntimeSummary(batchId, options = {}) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/runtime-summary`), { ...options, cache: 'no-store' });
+}
+
 export function listSchedules() {
   return apiRequest(bf11Path('schedules'));
 }
@@ -563,6 +567,7 @@ export default {
   createLocalExecutorPairing,
   getProductionStatus,
   getBatchAutomationStatus,
+  getBatchRuntimeSummary,
   listSchedules,
   createSchedule,
   deleteSchedule,

@@ -225,9 +225,36 @@ async function refillMissingBatchFactoryBookSource({ book, fetchDirectOriginal, 
   return { ...response, fetched: { length: sourceText.length, attempts: fetched?.attempts || 0, bookinfo: fetched?.bookinfo || {} } };
 }
 
+// The workbench used to refresh production, merge, automation and every book
+// stage independently from the browser.  A large batch therefore turned one
+// visible refresh into dozens of authenticated requests.  Keep that fan-out
+// inside the server boundary and return a single, coherent snapshot instead.
+async function buildBatchFactoryRuntimeSummary({ batch, automation, loadProduction, loadMerge, loadStageSummary } = {}) {
+  const books = Array.isArray(batch?.books) ? batch.books : [];
+  const [production, merge, summaries] = await Promise.all([
+    loadProduction(),
+    loadMerge(),
+    Promise.all(books.map(async book => {
+      const bookId = String(book?.id || '');
+      try { return [bookId, await loadStageSummary(bookId)]; }
+      catch (error) { return [bookId, { bookId, runs: [], unavailable: true, error: String(error?.message || '阶段状态暂不可读') }]; }
+    }))
+  ]);
+  return {
+    batchId: String(batch?.id || ''),
+    batchRevision: Number(batch?.revision || 0),
+    automation: automation || { state: 'idle', counts: { total: 0, ready: 0, running: 0, pending: 0, failed: 0, blocked: 0 } },
+    production: production || { jobs: [] },
+    merge: merge || { jobs: [] },
+    stageSummaries: Object.fromEntries(summaries.filter(([bookId]) => bookId))
+  };
+}
+
 function createBatchFactoryV12Router(options = {}) {
   const legacy = createBatchFactoryV11Router(options);
   const router = express.Router();
+  const runtimeSummaryCache = new Map();
+  const runtimeSummaryTTL = 4_000;
   router.get('/batches/summary', async (req, res) => {
     try {
       const account = { username: req.username, isOwner: req.auth?.account?.isOwner === true };
@@ -309,6 +336,47 @@ function createBatchFactoryV12Router(options = {}) {
       return res.status(Number(error?.status) || 400).json({ error: error?.message || '识别男女频和风格失败' });
     }
   });
+  router.get('/batches/:batchId/runtime-summary', async (req, res) => {
+    const account = { username: req.username, isOwner: req.auth?.account?.isOwner === true };
+    const batchId = String(req.params.batchId || '').trim();
+    const cacheKey = `${account.username}:${batchId}`;
+    const now = Date.now();
+    const cached = runtimeSummaryCache.get(cacheKey);
+    if (cached?.expiresAt > now) {
+      try { return res.json(await cached.promise); }
+      catch (error) { runtimeSummaryCache.delete(cacheKey); return res.status(Number(error?.status) || 502).json({ error: error?.message || '读取批量运行状态失败' }); }
+    }
+    const goOptions = { goBaseUrl: options.goBaseUrl, bridgeSecret: options.bridgeSecret, fetchImpl: options.fetchImpl, now: options.now };
+    const request = async pathname => v11JSONRequest({ ...account, method: 'GET', pathname, ...goOptions });
+    const promise = (async () => {
+      const loaded = await request(`${V11_BASE}/batches/${encodeURIComponent(batchId)}`);
+      const batch = loaded?.batch || loaded;
+      if (!batch?.id) {
+        const error = new Error('批量工程不存在');
+        error.status = 404;
+        throw error;
+      }
+      return buildBatchFactoryRuntimeSummary({
+        batch,
+        automation: legacy.automationController?.status({ owner: account.username, batchId }),
+        loadProduction: () => request(`${V11_BASE}/batches/${encodeURIComponent(batchId)}/status`),
+        loadMerge: async () => {
+          try { return await request(`${V11_BASE}/batches/${encodeURIComponent(batchId)}/merge-status`); }
+          catch (error) { if (Number(error?.status) === 404) return { jobs: [] }; throw error; }
+        },
+        loadStageSummary: async bookId => {
+          const result = await request(`${V11_BASE}/batches/${encodeURIComponent(batchId)}/books/${encodeURIComponent(bookId)}/stages`);
+          return result?.summary || result;
+        }
+      });
+    })();
+    runtimeSummaryCache.set(cacheKey, { expiresAt: now + runtimeSummaryTTL, promise });
+    try { return res.json(await promise); }
+    catch (error) {
+      runtimeSummaryCache.delete(cacheKey);
+      return res.status(Number(error?.status) || 502).json({ error: error?.message || '读取批量运行状态失败' });
+    }
+  });
 	// Deletion is intentionally the only V12 mutation delegated to Go.  It is
 	// owner-scoped and removes only local records; no 121 or provider call runs.
 	router.delete('/batches/:batchId/books/:bookId', async (req, res) => {
@@ -348,6 +416,7 @@ module.exports = {
   cleanBatchFactorySourceText,
   fetchBatchFactoryOriginals,
   refillMissingBatchFactoryBookSource,
+  buildBatchFactoryRuntimeSummary,
   isNativeV12H3Path,
 	  isV12DeletionPath,
   routeV12UpstreamPath,
