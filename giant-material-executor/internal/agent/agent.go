@@ -18,6 +18,11 @@ var (
 	ErrUnauthorized   = errors.New("giant material executor is unauthorized")
 )
 
+// progressReportInterval prevents a frame-level OCR stream from overwhelming
+// the public control plane. The first update and terminal 100% update are
+// always persisted so the UI remains responsive and accurate.
+const progressReportInterval = time.Second
+
 type Job struct {
 	ID                string     `json:"id"`
 	MaterialID        string     `json:"materialId"`
@@ -213,6 +218,7 @@ func (a *Agent) process(ctx context.Context, claim ClaimResult) error {
 	renew := time.NewTicker(15 * time.Second)
 	defer renew.Stop()
 	completed := false
+	var lastProgressReport time.Time
 	for {
 		select {
 		case <-ctx.Done():
@@ -230,6 +236,11 @@ func (a *Agent) process(ctx context.Context, claim ClaimResult) error {
 			case worker.EventProgress:
 				progress := JobProgress{Completed: event.Completed, Total: event.Total, Percent: event.Percent}
 				a.state.SetProgress(Progress{Completed: progress.Completed, Total: progress.Total, Percent: progress.Percent})
+				now := time.Now()
+				if !lastProgressReport.IsZero() && progress.Percent < 100 && now.Sub(lastProgressReport) < progressReportInterval {
+					continue
+				}
+				lastProgressReport = now
 				if err := a.config.Client.Progress(ctx, a.config.Token, claim.Job.ID, LeaseCredential{Token: claim.LeaseToken, Generation: claim.LeaseGeneration}, StateRunning, progress); err != nil {
 					return err
 				}
