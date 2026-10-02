@@ -224,6 +224,60 @@ test('invalid API keys remain terminal instead of consuming automatic retries', 
   assert.equal(status.books[0].retryCount, 0);
 });
 
+test('a transient stage gets at most three automatic attempts before it yields the slot', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-retry-cap-'));
+  const { batch, adapter } = fixture();
+  let currentTime = 0;
+  let attempts = 0;
+  adapter.runStage = async () => { attempts += 1; throw new Error('provider temporarily unavailable'); };
+  const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} }, now: () => currentTime });
+  await controller.start({ owner: 'user', batchId: batch.id, concurrency: 1, runMode: 'storyboard_only' });
+  await wait();
+  currentTime = 30_000;
+  await controller.tick(); await wait();
+  currentTime = 150_000;
+  await controller.tick(); await wait();
+  currentTime = 450_000;
+  await controller.tick(); await wait();
+  const status = controller.status({ owner: 'user', batchId: batch.id });
+  assert.equal(attempts, 3);
+  assert.equal(status.books[0].status, 'failed');
+  assert.match(status.books[0].message, /已停止并让位/);
+});
+
+test('starting automation again does not reset a hard failure without an explicit book retry', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-restart-cap-'));
+  const { batch, adapter } = fixture();
+  let attempts = 0;
+  adapter.runStage = async () => { attempts += 1; throw new Error('invalid input: director returned invalid JSON'); };
+  const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} } });
+  await controller.start({ owner: 'user', batchId: batch.id, concurrency: 1 });
+  await wait();
+  assert.equal(controller.status({ owner: 'user', batchId: batch.id }).books[0].status, 'failed');
+  await controller.start({ owner: 'user', batchId: batch.id, concurrency: 1 });
+  await controller.tick(); await wait();
+  assert.equal(attempts, 1);
+  assert.equal(controller.status({ owner: 'user', batchId: batch.id }).books[0].status, 'failed');
+});
+
+test('an explicit retry gives the failed stage a fresh three-attempt budget', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-explicit-retry-budget-'));
+  const { batch, adapter } = fixture();
+  let currentTime = 0;
+  let attempts = 0;
+  adapter.runStage = async () => { attempts += 1; throw new Error('provider temporarily unavailable'); };
+  const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} }, now: () => currentTime });
+  await controller.start({ owner: 'user', batchId: batch.id, concurrency: 1 });
+  await wait();
+  currentTime = 30_000; await controller.tick(); await wait();
+  currentTime = 150_000; await controller.tick(); await wait();
+  assert.equal(controller.status({ owner: 'user', batchId: batch.id }).books[0].status, 'failed');
+  await controller.retry({ owner: 'user', batchId: batch.id, bookIds: [batch.books[0].id] });
+  await controller.tick(); await wait();
+  assert.equal(attempts, 4);
+  assert.equal(controller.status({ owner: 'user', batchId: batch.id }).books[0].status, 'waiting');
+});
+
 test('removing one book clears only that book automation state', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-delete-test-'));
   const { adapter } = fixture();
@@ -238,7 +292,7 @@ test('removing one book clears only that book automation state', async () => {
   assert.deepEqual(status.books.map(book => book.bookId), ['book-2']);
 });
 
-test('continue automation resets a failed book and resumes from its missing stage', async () => {
+test('an explicit single-book retry resets a failed book and resumes from its missing stage', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-resume-'));
   const { adapter } = fixture();
   let attempts = 0;
@@ -254,7 +308,7 @@ test('continue automation resets a failed book and resumes from its missing stag
   await wait();
   assert.equal(controller.status({ owner: 'user', batchId: 'batch-1' }).books[0].status, 'failed');
 
-  const resumed = await controller.resume({ owner: 'user', batchId: 'batch-1' });
+  const resumed = await controller.retry({ owner: 'user', batchId: 'batch-1', bookIds: ['book-1'] });
   assert.equal(resumed.state, 'running');
   assert.equal(resumed.books[0].status, 'pending');
 
