@@ -457,6 +457,68 @@ test('a transient video-management upload failure retries only after merged medi
   assert.equal(calls, 2);
 });
 
+test('video-management upload stops after three transient failures and yields the book slot', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-upload-cap-'));
+  const { batch, adapter } = fixture();
+  const book = batch.books[0];
+  book.assetRecords = [{ id: 'a1', kind: 'character' }];
+  book.directorRevision = { id: 'd1' };
+  book.videos = [{ id: 'video-1', label: 'VIDEO01', visualPrompt: '提示词' }];
+  let currentTime = 0;
+  let calls = 0;
+  adapter.getProductionStatus = async () => ({ batchId: batch.id, jobs: [{ id: 'p-ok', bookId: book.id, tasks: [{ id: 't-ok', videoId: 'video-1', status: 'succeeded', mediaUrl: '/media/video.mp4' }] }] });
+  adapter.getMergeStatus = async () => ({ batchId: batch.id, jobs: [{ id: 'm-ok', bookId: book.id, status: 'succeeded', outputUrl: '/media/merged.mp4' }] });
+  adapter.publishBook = async () => { calls += 1; throw new Error('upload gateway timeout'); };
+  const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} }, now: () => currentTime });
+
+  await controller.start({ owner: 'user', batchId: batch.id, runMode: 'full_submit', concurrency: 1 });
+  await wait();
+  currentTime = 30_000; await controller.tick(); await wait();
+  currentTime = 150_000; await controller.tick(); await wait();
+
+  const status = controller.status({ owner: 'user', batchId: batch.id });
+  assert.equal(calls, 3);
+  assert.equal(status.books[0].status, 'failed');
+  assert.equal(status.books[0].retryCount, 3);
+  assert.match(status.books[0].message, /已停止并让位/);
+});
+
+test('one slow upload does not hold the batch lock after another lane becomes free', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-upload-yield-'));
+  const { batch, adapter } = fixture();
+  const readyBook = id => ({
+    id, bookId: id, title: id, sourceText: '正文', settingsState: { patch: {} },
+    assetRecords: [{ id: `asset-${id}`, kind: 'character' }],
+    directorRevision: { id: `director-${id}` },
+    videos: [{ id: `video-${id}`, label: 'VIDEO01', visualPrompt: '提示词' }]
+  });
+  batch.books = [readyBook('book-1'), readyBook('book-2'), readyBook('book-3')];
+  adapter.getStageSummary = async (_owner, _isOwner, _batchId, bookId) => ({ bookId, runs: [{ stage: 'assets', status: 'succeeded' }, { stage: 'director', status: 'succeeded' }] });
+  adapter.getProductionStatus = async () => ({ batchId: batch.id, jobs: batch.books.map(book => ({ bookId: book.id, tasks: [{ videoId: `video-${book.id}`, status: 'succeeded', mediaUrl: `/media/${book.id}.mp4` }] })) });
+  adapter.getMergeStatus = async () => ({ batchId: batch.id, jobs: batch.books.map(book => ({ bookId: book.id, status: 'succeeded', outputUrl: `/media/${book.id}-merged.mp4` })) });
+  const never = new Promise(() => {});
+  const published = [];
+  adapter.publishBook = async ({ book }) => {
+    published.push(book.id);
+    if (book.id === 'book-1') return never;
+    return { status: 'confirmed' };
+  };
+  const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} } });
+
+  await controller.start({ owner: 'user', batchId: batch.id, runMode: 'full_submit', concurrency: 2 });
+  for (let i = 0; i < 8; i += 1) { await controller.tick(); await wait(15); }
+
+  assert.ok(published.includes('book-1'));
+  assert.ok(published.includes('book-2'));
+  assert.ok(published.includes('book-3'), `book-3 should start after book-2 frees one lane, got: ${published.join(',')}`);
+  assert.equal(published.filter(id => id === 'book-2').length, 1);
+  assert.equal(published.filter(id => id === 'book-3').length, 1);
+  for (let i = 0; i < 10 && controller.status({ owner: 'user', batchId: batch.id }).books.find(book => book.bookId === 'book-3').stage !== 'uploaded'; i += 1) await wait(10);
+  const finalStatus = controller.status({ owner: 'user', batchId: batch.id });
+  assert.equal(finalStatus.books.find(book => book.bookId === 'book-3').stage, 'uploaded', JSON.stringify(finalStatus));
+  await controller.cancel({ owner: 'user', batchId: batch.id });
+});
+
 test('scheduled automation ignores preset snapshots and preserves sparse book overrides', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-test-'));
   const { batch, adapter } = fixture();
