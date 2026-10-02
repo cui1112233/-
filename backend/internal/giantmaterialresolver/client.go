@@ -17,6 +17,7 @@ import (
 const DefaultMaterialURL = "https://n8.hnqingyuwen.top/center-api/material/video/select"
 
 var materialIDPattern = regexp.MustCompile(`^[0-9]{10,25}$`)
+var trailingBookCityPattern = regexp.MustCompile(`\s*[（(]\s*([^()（）]+?)\s*[）)]\s*$`)
 
 type CodedError struct {
 	Code string
@@ -41,7 +42,7 @@ type Book struct {
 	// PlatformID is the target 视频管理系统 source-platform ID. It is supplied
 	// only for provider codes with a verified mapping, never guessed at upload.
 	PlatformID string `json:"platformId,omitempty"`
-	Title          string `json:"title"`
+	Title      string `json:"title"`
 }
 
 type Material struct {
@@ -153,7 +154,12 @@ func normalize(payload map[string]any) Material {
 				continue
 			}
 			seen[platformCode+":"+id] = true
+			name, taggedPlatformName := splitTrailingBookCityTag(name)
 			platformName, platformID := normalizePlatform(platformCode)
+			if taggedPlatformName != "" {
+				platformName = taggedPlatformName
+				platformID = platformIDForBookCity(taggedPlatformName)
+			}
 			books = append(books, Book{PlatformBookID: id, PlatformName: platformName, PlatformCode: platformCode, PlatformID: platformID, Title: name})
 		}
 	}
@@ -202,8 +208,45 @@ func normalizePlatform(code string) (name, platformID string) {
 		return "常读", "2"
 	case "QM":
 		return "七猫", "3"
+	case "ZH":
+		return "知乎", "15"
 	default:
 		return strings.TrimSpace(code), ""
+	}
+}
+
+// splitTrailingBookCityTag separates Qingyu's display convention
+// "book title (book city)". The tag is source metadata, not part of the
+// title that we later show as the novel name or send to 视频管理系统.
+func splitTrailingBookCityTag(raw string) (title, bookCity string) {
+	value := strings.TrimSpace(raw)
+	match := trailingBookCityPattern.FindStringSubmatchIndex(value)
+	if len(match) == 0 {
+		return value, ""
+	}
+	title = strings.TrimSpace(value[:match[0]])
+	bookCity = strings.TrimSpace(value[match[2]:match[3]])
+	if title == "" || bookCity == "" {
+		return value, ""
+	}
+	return title, bookCity
+}
+
+// platformIDForBookCity includes only values confirmed by Qingyu's own source
+// platform configuration. Unknown labels are intentionally left unmapped so
+// the caller cannot silently submit a work to the wrong 121 source platform.
+func platformIDForBookCity(name string) string {
+	switch strings.TrimSpace(name) {
+	case "黑岩":
+		return "1"
+	case "常读":
+		return "2"
+	case "七猫":
+		return "3"
+	case "知乎":
+		return "15"
+	default:
+		return ""
 	}
 }
 

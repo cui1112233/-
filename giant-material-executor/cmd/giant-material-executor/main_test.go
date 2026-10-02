@@ -3,11 +3,36 @@ package main
 import (
 	"errors"
 	"path/filepath"
+	"runtime"
 	"testing"
+	"time"
 
 	"qiantie/giant-material-executor/internal/agent"
 	"qiantie/giant-material-executor/internal/credential"
 )
+
+func TestDefaultPythonCommandMatchesPlatform(t *testing.T) {
+	want := "python3"
+	if runtime.GOOS == "windows" {
+		want = "python"
+	}
+	if got := defaultPythonCommand(); got != want {
+		t.Fatalf("python command=%q, want %q", got, want)
+	}
+}
+
+func TestDefaultPythonCommandHonorsOverride(t *testing.T) {
+	t.Setenv("GIANT_MATERIAL_PYTHON", "/custom/python")
+	if got := defaultPythonCommand(); got != "/custom/python" {
+		t.Fatalf("python command=%q, want override", got)
+	}
+}
+
+func TestPublicAPIClientTimeoutLeavesRoomForServerClaimLongPoll(t *testing.T) {
+	if publicAPIClientTimeout <= 25*time.Second {
+		t.Fatalf("public API timeout=%s, must exceed the server's 25s claim long-poll window", publicAPIClientTimeout)
+	}
+}
 
 func TestNormalizePublicAPIURLRequiresHTTPHost(t *testing.T) {
 	cases := []struct {
@@ -68,6 +93,30 @@ func TestUnauthorizedRunClearsSavedCredential(t *testing.T) {
 	}
 }
 
+func TestPreferLegacyCredentialStoreKeepsExistingPairing(t *testing.T) {
+	legacy := &memoryCredentialStore{record: credential.Record{ExecutorID: "executor-1", Token: "token-1"}}
+	device := &memoryCredentialStore{loadErr: credential.ErrNotFound}
+	store, err := preferLegacyCredentialStore(device, legacy)
+	if err != nil {
+		t.Fatalf("select credential store: %v", err)
+	}
+	if store != legacy {
+		t.Fatal("expected existing legacy pairing to be retained")
+	}
+}
+
+func TestPreferLegacyCredentialStoreUsesDeviceStoreWhenNoLegacyRecordExists(t *testing.T) {
+	device := &memoryCredentialStore{record: credential.Record{ExecutorID: "new-executor", Token: "new-token"}}
+	legacy := &memoryCredentialStore{loadErr: credential.ErrNotFound}
+	store, err := preferLegacyCredentialStore(device, legacy)
+	if err != nil {
+		t.Fatalf("select credential store: %v", err)
+	}
+	if store != device {
+		t.Fatal("expected device store when no legacy pairing exists")
+	}
+}
+
 func TestSavePairResultAndRestoreCredential(t *testing.T) {
 	store := credential.NewFileStore(filepath.Join(t.TempDir(), "executor.credential"))
 	result := agent.PairResult{ExecutorID: "executor-1", Token: "long-lived-token"}
@@ -96,4 +145,28 @@ func TestSavePairResultRejectsMissingServerCredential(t *testing.T) {
 	if err := savePairResult(store, agent.PairResult{ExecutorID: "executor-1"}); err == nil {
 		t.Fatal("expected missing token to fail")
 	}
+}
+
+type memoryCredentialStore struct {
+	record  credential.Record
+	loadErr error
+}
+
+func (s *memoryCredentialStore) Load() (credential.Record, error) {
+	if s.loadErr != nil {
+		return credential.Record{}, s.loadErr
+	}
+	return s.record, nil
+}
+
+func (s *memoryCredentialStore) Save(record credential.Record) error {
+	s.record = record
+	s.loadErr = nil
+	return nil
+}
+
+func (s *memoryCredentialStore) Clear() error {
+	s.record = credential.Record{}
+	s.loadErr = credential.ErrNotFound
+	return nil
 }

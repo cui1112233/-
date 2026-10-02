@@ -1,6 +1,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const path = require('path');
+const { isDeepStrictEqual } = require('node:util');
 const { getVideoApiKey, readConfig } = require('../lib/shared');
 const { proxyV11Request, createSignedBridgeHeaders } = require('../lib/batch-factory-v11/go-proxy');
 const { BATCH_FACTORY_PRESET_REQUIREMENTS, isPublishedPresetAllowed, resolveSystemPresetBody } = require('../lib/system-preset-catalog');
@@ -13,6 +14,8 @@ const { create121CredentialStore } = require('../lib/novel-fetch-workshop/121-cr
 const targetUpload = require('../lib/target-upload');
 const { createBatchFactoryAutomationController } = require('../lib/batch-factory-v11/automation-orchestrator');
 const { createAutomationPresetStore } = require('../lib/batch-factory-v11/automation-presets');
+const { createMySQLWorkshopStore } = require('../lib/novel-fetch-workshop/mysql-store');
+const { refillMissingBatchFactoryBookSource } = require('../lib/batch-factory-v11/source-refill');
 
 const PERSONAL_PROVIDER = 'personal_api';
 const LOCAL_PROVIDER = 'doubao_local_executor';
@@ -26,6 +29,202 @@ const CONFIG_PATH = '/api/batch-factory/v11/video-provider/config';
 const STATUS_PATH = '/api/batch-factory/v11/video-provider/status';
 const AI_PROMPT_MODULES = ['assets', 'constraints', 'hook', 'originalDirector', 'viralDirector', 'video', 'visual'];
 function object(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
+
+const MODEL_FIELDS = {
+  textModelId: { kind: 'text', label: '文本模型' },
+  imageModelId: { kind: 'image', label: '图片模型' },
+  videoModelId: { kind: 'video', label: '视频模型' }
+};
+
+function validateBatchFactoryModelPatch({ username, patch, memberStore, accountStore, account, configReader = readConfig } = {}) {
+  for (const [field, { kind, label }] of Object.entries(MODEL_FIELDS)) {
+    const modelId = String(object(patch)[field] || '').trim();
+    if (!modelId) continue;
+    try {
+      resolveRuntimeModel({ username, kind, modelId, memberStore, accountStore, account, configReader });
+    } catch (_) {
+      throw requestError(`${label}不可用、未配置或尚未启用`, 422, 'BATCH_FACTORY_MODEL_UNAVAILABLE');
+    }
+  }
+  return patch;
+}
+
+function sanitizeAutomationPresetConfig(value) {
+  const config = JSON.parse(JSON.stringify(object(value)));
+  delete config.automationPresetSnapshot;
+  return config;
+}
+
+// Only established batch-level production settings may have been inherited.
+// Book metadata, computed audio measurements and unknown keys are never removed.
+const LEGACY_INHERITED_FIELDS = {
+  textModelId: 'string', imageModelId: 'string', videoModelId: 'string', videoProvider: 'string',
+  aspectRatio: 'string', imageAspectRatio: 'string', videoAspectRatio: 'string', videoResolution: 'string', productionMode: 'string',
+  storyboardDurationLimit: 'number', maxVideoDuration: 'number', fixedSingleVideo: 'boolean',
+  audioPlanningEnabled: 'boolean', audioMergeEnabled: 'boolean', tts: 'object', publishRewriteEnabled: 'boolean',
+  openingEnabled: 'boolean', openingCount: 'number', publishSettings: 'object', aiPromptConfig: 'object'
+};
+
+function legacyJSONValue(value, ancestors = new Set()) {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (!value || typeof value !== 'object' || ancestors.has(value)) return false;
+  if (!Array.isArray(value) && ![Object.prototype, null].includes(Object.getPrototypeOf(value))) return false;
+  const next = new Set(ancestors).add(value);
+  return Object.values(value).every(item => legacyJSONValue(item, next));
+}
+
+function legacyConfigField(value, kind) {
+  return typeof value === kind && (kind !== 'object' || plainObject(value));
+}
+
+function legacyRestoreCandidate(book, config) {
+  const patch = book?.settingsState?.patch;
+  if (!plainObject(patch) || !legacyJSONValue(patch) || !Number.isSafeInteger(book?.revision) || book.revision < 1) {
+    return { reason: 'malformed_book' };
+  }
+  const restoreKeys = Object.keys(patch).filter(key => Object.hasOwn(LEGACY_INHERITED_FIELDS, key));
+  if (!restoreKeys.length) return { reason: 'no_copied_fields' };
+  for (const key of restoreKeys) {
+    if (!Object.hasOwn(config, key)) return { reason: 'missing_snapshot_field' };
+    const kind = LEGACY_INHERITED_FIELDS[key];
+    if (!legacyConfigField(patch[key], kind) || !legacyConfigField(config[key], kind)) {
+      return { reason: 'malformed_config' };
+    }
+    // Entire nested values must match; deleting one nested leaf can erase a
+    // later manual selection because restoreKeys operates at the root only.
+    if (!isDeepStrictEqual(patch[key], config[key])) return { reason: 'different_override' };
+  }
+  return { restoreKeys };
+}
+
+async function repairLegacyExecutionOverrides({ owner, isOwner = false, batch, snapshot, bridgeOptions } = {}) {
+  const result = { repairedBookIds: [], skippedBookIds: [], skippedBooks: [] };
+  const books = Array.isArray(batch?.books) ? batch.books : [];
+  const skip = (bookId, reason) => {
+    result.skippedBookIds.push(bookId);
+    result.skippedBooks.push({ bookId, reason });
+  };
+  const config = snapshot?.configSnapshot;
+  const validEvidence = owner && batch?.id && snapshot?.owner === owner && snapshot?.batchId === batch.id &&
+    plainObject(config) && Object.keys(config).length > 0 && legacyJSONValue(config) &&
+    Object.entries(config).every(([key, value]) => !Object.hasOwn(LEGACY_INHERITED_FIELDS, key) || legacyConfigField(value, LEGACY_INHERITED_FIELDS[key])) &&
+    Array.isArray(snapshot?.appliedBookIds) && snapshot.appliedBookIds.every(id => typeof id === 'string' && id) &&
+    new Set(snapshot.appliedBookIds).size === snapshot.appliedBookIds.length;
+  const batchPath = `/api/batch-factory/v11/batches/${encodeURIComponent(batch?.id || '')}`;
+  const request = { ...bridgeOptions, username: owner, isOwner };
+  for (const initialBook of books) {
+    const bookId = typeof initialBook?.id === 'string' ? initialBook.id : '';
+    if (!bookId || books.filter(book => book?.id === bookId).length !== 1) { skip(bookId, 'malformed_book'); continue; }
+    if (!validEvidence) { skip(bookId, 'missing_snapshot'); continue; }
+    if (!snapshot.appliedBookIds.includes(bookId)) { skip(bookId, 'snapshot_not_applied'); continue; }
+    const initialCandidate = legacyRestoreCandidate(initialBook, config);
+    if (initialCandidate.reason) { skip(bookId, initialCandidate.reason); continue; }
+    const restoreKeys = Object.freeze([...initialCandidate.restoreKeys]);
+    const initialPatch = JSON.parse(JSON.stringify(initialBook.settingsState.patch));
+    let book = initialBook;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const candidate = attempt === 0 ? initialCandidate : legacyRestoreCandidate(book, config);
+      if (candidate.reason) { skip(bookId, candidate.reason); break; }
+      // A concurrent matching value can be a new manual edit. The original
+      // proof never authorizes deleting keys added while this repair runs.
+      if (attempt > 0 && !isDeepStrictEqual(book.settingsState.patch, initialPatch)) { skip(bookId, 'changed_patch'); break; }
+      try {
+        await v11JSONRequest({
+          ...request, method: 'PUT', pathname: `${batchPath}/books/${encodeURIComponent(bookId)}/override`,
+          payload: { patch: {}, restoreKeys, expectedRevision: book.revision }
+        });
+        result.repairedBookIds.push(bookId);
+        break;
+      } catch (error) {
+        if (error?.status !== 409) throw error;
+        if (attempt === 1) { skip(bookId, 'revision_conflict'); break; }
+        try {
+          const loaded = await v11JSONRequest({ ...request, method: 'GET', pathname: batchPath });
+          const current = loaded?.batch || loaded;
+          const matches = current?.id === batch.id && Array.isArray(current?.books)
+            ? current.books.filter(item => item?.id === bookId) : [];
+          if (matches.length !== 1) { skip(bookId, 'revision_conflict'); break; }
+          book = matches[0];
+        } catch (_) { skip(bookId, 'revision_conflict'); break; }
+      }
+    }
+  }
+  return result;
+}
+
+async function applyAutomationPresetToBatch({ username, isOwner, batch, preset, bridgeOptions }) {
+  const current = sanitizeAutomationPresetConfig(batch?.settingsState?.patch);
+  const config = sanitizeAutomationPresetConfig(preset?.config);
+  if (!Object.keys(config).length) throw requestError('自动化预设没有可用配置', 422, 'AUTOMATION_PRESET_CONFIG_REQUIRED');
+  const patch = { ...current, ...config };
+  for (const key of ['aiPromptConfig', 'publishSettings']) {
+    if (Object.hasOwn(current, key) || Object.hasOwn(config, key)) {
+      patch[key] = { ...object(current[key]), ...object(config[key]) };
+    }
+  }
+  const validation = { ...bridgeOptions, username, account: { isOwner } };
+  validateBatchFactoryModelPatch({ ...validation, patch });
+  for (const book of Array.isArray(batch?.books) ? batch.books : []) {
+    validateBatchFactoryModelPatch({ ...validation, patch: object(book?.settingsState?.patch) });
+  }
+  const pathname = `/api/batch-factory/v11/batches/${encodeURIComponent(batch.id)}`;
+  const request = { ...bridgeOptions, username, isOwner };
+  await v11JSONRequest({
+    ...request, method: 'PUT', pathname: `${pathname}/settings`,
+    payload: { patch, restoreKeys: ['automationPresetSnapshot'], expectedRevision: Number(batch.revision || 0) }
+  });
+  const reloaded = await v11JSONRequest({ ...request, method: 'GET', pathname });
+  return reloaded?.batch || reloaded;
+}
+
+// "单书继承作品配置、作品继承引擎配置"：批量自身的设置里没选文本模型时，
+// 自动化不能直接卡死，要按老规矩回退到该账号在设置页保存的默认文本模型。
+// 纯函数：传入批量设置快照和账号配置，返回补齐后的快照。
+function applyEngineConfigInheritance(snapshot, accountConfig) {
+  const patch = { ...object(snapshot) };
+  if (Object.hasOwn(patch, 'textModelId')) return patch;
+  const catalog = Array.isArray(accountConfig?.modelCatalog) ? accountConfig.modelCatalog : [];
+  const defaultModel = String(accountConfig?.model || '').trim();
+  // 默认模型在目录里被明确停用就不继承；目录无记录的老配置按"用户自选"照用。
+  const catalogEntry = defaultModel
+    ? catalog.find(item => item?.kind === 'text' && [item?.id, item?.modelId].some(value => String(value || '').trim() === defaultModel))
+    : null;
+  if (defaultModel && (!catalogEntry || catalogEntry.enabled !== false)) {
+    patch.textModelId = String(catalogEntry?.id || defaultModel).trim();
+  }
+  return patch;
+}
+
+function resolveBatchFactoryRuntimeSettings({ username, batch, book, settings, configReader = readConfig } = {}) {
+  const current = settings === undefined ? automationEffectiveSettings(batch, book) : object(settings);
+  if (Object.hasOwn(current, 'textModelId')) return current;
+  return applyEngineConfigInheritance(current, configReader(username));
+}
+
+function validateBatchFactoryRuntimeSettings({ username, isOwner = false, batch, book, settings, ...options } = {}) {
+  const effective = resolveBatchFactoryRuntimeSettings({ username, batch, book, settings, configReader: options.configReader || readConfig });
+  validateBatchFactoryModelPatch({ ...options, username, account: { isOwner }, patch: effective });
+  return effective;
+}
+
+// The saved plan authorizes recovery and retains its run timing. Execution
+// reloads current batch settings; preset metadata is only plan provenance.
+function liveGiantAutomationRecovery(batch, savedPlan) {
+  const presetID = String(savedPlan?.presetId || '').trim();
+  if (!presetID) throw requestError('巨量素材自动化计划缺失，请在工作台选择预设后手动启动', 409, 'GIANT_AUTOMATION_PLAN_MISSING');
+  const scheduledAt = String(savedPlan?.scheduledAt || '').trim();
+  if (scheduledAt && !Number.isFinite(new Date(scheduledAt).getTime())) {
+    throw requestError('定时执行时间无效', 422, 'GIANT_AUTOMATION_SCHEDULE_INVALID');
+  }
+  const runModeValue = String(savedPlan?.runMode || '').trim();
+  return {
+    preset: { id: presetID },
+    runMode: ['storyboard_only', 'video_no_submit', 'full_submit'].includes(runModeValue) ? runModeValue : 'full_submit',
+    concurrency: Number(savedPlan?.concurrency || 0) || undefined,
+    scheduledAt
+  };
+}
 
 function resolveV11GoBaseUrl(env = process.env) {
   return String(env.QIANTIE_BATCH_FACTORY_V11_BASE_URL || env.QIANTIE_GO_BASE_URL || 'http://backend:4000').replace(/\/$/, '');
@@ -115,6 +314,76 @@ function requestTextProvider(req, options, explicitModelId = '') {
 function directorBookPath(pathname) {
   const match = String(pathname || '').match(/^\/api\/batch-factory\/v11\/batches\/([^/]+)\/books\/([^/]+)\/(?:director|stages\/director)$/);
   return match ? { batchId: decodeURIComponent(match[1]), bookId: decodeURIComponent(match[2]) } : null;
+}
+
+// 单书“视频获取-提取 / 重新生成导演分镜”走的 stages/director 精确入口。
+function singleBookDirectorStageTarget(req, pathname) {
+  if (req.method !== 'POST') return null;
+  const match = String(pathname || '').match(/^\/api\/batch-factory\/v11\/batches\/([^/]+)\/books\/([^/]+)\/stages\/director$/);
+  return match ? { batchId: decodeURIComponent(match[1]), bookId: decodeURIComponent(match[2]) } : null;
+}
+
+// 单书导演分镜成功后，若该书开启换开头且分镜数≥2，紧接着自动生成换开头变体，
+// 让单书操作与整批自动化流水线行为一致。换开头失败不拖垮已经成功的导演分镜。
+async function generateOpeningVariantsAfterSingleDirector(req, target, upstreamOptions) {
+  const isOwner = req.auth?.account?.isOwner === true;
+  const goArgs = {
+    username: req.username, isOwner,
+    goBaseUrl: upstreamOptions.goBaseUrl, bridgeSecret: upstreamOptions.bridgeSecret,
+    fetchImpl: upstreamOptions.fetchImpl, now: upstreamOptions.now
+  };
+  const batchPath = `/api/batch-factory/v11/batches/${encodeURIComponent(target.batchId)}`;
+  const loadBatch = async () => {
+    const loaded = await v11JSONRequest({ ...goArgs, method: 'GET', pathname: batchPath });
+    return loaded?.batch || loaded;
+  };
+  const describe = (triggered, generated, succeeded, reason) => ({ triggered, generated, succeeded, reason: reason || '' });
+  const batch = await loadBatch();
+  const book = (Array.isArray(batch?.books) ? batch.books : []).find(item => String(item?.id) === String(target.bookId));
+  if (!book) return describe(false, 0, false, '当前书不存在，已跳过换开头');
+  const settings = resolveBatchFactoryRuntimeSettings({ username: req.username, batch, book, configReader: upstreamOptions.configReader || readConfig });
+  const videos = Array.isArray(book.videos) ? book.videos : [];
+  if (settings.openingEnabled !== true) return describe(false, 0, false, '未开启换开头，已跳过');
+  if (videos.length < 2) return describe(false, 0, false, '分镜不足 2 个，已跳过换开头');
+  const metaBody = String(resolveSystemPresetBody(upstreamOptions.presetStore, 'batch-opening-meta') || '').trim();
+  if (!metaBody) return describe(true, 0, false, '换开头元提示词预设没有可用正文');
+  const textModelId = String(settings.textModelId || '').trim();
+  const payload = {
+    mode: 'force',
+    requestId: `bf11-opening-single-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    textProvider: requestTextProvider({ username: req.username, body: { textModelId } }, upstreamOptions, textModelId),
+    openingMeta: { presetId: 'batch-opening-meta', presetName: '换开头元提示词', presetSlot: 'batch.opening-meta', presetVersion: 1, presetKey: 'batch-opening-meta', body: metaBody, constraintCategory: '' }
+  };
+  const openingPath = `/api/batch-factory/v11/batches/${encodeURIComponent(target.batchId)}/books/${encodeURIComponent(target.bookId)}/stages/opening`;
+  let openingError = null;
+  try {
+    await v11JSONRequest({ ...goArgs, method: 'POST', pathname: openingPath, payload });
+  } catch (error) {
+    // The director stage already succeeded. Read the persisted opening slots
+    // below so the caller receives the specific failed-variant reason instead
+    // of silently treating a partial response as usable.
+    openingError = error;
+  }
+  const afterBatch = await loadBatch();
+  const afterBook = (Array.isArray(afterBatch?.books) ? afterBatch.books : []).find(item => String(item?.id) === String(target.bookId));
+  const variants = Array.isArray(afterBook?.videos?.[0]?.settingsState?.patch?.openingVariants)
+    ? afterBook.videos[0].settingsState.patch.openingVariants
+    : [];
+  const configuredCount = Number.parseInt(String(settings.openingCount || 4), 10);
+  const required = Math.max(0, Math.min(7, (Number.isFinite(configuredCount) ? configuredCount : 4) - 1));
+  const successful = new Set(variants
+    .filter(variant => variant?.status === 'success' && String(variant?.prompt || '').trim())
+    .map(variant => Number(variant.index))
+    .filter(index => Number.isInteger(index) && index >= 1 && index <= required));
+  const missingIndex = Array.from({ length: required }, (_, offset) => offset + 1).find(index => !successful.has(index));
+  if (missingIndex === undefined && !openingError) return describe(true, successful.size, true, '');
+  const failedVariant = variants.find(variant => Number(variant?.index) === missingIndex);
+  const failureReason = String(failedVariant?.failureReason || '').trim();
+  const upstreamReason = String(openingError?.message || '').trim();
+  const reason = failureReason
+    ? `换开头${missingIndex}失败：${failureReason}`
+    : (upstreamReason || `换开头变体未全部生成（缺少换开头${missingIndex || 1}），可重试失败步骤`);
+  return describe(true, successful.size, false, reason);
 }
 
 function styleSystemBookPath(pathname) {
@@ -392,15 +661,39 @@ function normalizedBookStyle(value) {
 }
 
 function parseBatchBookClassification(content) {
-  const raw = String(content || '').trim()
-    .replace(/^```(?:json)?\s*/i, '')
-    .replace(/\s*```$/, '');
-  const start = raw.indexOf('{');
-  const end = raw.lastIndexOf('}');
-  if (start < 0 || end < start) throw requestError('AI 判断没有返回 JSON 结果', 502, 'BOOK_CLASSIFICATION_INVALID_RESPONSE');
-  let parsed = {};
-  try { parsed = JSON.parse(raw.slice(start, end + 1)); }
-  catch (_) { throw requestError('AI 判断返回的 JSON 无法解析', 502, 'BOOK_CLASSIFICATION_INVALID_RESPONSE'); }
+  const raw = String(content || '').trim();
+  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  const candidates = [fenced?.[1], raw]
+    .filter(Boolean)
+    .flatMap(candidate => {
+      const start = candidate.indexOf('{');
+      const end = candidate.lastIndexOf('}');
+      return start >= 0 && end >= start ? [candidate.slice(start, end + 1)] : [];
+    });
+  if (!candidates.length) throw requestError('AI 判断没有返回 JSON 结果', 502, 'BOOK_CLASSIFICATION_INVALID_RESPONSE');
+  let parsed;
+  for (const candidate of candidates) {
+    try {
+      parsed = JSON.parse(candidate);
+      break;
+    } catch (_) {
+      // Compatible models occasionally return JavaScript-like JSON with
+      // full-width punctuation or single-quoted keys/values. Normalize only
+      // after strict JSON parsing fails; semantic validation below remains the
+      // authority for what the application accepts.
+      const repaired = candidate
+        .replace(/[“”]/g, '"')
+        .replace(/[‘’]/g, "'")
+        .replace(/：/g, ':')
+        .replace(/，/g, ',')
+        .replace(/'([^'\\]*(?:\\.[^'\\]*)*)'/g, (_, value) => JSON.stringify(value.replace(/\\'/g, "'")));
+      try {
+        parsed = JSON.parse(repaired);
+        break;
+      } catch (_) { /* try the next extracted candidate */ }
+    }
+  }
+  if (!parsed) throw requestError('AI 判断返回的 JSON 无法解析', 502, 'BOOK_CLASSIFICATION_INVALID_RESPONSE');
   const gender = normalizedBookGender(parsed.gender || parsed.genderFrequency || parsed.gender_frequency);
   const style = normalizedBookStyle(parsed.style || parsed.styleType || parsed.style_type);
   if (!gender || !style) {
@@ -465,18 +758,34 @@ async function classifyBatchFactoryBookFor121({ username, isOwner = false, batch
     return { book, classification: { gender: existingGender, style: existingStyle, tags: String(metadata.tags || '').trim(), reason: String(metadata.classifyReason || '').trim() }, reused: true };
   }
   if (!String(book.sourceText || '').trim()) throw requestError('当前小说没有正文，无法识别男女频和风格', 422, 'SOURCE_TEXT_REQUIRED');
-  const response = await fetchImpl(textProvider.endpoint, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${textProvider.apiKey}` },
-    body: JSON.stringify({ model: textProvider.model, messages: batchBookClassificationMessages(book), max_tokens: 700, temperature: 0.1, stream: false }),
-    redirect: 'manual'
-  });
-  const raw = await response.text();
-  let payload = {};
-  try { payload = raw ? JSON.parse(raw) : {}; } catch (_) { /* parser below explains invalid output */ }
   const modelName = String(textProvider.displayName || textProvider.model || '当前文本模型').trim();
-  if (!response.ok) throw requestError(`小说分类模型“${modelName}”请求失败：${payload?.error?.message || payload?.message || `HTTP ${response.status}`}`, 502, 'BOOK_CLASSIFICATION_PROVIDER_FAILED');
-  const classification = parseBatchBookClassification(payload?.choices?.[0]?.message?.content);
+  const requestClassification = async messages => {
+    const response = await fetchImpl(textProvider.endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${textProvider.apiKey}` },
+      body: JSON.stringify({ model: textProvider.model, messages, max_tokens: 700, temperature: 0.1, stream: false }),
+      redirect: 'manual'
+    });
+    const raw = await response.text();
+    let payload = {};
+    try { payload = raw ? JSON.parse(raw) : {}; } catch (_) { /* error below includes the provider status */ }
+    if (!response.ok) throw requestError(`小说分类模型“${modelName}”请求失败：${payload?.error?.message || payload?.message || `HTTP ${response.status}`}`, 502, 'BOOK_CLASSIFICATION_PROVIDER_FAILED');
+    return responseMessageText(payload?.choices?.[0]?.message?.content);
+  };
+  const messages = batchBookClassificationMessages(book);
+  let content = await requestClassification(messages);
+  let classification;
+  try {
+    classification = parseBatchBookClassification(content);
+  } catch (error) {
+    if (error?.code !== 'BOOK_CLASSIFICATION_INVALID_RESPONSE') throw error;
+    content = await requestClassification([
+      ...messages,
+      { role: 'assistant', content: content.slice(0, 4000) || '(空输出)' },
+      { role: 'user', content: '上一条格式不合格。请修正并只返回合法 JSON，不要代码块、解释或其他文字。字段必须是 gender、style、tags、reason；gender 只能是男频或女频，style 必须从系统给出的风格列表中选择。' }
+    ]);
+    classification = parseBatchBookClassification(content);
+  }
   const nextMetadata = {
     ...metadata,
     gender: classification.gender,
@@ -878,14 +1187,12 @@ function batchFactoryProductionText(book) {
   const source = String(book?.workingFrontContent || book?.sourceText || '');
   const configured = Number(book?.sourceMetadata?.contentRangeLines);
   const limit = Number.isInteger(configured) && configured > 0 ? Math.min(configured, 500) : 5;
-  const lines = [];
-  for (const line of source.split(/\r?\n/)) {
-    const value = line.trim();
-    if (!value) continue;
-    lines.push(value);
-    if (lines.length >= limit) break;
-  }
-  return lines.join('\n');
+  const lines = source.split(/\r?\n/).map(line => String(line || '')
+    .replace(/&nbsp;|\u00a0|　/g, ' ')
+    .replace(/<[^>]*>/g, '')
+    .trim()).filter(Boolean);
+  while (lines.length && /^(?:修改中|加载中|正文加载中|请稍候)$/.test(lines[0])) lines.shift();
+  return lines.filter(line => !/^[，。！？、；：…·—～~,.!?;:()（）【】\[\]{}「」『』“”"'\-]+$/.test(line)).slice(0, limit).join('\n');
 }
 
 function imageSizeForAspectRatio(aspectRatio) {
@@ -1256,6 +1563,34 @@ function presetDrivenExecutionPath(req, pathname) {
   return match ? { batchId: decodeURIComponent(match[1] || match[3]), bookId: decodeURIComponent(match[2] || match[4] || '') } : null;
 }
 
+function batchFactoryModelExecutionPath(req, pathname) {
+  if (req.method !== 'POST') return null;
+  const presetExecution = presetDrivenExecutionPath(req, pathname);
+  if (presetExecution) return presetExecution;
+  const match = pathname.match(/^\/api\/batch-factory\/v(?:11|12)\/batches\/([^/]+)\/books\/([^/]+)\/(?:stages\/[^/]+|h3\/(?:director|audio-measurement)|assets\/images\/generate)$/);
+  return match ? { batchId: decodeURIComponent(match[1]), bookId: decodeURIComponent(match[2]) } : null;
+}
+
+async function validateBatchFactoryExecutionModels(req, target, options) {
+  // Manual dispatch often sends only a text model and provider. Go still reads
+  // persisted image/video selections, so validate live inheritance first.
+  const loaded = await v11JSONRequest({
+    ...options, username: req.username, isOwner: req.auth?.account?.isOwner === true,
+    method: 'GET', pathname: `/api/batch-factory/v11/batches/${encodeURIComponent(target.batchId)}`
+  });
+  const batch = loaded?.batch || loaded;
+  if (!batch?.id) throw requestError('批量作品不存在', 404, 'BATCH_NOT_FOUND');
+  const books = Array.isArray(batch.books) ? batch.books : [];
+  if (target.bookId) {
+    const book = books.find(item => String(item?.id) === String(target.bookId));
+    if (!book) throw requestError('当前书不存在', 404, 'BOOK_NOT_FOUND');
+    return validateBatchFactoryRuntimeSettings({ ...options, username: req.username, isOwner: req.auth?.account?.isOwner === true, batch, book });
+  } else {
+    const effective = (books.length ? books : [undefined]).map(book => validateBatchFactoryRuntimeSettings({ ...options, username: req.username, isOwner: req.auth?.account?.isOwner === true, batch, book }));
+    return effective[0];
+  }
+}
+
 function redactBatchFactorySystemPromptBodies(value, inPromptConfig = false) {
   if (Array.isArray(value)) return value.map(item => redactBatchFactorySystemPromptBodies(item, inPromptConfig));
   if (!plainObject(value)) return value;
@@ -1448,7 +1783,7 @@ function automationVideoProvider(settings = {}) {
 function automationEffectiveSettings(batch, book) {
   const batchPatch = object(batch?.settingsState?.patch);
   const bookPatch = object(book?.settingsState?.patch);
-  return {
+  const settings = {
     ...batchPatch,
     ...bookPatch,
     publishSettings: {
@@ -1456,6 +1791,13 @@ function automationEffectiveSettings(batch, book) {
       ...object(bookPatch.publishSettings)
     }
   };
+  if (Object.hasOwn(batchPatch, 'aiPromptConfig') || Object.hasOwn(bookPatch, 'aiPromptConfig')) {
+    settings.aiPromptConfig = {
+      ...object(batchPatch.aiPromptConfig),
+      ...object(bookPatch.aiPromptConfig)
+    };
+  }
+  return settings;
 }
 
 function automationPublishSettings(batch, book, frozenSettings) {
@@ -1558,6 +1900,30 @@ function splitVideoPresetBody(body) {
   return { directorRules: value, finalTemplate: '' };
 }
 
+function automationSettingsWithResolvedConstraintBodies(settings, presetStore) {
+  // 浏览器的批量/单书配置里，约束 selection 可能只保存了 presetId 而没有正文
+  //（旧版统一配置选择器不抓 body）。导演编译走的是 Node 本地组装的 payload，
+  // 不经过透传代理上的 enrich 兜底，因此在这里按已发布系统预设补齐空正文，
+  // 只补“系统约束 + 正文为空”的项，绝不覆盖个人/草稿正文，也不改动共享 settings。
+  const constraints = settings?.aiPromptConfig?.constraints;
+  if (!presetStore?.getPublished || !plainObject(constraints) || !Array.isArray(constraints.selections)) return settings;
+  let changed = false;
+  const selections = constraints.selections.map(selection => {
+    const presetId = String(selection?.presetId || '').trim();
+    const category = String(selection?.constraintCategory || '').trim();
+    const existing = String(selection?.body || '').trim();
+    if (existing || !presetId || !category) return selection;
+    const preset = presetStore.getPublished(presetId);
+    if (!preset || preset.module !== 'script' || preset.kind !== 'addon' || preset.protocolLock?.format !== 'constraint' || preset.protocolLock?.category !== category) return selection;
+    const body = String(preset.body || '').trim();
+    if (!body) return selection;
+    changed = true;
+    return { ...selection, body };
+  });
+  if (!changed) return settings;
+  return { ...settings, aiPromptConfig: { ...settings.aiPromptConfig, constraints: { ...constraints, selections } } };
+}
+
 function automationCompilePayload(book, settings, audioAssetID = '', semantic = false) {
   const promptConfig = object(settings.aiPromptConfig);
   const video = object(promptConfig.video);
@@ -1607,12 +1973,45 @@ function automationCompilePayload(book, settings, audioAssetID = '', semantic = 
   };
 }
 
+async function fetchBatchFactoryAutomationDirectSource({ owner: username, isOwner, batch, book, options = {}, upstreamOptions = {} } = {}) {
+  try {
+    const account = { username, isOwner };
+    const createStore = options.workshopStoreFactory || createMySQLWorkshopStore;
+    const store = createStore({
+      targetBaseUrl: options.targetBaseUrl,
+      bridgeSecret: upstreamOptions.bridgeSecret,
+      account
+    });
+    const result = await refillMissingBatchFactoryBookSource({
+      book,
+      platforms: store.getPlatforms?.() || [],
+      fetchDirectOriginal: input => store.fetchDirectOriginal(input),
+      captureSource: payload => v11JSONRequest({
+        username,
+        isOwner,
+        method: 'PUT',
+        pathname: `/api/batch-factory/v11/batches/${encodeURIComponent(batch?.id || '')}/books/${encodeURIComponent(book?.id || '')}/source`,
+        payload,
+        goBaseUrl: upstreamOptions.goBaseUrl,
+        bridgeSecret: upstreamOptions.bridgeSecret,
+        fetchImpl: upstreamOptions.fetchImpl,
+        now: upstreamOptions.now
+      })
+    });
+    return { state: 'succeeded', characters: Number(result?.fetched?.length || 0) };
+  } catch (error) {
+    return { state: 'failed', error: String(error?.message || '书城正文直取失败') };
+  }
+}
+
 function createBatchFactoryV11Router(options = {}) {
   const upstreamOptions = { ...options, goBaseUrl: options.goBaseUrl || resolveV11GoBaseUrl() };
   const automationPresets = options.automationPresetStore || createAutomationPresetStore({ statePath: options.automationPresetStatePath });
   const automation = options.automationController || createBatchFactoryAutomationController({
     statePath: options.automationStatePath,
     pollMs: options.automationPollMs,
+    recoveryEnabled: options.automationRecoveryEnabled,
+    recoveryMs: options.automationRecoveryMs,
     logger: options.logger || console,
     adapter: {
       loadBatch: async (username, isOwner, batchId) => {
@@ -1633,27 +2032,70 @@ function createBatchFactoryV11Router(options = {}) {
         });
         return result?.summary || result;
       },
-      applyExecutionSnapshot: async ({ owner: username, isOwner, batch, book, configSnapshot }) => {
-        const currentBook = (Array.isArray(batch?.books) ? batch.books : []).find(item => item?.id === book?.id) || book;
-        const base = object(configSnapshot);
-        const override = object(currentBook?.settingsState?.patch);
-        const effective = {
-          ...base,
-          ...override,
-          publishSettings: { ...object(base.publishSettings), ...object(override.publishSettings) }
-        };
-        return v11JSONRequest({
-          username, isOwner, method: 'PUT',
-          pathname: `/api/batch-factory/v11/batches/${encodeURIComponent(batch.id)}/books/${encodeURIComponent(book.id)}/override`,
-          payload: { patch: effective, expectedRevision: Number(currentBook?.revision || 0) },
-          goBaseUrl: upstreamOptions.goBaseUrl, bridgeSecret: upstreamOptions.bridgeSecret,
-          fetchImpl: upstreamOptions.fetchImpl, now: upstreamOptions.now
+      fetchDirectSource: input => fetchBatchFactoryAutomationDirectSource({
+        ...input,
+        options,
+        upstreamOptions
+      }),
+      reconcileGiantMaterialSource: async ({ owner: username, isOwner, batch, book }) => {
+        const metadata = object(book?.sourceMetadata);
+        const executorJobId = String(metadata.executorJobId || '').trim();
+        if (!executorJobId) return { state: 'unavailable' };
+        const giant = await v11JSONRequest({
+          username,
+          isOwner,
+          method: 'GET',
+          pathname: `/api/shuihuo-production/giant-material-jobs/${encodeURIComponent(executorJobId)}`,
+          goBaseUrl: upstreamOptions.goBaseUrl,
+          bridgeSecret: upstreamOptions.bridgeSecret,
+          fetchImpl: upstreamOptions.fetchImpl,
+          now: upstreamOptions.now
         });
+        const giantJob = giant?.job || giant?.data?.job || giant?.data || giant || {};
+        const state = String(giantJob?.state || '').trim().toLowerCase();
+        if (state === 'succeeded') {
+          const sourceText = String(giantJob?.result?.text || '').trim();
+          if (!sourceText) return { state: 'failed', error: '执行器任务已完成，但没有返回可用正文' };
+          const sourceMetadata = {
+            ...metadata,
+            sourceCompleteness: 'video_excerpt',
+            requiresProofreading: true,
+            giantOcrState: 'succeeded',
+            giantOcrCompletedAt: giantJob?.completedAt || new Date().toISOString(),
+            giantOcrCharacters: sourceText.length,
+            originalReadStage: 'completed',
+            originalReadVia: 'ocr',
+            originalReadError: '',
+            contentPending: false
+          };
+          await v11JSONRequest({
+            username,
+            isOwner,
+            method: 'PUT',
+            pathname: `/api/batch-factory/v11/batches/${encodeURIComponent(batch.id)}/books/${encodeURIComponent(book.id)}/source`,
+            payload: { sourceText, sourceMetadata, expectedRevision: Number(book?.revision || 0) },
+            goBaseUrl: upstreamOptions.goBaseUrl,
+            bridgeSecret: upstreamOptions.bridgeSecret,
+            fetchImpl: upstreamOptions.fetchImpl,
+            now: upstreamOptions.now
+          });
+          return { state: 'succeeded', characters: sourceText.length };
+        }
+        if (state === 'failed' || state === 'cancelled') {
+          return { state, error: String(giantJob?.error || giantJob?.result?.error || '滚屏 OCR 未完成') };
+        }
+        return {
+          state: state || 'waiting',
+          progress: giantJob?.progress || {},
+          queuedAt: giantJob?.createdAt || giantJob?.created_at || '',
+          leaseExpiresAt: giantJob?.leaseExpiresAt || giantJob?.lease_expires_at || ''
+        };
       },
       runStage: async ({ owner: username, isOwner, batch, book, stage, mode, videoId = '', requestId, settings: frozenSettings }) => {
         const batchId = batch.id;
         const bookId = book.id;
         const pathname = `/api/batch-factory/v11/batches/${encodeURIComponent(batchId)}/books/${encodeURIComponent(bookId)}/stages/${encodeURIComponent(stage)}`;
+        const settings = validateBatchFactoryRuntimeSettings({ ...upstreamOptions, username, isOwner, batch, book, settings: frozenSettings });
         if (!frozenSettings) {
           await refreshBatchFactoryPresetSnapshot({
             username, isOwner, batchId, bookId,
@@ -1661,7 +2103,6 @@ function createBatchFactoryV11Router(options = {}) {
             presetStore: upstreamOptions.presetStore, fetchImpl: upstreamOptions.fetchImpl, now: upstreamOptions.now
           });
         }
-        const settings = frozenSettings || automationEffectiveSettings(batch, book);
         const payload = { mode, requestId, ...(videoId ? { videoId } : {}) };
         if (['assets', 'director', 'visual', 'opening'].includes(stage)) {
           const textModelId = String(settings.textModelId || '').trim();
@@ -1692,6 +2133,7 @@ function createBatchFactoryV11Router(options = {}) {
         });
       },
       prepareAudioPlanning: async ({ owner: username, isOwner, batch, book, settings }) => {
+        settings = validateBatchFactoryRuntimeSettings({ ...upstreamOptions, username, isOwner, batch, book, settings });
         const input = batchFactoryProductionText(book);
         if (!input) throw requestError('当前书没有可用于配音的生产内容', 422, 'AUTOMATION_TTS_SOURCE_REQUIRED');
         const tts = { voice: 'zh-CN-XiaoxiaoNeural', style: 'general', speed: 1.8, pitch: 10, ...object(settings.tts) };
@@ -1714,12 +2156,12 @@ function createBatchFactoryV11Router(options = {}) {
         const bookId = book.id;
         const stage = String(lastFailed?.stage || '').trim();
         const pathname = `/api/batch-factory/v11/batches/${encodeURIComponent(batchId)}/books/${encodeURIComponent(bookId)}/stages/retry`;
+        const settings = validateBatchFactoryRuntimeSettings({ ...upstreamOptions, username, isOwner, batch, book, settings: frozenSettings });
         await refreshBatchFactoryPresetSnapshot({
           username, isOwner, batchId, bookId,
           goBaseUrl: upstreamOptions.goBaseUrl, bridgeSecret: upstreamOptions.bridgeSecret,
           presetStore: upstreamOptions.presetStore, fetchImpl: upstreamOptions.fetchImpl, now: upstreamOptions.now
         });
-        const settings = frozenSettings || automationEffectiveSettings(batch, book);
         const textModelId = String(settings.textModelId || '').trim();
         const payload = {
           requestId,
@@ -1765,9 +2207,11 @@ function createBatchFactoryV11Router(options = {}) {
         });
       },
       compileDirector: async ({ owner: username, isOwner, batch, book, settings }) => {
+        settings = validateBatchFactoryRuntimeSettings({ ...upstreamOptions, username, isOwner, batch, book, settings });
         const document = automationH3Document(book);
         if (!Array.isArray(document?.director_cards) || !document.director_cards.length) return null;
-        const payload = automationCompilePayload(book, settings, '', settings.audioPlanningEnabled !== true);
+        const compileSettings = automationSettingsWithResolvedConstraintBodies(settings, upstreamOptions.presetStore);
+        const payload = automationCompilePayload(book, compileSettings, '', compileSettings.audioPlanningEnabled !== true);
         if (settings.audioPlanningEnabled === true) {
           const tts = { voice: 'zh-CN-XiaoxiaoNeural', style: 'general', speed: 1.8, pitch: 10, ...object(settings.tts) };
           const fingerprint = automationTTSFingerprint(tts);
@@ -1852,6 +2296,39 @@ function createBatchFactoryV11Router(options = {}) {
           directClient: options.directClient,
           clock: options.clock
         });
+      },
+      // ---- 巨量批量自动兜底巡查所需的三个适配器 ----
+      // 1) 列出全部账号；只巡查正常状态的账号。
+      listOwners: () => {
+        const accounts = typeof options.accountStore?.listAccounts === 'function' ? options.accountStore.listAccounts() : [];
+        return (Array.isArray(accounts) ? accounts : []).filter(account => account && account.active !== false);
+      },
+      // 2) 列出某个账号名下的全部批量（沿用现有 Go 列表接口，巡查默认 60 秒一次，成本约等于刷新一次工程库）。
+      listBatches: async (username, isOwner) => {
+        const result = await v11JSONRequest({
+          username, isOwner, method: 'GET',
+          pathname: '/api/batch-factory/v11/batches',
+          goBaseUrl: upstreamOptions.goBaseUrl, bridgeSecret: upstreamOptions.bridgeSecret,
+          fetchImpl: upstreamOptions.fetchImpl, now: upstreamOptions.now
+        });
+        return Array.isArray(result?.batches) ? result.batches : [];
+      },
+      // 3) 对"含巨量书但没有活跃 job"的批量补启动：
+      //    保存计划控制执行模式与时间，生产阶段读取当前批量配置。
+      startRecovery: async ({ owner, isOwner, batch, savedPlan }) => {
+        const recovered = liveGiantAutomationRecovery(batch, savedPlan);
+        const books = Array.isArray(batch?.books) && batch.books.length ? batch.books : [undefined];
+        for (const book of books) validateBatchFactoryRuntimeSettings({ ...upstreamOptions, username: owner, isOwner, batch, book });
+        return automation.start({
+          owner,
+          isOwner,
+          batchId: batch.id,
+          scheduledAt: recovered.scheduledAt,
+          runMode: recovered.runMode,
+          autoPublish: recovered.runMode === 'full_submit',
+          concurrency: recovered.concurrency,
+          preset: recovered.preset
+        });
       }
     }
   });
@@ -1899,24 +2376,38 @@ function createBatchFactoryV11Router(options = {}) {
   router.get('/batches/:batchId/automation', (req, res) => {
     res.json({ automation: safeAutomationStatus(automation, automationContext(req), upstreamOptions.logger || console) });
   });
+  router.post('/batches/:batchId/automation/repair-legacy-overrides', async (req, res) => {
+    try {
+      if (!String(req.username || '').trim()) throw requestError('请先登录', 401, 'AUTH_REQUIRED');
+      const { owner, isOwner, batchId } = automationContext(req);
+      const loaded = await v11JSONRequest({
+        ...upstreamOptions, username: owner, isOwner, method: 'GET',
+        pathname: `/api/batch-factory/v11/batches/${encodeURIComponent(batchId)}`
+      });
+      const snapshot = typeof automation.legacyConfigSnapshot === 'function'
+        ? automation.legacyConfigSnapshot({ owner, batchId }) : null;
+      const result = await repairLegacyExecutionOverrides({ owner, isOwner, batch: loaded?.batch || loaded, snapshot, bridgeOptions: upstreamOptions });
+      return res.json(result);
+    } catch (error) { return sendAutomationError(res, error); }
+  });
   router.post('/batches/:batchId/automation/start', async (req, res) => {
     try {
       const presetId = String(req.body?.presetId || '').trim();
       if (!presetId) throw requestError('请先选择自动化预设', 400, 'AUTOMATION_PRESET_REQUIRED');
       const preset = presetId ? await automationPresets.get(req.username, presetId) : null;
       if (presetId && !preset) throw requestError('自动化预设不存在或不属于当前账号', 404, 'AUTOMATION_PRESET_NOT_FOUND');
-      const current = await v11JSONRequest({
-        username: req.username, isOwner: req.auth?.account?.isOwner === true, method: 'GET',
-        pathname: `/api/batch-factory/v11/batches/${encodeURIComponent(req.params.batchId)}`,
-        goBaseUrl: upstreamOptions.goBaseUrl, bridgeSecret: upstreamOptions.bridgeSecret,
-        fetchImpl: upstreamOptions.fetchImpl, now: upstreamOptions.now
+      const isOwner = req.auth?.account?.isOwner === true;
+      const loaded = await v11JSONRequest({
+        ...upstreamOptions, username: req.username, isOwner, method: 'GET',
+        pathname: `/api/batch-factory/v11/batches/${encodeURIComponent(req.params.batchId)}`
       });
-      const batch = current?.batch || current;
+      await applyAutomationPresetToBatch({
+        username: req.username, isOwner, batch: loaded?.batch || loaded, preset, bridgeOptions: upstreamOptions
+      });
       const result = await automation.start({
         ...automationContext(req), scheduledAt: req.body?.scheduledAt,
         runMode: req.body?.runMode, concurrency: req.body?.concurrency,
-        preset: preset ? { id: preset.id, name: preset.name, version: preset.version } : {},
-        configSnapshot: preset?.config || object(batch?.settingsState?.patch)
+        preset: preset ? { id: preset.id, name: preset.name, version: preset.version } : {}
       });
       return res.status(201).json({ automation: result });
     } catch (error) { return sendAutomationError(res, error); }
@@ -1941,6 +2432,14 @@ function createBatchFactoryV11Router(options = {}) {
   router.use(async (req, res, next) => {
     try {
       const parsed = new URL(req.originalUrl || req.url, 'http://qiantie.local');
+      const modelExecution = batchFactoryModelExecutionPath(req, parsed.pathname);
+      if (isPromptConfigPath(req, parsed.pathname) || modelExecution) {
+        validateBatchFactoryModelPatch({
+          ...upstreamOptions, username: req.username, account: req.auth?.account,
+          patch: isPromptConfigPath(req, parsed.pathname) ? req.body?.patch : req.body
+        });
+      }
+      const effectiveModels = modelExecution ? await validateBatchFactoryExecutionModels(req, modelExecution, upstreamOptions) : null;
       const imageGeneration = batchAssetImageGenerationPath(parsed.pathname);
       if (req.method === 'POST' && imageGeneration) {
         const result = await generateBatchFactoryAssetImages({
@@ -2004,7 +2503,7 @@ function createBatchFactoryV11Router(options = {}) {
         req.body = { ...payload, derivedOpening: resolveDerivedOpeningPrompt(promptPresetId, upstreamOptions.presetStore) };
       }
       if (directorTextModelPath(req, parsed.pathname)) {
-        req.body = { ...(req.body || {}), textProvider: requestTextProvider(req, upstreamOptions) };
+        req.body = { ...(req.body || {}), textProvider: requestTextProvider(req, upstreamOptions, Object.hasOwn(object(req.body), 'textModelId') ? req.body.textModelId : effectiveModels?.textModelId) };
       }
       await prepareProviderRequest(req, upstreamOptions, parsed.pathname);
       if (isPromptConfigPath(req, parsed.pathname)) {
@@ -2013,6 +2512,24 @@ function createBatchFactoryV11Router(options = {}) {
       const execution = presetDrivenExecutionPath(req, parsed.pathname);
       if (execution) {
         await refreshBatchFactoryPresetSnapshot({ username: req.username, isOwner: req.auth?.account?.isOwner === true, ...execution, goBaseUrl: upstreamOptions.goBaseUrl, bridgeSecret: upstreamOptions.bridgeSecret, presetStore: upstreamOptions.presetStore, fetchImpl: upstreamOptions.fetchImpl, now: upstreamOptions.now });
+      }
+      // 单书导演分镜：自己转发（req.body 已注入文本模型等参数），成功后按该书
+      // 换开头开关自动补生成变体；换开头失败不影响导演分镜成功结果。
+      const directorTarget = singleBookDirectorStageTarget(req, parsed.pathname);
+      if (directorTarget) {
+        const directorPath = `/api/batch-factory/v11/batches/${encodeURIComponent(directorTarget.batchId)}/books/${encodeURIComponent(directorTarget.bookId)}/stages/director`;
+        const summary = await v11JSONRequest({
+          username: req.username, isOwner: req.auth?.account?.isOwner === true, method: 'POST', pathname: directorPath,
+          payload: req.body, goBaseUrl: upstreamOptions.goBaseUrl, bridgeSecret: upstreamOptions.bridgeSecret,
+          fetchImpl: upstreamOptions.fetchImpl, now: upstreamOptions.now
+        });
+        let openingVariants = { triggered: false, generated: 0, succeeded: false, reason: '' };
+        try {
+          openingVariants = await generateOpeningVariantsAfterSingleDirector(req, directorTarget, upstreamOptions);
+        } catch (openingError) {
+          openingVariants = { triggered: true, generated: 0, succeeded: false, reason: String(openingError?.message || '换开头生成失败，可重试失败步骤') };
+        }
+        return res.status(201).json({ summary, openingVariants });
       }
       return await proxyV11Request(req, res, {
         ...upstreamOptions,
@@ -2039,6 +2556,10 @@ function createBatchFactoryV11Router(options = {}) {
 }
 
 module.exports = {
+  repairLegacyExecutionOverrides,
+  validateBatchFactoryModelPatch,
+  sanitizeAutomationPresetConfig,
+  applyAutomationPresetToBatch,
   H3_PROVIDER,
   PERSONAL_PROVIDER,
   LOCAL_PROVIDER,
@@ -2060,6 +2581,8 @@ module.exports = {
   imageGenerationEndpoint,
   textCompletionEndpoint,
   directorBookPath,
+  singleBookDirectorStageTarget,
+  generateOpeningVariantsAfterSingleDirector,
   styleSystemBookPath,
   batchFactory121PublishPath,
   batchFactoryBookClassificationPath,
@@ -2069,7 +2592,9 @@ module.exports = {
   mpegAudioDurationSeconds,
   automationPublishSettings,
   automationCompilePayload,
+  automationSettingsWithResolvedConstraintBodies,
   safeAutomationStatus,
+  batchFactoryProductionText,
   splitVideoPresetBody,
   listBatchFactory121Organizations,
   fetchBatchFactory121Media,
@@ -2085,6 +2610,7 @@ module.exports = {
   prepareBatchFactoryBookClassification,
   ensureBatchFactory121ResubmissionAllowed,
   persisted121PublicationMetadata,
+  fetchBatchFactoryAutomationDirectSource,
   persistBatchFactory121Publication,
   v11JSONRequest,
   smartUnifiedSelected,
@@ -2092,5 +2618,8 @@ module.exports = {
   analyzeBatchFactorySmartUnifiedStyle,
   acquireBatchFactorySmartUnifiedBaseline,
   upstreamErrorMessage,
+  applyEngineConfigInheritance,
+  resolveBatchFactoryRuntimeSettings,
+  liveGiantAutomationRecovery,
   createBatchFactoryV11Router
 };

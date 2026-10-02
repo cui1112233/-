@@ -16,10 +16,11 @@ var DirectorPrefixKeys = []string{
 }
 
 type TextCompletionRequest struct {
-	SystemPrompt string
-	UserPrompt   string
-	Temperature  float64
-	MaxTokens    int
+	SystemPrompt        string
+	UserPrompt          string
+	Temperature         float64
+	MaxTokens           int
+	DisableJSONResponse bool
 }
 
 type PromptContract struct {
@@ -339,9 +340,18 @@ func BuildOpeningVariantsContract(book Book, first DirectorVideo, followUps []Di
 		system = strings.TrimSpace(`你是短剧开场变体导演。为分镜一生成多个画面感更强、且能自然衔接分镜二的开场变体提示词；人物、场景、剧情走向与时长协议必须与原分镜一致。每个变体用 ===VARIANT N=== 分段，首行为 时长：X秒。`)
 	}
 	system += fmt.Sprintf("\n\n【本次任务】需要变体数量：%d。单段时长上限：%d 秒。", variantCount, maxVideoDuration)
+	system += `
+
+【机器输出格式（必须严格遵守）】
+每个变体必须独占一个分段；标记必须单独一行，下一行必须是时长，随后必须是非空正文。不要把“时长”写在标记同一行，不要输出额外说明。示例：
+===VARIANT 1===
+时长：10秒
+可直接替换的分镜一提示词正文`
 	var user strings.Builder
 	user.WriteString("小说标题：" + book.Title + "\n\n")
-	user.WriteString("【原分镜一（VIDEO01）提示词】\n" + strings.TrimSpace(first.FinalPrompt) + "\n")
+	// 原分镜一与后续分镜统一走 storyboardVideoPrompt：SD 直出时它返回整段
+	// FinalPrompt（行为不变），结构化分镜时把镜头/动作描述渲染成“镜头画面”文本。
+	user.WriteString("【原分镜一（VIDEO01）提示词】\n" + strings.TrimSpace(storyboardVideoPrompt(first)) + "\n")
 	for index, video := range followUps {
 		label := fmt.Sprintf("分镜%d（VIDEO%02d）提示词", index+2, index+2)
 		user.WriteString("\n【" + label + "】\n" + strings.TrimSpace(storyboardVideoPrompt(video)) + "\n")
@@ -568,7 +578,7 @@ func buildSDDirectorContract(book Book, hook HookRevision, snapshot DirectorSnap
 	system := "你是 Batch Factory 导演。按以下视频提示词规则为整本书规划 VIDEO 分镜。\n\n" + config.Video.body()
 	system += fmt.Sprintf(`
 
-输出协议（最高优先级）：只输出纯文本，不要 JSON、不要 Markdown 代码块。每个 VIDEO 一段：段首一行 ===VIDEO 01===（编号从 01 递增），第二行写 时长：X秒（X 为 1-%d 的整数秒），之后是该 VIDEO 按预设模板渲染的完整提示词正文（含段内执行约束、[场景 N]与总时长、[镜头 N]逐镜描述）。不要输出统一风格、统一人物、最终导出画质约束、最终导出负面提示词——这些由系统约束设置开关统一注入，AI 只负责输出正文。按原文顺序完整覆盖整本书。
+输出协议（最高优先级）：只输出纯文本，不要 JSON、不要 Markdown 代码块。每个 VIDEO 一段：段首一行 ===VIDEO 01===（编号从 01 递增），第二行写 时长：X秒（X 为 1-%d 的整数秒），第三行必须写资产引用，格式固定为“资产引用：人物=人物甲、人物乙；场景=场景名；道具=道具甲、道具乙”。只列本段实际出现的资产；没有某类资产时写“无”。人物、场景、道具名称必须逐字使用用户消息 assets 清单中的 name，不能改名或换称呼。第四行开始才是该 VIDEO 按预设模板渲染的完整提示词正文（含段内执行约束、[场景 N]与总时长、[镜头 N]逐镜描述）。不要输出统一风格、统一人物、最终导出画质约束、最终导出负面提示词——这些由系统约束设置开关统一注入，AI 只负责输出正文。按原文顺序完整覆盖整本书。
 
 分段规则：先按预设时长规则逐场景规划时长（保留三位小数），再按原文顺序把场景往 VIDEO 里装；一个 VIDEO 内各场景时长之和一旦达到 %d 秒上限，就必须结束当前段、新开下一个 ===VIDEO NN=== 段继续装，直到全部内容覆盖完。默认在场景与场景的边界切段；仅当单个场景本身就超过上限时，才允许在该场景的镜头边界处切开。段首整数秒等于该段全部镜头时长之和（镜头小数可在边界处微调凑整）；最后一段可以短于上限。严禁把超过上限的内容塞进同一段，也严禁漏掉原文内容。全部内容总时长不超过上限时，只输出一个 VIDEO 段是允许的。
 预设正文中的 ${...} 占位符是旧多阶段流程的注入点，本次为单次调用，忽略占位符语法，直接使用用户消息中的原文与资产资料。

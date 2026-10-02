@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {
   availableGiantMaterialBooks,
   buildGiantMaterialIntake,
+  buildGiantMaterialPlaceholderIntake,
+  buildGiantMaterialPlaceholderIntakes,
   findRegisteredGiantMaterialBook,
   giantMaterialClassificationState,
   giantMaterialBookKey,
@@ -99,4 +101,31 @@ test('maps persisted AI classification state instead of leaving a registered boo
     label: '待 AI 判断',
     error: ''
   });
+});
+
+test('records OCR-first as the default giant placeholder strategy', () => {
+  const payload = buildGiantMaterialPlaceholderIntake({
+    giantMaterialId: '7689285397448523826', material, book: material.books[0]
+  });
+  assert.equal(payload.books[0].sourceMetadata.originalReadStrategy, 'ocr_first');
+  assert.equal(payload.books[0].sourceMetadata.originalReadStage, 'pending');
+  assert.equal(payload.books[0].sourceMetadata.originalReadError, '');
+  assert.equal(payload.books[0].sourceMetadata.contentPending, true);
+});
+
+test('records direct-first for every book in a multi-ID giant intake', () => {
+  const payload = buildGiantMaterialPlaceholderIntakes([
+    { giantMaterialId: '7689285397448523826', material, book: material.books[0] },
+    { giantMaterialId: '7689285397448523827', material, book: material.books[1] }
+  ], { originalReadStrategy: 'direct_first' });
+  assert.deepEqual(payload.books.map(book => book.sourceMetadata.originalReadStrategy), ['direct_first', 'direct_first']);
+});
+
+test('keeps video duration on a placeholder so OCR fallback can be started later', () => {
+  const payload = buildGiantMaterialPlaceholderIntake({
+    giantMaterialId: '7689285397448523826',
+    material: { ...material, durationSeconds: 123 },
+    book: material.books[0]
+  });
+  assert.equal(payload.books[0].sourceMetadata.videoDurationSeconds, 123);
 });

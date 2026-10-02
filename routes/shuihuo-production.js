@@ -20,6 +20,17 @@ function signBridgeRequest(secret, { username, isOwner, issuedAt, method, pathna
   return crypto.createHmac('sha256', secret).update(payload).digest('hex');
 }
 
+// Shuihuo's production project API is served by the retained compatibility
+// service. Go is only the legacy fallback for environments that do not run it.
+// Keeping this resolver shared prevents the project list and the workbench
+// bridge from silently targeting different upstreams.
+function resolveShuihuoBaseUrl(targetBaseUrl) {
+  return targetBaseUrl
+    || process.env.QIANTIE_SHUIHUO_COMPAT_BASE_URL
+    || process.env.QIANTIE_GO_BASE_URL
+    || 'http://127.0.0.1:4000';
+}
+
 function isTextInferenceRequest(method, pathname) {
   if (method !== 'POST') return false;
   return /^\/api\/shuihuo-production\/projects\/\d+\/(segmentation\/smart|analysis\/(assets|assets-and-bindings))$/.test(pathname)
@@ -66,7 +77,7 @@ function syncAccountAIConfig({ targetBaseUrl, bridgeSecret, username, isOwner, c
   if (!payload) {
     return Promise.resolve();
   }
-  const target = new URL(targetBaseUrl || process.env.QIANTIE_GO_BASE_URL || 'http://127.0.0.1:4000');
+  const target = new URL(resolveShuihuoBaseUrl(targetBaseUrl));
   const secret = bridgeSecret || process.env.QIANTIE_BRIDGE_SECRET || 'dev-bridge-secret-change-me';
   const transport = target.protocol === 'https:' ? https : http;
   const pathname = '/api/shuihuo-production/account-ai-config';
@@ -231,7 +242,7 @@ function upstreamTimeoutForRequest(method, pathname) {
 }
 
 function createShuihuoProductionRouter({ targetBaseUrl, bridgeSecret, presetStore, configReader = readConfig, authenticate = apiAuth } = {}) {
-  const target = new URL(targetBaseUrl || process.env.QIANTIE_GO_BASE_URL || 'http://127.0.0.1:4000');
+  const target = new URL(resolveShuihuoBaseUrl(targetBaseUrl));
   const secret = bridgeSecret || process.env.QIANTIE_BRIDGE_SECRET || 'dev-bridge-secret-change-me';
   const transport = target.protocol === 'https:' ? https : http;
   const router = express.Router();
@@ -333,6 +344,7 @@ module.exports = {
   createAssetImageGenerationBody,
   requirePublishedSlot,
   signBridgeRequest,
+  resolveShuihuoBaseUrl,
   syncAccountAIConfig,
   isTextInferenceRequest,
   systemPromptBodyForRequest,

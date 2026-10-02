@@ -77,9 +77,6 @@ func (s *BookStageService) Summary(ctx context.Context, owner, batchID, bookID s
 	if err != nil {
 		return BookStageSummary{}, err
 	}
-	if _, err := s.Store.GetBatch(ctx, owner, batchID); err != nil {
-		return BookStageSummary{}, err
-	}
 	runs, err := repository.ListBookStageRuns(ctx, owner, batchID, bookID)
 	if err != nil {
 		return BookStageSummary{}, err

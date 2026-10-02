@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const express = require('express');
 
 const {
   enrichBatchFactorySystemPresetConfig,
@@ -30,8 +31,519 @@ const {
   persisted121PublicationMetadata,
   v11JSONRequest,
   safeAutomationStatus,
-  splitVideoPresetBody
+  liveGiantAutomationRecovery,
+  createBatchFactoryV11Router,
+  repairLegacyExecutionOverrides,
+  validateBatchFactoryModelPatch,
+  resolveBatchFactoryRuntimeSettings,
+  batchFactoryProductionText,
+  splitVideoPresetBody,
+  singleBookDirectorStageTarget,
+  generateOpeningVariantsAfterSingleDirector,
+  fetchBatchFactoryAutomationDirectSource
 } = require('./batch-factory-v11');
+
+test('automation direct source refill uses the same book-store source write as manual retrieval', async () => {
+  const writes = [];
+  const result = await fetchBatchFactoryAutomationDirectSource({
+    owner: 'alice',
+    isOwner: false,
+    batch: { id: 'batch-1' },
+    book: { id: 'book-1', bookId: '101', platform: '3', sourceText: '', revision: 2, sourceMetadata: { sourceMode: 'giant_material', contentPending: true } },
+    options: {
+      workshopStoreFactory: () => ({
+        getPlatforms: () => [{ id: '3', name: '七猫付费' }],
+        fetchDirectOriginal: async () => ({ text: '书城正文', attempts: 1 })
+      })
+    },
+    upstreamOptions: {
+      goBaseUrl: 'http://go.local',
+      bridgeSecret: 'secret',
+      fetchImpl: async (url, init) => {
+        writes.push({ pathname: new URL(url).pathname, payload: JSON.parse(init.body) });
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      }
+    }
+  });
+
+  assert.deepEqual(result, { state: 'succeeded', characters: 4 });
+  assert.deepEqual(writes, [{
+    pathname: '/api/batch-factory/v11/batches/batch-1/books/book-1/source',
+    payload: {
+      sourceText: '书城正文',
+      expectedRevision: 2,
+      sourceMetadata: {
+        sourceMode: 'giant_material', contentPending: false,
+        sourceFetchedAt: writes[0]?.payload?.sourceMetadata?.sourceFetchedAt,
+        sourceFetchAttempts: 1, sourceCaptureCharacters: 4000, sourceBookId: '101', sourceOriginalRaw: '书城正文',
+        originalReadStage: 'completed', originalReadVia: 'bookstore', originalReadError: ''
+      }
+    }
+  }]);
+});
+
+test('runtime settings inherit the current enabled account default using its catalogue ID', () => {
+  const batch = { settingsState: { patch: { aiPromptConfig: { assets: { enabled: true } } } } };
+  const book = {
+    settingsState: {
+      patch: { aiPromptConfig: { visual: { enabled: false } } }
+    }
+  };
+  const configReader = username => {
+    assert.equal(username, 'alice');
+    return { model: 'provider-default', modelCatalog: [
+      { id: 'account-default', kind: 'text', modelId: 'provider-default', enabled: true }
+    ] };
+  };
+  assert.deepEqual(resolveBatchFactoryRuntimeSettings({ username: 'alice', batch, book, configReader }), {
+    textModelId: 'account-default',
+    aiPromptConfig: { assets: { enabled: true }, visual: { enabled: false } },
+    publishSettings: {}
+  });
+});
+
+test('runtime account inheritance respects explicit book selections and blank clears', () => {
+  const batch = { settingsState: { patch: { textModelId: 'batch-text' } } };
+  const configReader = () => { throw new Error('explicit selection must not read a fallback'); };
+  for (const textModelId of ['book-text', '']) {
+    const book = { settingsState: { patch: { textModelId } } };
+    assert.equal(resolveBatchFactoryRuntimeSettings({ username: 'alice', batch, book, configReader }).textModelId, textModelId);
+  }
+});
+
+test('runtime settings do not inherit a disabled account default', () => {
+  const settings = resolveBatchFactoryRuntimeSettings({ username: 'alice', batch: {}, book: {},
+    configReader: () => ({ model: 'account-disabled', modelCatalog: [{ id: 'account-disabled', modelId: 'provider-disabled', kind: 'text', enabled: false }] })
+  });
+  assert.equal(Object.hasOwn(settings, 'textModelId'), false);
+});
+
+function repairFixture(patches, configSnapshot = { textModelId: 'old', videoModelId: 'old-video' }) {
+  const batch = { id: 'batch-1', settingsState: { patch: { textModelId: 'current' } }, books: patches.map((patch, i) => ({ id: `book-${i + 1}`, revision: 7, settingsState: { patch } })) };
+  const snapshot = { owner: 'alice', batchId: batch.id, configSnapshot, appliedBookIds: batch.books.map(book => book.id) };
+  const writes = [];
+  const bridgeOptions = { goBaseUrl: 'http://go.local', bridgeSecret: 'test-secret', fetchImpl: async (url, init) => {
+    assert.equal(init.method, 'PUT');
+    const payload = JSON.parse(init.body);
+    writes.push({ pathname: new URL(url).pathname, payload });
+    const book = batch.books.find(book => url.includes(`/books/${book.id}/`));
+    assert.equal(payload.expectedRevision, book.revision);
+    assert.deepEqual(payload.patch, {});
+    for (const key of payload.restoreKeys) delete book.settingsState.patch[key];
+    book.revision++;
+    return new Response('{}', { status: 200 });
+  } };
+  return { owner: 'alice', isOwner: false, batch, snapshot, bridgeOptions, writes };
+}
+
+test('legacy repair restores copied roots and whole nested values while preserving manual differences and unknown fields', async () => {
+  const config = { textModelId: 'old', videoModelId: 'old-video', openingEnabled: false,
+    publishSettings: { organization: 'old-org', category: 'BOOK' }, aiPromptConfig: { assets: { presetId: 'old-assets' } } };
+  const fixture = repairFixture([
+    { ...config, untouched: 'manual-data' },
+    { textModelId: 'custom', videoModelId: 'old-video' },
+    { textModelId: 'old', publishSettings: { organization: 'manual-org', category: 'BOOK' } },
+    { textModelId: 'old', aiPromptConfig: { assets: { presetId: 'new-assets' } } }
+  ], config);
+  const result = await repairLegacyExecutionOverrides(fixture);
+  assert.deepEqual(result.repairedBookIds, ['book-1']);
+  assert.deepEqual(result.skippedBookIds, ['book-2', 'book-3', 'book-4']);
+  assert.deepEqual(fixture.writes, [{ pathname: '/api/batch-factory/v11/batches/batch-1/books/book-1/override',
+    payload: { patch: {}, restoreKeys: ['textModelId', 'videoModelId', 'openingEnabled', 'publishSettings', 'aiPromptConfig'], expectedRevision: 7 } }]);
+  assert.deepEqual(fixture.batch.books[0].settingsState.patch, { untouched: 'manual-data' });
+  assert.equal(fixture.batch.books[1].settingsState.patch.textModelId, 'custom');
+  assert.equal(fixture.batch.settingsState.patch.textModelId, 'current');
+  const repeated = await repairLegacyExecutionOverrides(fixture);
+  assert.deepEqual(repeated.repairedBookIds, []);
+  assert.equal(fixture.writes.length, 1);
+});
+
+for (const invalid of ['missing', 'raw', 'other-owner', 'other-batch', 'no-marker', 'duplicate-marker', 'missing-field', 'malformed-nested', 'malformed-unused-snapshot-field', 'bad-revision', 'bad-patch']) {
+  test(`legacy repair skips ${invalid} evidence without writing`, async () => {
+    const fixture = repairFixture([{ textModelId: 'old' }]);
+    if (invalid === 'missing') fixture.snapshot = null;
+    if (invalid === 'raw') fixture.snapshot = { textModelId: 'old' };
+    if (invalid === 'other-owner') fixture.snapshot.owner = 'bob';
+    if (invalid === 'other-batch') fixture.snapshot.batchId = 'other';
+    if (invalid === 'no-marker') fixture.snapshot.appliedBookIds = [];
+    if (invalid === 'duplicate-marker') fixture.snapshot.appliedBookIds.push('book-1');
+    if (invalid === 'missing-field') fixture.batch.books[0].settingsState.patch.imageModelId = 'copied-or-manual';
+    if (invalid === 'malformed-nested') { fixture.snapshot.configSnapshot.aiPromptConfig = []; fixture.batch.books[0].settingsState.patch.aiPromptConfig = []; }
+    if (invalid === 'malformed-unused-snapshot-field') fixture.snapshot.configSnapshot.publishSettings = 'malformed';
+    if (invalid === 'bad-revision') fixture.batch.books[0].revision = 'bad';
+    if (invalid === 'bad-patch') fixture.batch.books[0].settingsState.patch = [];
+    const result = await repairLegacyExecutionOverrides(fixture);
+    assert.deepEqual(result.repairedBookIds, []);
+    assert.deepEqual(result.skippedBookIds, ['book-1']);
+    assert.equal(result.skippedBooks.length, 1);
+    assert.deepEqual(fixture.writes, []);
+  });
+}
+
+for (const outcome of ['same', 'manual', 'unresolved', 'already-restored']) {
+  test(`legacy repair rechecks latest revision after conflict: ${outcome}`, async () => {
+    const fixture = repairFixture([{ textModelId: 'old' }]);
+    const requests = [];
+    fixture.bridgeOptions.fetchImpl = async (url, init) => {
+      const payload = init.body ? JSON.parse(init.body) : null;
+      requests.push({ method: init.method, payload });
+      if (requests.length === 1) return new Response('{"error":"revision conflict"}', { status: 409 });
+      if (init.method === 'GET') {
+        fixture.batch.books[0].revision = 8;
+        if (outcome === 'manual') fixture.batch.books[0].settingsState.patch.textModelId = 'custom';
+        if (outcome === 'already-restored') fixture.batch.books[0].settingsState.patch = {};
+        return new Response(JSON.stringify({ batch: fixture.batch }), { status: 200 });
+      }
+      assert.equal(payload.expectedRevision, 8);
+      return new Response('{}', { status: outcome === 'unresolved' ? 409 : 200 });
+    };
+    const result = await repairLegacyExecutionOverrides(fixture);
+    assert.deepEqual(requests.map(item => item.method), outcome === 'manual' || outcome === 'already-restored' ? ['PUT', 'GET'] : ['PUT', 'GET', 'PUT']);
+    assert.deepEqual(result.repairedBookIds, outcome === 'same' ? ['book-1'] : []);
+    if (outcome !== 'same') assert.deepEqual(result.skippedBookIds, ['book-1']);
+  });
+}
+
+test('legacy repair skips a changed patch when a user adds a matching historical field during conflict', async () => {
+  const fixture = repairFixture([{ textModelId: 'old-text' }], { textModelId: 'old-text', videoModelId: 'old-video' });
+  const requests = [];
+  fixture.bridgeOptions.fetchImpl = async (url, init) => {
+    requests.push({ method: init.method, payload: init.body ? JSON.parse(init.body) : null });
+    if (requests.length === 1) return new Response('{"error":"revision conflict"}', { status: 409 });
+    if (init.method === 'GET') {
+      fixture.batch.books[0].revision = 8;
+      fixture.batch.books[0].settingsState.patch.videoModelId = 'old-video';
+      return new Response(JSON.stringify({ batch: fixture.batch }), { status: 200 });
+    }
+    for (const key of JSON.parse(init.body).restoreKeys) delete fixture.batch.books[0].settingsState.patch[key];
+    return new Response('{}', { status: 200 });
+  };
+  const result = await repairLegacyExecutionOverrides(fixture);
+  assert.deepEqual(requests.map(request => request.method), ['PUT', 'GET']);
+  assert.deepEqual(requests[0].payload, { patch: {}, restoreKeys: ['textModelId'], expectedRevision: 7 });
+  assert.deepEqual(result, { repairedBookIds: [], skippedBookIds: ['book-1'], skippedBooks: [{ bookId: 'book-1', reason: 'changed_patch' }] });
+  assert.deepEqual(fixture.batch.books[0].settingsState.patch, { textModelId: 'old-text', videoModelId: 'old-video' });
+});
+
+for (const authenticated of [true, false]) {
+  test(`legacy repair endpoint ${authenticated ? 'uses authenticated owner evidence and ignores client snapshots' : 'rejects missing authentication before reads'}`, async t => {
+    const fixture = repairFixture([{ textModelId: 'old' }]);
+    const app = express();
+    app.use(express.json());
+    if (authenticated) app.use((req, res, next) => { req.username = 'alice'; req.auth = { account: { isOwner: true } }; next(); });
+    let evidenceReads = 0;
+    const methods = [];
+    app.use('/api/batch-factory/v11', createBatchFactoryV11Router({
+      ...fixture.bridgeOptions, presetStore: presetStore(),
+      automationController: { legacyConfigSnapshot: context => { assert.deepEqual(context, { owner: 'alice', batchId: 'batch-1' }); evidenceReads++; return fixture.snapshot; } },
+      fetchImpl: async (url, init) => {
+        assert.equal(init.headers['X-Qiantie-Username'], 'alice');
+        assert.equal(init.headers['X-Qiantie-Is-Owner'], 'true');
+        methods.push(init.method);
+        if (init.method === 'GET') return new Response(JSON.stringify({ batch: fixture.batch }), { status: 200 });
+        return fixture.bridgeOptions.fetchImpl(url, init);
+      }
+    }));
+    const server = app.listen(0, '127.0.0.1');
+    t.after(() => new Promise(resolve => server.close(resolve)));
+    await new Promise(resolve => server.once('listening', resolve));
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/batch-factory/v11/batches/batch-1/automation/repair-legacy-overrides`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ owner: 'bob', snapshot: { textModelId: 'custom' } })
+    });
+    assert.equal(response.status, authenticated ? 200 : 401);
+    const output = await response.json();
+    if (authenticated) {
+      assert.deepEqual(output, { repairedBookIds: ['book-1'], skippedBookIds: [], skippedBooks: [] });
+      assert.deepEqual(methods, ['GET', 'PUT']);
+      assert.equal(evidenceReads, 1);
+    } else { assert.deepEqual(methods, []); assert.equal(evidenceReads, 0); }
+  });
+}
+
+function modelValidationOptions() {
+  return {
+    memberStore: { getMember: username => ({ username, active: true, role: 'manager' }) },
+    configReader: () => ({ modelCatalogVersion: 1, modelCatalog: [
+      { id: 'text-preset', kind: 'text', enabled: true, baseUrl: 'https://text.example/v1', modelId: 'text-provider', credential: 'test-key' },
+      { id: 'image-current', kind: 'image', enabled: true, baseUrl: 'https://image.example/v1', modelId: 'image-provider', credential: 'test-key' },
+      { id: 'video-current', kind: 'video', enabled: true, baseUrl: 'https://video.example/v1', modelId: 'video-provider', credential: 'test-key' },
+      { id: 'text-disabled', kind: 'text', enabled: false, credential: 'test-key' }
+    ] })
+  };
+}
+
+for (const patch of [{ textModelId: 'old-text' }, { textModelId: 'text-disabled' }, { textModelId: 'image-current' }]) {
+  test(`rejects unavailable or wrong-kind text selection ${patch.textModelId}`, () => {
+    assert.throws(() => validateBatchFactoryModelPatch({ username: 'alice', patch, ...modelValidationOptions() }),
+      error => error.status === 422 && /文本模型不可用、未配置或尚未启用/.test(error.message));
+  });
+}
+
+test('validates all three model kinds without rejecting missing inherited book fields or mutating the patch', () => {
+  const patch = { textModelId: 'text-preset', imageModelId: 'image-current', videoModelId: 'video-current' };
+  assert.doesNotThrow(() => validateBatchFactoryModelPatch({ username: 'alice', patch, ...modelValidationOptions() }));
+  assert.deepEqual(patch, { textModelId: 'text-preset', imageModelId: 'image-current', videoModelId: 'video-current' });
+  assert.doesNotThrow(() => validateBatchFactoryModelPatch({ username: 'alice', patch: { openingEnabled: false, textModelId: '' }, configReader: () => ({}) }));
+  for (const key of ['imageModelId', 'videoModelId']) {
+    assert.throws(() => validateBatchFactoryModelPatch({ username: 'alice', patch: { [key]: 'text-preset' }, ...modelValidationOptions() }), error => error.status === 422);
+  }
+});
+
+for (const target of ['settings', 'books/book-1/override']) {
+  test(`V11 ${target} rejects an invalid selected model before bridge persistence`, async t => {
+    const writes = [];
+    const app = express();
+    app.use(express.json());
+    app.use((req, res, next) => { req.username = 'alice'; next(); });
+    app.use('/api/batch-factory/v11', createBatchFactoryV11Router({
+      ...modelValidationOptions(), goBaseUrl: 'http://go.local', bridgeSecret: 'secret', automationController: {}, presetStore: presetStore(),
+      fetchImpl: async (url, init) => { writes.push({ url, init }); return new Response('{}', { status: 200 }); }
+    }));
+    const server = app.listen(0, '127.0.0.1');
+    t.after(() => new Promise(resolve => server.close(resolve)));
+    await new Promise(resolve => server.once('listening', resolve));
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/batch-factory/v11/batches/batch-1/${target}`, {
+      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ patch: { textModelId: 'old-text' }, expectedRevision: 7 })
+    });
+    assert.equal(response.status, 422);
+    assert.match((await response.json()).error, /文本模型不可用/);
+    assert.deepEqual(writes, []);
+  });
+}
+
+for (const invalidTarget of ['preset', 'book']) {
+  test(`automation start rejects an unavailable ${invalidTarget} model before batch persistence or queueing`, async t => {
+    const calls = [];
+    let starts = 0;
+    const app = express();
+    app.use(express.json());
+    app.use((req, res, next) => { req.username = 'alice'; next(); });
+    app.use('/api/batch-factory/v11', createBatchFactoryV11Router({
+      ...modelValidationOptions(), goBaseUrl: 'http://go.local', bridgeSecret: 'secret',
+      automationPresetStore: { get: async () => ({ id: 'preset-1', config: { textModelId: invalidTarget === 'preset' ? 'text-disabled' : 'text-preset' } }) },
+      automationController: { start: async () => { starts++; return {}; } },
+      fetchImpl: async (url, init) => {
+        calls.push(init.method);
+        return new Response(JSON.stringify({ batch: { id: 'batch-1', revision: 7, settingsState: { patch: {} },
+          books: [{ id: 'book-1', settingsState: { patch: invalidTarget === 'book' ? { imageModelId: 'old-image' } : {} } }] } }), { status: 200 });
+      }
+    }));
+    const server = app.listen(0, '127.0.0.1');
+    t.after(() => new Promise(resolve => server.close(resolve)));
+    await new Promise(resolve => server.once('listening', resolve));
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/batch-factory/v11/batches/batch-1/automation/start`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ presetId: 'preset-1' })
+    });
+    assert.equal(response.status, 422);
+    assert.match((await response.json()).error, /模型不可用/);
+    assert.deepEqual(calls, ['GET']);
+    assert.equal(starts, 0);
+  });
+}
+
+for (const stage of ['opening', 'visual']) {
+  test(`manual ${stage} dispatch rejects wrong-kind selected models before any bridge request`, async t => {
+    const calls = [];
+    const app = express();
+    app.use(express.json());
+    app.use((req, res, next) => { req.username = 'alice'; next(); });
+    app.use('/api/batch-factory/v11', createBatchFactoryV11Router({
+      ...modelValidationOptions(), goBaseUrl: 'http://go.local', bridgeSecret: 'secret', automationController: {},
+      fetchImpl: async (url, init) => { calls.push({ url, init }); return new Response('{}', { status: 201 }); }
+    }));
+    const server = app.listen(0, '127.0.0.1');
+    t.after(() => new Promise(resolve => server.close(resolve)));
+    await new Promise(resolve => server.once('listening', resolve));
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/batch-factory/v11/batches/batch-1/books/book-1/stages/${stage}`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ imageModelId: 'text-preset' })
+    });
+    assert.equal(response.status, 422);
+    assert.match((await response.json()).error, /图片模型不可用/);
+    assert.deepEqual(calls, []);
+  });
+}
+
+test('automation revalidates the live catalogue before stage dispatch after a selected image model is disabled', async t => {
+  const fs = require('node:fs/promises');
+  const os = require('node:os');
+  const path = require('node:path');
+  const stateDir = await fs.mkdtemp(path.join(os.tmpdir(), 'bf-model-validation-'));
+  const options = modelValidationOptions();
+  const config = options.configReader();
+  const calls = [];
+  const batch = { id: 'batch-1', settingsState: { patch: { textModelId: 'text-preset', imageModelId: 'image-current' } },
+    books: [{ id: 'book-1', revision: 1, sourceText: '测试小说正文', settingsState: { patch: {} } }] };
+  const router = createBatchFactoryV11Router({
+    ...options, configReader: () => config, goBaseUrl: 'http://go.local', bridgeSecret: 'secret',
+    automationStatePath: path.join(stateDir, 'automation.json'), automationRecoveryEnabled: false, automationPollMs: 60000,
+    fetchImpl: async (url, init) => {
+      calls.push({ method: init.method, pathname: new URL(url).pathname });
+      if (url.endsWith('/stages')) {
+        config.modelCatalog.find(model => model.id === 'image-current').enabled = false;
+        return new Response(JSON.stringify({ summary: { runs: [] } }), { status: 200 });
+      }
+      if (url.endsWith('/batches/batch-1')) return new Response(JSON.stringify({ batch }), { status: 200 });
+      return new Response(JSON.stringify({ jobs: [] }), { status: 200 });
+    }
+  });
+  const controller = router.automationController;
+  t.after(async () => {
+    await controller.cancel({ owner: 'alice', batchId: 'batch-1' });
+    await fs.rm(stateDir, { recursive: true, force: true });
+  });
+  await controller.start({ owner: 'alice', batchId: 'batch-1', runMode: 'storyboard_only' });
+  let status;
+  for (let attempt = 0; attempt < 100; attempt++) {
+    await new Promise(resolve => setTimeout(resolve, 5));
+    status = controller.status({ owner: 'alice', batchId: 'batch-1' });
+    const saved = JSON.parse(await fs.readFile(path.join(stateDir, 'automation.json'), 'utf8'));
+    if (Object.values(saved.jobs).some(job => job.state === 'needs_attention')) {
+      await new Promise(resolve => setImmediate(resolve));
+      break;
+    }
+  }
+  assert.match(status?.books?.[0]?.error || '', /图片模型不可用/);
+  assert.equal(calls.some(call => call.method !== 'GET'), false, 'no stage/provider request or settings write is allowed');
+});
+
+test('automation start persists the selected preset as unified settings before queueing metadata', async t => {
+  const calls = [];
+  let batch = {
+    id: 'batch-1', revision: 7,
+    settingsState: { patch: {
+      textModelId: 'text-current', imageModelId: 'image-current',
+      automationPresetSnapshot: { id: 'legacy' },
+      aiPromptConfig: { assets: { enabled: true }, video: { presetId: 'current-video' } },
+      publishSettings: { organization: 'current-org', category: 'NEW_BOOK' }
+    } }
+  };
+  const app = express();
+  app.use(express.json());
+  app.use((req, res, next) => { req.username = 'alice'; next(); });
+  app.use('/api/batch-factory/v11', createBatchFactoryV11Router({
+    ...modelValidationOptions(),
+    goBaseUrl: 'http://go.local', bridgeSecret: 'secret',
+    automationPresetStore: {
+      get: async () => ({ id: 'preset-1', name: '预设', version: 2, config: {
+        textModelId: 'text-preset', openingEnabled: false, openingCount: 0,
+        automationPresetSnapshot: { id: 'preset-legacy' },
+        aiPromptConfig: { video: { presetId: 'preset-video' } },
+        publishSettings: { category: 'FINISHED_BOOK', startTime: '' }
+      } })
+    },
+    automationController: {
+      start: async input => { calls.push({ start: input }); return { state: 'scheduled' }; }
+    },
+    fetchImpl: async (url, options) => {
+      const payload = options.body ? JSON.parse(options.body) : undefined;
+      calls.push({ method: options.method, pathname: new URL(url).pathname, payload });
+      if (options.method === 'PUT') {
+        assert.equal(payload.expectedRevision, batch.revision);
+        const patch = { ...batch.settingsState.patch };
+        for (const key of payload.restoreKeys || []) delete patch[key];
+        batch = { ...batch, revision: 8, settingsState: { patch: { ...patch, ...payload.patch } } };
+      }
+      return { ok: true, status: 200, text: async () => JSON.stringify({ batch }) };
+    }
+  }));
+  const server = app.listen(0, '127.0.0.1');
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  await new Promise(resolve => server.once('listening', resolve));
+  const response = await fetch(`http://127.0.0.1:${server.address().port}/api/batch-factory/v11/batches/batch-1/automation/start`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ presetId: 'preset-1', runMode: 'storyboard_only', concurrency: 4, scheduledAt: '2026-10-02T10:01:00.000Z' })
+  });
+  assert.equal(response.status, 201);
+  assert.equal(calls.length, 4);
+  assert.deepEqual(calls.slice(0, 3), [
+    { method: 'GET', pathname: '/api/batch-factory/v11/batches/batch-1', payload: undefined },
+    { method: 'PUT', pathname: '/api/batch-factory/v11/batches/batch-1/settings', payload: {
+      expectedRevision: 7, restoreKeys: ['automationPresetSnapshot'], patch: {
+        textModelId: 'text-preset', imageModelId: 'image-current', openingEnabled: false, openingCount: 0,
+        aiPromptConfig: { assets: { enabled: true }, video: { presetId: 'preset-video' } },
+        publishSettings: { organization: 'current-org', category: 'FINISHED_BOOK', startTime: '' }
+      }
+    } },
+    { method: 'GET', pathname: '/api/batch-factory/v11/batches/batch-1', payload: undefined }
+  ]);
+  assert.equal(batch.settingsState.patch.textModelId, 'text-preset');
+  assert.equal(Object.hasOwn(batch.settingsState.patch, 'automationPresetSnapshot'), false);
+  assert.deepEqual(calls[3].start, {
+    owner: 'alice', isOwner: false, batchId: 'batch-1',
+    scheduledAt: '2026-10-02T10:01:00.000Z', runMode: 'storyboard_only', concurrency: 4,
+    preset: { id: 'preset-1', name: '预设', version: 2 }
+  });
+});
+
+for (const failedRequest of [1, 2, 3]) {
+  test(`automation does not queue when preset application bridge request ${failedRequest} fails`, async t => {
+    let requests = 0;
+    let starts = 0;
+    const app = express();
+    app.use(express.json());
+    app.use((req, res, next) => { req.username = 'alice'; next(); });
+    app.use('/api/batch-factory/v11', createBatchFactoryV11Router({
+      ...modelValidationOptions(),
+      goBaseUrl: 'http://go.local', bridgeSecret: 'secret',
+      automationPresetStore: { get: async () => ({ id: 'preset-1', config: { textModelId: 'text-preset' } }) },
+      automationController: { start: async () => { starts++; return { state: 'running' }; } },
+      fetchImpl: async () => {
+        requests++;
+        const failed = requests === failedRequest;
+        return {
+          ok: !failed, status: failed ? 409 : 200,
+          text: async () => JSON.stringify(failed ? { error: 'revision conflict' } : {
+            batch: { id: 'batch-1', revision: 7, settingsState: { patch: {} } }
+          })
+        };
+      }
+    }));
+    const server = app.listen(0, '127.0.0.1');
+    t.after(() => new Promise(resolve => server.close(resolve)));
+    await new Promise(resolve => server.once('listening', resolve));
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/batch-factory/v11/batches/batch-1/automation/start`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ presetId: 'preset-1' })
+    });
+    assert.equal(response.status, 409);
+    assert.equal(starts, 0);
+    assert.equal(requests, failedRequest);
+  });
+}
+
+test('recovers giant automation using its saved plan without requiring a frozen preset', () => {
+  const recovered = liveGiantAutomationRecovery({
+    settingsState: { patch: { textModelId: 'text-current' } }
+  }, { presetId: 'preset-1', runMode: 'full_submit', concurrency: 2, scheduledAt: '2026-10-02T10:01:00.000Z' });
+
+  assert.deepEqual(recovered, {
+    preset: { id: 'preset-1' },
+    runMode: 'full_submit', concurrency: 2, scheduledAt: '2026-10-02T10:01:00.000Z'
+  });
+});
+
+test('giant recovery does not require historical preset metadata to match its saved plan', () => {
+  const recovered = liveGiantAutomationRecovery({
+    settingsState: { patch: { automationPresetSnapshot: { id: 'old-preset' }, textModelId: 'text-current' } }
+  }, { presetId: 'saved-preset', runMode: 'storyboard_only', concurrency: 4 });
+  assert.deepEqual(recovered, { preset: { id: 'saved-preset' }, runMode: 'storyboard_only', concurrency: 4, scheduledAt: '' });
+});
+
+test('giant recovery validates its saved plan identity and run timing', () => {
+  assert.throws(() => liveGiantAutomationRecovery({}, {}), error => error.code === 'GIANT_AUTOMATION_PLAN_MISSING');
+  assert.throws(() => liveGiantAutomationRecovery({
+    settingsState: { patch: { automationPresetSnapshot: { id: 'preset-1' } } }
+  }, { presetId: 'preset-1', scheduledAt: 'invalid-date' }), /定时执行时间无效/);
+});
+
+test('keeps book-city loading placeholders out of automated production text', () => {
+  assert.equal(
+    batchFactoryProductionText({
+      sourceText: '修改中&nbsp;\n。\n第一段 <b>正文</b>\n第二段正文',
+      sourceMetadata: { contentRangeLines: 2 }
+    }),
+    '第一段 正文\n第二段正文'
+  );
+});
 
 test('keeps a V12 book submission on the Node-owned 121 publisher', () => {
   assert.deepEqual(
@@ -288,6 +800,46 @@ test('classifies missing per-book publish metadata and persists it before any 12
 
 test('rejects a model classification that is not a valid 121 gender and style', () => {
   assert.throws(() => parseBatchBookClassification('{"gender":"未知","style":"仙侠"}'), /必须返回男女频/);
+});
+
+test('accepts common model JSON drift with Chinese punctuation and single quotes', () => {
+  const result = parseBatchBookClassification(`判断结果如下：
+\`\`\`json
+{'gender'：'女频'，'style'：'现代虐文'，'tags'：['重生'，'复仇']，'reason'：'现代女性复仇线'}
+\`\`\``);
+  assert.deepEqual(result, {
+    gender: '女频',
+    style: '现代虐文',
+    tags: '重生、复仇',
+    reason: '现代女性复仇线'
+  });
+});
+
+test('asks the selected model to repair one invalid classification response before failing', async () => {
+  const calls = [];
+  const book = { id: 'book-1', title: '女主重生复仇', platform: '15', sourceText: '沈薇重生回到离婚前，决定查清真相。', sourceMetadata: {}, revision: 7 };
+  const result = await classifyBatchFactoryBookFor121({
+    username: 'alice', batchId: 'batch-1', bookId: 'book-1', goBaseUrl: 'http://go.local', bridgeSecret: 'bridge', now: () => Date.parse('2026-09-17T01:02:03.000Z'),
+    textProvider: { endpoint: 'http://text.local/v1/chat/completions', apiKey: 'key', model: 'gpt-5.4', displayName: 'GPT-5.4' },
+    fetchImpl: async (url, init = {}) => {
+      calls.push({ url, init });
+      if (init.method === 'GET') return new Response(JSON.stringify({ batch: { id: 'batch-1', books: [book] } }), { status: 200 });
+      if (url === 'http://text.local/v1/chat/completions') {
+        const modelCalls = calls.filter(call => call.url === url).length;
+        const content = modelCalls === 1
+          ? '女频，现代虐文，标签是重生和复仇。'
+          : '{"gender":"女频","style":"现代虐文","tags":["重生","复仇"],"reason":"现代女性复仇线"}';
+        return new Response(JSON.stringify({ choices: [{ message: { content } }] }), { status: 200 });
+      }
+      if (init.method === 'PUT') return new Response(JSON.stringify({ book: { ...book, revision: 8 } }), { status: 200 });
+      throw new Error(`unexpected request: ${init.method} ${url}`);
+    }
+  });
+  assert.equal(result.reused, false);
+  assert.equal(calls.filter(call => call.url === 'http://text.local/v1/chat/completions').length, 2);
+  const repairPayload = JSON.parse(calls.filter(call => call.url === 'http://text.local/v1/chat/completions')[1].init.body);
+  assert.match(repairPayload.messages.at(-1).content, /只返回合法 JSON/);
+  assert.deepEqual(result.classification, { gender: '女频', style: '现代虐文', tags: '重生、复仇', reason: '现代女性复仇线' });
 });
 
 test('uses the runtime fetch when V11 helper receives no injected fetch', async () => {
@@ -855,6 +1407,124 @@ test('enrichment keeps the selected character renderer while dropping retired wr
   assert.equal(config.originalDirector.body, '原文导演规则');
   assert.equal(config.viralDirector.body, '爆款导演规则');
   assert.equal(config.prefix, undefined);
+});
+
+test('single-book director target matches only POST stages/director for one book', () => {
+  const path = '/api/batch-factory/v11/batches/batch-1/books/book-1/stages/director';
+  assert.deepEqual(singleBookDirectorStageTarget({ method: 'POST' }, path), { batchId: 'batch-1', bookId: 'book-1' });
+  assert.equal(singleBookDirectorStageTarget({ method: 'GET' }, path), null);
+  assert.equal(singleBookDirectorStageTarget({ method: 'POST' }, '/api/batch-factory/v11/batches/batch-1/books/book-1/stages/opening'), null);
+  assert.equal(singleBookDirectorStageTarget({ method: 'POST' }, '/api/batch-factory/v11/batches/batch-1/books/book-1/stages/director/extra'), null);
+});
+
+function singleDirectorOptions({ openingEnabled, openingCount = 3, metaBody, fetchImpl }) {
+  const batch = {
+    id: 'batch-1',
+    settingsState: { patch: { openingEnabled, openingCount, textModelId: 'text-1' } },
+    books: [{
+      id: 'book-1',
+      settingsState: { patch: {} },
+      videos: [
+        { id: 'v0', settingsState: { patch: {} } },
+        { id: 'v1', settingsState: { patch: {} } }
+      ]
+    }]
+  };
+  return {
+    req: { username: 'alice', auth: { account: { isOwner: true } } },
+    target: { batchId: 'batch-1', bookId: 'book-1' },
+    options: {
+      goBaseUrl: 'http://go.local',
+      bridgeSecret: 'secret',
+      presetStore: { getPublished: id => (id === 'batch-opening-meta' && metaBody ? { id, body: metaBody } : null), listAll: () => [] },
+      memberStore: { getMember: username => ({ username, active: true, role: 'manager' }), canUseApi: () => true },
+      configReader: () => ({ modelCatalog: [{ id: 'text-1', kind: 'text', enabled: true, baseUrl: 'https://text.example/v1', modelId: 'gpt-x', credential: 'key', displayName: '文本X' }] }),
+      fetchImpl
+    },
+    batch
+  };
+}
+
+test('after single-book director, opening variants are generated with the meta preset and text provider', async () => {
+  const posts = [];
+  let batchGetCount = 0;
+  const ctx = singleDirectorOptions({
+    openingEnabled: true,
+    metaBody: '换开头元规则正文',
+    fetchImpl: async (url, init = {}) => {
+      if (init.method === 'POST' && url.endsWith('/stages/opening')) {
+        posts.push({ url, body: JSON.parse(init.body) });
+        return new Response(JSON.stringify({ runs: [{ stage: 'opening', status: 'succeeded' }] }), { status: 201 });
+      }
+      if (url.endsWith('/batches/batch-1') && (!init.method || init.method === 'GET')) {
+        batchGetCount += 1;
+        if (batchGetCount === 1) return new Response(JSON.stringify({ batch: ctx.batch }), { status: 200 });
+        const withVariants = JSON.parse(JSON.stringify(ctx.batch));
+        withVariants.books[0].videos[0].settingsState.patch.openingVariants = [
+          { index: 1, status: 'success', prompt: '变体一：茶盏碎裂。' },
+          { index: 2, status: 'success', prompt: '变体二：雨夜推门。' }
+        ];
+        return new Response(JSON.stringify({ batch: withVariants }), { status: 200 });
+      }
+      throw new Error(`unexpected ${init.method || 'GET'} ${url}`);
+    }
+  });
+  const result = await generateOpeningVariantsAfterSingleDirector(ctx.req, ctx.target, ctx.options);
+  assert.deepEqual(result, { triggered: true, generated: 2, succeeded: true, reason: '' });
+  assert.equal(posts.length, 1);
+  assert.match(posts[0].url, /books\/book-1\/stages\/opening$/);
+  assert.equal(posts[0].body.mode, 'force');
+  assert.equal(posts[0].body.openingMeta.presetId, 'batch-opening-meta');
+  assert.equal(posts[0].body.openingMeta.body, '换开头元规则正文');
+  assert.equal(posts[0].body.textProvider.model, 'gpt-x');
+});
+
+test('single-book director reports opening failure when a required variant is missing', async () => {
+  let batchGetCount = 0;
+  const ctx = singleDirectorOptions({
+    openingEnabled: true,
+    openingCount: 3,
+    metaBody: '换开头元规则正文',
+    fetchImpl: async (url, init = {}) => {
+      if (init.method === 'POST' && url.endsWith('/stages/opening')) {
+        return new Response(JSON.stringify({ runs: [{ stage: 'opening', status: 'failed' }] }), { status: 422 });
+      }
+      if (url.endsWith('/batches/batch-1') && (!init.method || init.method === 'GET')) {
+        batchGetCount += 1;
+        if (batchGetCount === 1) return new Response(JSON.stringify({ batch: ctx.batch }), { status: 200 });
+        const withFailure = JSON.parse(JSON.stringify(ctx.batch));
+        withFailure.books[0].videos[0].settingsState.patch.openingVariants = [
+          { index: 1, status: 'success', prompt: '变体一：茶盏碎裂。' },
+          { index: 2, status: 'failed', prompt: '', failureReason: '模型未输出该变体分段' }
+        ];
+        return new Response(JSON.stringify({ batch: withFailure }), { status: 200 });
+      }
+      throw new Error(`unexpected ${init.method || 'GET'} ${url}`);
+    }
+  });
+  const result = await generateOpeningVariantsAfterSingleDirector(ctx.req, ctx.target, ctx.options);
+  assert.equal(result.triggered, true);
+  assert.equal(result.generated, 1);
+  assert.equal(result.succeeded, false);
+  assert.match(result.reason, /换开头/);
+});
+
+test('single-book director does not call opening when the switch is off', async () => {
+  const posts = [];
+  const ctx = singleDirectorOptions({
+    openingEnabled: false,
+    metaBody: '元规则',
+    fetchImpl: async (url, init = {}) => {
+      if (init.method === 'POST' && url.endsWith('/stages/opening')) {
+        posts.push(url);
+        return new Response(JSON.stringify({ runs: [] }), { status: 201 });
+      }
+      return new Response(JSON.stringify({ batch: ctx.batch }), { status: 200 });
+    }
+  });
+  const result = await generateOpeningVariantsAfterSingleDirector(ctx.req, ctx.target, ctx.options);
+  assert.equal(posts.length, 0);
+  assert.equal(result.triggered, false);
 });
 
 test('execution refreshes the selected preset snapshot to the latest published name, version and body', async () => {

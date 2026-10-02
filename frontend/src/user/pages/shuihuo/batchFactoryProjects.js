@@ -4,6 +4,15 @@ function text(value) {
   return String(value ?? '').trim();
 }
 
+export function createCoverHydrationScheduler() {
+  let tail = Promise.resolve();
+  return task => {
+    const scheduled = tail.catch(() => {}).then(task);
+    tail = scheduled;
+    return scheduled;
+  };
+}
+
 export function batchFactoryBatchFromResponse(response) {
   const batch = response?.batch;
   if (!text(batch?.id)) throw new Error('批量工厂作品读取结果无效');
@@ -43,6 +52,39 @@ export function batchFactoryCoverFrom(batch, productionStatus, imageURL = '') {
   }
   const image = text(imageURL);
   return image ? { kind: 'image', url: image } : null;
+}
+
+export async function enrichBatchProjectCovers(projects, {
+  loadProduction,
+  loadMerge,
+  coverFrom,
+  onUpdate,
+  shouldContinue = () => true,
+  concurrency = 2
+} = {}) {
+  const queue = Array.isArray(projects) ? projects : [];
+  const limit = Math.max(1, Math.min(Number(concurrency) || 1, queue.length || 1));
+  let cursor = 0;
+  async function worker() {
+    while (cursor < queue.length && shouldContinue()) {
+      const project = queue[cursor];
+      cursor += 1;
+      let hadRequestFailure = false;
+      const productionStatus = await loadProduction(project).catch(() => {
+        hadRequestFailure = true;
+        return null;
+      });
+      if (!shouldContinue()) return;
+      const mergeStatus = await loadMerge(project).catch(() => {
+        hadRequestFailure = true;
+        return null;
+      });
+      if (!shouldContinue()) return;
+      const coverMedia = coverFrom(project, productionStatus, mergeStatus);
+      onUpdate({ ...project, coverMedia: coverMedia || null }, { hadRequestFailure });
+    }
+  }
+  await Promise.all(Array.from({ length: limit }, () => worker()));
 }
 
 export function isBatchFactoryV11Project(project) {

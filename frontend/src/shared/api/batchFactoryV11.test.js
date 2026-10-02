@@ -28,6 +28,25 @@ test('automation status always bypasses a stale browser response cache', async t
   assert.equal(calls[0].options.cache, 'no-store');
 });
 
+test('runtime summary uses one non-cached batch endpoint', async t => {
+  const originalLocalStorage = globalThis.localStorage;
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.localStorage = { getItem() { return 'contract-test-token'; }, setItem() {}, removeItem() {} };
+  globalThis.fetch = async (path, options = {}) => {
+    calls.push({ path, options });
+    return new Response(JSON.stringify({ batchId: 'batch-1', production: { jobs: [] }, merge: { jobs: [] }, stageSummaries: {} }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' }
+    });
+  };
+  t.after(() => { globalThis.localStorage = originalLocalStorage; globalThis.fetch = originalFetch; });
+
+  await batchFactoryV11.getBatchRuntimeSummary('batch 1');
+  assert.equal(calls[0].path, '/api/batch-factory/v12/batches/batch%201/runtime-summary');
+  assert.equal(calls[0].options.cache, 'no-store');
+});
+
 test('scope paths address batch, book and VIDEO overrides without legacy routes', () => {
 	assert.equal(bf11ScopePath({ scope: 'batch', batchId: 'b 1' }), '/api/batch-factory/v12/batches/b%201/settings');
 	assert.equal(bf11ScopePath({ scope: 'book', batchId: 'b1', bookId: 'k/1' }), '/api/batch-factory/v12/batches/b1/books/k%2F1/override');
@@ -150,6 +169,34 @@ test('protected local merge media is fetched as an authenticated blob', async t 
   assert.equal(blob.type, 'video/mp4');
   assert.equal(calls[0].path, path);
   assert.match(calls[0].headers.get('authorization') || '', /^Bearer\s+/);
+});
+
+test('private merge covers are fetched as authenticated JPG blobs rather than direct image URLs', async t => {
+  assert.equal(typeof batchFactoryV11.getBatchFactoryMergeCoverBlob, 'function');
+
+  const originalLocalStorage = globalThis.localStorage;
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.localStorage = { getItem(key) { return key === 'auth_token' ? 'contract-test-token' : ''; }, setItem() {}, removeItem() {} };
+  globalThis.fetch = async (path, options = {}) => {
+    calls.push({ path, headers: new Headers(options.headers || {}), options });
+    return new Response(new Blob(['contract-jpg'], { type: 'image/jpeg' }), { status: 200, headers: { 'content-type': 'image/jpeg' } });
+  };
+  t.after(() => { globalThis.localStorage = originalLocalStorage; globalThis.fetch = originalFetch; });
+
+  const path = '/api/batch-factory/v11/batches/batch_1/merge-cover/merge_local_1';
+  const blob = await batchFactoryV11.getBatchFactoryMergeCoverBlob(path);
+  assert.equal(blob.type, 'image/jpeg');
+  assert.equal(calls[0].path, path);
+  assert.match(calls[0].headers.get('authorization') || '', /^Bearer\s+/);
+  assert.equal(calls[0].options.silent, true);
+});
+
+test('merge-cover blob helper refuses external URLs so the app bearer token is never forwarded off-origin', async () => {
+  await assert.rejects(
+    () => batchFactoryV11.getBatchFactoryMergeCoverBlob('https://media.example/cover.jpg'),
+    /merge cover/i
+  );
 });
 
 test('production media blob helper refuses external URLs so the app bearer token is never forwarded off-origin', async () => {

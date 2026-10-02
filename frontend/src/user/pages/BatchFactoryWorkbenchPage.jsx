@@ -8,7 +8,7 @@ import {
   createManualIntake,
   getBatch,
   getIntake,
-  listBatches,
+  listBatchSummaries,
   startBatchAutomation
 } from '../../shared/api/batchFactoryV11';
 import { BatchFactoryNovelList } from './shuihuo/BatchFactoryNovelList';
@@ -63,7 +63,7 @@ export default function BatchFactoryWorkbenchPage() {
     setLoading(true);
     setError('');
     try {
-      const next = batchesFromResult(await listBatches());
+      const next = batchesFromResult(await listBatchSummaries());
       if (mountedRef.current) setBatches(next);
       return next;
     } catch (requestError) {
@@ -146,7 +146,7 @@ export default function BatchFactoryWorkbenchPage() {
 
   async function createBatch(input) {
     const created = input?.intakeId
-      ? await createBatchFromIntake(input.intakeId, { title: input.title })
+      ? await createBatchFromIntake(input.intakeId, { title: input.title, giantAutomation: input.giantAutomation })
       : await createManualIntake(input);
     const batch = asBatch(created);
     localStorage.setItem(BATCH_FACTORY_ACTIVE_BATCH_STORAGE_KEY, batch.id);

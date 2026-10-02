@@ -378,22 +378,29 @@ func (s *MySQLStore) CancelJob(ctx context.Context, owner, id string, now time.T
 	return record, nil
 }
 
-func (s *MySQLStore) ClaimJob(ctx context.Context, executor ExecutorRecord, leaseHash SecretHash, expires, now time.Time) (JobRecord, error) {
+func (s *MySQLStore) ClaimJob(ctx context.Context, executor ExecutorRecord, leaseHash SecretHash, expires, now time.Time, targetedOnly bool) (JobRecord, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return JobRecord{}, err
 	}
 	defer tx.Rollback()
-	record, err := queryJobTx(ctx, tx, jobSelect+` WHERE j.owner_username = ? AND j.platform = ? AND j.cancel_requested = FALSE
- AND (j.target_executor_id IS NULL OR j.target_executor_id = ?)
- AND (j.state = ?
- OR (j.lease_expires_at IS NOT NULL AND j.lease_expires_at <= ? AND j.state NOT IN (?, ?, ?))
- OR (j.state IN (?, ?, ?, ?) AND j.lease_expires_at > ? AND j.progress_changed_at IS NOT NULL AND j.progress_changed_at <= ?))
- ORDER BY j.created_at ASC, j.id ASC LIMIT 1 FOR UPDATE SKIP LOCKED`,
-		executor.OwnerUsername, PlatformGiantMaterial, executor.ID, JobQueued,
+	targetFilter := "AND j.target_executor_id IS NULL"
+	args := []any{executor.OwnerUsername, PlatformGiantMaterial}
+	if targetedOnly {
+		// 只领明确点名给本执行器的任务（定向重试），平台偏好门控不拦截。
+		targetFilter = "AND j.target_executor_id = ?"
+		args = append(args, executor.ID)
+	}
+	args = append(args, JobQueued,
 		now, JobSucceeded, JobFailed, JobCancelled,
 		JobLeased, JobRunning, JobCleaning, JobUploading,
 		now, now.Add(-StuckProgressLimit))
+	record, err := queryJobTx(ctx, tx, jobSelect+` WHERE j.owner_username = ? AND j.platform = ? AND j.cancel_requested = FALSE
+	`+targetFilter+`
+	AND (j.state = ?
+ OR (j.lease_expires_at IS NOT NULL AND j.lease_expires_at <= ? AND j.state NOT IN (?, ?, ?))
+ OR (j.state IN (?, ?, ?, ?) AND j.lease_expires_at > ? AND j.progress_changed_at IS NOT NULL AND j.progress_changed_at <= ?))
+ ORDER BY j.created_at ASC, j.id ASC LIMIT 1 FOR UPDATE SKIP LOCKED`, args...)
 	if errors.Is(err, sql.ErrNoRows) {
 		return JobRecord{}, ErrNoClaimableJob
 	}

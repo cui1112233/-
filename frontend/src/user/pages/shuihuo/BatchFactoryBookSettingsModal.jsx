@@ -1,6 +1,6 @@
 import { Alert, Button, Divider, Input, InputNumber, Modal, Popconfirm, Popover, Segmented, Select, Space, Switch, Tabs, message} from 'antd';
 import { useEffect, useMemo, useState } from 'react';
-import { listAvailableModels } from '../../../shared/api/modelCatalog';
+import { listAvailableModels, modelSelectOptions } from '../../../shared/api/modelCatalog';
 import { get121OrganizationOptions, getBatch, listSystemPresetCatalog, saveBookOverride } from '../../../shared/api/batchFactoryV11';
 import { getConfig } from '../../../shared/api/config';
 import { textToSpeech } from '../../../shared/api/tts';
@@ -12,7 +12,7 @@ import { batchFactoryPreviewText } from './batchFactoryContentRange';
 const ENGINE_MODEL_OVERRIDE_FIELDS = ['textModelId', 'imageModelId', 'videoModelId', 'videoProvider', 'aspectRatio', 'imageAspectRatio', 'videoAspectRatio', 'videoResolution', 'productionMode', 'storyboardDurationLimit', 'maxVideoDuration', 'fixedSingleVideo', 'audioPlanningEnabled', 'audioMergeEnabled', 'audioDurationSeconds', 'audioDurationFingerprint', 'tts'];
 const ENGINE_PUBLISH_OVERRIDE_FIELDS = ['publishRewriteEnabled', 'publishSettings'];
 const ENGINE_OVERRIDE_FIELDS = [...ENGINE_MODEL_OVERRIDE_FIELDS, ...ENGINE_PUBLISH_OVERRIDE_FIELDS];
-const BOOK_OVERRIDE_FIELDS = [...ENGINE_OVERRIDE_FIELDS, 'starredCharacterNames', 'aiPromptConfig'];
+const BOOK_OVERRIDE_FIELDS = [...ENGINE_OVERRIDE_FIELDS, 'starredCharacterNames', 'openingEnabled', 'openingCount', 'aiPromptConfig'];
 const PUBLISH_CATALOG_FIELDS = new Set(['websiteProfiles', 'websiteStyleCatalog', 'organizations', 'organizationOptions']);
 export const AI_REGION_KEYS = new Map([
   ['assets', 'assets'],
@@ -201,6 +201,11 @@ export function buildBookRegionUpdate(inherited, bookPatch, region, edited, engi
       if (!equal(inherited?.[key], edited?.[key])) patch[key] = edited?.[key];
       else if (Object.hasOwn(bookPatch || {}, key)) restoreKeys.push(key);
     }
+    // 换开头是统一配置根级的生产开关，与“固定开头”同属引擎配置；单书只存差异，拨回相同值即恢复继承。
+    for (const key of ['openingEnabled', 'openingCount']) {
+      if (!equal(inherited?.[key], edited?.[key])) patch[key] = edited?.[key];
+      else if (Object.hasOwn(bookPatch || {}, key)) restoreKeys.push(key);
+    }
     return { patch, restoreKeys };
   }
   const moduleKey = region === 'media' ? 'video' : AI_REGION_KEYS.get(region);
@@ -291,6 +296,9 @@ function ConstraintLayers({ value, records, personalPrompts, loading, saving, ed
 export function BatchFactoryBookSettingsModal({ open, batch, book, activeRegion = 'engine', onClose, onSaved, onOpenBookAssets }) {
   const batchPatch = batch?.settingsState?.patch || {};
   const bookPatch = book?.settingsState?.patch || {};
+	const frozenAutomationPreset = batchPatch?.automationPresetSnapshot && typeof batchPatch.automationPresetSnapshot === 'object'
+	  ? batchPatch.automationPresetSnapshot
+	  : null;
   const region = REGION_LABELS[activeRegion] ? activeRegion : 'engine';
   const inherited = useMemo(() => ({ ...batchPatch, aiPromptConfig: mergePromptConfig(batchPatch.aiPromptConfig, {}), publishSettings: mergePublishSettings(batchPatch.publishSettings, {}) }), [batch?.id, batch?.settingsState?.revision]);
   const [form, setForm] = useState(() => effectiveValues(batchPatch, bookPatch));
@@ -333,10 +341,42 @@ export function BatchFactoryBookSettingsModal({ open, batch, book, activeRegion 
     EDITABLE_CONSTRAINT_LAYERS.forEach(([category]) => { loadPersonalConstraintPrompts(category); });
   }, [open, region]);
 
+  // 存量批量/单书配置可能只保存了系统约束的 presetId 而没有正文（旧版统一配置选择器漏抓 body）。
+  // 打开约束页时按预设号静默补拉一次正文用于回显，避免“下拉有名字、内容框空白”；
+  // 只补“系统预设 + 正文为空”的层，个人提示词/草稿不碰，后端生产另有权威兜底。
+  useEffect(() => {
+    if (!open || region !== 'constraints' || loading) return undefined;
+    const initialRules = normalizeConstraintRules((form.aiPromptConfig || {}).constraints);
+    const missing = EDITABLE_CONSTRAINT_LAYERS
+      .map(([category]) => ({ category, layer: initialRules[category] }))
+      .filter(({ layer }) => layer && layer.enabled && layer.source === 'system' && layer.presetId && !String(layer.body || '').trim());
+    if (!missing.length) return undefined;
+    let alive = true;
+    getConstraintPresetTexts(missing.map(({ layer }) => layer.presetId))
+      .then(result => {
+        if (!alive) return;
+        const texts = result?.texts || {};
+        setForm(current => {
+          const rules = normalizeConstraintRules((current.aiPromptConfig || {}).constraints);
+          let changed = false;
+          for (const { category, layer } of missing) {
+            const body = String(texts[layer.presetId] || '').trim();
+            if (body && !String(rules[category]?.body || '').trim()) { rules[category] = { ...rules[category], body }; changed = true; }
+          }
+          if (!changed) return current;
+          return { ...current, aiPromptConfig: { ...(current.aiPromptConfig || {}), constraints: withDirectorConstraintSelections(rules) } };
+        });
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+    // 只在弹窗打开/切到约束页/目录加载完成/换书时执行，不跟随每次输入。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, region, loading, catalog, book?.id, book?.settingsState?.revision]);
+
   const modelOptions = useMemo(() => ({
-    text: models.filter(item => item.kind === 'text').map(item => ({ value: item.id, label: item.name || item.id })),
-    image: models.filter(item => item.kind === 'image').map(item => ({ value: item.id, label: item.name || item.id })),
-    video: models.filter(item => item.kind === 'video').map(item => ({ value: item.id, label: item.name || item.id }))
+    text: modelSelectOptions(models, 'text'),
+    image: modelSelectOptions(models, 'image'),
+    video: modelSelectOptions(models, 'video')
   }), [models]);
   const scriptExtraction = useMemo(() => catalog.script.filter(item => item.slot === 'script.asset-extraction'), [catalog.script]);
   const characterPromptRules = useMemo(() => catalog.batch.filter(item => item.slot === 'batch.character-meta'), [catalog.batch]);
@@ -359,7 +399,7 @@ export function BatchFactoryBookSettingsModal({ open, batch, book, activeRegion 
   const hasBookOverride = region === 'engine'
     ? engineTab === 'publish'
       ? Object.hasOwn(bookPatch, 'publishRewriteEnabled') || Object.hasOwn(bookPatch, 'publishSettings')
-      : ENGINE_MODEL_OVERRIDE_FIELDS.some(key => Object.hasOwn(bookPatch, key))
+      : ENGINE_MODEL_OVERRIDE_FIELDS.some(key => Object.hasOwn(bookPatch, key)) || Object.hasOwn(bookPatch, 'openingEnabled') || Object.hasOwn(bookPatch, 'openingCount')
     : region === 'assets'
       ? Object.hasOwn(bookPatch, 'starredCharacterNames') || Object.hasOwn(bookPatch.aiPromptConfig || {}, 'assets')
     : region === 'video'
@@ -519,6 +559,13 @@ export function BatchFactoryBookSettingsModal({ open, batch, book, activeRegion 
             <InheritedField label="视频分辨率" field="videoResolution" value={form.videoResolution || '720p'} inherited={inherited.videoResolution || '720p'} options={[{ value: '480p', label: '480p' }, { value: '720p', label: '720p' }, { value: '1080p', label: '1080p' }]} loading={false} onChange={videoResolution => patch({ videoResolution })} />
           </div>
           <InheritedFixedVideoSwitch value={form.fixedSingleVideo} inherited={inherited.fixedSingleVideo} onChange={fixedSingleVideo => patch({ fixedSingleVideo })} />
+          <Space style={{ justifyContent: 'space-between', width: '100%' }}>
+            <span><b>换开头</b><small style={{ display: 'block', color: '#94a3b8' }}>2 个及以上分镜的书为分镜一生成多个开场变体并分别合成上传；不改这里就跟随批量（批量当前：{inherited.openingEnabled === true ? `开启 · ${inherited.openingCount ?? 4} 条（含原始）` : '关闭'}）</small></span>
+            <Space>
+              <Switch checked={form.openingEnabled === true} onChange={enabled => patch({ openingEnabled: enabled, openingCount: form.openingCount ?? inherited.openingCount ?? 4 })} />
+              <InputNumber min={1} max={8} precision={0} disabled={form.openingEnabled !== true} value={form.openingCount ?? inherited.openingCount ?? 4} onChange={count => patch({ openingCount: count ?? 4 })} addonAfter="条（含原始）" />
+            </Space>
+          </Space>
           </ConfigCard>
 
           <ConfigCard title="配音与时长" description="读取当前生产正文；读取时长不会自动打开任何跟随功能。"><section className="batch-factory-book-audio-content">
@@ -605,6 +652,7 @@ export function BatchFactoryBookSettingsModal({ open, batch, book, activeRegion 
     className={`shuihuo-engine-modal batch-factory-engine-modal${region === 'engine' ? ' batch-factory-book-engine-modal' : ''}`}
     footer={<Space>{hasBookOverride ? <Button danger disabled={saving} onClick={restoreCurrentRegion}>恢复{region === 'engine' ? (engineTab === 'publish' ? '批量发布配置' : '批量模型配置') : '作品配置'}</Button> : null}<Button onClick={onClose}>取消</Button><Button type="primary" loading={saving} onClick={save}>保存{region === 'engine' ? (engineTab === 'publish' ? '当前书发布配置' : '当前书模型配置') : '当前书覆盖'}</Button></Space>}
   >
+		{frozenAutomationPreset?.id ? <Alert type="info" showIcon message={`继承统一配置：${frozenAutomationPreset.name || frozenAutomationPreset.id} · v${frozenAutomationPreset.version || 1}`} description="当前书未保存覆盖时，始终使用该批次冻结的统一配置。" /> : null}
     {region !== 'engine' ? <Alert type="info" showIcon message="继承状态" description="本分区未改动时继续使用当前批量作品配置；保存或恢复只影响当前小说，不会改动同批次其它书。" /> : null}
     {loadError ? <Alert type="warning" showIcon message="配置目录读取失败" description={loadError} /> : null}
     {region !== 'engine' ? <Divider orientation="left">{REGION_LABELS[region]}</Divider> : null}

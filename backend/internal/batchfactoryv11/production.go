@@ -360,6 +360,15 @@ func (s *ProductionService) SubmitBookProductionWithOptions(ctx context.Context,
 		mediaVideos = mediaVideos[:1]
 	}
 	openingOn := rawBool(ResolveSettings(batch.SettingsState.Patch, book.SettingsState.Patch), "openingEnabled", false)
+	if openingOn && len(book.Videos) >= 2 {
+		count := rawInt(ResolveSettings(batch.SettingsState.Patch, book.SettingsState.Patch), "openingCount", 4)
+		if count < 1 || count > 8 {
+			return ProductionJob{}, fmt.Errorf("%w: openingCount must be between 1 and 8", ErrInvalid)
+		}
+		if err := requireSuccessfulOpeningVariants(openingVariants(book.Videos[0]), count-1); err != nil {
+			return ProductionJob{}, fmt.Errorf("%w: 请先重试失败的换开头步骤（%v）", ErrConflict, err)
+		}
+	}
 	pendingVideos := make([]Video, 0, len(mediaVideos))
 	for _, video := range mediaVideos {
 		if options.VideoID != "" && video.ID != options.VideoID {
@@ -666,7 +675,7 @@ func (s *ProductionService) GetBatchStatus(ctx context.Context, owner, batchID s
 	if err != nil {
 		return BatchStatus{}, err
 	}
-	if _, err := s.Store.GetBatch(ctx, owner, batchID); err != nil {
+	if err := ensureBatchOwnership(ctx, s.Store, owner, batchID); err != nil {
 		return BatchStatus{}, err
 	}
 	if err := s.reconcileBatch(ctx, repository, owner, batchID); err != nil {

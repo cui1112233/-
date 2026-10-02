@@ -293,12 +293,21 @@ func (s *MemoryStore) RequeueJob(_ context.Context, id string, update JobRecord,
 	return record, nil
 }
 
-func (s *MemoryStore) ClaimJob(_ context.Context, executor ExecutorRecord, leaseHash SecretHash, expires, now time.Time) (JobRecord, error) {
+func (s *MemoryStore) ClaimJob(_ context.Context, executor ExecutorRecord, leaseHash SecretHash, expires, now time.Time, targetedOnly bool) (JobRecord, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var picked *JobRecord
 	for _, candidate := range s.jobs {
-		if candidate.OwnerUsername != executor.OwnerUsername || candidate.Platform != PlatformGiantMaterial || candidate.TargetExecutorID != "" && candidate.TargetExecutorID != executor.ID || candidate.CancelRequested || candidate.State == JobCancelled || candidate.State == JobSucceeded || candidate.State == JobFailed {
+		if candidate.OwnerUsername != executor.OwnerUsername || candidate.Platform != PlatformGiantMaterial || candidate.CancelRequested || candidate.State == JobCancelled || candidate.State == JobSucceeded || candidate.State == JobFailed {
+			continue
+		}
+		if targetedOnly {
+			// 只领明确点名给本执行器的任务（定向重试），平台偏好门控不拦截。
+			if candidate.TargetExecutorID != executor.ID {
+				continue
+			}
+		} else if candidate.TargetExecutorID != "" {
+			// 公共池：点名给别人的任务不参与普通领取。
 			continue
 		}
 		stuck := false

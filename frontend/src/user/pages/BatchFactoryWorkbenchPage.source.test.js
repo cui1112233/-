@@ -9,7 +9,7 @@ const pagePath = path.join(here, 'BatchFactoryWorkbenchPage.jsx');
 
 test('uses only Batch Factory data and keeps novel-fetch intake handoff', () => {
   const page = fs.readFileSync(pagePath, 'utf8');
-  assert.match(page, /listBatches\(\)/);
+  assert.match(page, /listBatchSummaries\(\)/);
   assert.match(page, /BatchFactoryCreateModal/);
   assert.match(page, /BatchFactoryNovelList/);
   assert.match(page, /创作漫剧/);
@@ -21,7 +21,7 @@ test('uses only Batch Factory data and keeps novel-fetch intake handoff', () => 
 
 test('creates a batch from an intake when the giant-material flow has already registered its placeholder book', () => {
   const page = fs.readFileSync(pagePath, 'utf8');
-  assert.match(page, /input\?\.intakeId\s*\?\s*await createBatchFromIntake\(input\.intakeId,\s*\{\s*title: input\.title\s*\}\)/s);
+  assert.match(page, /input\?\.intakeId\s*\?\s*await createBatchFromIntake\(input\.intakeId,\s*\{\s*title: input\.title,\s*giantAutomation: input\.giantAutomation\s*\}\)/s);
 });
 
 test('returns the created batch so giant-material OCR can bind its executor job', () => {

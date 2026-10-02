@@ -81,5 +81,30 @@ test('offers giant material intake through the resident executor', () => {
   assert.doesNotMatch(source, /extractGiantMaterial\(/);
   // 旧单 ID 等待式流程已移除
   assert.doesNotMatch(source, /waitForGiantMaterialJob/);
-  assert.doesNotMatch(source, /读取并创建/);
+});
+
+test('giant immediate execution opens the same automation-plan dialog as other book cities', () => {
+  const toolbarStart = source.indexOf('{isGiantMaterial\n        ? <>');
+  const toolbarEnd = source.indexOf('\n      <Button onClick={() => openAutomationDialog(\'scheduled\')}>开始定时</Button>', toolbarStart);
+  const giantToolbar = toolbarStart >= 0 && toolbarEnd > toolbarStart ? source.slice(toolbarStart, toolbarEnd) : '';
+  assert.match(giantToolbar, /onClick=\{\(\) => openAutomationDialog\('immediate'\)\}/);
+  assert.doesNotMatch(giantToolbar, /onClick=\{\(\) => submitGiantMaterial\(\)\}/);
+});
+
+test('giant creation selects a versioned preset without requiring frozen metadata before dispatching reads', () => {
+	assert.match(source, /giantAutomation:/);
+	assert.match(source, /expectedPresetVersion: selectedPreset\.version/);
+	assert.match(source, /automationPresetSnapshot\(automationPresets, automationPresetID\)/);
+	assert.doesNotMatch(source, /saveBatchSettings/);
+	assert.doesNotMatch(source, /settingsState\?\.patch\?\.automationPresetSnapshot/);
+	assert.doesNotMatch(source, /巨量素材自动化预设未能随创建冻结/);
+});
+
+test('lets giant batches choose a mutually exclusive original acquisition priority', () => {
+  assert.match(source, /优先直接获取原文/);
+  assert.match(source, /const \[giantOriginalReadStrategy, setGiantOriginalReadStrategy\] = useState\('ocr_first'\)/);
+  assert.match(source, /originalReadStrategy: giantOriginalReadStrategy/);
+  assert.match(source, /giantOriginalReadStrategy === 'direct_first'/);
+  assert.match(source, /await fetchBookOriginal\(batchId, book\.id\)/);
+  assert.match(source, /await createGiantMaterialJob\(/);
 });

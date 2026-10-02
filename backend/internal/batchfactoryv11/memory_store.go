@@ -615,6 +615,9 @@ func (s *MemoryStore) CreateBatch(_ context.Context, owner string, input CreateB
 	}
 	for _, rawBook := range input.Books {
 		bi := normalizeNovelFetchBook(rawBook)
+		if len(input.GiantAutomationPlan) > 0 {
+			bi.SourceMetadata = copySourceMetadataWithGiantPlan(bi.SourceMetadata, input.GiantAutomationPlan)
+		}
 		internalBookID := s.id("book")
 		sourceID := sourceBookID(bi)
 		if sourceID == "" {
@@ -631,6 +634,10 @@ func (s *MemoryStore) CreateBatch(_ context.Context, owner string, input CreateB
 			book.Videos = append(book.Videos, video)
 		}
 		b.Books = append(b.Books, book)
+	}
+	if len(input.InitialBatchSettings) > 0 {
+		b.Revision++
+		s.patches[scopeKey(ScopeRef{Kind: ScopeBatch, BatchID: b.ID})] = cloneSettingsPatch(input.InitialBatchSettings)
 	}
 	s.batches[b.ID] = memoryOwned[Batch]{owner, b}
 	return hydrateMemoryBatchSettingsState(b, s.patches, s.hooks, s.directors, s.bookAssets), nil

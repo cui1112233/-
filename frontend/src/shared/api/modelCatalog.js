@@ -1,4 +1,4 @@
-import { apiRequest } from './client';
+import { apiRequest } from './client.js';
 
 const MODEL_KIND_LABELS = Object.freeze({
   text: '文本',
@@ -17,6 +17,15 @@ export function assertModelKind(kind) {
 
 export function modelKindLabel(kind) {
   return isModelKind(kind) ? MODEL_KIND_LABELS[kind] : '';
+}
+
+export function modelSelectOptions(models, kind) {
+  return (Array.isArray(models) ? models : [])
+    .filter(model => model?.kind === kind && String(model?.id || '').trim())
+    .map(model => ({
+      value: model.id,
+      label: model.displayName || model.name || model.modelId || model.id
+    }));
 }
 
 export function getTypedModelSelectState(kind, { models = [], error = '' } = {}) {

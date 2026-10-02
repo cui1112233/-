@@ -59,6 +59,33 @@ func TestGiantMaterialExecutorRoutesKeepControlPlaneSeparateAndHideVideoURL(t *t
 	}
 }
 
+func TestGiantMaterialExecutorClaimLongPollsAndReturns204WhenIdle(t *testing.T) {
+	original := giantClaimLongPollWait
+	giantClaimLongPollWait = 30 * time.Millisecond
+	t.Cleanup(func() { giantClaimLongPollWait = original })
+
+	now := time.Date(2026, 9, 29, 14, 0, 0, 0, time.UTC)
+	service := giantmaterialexecutor.NewService(giantmaterialexecutor.NewMemoryStore(), func() time.Time { return now })
+	api := NewRouter(RouterOptions{BridgeSecret: "secret", Now: func() time.Time { return now }, GiantMaterialExecutor: service})
+
+	pairingResponse := signedJSONRequest(t, api, now, "alice", http.MethodPost, "/api/shuihuo-production/giant-material-executor/pairings", map[string]any{"platform": giantmaterialexecutor.PlatformGiantMaterial})
+	pairing := decodeBody[giantmaterialexecutor.PairingSecret](t, pairingResponse)
+	pairedRequest := signedJSONRequest(t, api, now, "alice", http.MethodPost, "/api/giant-material-executor/v1/pair", map[string]any{"code": pairing.Code, "platform": giantmaterialexecutor.PlatformGiantMaterial, "deviceName": "win-box", "os": "windows", "version": "0.5.3"})
+	paired := decodeBody[giantmaterialexecutor.PairResult](t, pairedRequest)
+
+	start := time.Now()
+	claim := bearerJSONRequest(t, api, paired.Token, http.MethodPost, "/api/giant-material-executor/v1/jobs/claim", nil)
+	if claim.Code != http.StatusNoContent {
+		t.Fatalf("claim=%d body=%s", claim.Code, claim.Body.String())
+	}
+	if elapsed := time.Since(start); elapsed < 20*time.Millisecond {
+		t.Fatalf("claim returned in %v, long poll should wait briefly", elapsed)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("long poll claim took too long: %v", elapsed)
+	}
+}
+
 func bearerJSONRequest(t *testing.T, api http.Handler, token, method, path string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 	var payload []byte

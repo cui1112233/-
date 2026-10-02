@@ -39,6 +39,12 @@ test('offers existing batches explicit immediate and Beijing-time automation act
   assert.match(source, /下次重试：北京时间/);
 });
 
+test('task logs explain that giant batches are waiting for source text before production begins', () => {
+  const logs = source.match(/function BatchLogs\([\s\S]*?\n}\n\nfunction /)?.[0] || '';
+  assert.match(logs, /等待正文读取/);
+  assert.match(logs, /巨量素材/);
+});
+
 test('keeps H3 director cards in the workbench until final VIDEO compilation', () => {
   assert.match(source, /resolvePrecompiledVideoWorkspace/);
   assert.match(source, /resolvePrecompiledStoryboardFrame/);
@@ -408,9 +414,18 @@ test('keeps an optional platform-label lookup from surfacing a global API failur
 });
 
 test('keeps persisted production and merge status readable when new work is disabled', () => {
-  assert.match(source, /const \[production, merge\] = await Promise\.all\(\[\s*getProductionStatus\(batch\.id\),\s*getMergeStatus\(batch\.id\)\s*\]\)/);
-  assert.doesNotMatch(source, /productionEnabled \? getProductionStatus/);
-  assert.doesNotMatch(source, /mergeEnabled \? getMergeStatus/);
+  assert.match(source, /getBatchRuntimeSummary\(batch\.id, \{ suppressGlobalError: true \}\)/);
+  assert.match(source, /setProductionStatus\(runtime\?\.production \|\| \{ jobs: \[\] \}\)/);
+  assert.match(source, /setMergeStatus\(runtime\?\.merge \|\| \{ jobs: \[\] \}\)/);
+});
+
+test('retries failed stages from the batch runtime snapshot instead of querying every historical book stage directly', () => {
+  const retry = source.match(/async function retryLastFailedStage\([\s\S]*?\n  }\n  async function/)?.[0] || '';
+  assert.match(retry, /const runtime = await loadRuntimeStatus\(\{ quiet: true \}\);/);
+  assert.match(retry, /runtime\?\.stageSummaries\?\.\[book\.id\] \|\| stageSummaries\[book\.id\]/);
+  assert.match(retry, /当前书没有可读取的阶段记录，暂不能自动重试。/);
+  assert.doesNotMatch(source, /getBookStageSummary/);
+  assert.doesNotMatch(source, /async function loadStageSummaries/);
 });
 
 test('persists named AI reasoning presets through the V11 backend and lets users rename and load them', () => {
@@ -557,7 +572,7 @@ test('keeps production status inside 查看资料 instead of the operation colum
   assert.match(source, /小说正文/);
   assert.match(source, /hasActiveProduction/);
   assert.match(source, /viewingBook \|\| mediaBook \|\| promptBook \|\| hasActiveProduction/);
-  assert.match(source, /setInterval\(\(\) => \{ loadRuntimeStatus/);
+  assert.match(source, /const tick = \(\) => \{ loadRuntimeStatus\(\{ quiet: true \}\); \}/);
 });
 
 test('keeps failed runtime status diagnostics actionable in the task log', () => {
@@ -720,6 +735,12 @@ test('repairs legacy empty books in place using their saved platform and Book ID
   assert.match(source, /获取正文/);
   assert.match(source, /原文尚未获取/);
   assert.match(source, /已获取并写入当前小说正文/);
+});
+
+test('shows cleaned original text and the giant-material read state in the 小说正文 cell', () => {
+  assert.match(source, /const previewText = batchFactoryPreviewText\(book\.sourceText, book\);/);
+  assert.match(source, /<BatchFactoryGiantMaterialPendingProgress book=\{book\} batchId=\{batch\?\.id\} visible/);
+  assert.doesNotMatch(source, /BatchFactoryGiantMaterialPendingProgress book=\{book\} batchId=\{batch\?\.id\} visible=\{false\}/);
 });
 
 test('keeps Batch Factory flush with the workbench while balancing wide-screen columns', () => {
@@ -1082,8 +1103,6 @@ test('passes only the selected V11 final template and its H3 protocol key to com
 test('shows live provider task progress on the matching storyboard card and keeps polling while production runs', () => {
   assert.match(source, /batchFactoryVideoProgress/);
   assert.match(source, /currentProgress\?\.message/);
-  assert.match(source, /progressNotice/);
-  assert.match(source, /任务状态会自动刷新/);
   assert.match(source, /productionStatus=\{productionStatus\}/);
   assert.match(source, /hasActiveProduction/);
 });
@@ -1094,7 +1113,7 @@ test('loads protected local merge files through the authenticated media boundary
 });
 
 test('keeps production polling failures inside the task panel', () => {
-  assert.match(source, /getProductionStatus\(batch\.id, \{ suppressGlobalError: true \}\)/);
+  assert.match(source, /getBatchRuntimeSummary\(batch\.id, \{ suppressGlobalError: true \}\)/);
 });
 
 test('shows opening variant prompts from the VIDEO01 card instead of candidate versions', () => {

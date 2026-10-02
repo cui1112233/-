@@ -16,6 +16,16 @@ type DirectorService struct {
 	Provider DirectorProvider
 }
 
+// retryableModelOutputError keeps the production contract strict while making
+// an occasional malformed model reply recoverable. Configuration and input
+// validation continue to use ErrInvalid so they stop immediately.
+func retryableModelOutputError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("%w: 文本模型输出不符合当前格式要求，可重试：%v", ErrUnavailable, err)
+}
+
 func sourceDigest(source string) string {
 	sum := sha256.Sum256([]byte(source))
 	return hex.EncodeToString(sum[:])
@@ -325,7 +335,7 @@ func (s *DirectorService) runDirector(ctx context.Context, owner, batchID, bookI
 	if err != nil {
 		return DirectorRevision{}, err
 	}
-	completion, err := s.Provider.Complete(ctx, TextCompletionRequest{SystemPrompt: contract.SystemPrompt, UserPrompt: contract.UserPrompt, Temperature: contract.Temperature, MaxTokens: contract.MaxTokens})
+	completion, err := s.Provider.Complete(ctx, TextCompletionRequest{SystemPrompt: contract.SystemPrompt, UserPrompt: contract.UserPrompt, Temperature: contract.Temperature, MaxTokens: contract.MaxTokens, DisableJSONResponse: contract.SDTextProtocol})
 	if err != nil {
 		return DirectorRevision{}, err
 	}
@@ -333,16 +343,16 @@ func (s *DirectorService) runDirector(ctx context.Context, owner, batchID, bookI
 	if contract.SDTextProtocol {
 		result, err = parseSDDirectorText(completion, contract.Normalization.MaxVideoDuration)
 		if err != nil {
-			return DirectorRevision{}, fmt.Errorf("%w: %v", ErrInvalid, err)
+			return DirectorRevision{}, retryableModelOutputError(err)
 		}
 	} else {
 		raw, err := ParseDirectorJSON(completion)
 		if err != nil {
-			return DirectorRevision{}, fmt.Errorf("%w: %v", ErrInvalid, err)
+			return DirectorRevision{}, retryableModelOutputError(err)
 		}
 		result, err = NormalizeDirectorOutput(raw, contract.Normalization)
 		if err != nil {
-			return DirectorRevision{}, fmt.Errorf("%w: %v", ErrInvalid, err)
+			return DirectorRevision{}, retryableModelOutputError(err)
 		}
 	}
 	if smartUnifiedAnalysis != nil {
@@ -384,11 +394,11 @@ func (s *DirectorService) RunAssetExtraction(ctx context.Context, owner, batchID
 	}
 	raw, err := ParseDirectorJSON(completion)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
+		return nil, retryableModelOutputError(err)
 	}
 	assets, err := NormalizeAssetExtractionOutput(raw)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
+		return nil, retryableModelOutputError(err)
 	}
 	// The visual baseline is deliberately optional. Asset extraction remains
 	// productive even if a model omitted or malformed the extra analysis field.
@@ -459,8 +469,12 @@ func (s *DirectorService) RunOpeningVariants(ctx context.Context, owner, batchID
 	}
 	storyboard := book.DirectorRevision.Output.Storyboard
 	first, followUps := storyboard[0], storyboard[1:]
-	if strings.TrimSpace(first.FinalPrompt) == "" {
-		return nil, nil // H3 结构化分镜：变体无法注入确定性编译，按规则跳过
+	// SD 直出分镜的整段提示词存于 FinalPrompt；结构化分镜只有镜头/动作描述，
+	// 由 storyboardVideoPrompt 渲染成“镜头画面”文本。两种形态都可以生成换开头：
+	// 变体本身是分镜一整段开场的重写，编译时走整段提示词路径，外层约束照常注入。
+	// 只有连可渲染的分镜一正文都拿不到（异常空数据）时才跳过。
+	if strings.TrimSpace(storyboardVideoPrompt(first)) == "" {
+		return nil, nil
 	}
 	count := rawInt(effective, "openingCount", 4)
 	if count < 1 || count > 8 {
@@ -475,29 +489,56 @@ func (s *DirectorService) RunOpeningVariants(ctx context.Context, owner, batchID
 		return nil, err
 	}
 	contract := BuildOpeningVariantsContract(book, first, followUps, meta, variantCount, snapshot.MaxVideoDuration)
-	text, err := s.Provider.Complete(ctx, TextCompletionRequest{SystemPrompt: contract.SystemPrompt, UserPrompt: contract.UserPrompt, Temperature: contract.Temperature, MaxTokens: contract.MaxTokens})
+	text, err := s.Provider.Complete(ctx, TextCompletionRequest{SystemPrompt: contract.SystemPrompt, UserPrompt: contract.UserPrompt, Temperature: contract.Temperature, MaxTokens: contract.MaxTokens, DisableJSONResponse: true})
 	if err != nil {
 		return nil, err
 	}
-	variants := parseOpeningVariants(text, snapshot.MaxVideoDuration, variantCount)
-	if err := s.saveOpeningVariants(ctx, owner, batchID, bookID, book.Videos[0].ID, variants); err != nil {
+	variants := parseOpeningVariants(text, snapshot.MaxVideoDuration, first.DurationSec, variantCount)
+	merged, err := s.saveOpeningVariants(ctx, owner, batchID, bookID, book.Videos[0].ID, variants)
+	if err != nil {
 		return nil, err
 	}
-	return variants, nil
+	if err := requireSuccessfulOpeningVariants(merged, variantCount); err != nil {
+		return merged, err
+	}
+	return merged, nil
+}
+
+func requireSuccessfulOpeningVariants(variants []OpeningVariant, variantCount int) error {
+	byIndex := make(map[int]OpeningVariant, len(variants))
+	for _, variant := range variants {
+		byIndex[variant.Index] = variant
+	}
+	failed := make([]string, 0)
+	for index := 1; index <= variantCount; index++ {
+		variant, ok := byIndex[index]
+		if ok && variant.Status == "success" && strings.TrimSpace(variant.Prompt) != "" {
+			continue
+		}
+		reason := "模型未输出该变体分段"
+		if ok && strings.TrimSpace(variant.FailureReason) != "" {
+			reason = strings.TrimSpace(variant.FailureReason)
+		}
+		failed = append(failed, fmt.Sprintf("换开头%d：%s", index, reason))
+	}
+	if len(failed) == 0 {
+		return nil
+	}
+	return retryableModelOutputError(fmt.Errorf("换开头变体未全部生成；%s", strings.Join(failed, "；")))
 }
 
 // saveOpeningVariants writes the generated variants into VIDEO01's settings
 // patch under openingVariants. A failed slot never overwrites a previously
 // stored success at the same index, so a bad rerun cannot destroy usable
 // variants; every other patch key is left untouched by the sparse update.
-func (s *DirectorService) saveOpeningVariants(ctx context.Context, owner, batchID, bookID, videoID string, variants []OpeningVariant) error {
+func (s *DirectorService) saveOpeningVariants(ctx context.Context, owner, batchID, bookID, videoID string, variants []OpeningVariant) ([]OpeningVariant, error) {
 	batch, err := s.Store.GetBatch(ctx, owner, batchID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	book, err := bookFromBatch(batch, bookID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var video *Video
 	for i := range book.Videos {
@@ -507,7 +548,7 @@ func (s *DirectorService) saveOpeningVariants(ctx context.Context, owner, batchI
 		}
 	}
 	if video == nil {
-		return ErrNotFound
+		return nil, ErrNotFound
 	}
 	merged := append([]OpeningVariant(nil), variants...)
 	if raw, ok := video.SettingsState.Patch["openingVariants"]; ok {
@@ -528,11 +569,14 @@ func (s *DirectorService) saveOpeningVariants(ctx context.Context, owner, batchI
 	}
 	encoded, err := json.Marshal(merged)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	_, err = s.Store.SaveSettings(ctx, owner, ScopeRef{Kind: ScopeVideo, BatchID: batchID, BookID: bookID, VideoID: videoID}, SettingsUpdate{
 		Patch:            SettingsPatch{"openingVariants": encoded},
 		ExpectedRevision: video.Revision,
 	})
-	return err
+	if err != nil {
+		return nil, err
+	}
+	return merged, nil
 }

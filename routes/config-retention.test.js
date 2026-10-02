@@ -4,7 +4,15 @@ const express = require('express');
 const { createConfigRouter } = require('./config');
 
 test('global production retention is saved per authenticated user and invalid values fall back to 7', async () => {
-  const configs = new Map([['alice', { productionRetentionDays: 14 }], ['bob', {}]]);
+  const aliceModelCatalog = [{
+    id: 'text-production', kind: 'text', enabled: true,
+    baseUrl: 'https://text.example/v1', modelId: 'text-runtime', credential: 'secret-key'
+  }];
+  const configs = new Map([['alice', {
+    productionRetentionDays: 14,
+    modelCatalogVersion: 1,
+    modelCatalog: aliceModelCatalog
+  }], ['bob', {}]]);
   const router = createConfigRouter({
     authenticate: (req, _res, next) => { req.username = req.headers['x-user'] || 'alice'; req.auth = { account: {} }; next(); },
     memberStore: { getMember: () => ({ active: true, role: 'manager' }) },
@@ -21,6 +29,8 @@ test('global production retention is saved per authenticated user and invalid va
     });
     assert.equal(saved.status, 200);
     assert.equal(configs.get('alice').productionRetentionDays, 30);
+    assert.deepEqual(configs.get('alice').modelCatalog, aliceModelCatalog);
+    assert.equal(configs.get('alice').modelCatalogVersion, 1);
     const invalid = await fetch(`http://127.0.0.1:${server.address().port}/api/config`, {
       method: 'POST', headers: { 'content-type': 'application/json', 'x-user': 'bob' }, body: JSON.stringify({ productionRetentionDays: 99 })
     });

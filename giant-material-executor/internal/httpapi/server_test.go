@@ -81,10 +81,29 @@ func TestSetupPageIsServedFromLoopback(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	for _, want := range []string{"巨量素材执行器", `id="publicURL"`, `id="code"`, "fetch('/v1/pair'"} {
+	for _, want := range []string{"巨量素材执行器", `id="publicURL"`, `id="code"`, "fetch('/v1/pair'", `id="applyUpdate"`, "/v1/update/apply"} {
 		if !strings.Contains(rec.Body.String(), want) {
 			t.Fatalf("setup page missing %q", want)
 		}
+	}
+}
+
+func TestSetupPageRequiresExplicitLocalUpdateAction(t *testing.T) {
+	server, err := NewServer(ServerConfig{Addr: "127.0.0.1:17861", Origin: "https://example.com", Nonce: "nonce"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/setup", nil))
+	body := rec.Body.String()
+	if strings.Contains(body, `id="applyUpdate" hidden`) {
+		t.Fatal("setup page hides the explicit local update action")
+	}
+	if strings.Contains(body, "正在下载替换，执行器会自动重启") {
+		t.Fatal("setup page still claims that update checks replace the app automatically")
+	}
+	if !strings.Contains(body, "请点击“立即更新”") {
+		t.Fatal("setup page does not explain the required local update confirmation")
 	}
 }
 
@@ -128,6 +147,24 @@ func TestLocalSetupPairAllowsSameLoopbackRequestWithoutOriginHeader(t *testing.T
 	server.Handler().ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK || pairedCode != "same-loopback-code" {
 		t.Fatalf("status=%d paired=%q body=%s", rec.Code, pairedCode, rec.Body.String())
+	}
+}
+
+func TestLocalSetupCanApplyUpdateOnlyThroughLoopback(t *testing.T) {
+	applied := false
+	server, err := NewServer(ServerConfig{Addr: "127.0.0.1:17861", Origin: "https://example.com", Nonce: "nonce", Callbacks: Callbacks{
+		ApplyUpdate: func(context.Context) (string, error) { applied = true; return "0.6.0", nil },
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:17861/v1/update/apply", nil)
+	req.Host = "127.0.0.1:17861"
+	req.RemoteAddr = "127.0.0.1:54321"
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !applied || !strings.Contains(rec.Body.String(), `"version":"0.6.0"`) {
+		t.Fatalf("status=%d applied=%v body=%s", rec.Code, applied, rec.Body.String())
 	}
 }
 

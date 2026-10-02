@@ -27,6 +27,7 @@ const (
 var allowedVideoHosts = map[string]struct{}{
 	"material.hnqingyuwen.top":      {},
 	"mlzr-material.hnqingyuwen.top": {},
+	"ml-material.hnqingyuwen.top":   {},
 }
 
 type ExtractRequest struct {

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { batchFactoryPreviewText, batchFactoryProductionText, contentCaptureCharactersForBook, contentRangeLinesForBook, publishContentWithWorkingFront } from './batchFactoryContentRange.js';
+import { batchFactoryCleanSourceText, batchFactoryPreviewText, batchFactoryProductionText, contentCaptureCharactersForBook, contentRangeLinesForBook, publishContentWithWorkingFront } from './batchFactoryContentRange.js';
 
 test('uses the saved per-book content range as the work-text boundary', () => {
   const book = { sourceMetadata: { contentRangeLines: 5 } };
@@ -12,6 +12,21 @@ test('keeps the full original separate from the limited work text', () => {
   const source = '一\n二\n三';
   assert.equal(batchFactoryPreviewText(source, { sourceMetadata: { contentRangeLines: 2 } }), '一\n二');
   assert.equal(source, '一\n二\n三');
+});
+
+test('skips repeated page-state remnants and punctuation-only lines before applying the content range', () => {
+  const source = '修改中&nbsp;\n修改中&nbsp;\n。\n\n陆雪凝推门进来。\n她把伞放在门边。\n窗外下着雨。';
+  const book = { sourceMetadata: { contentRangeLines: 2 } };
+
+  assert.equal(batchFactoryPreviewText(source, book), '陆雪凝推门进来。\n她把伞放在门边。');
+  assert.equal(source.startsWith('修改中&nbsp;'), true);
+});
+
+test('cleans the stored reading view with the same rules used for production', () => {
+  assert.equal(
+    batchFactoryCleanSourceText('修改中&nbsp;\n。\n第一段 <b>正文</b>\n第二段正文'),
+    '第一段 正文\n第二段正文'
+  );
 });
 
 test('uses only the configured non-empty lines as production text unless a working front exists', () => {

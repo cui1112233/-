@@ -116,11 +116,11 @@ func (s *DirectorService) compileH3AssetPrompts(ctx context.Context, book Book, 
 			}
 			raw, err := ParseDirectorJSON(completion)
 			if err != nil {
-				return fmt.Errorf("%w: %v", ErrInvalid, err)
+				return retryableModelOutputError(err)
 			}
 			prompt, err := normalizeH3AssetPrompt(raw, kind)
 			if err != nil {
-				return fmt.Errorf("%w: %v", ErrInvalid, err)
+				return retryableModelOutputError(err)
 			}
 			values[index].Prompt = prompt
 		}

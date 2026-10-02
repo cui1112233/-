@@ -73,27 +73,64 @@ func TestProcessReportsCleaningAndUploadingBeforeCompleting(t *testing.T) {
 	}
 }
 
+func TestProcessThrottlesRapidProgressButPreservesCompletionProgress(t *testing.T) {
+	client := &recordingClient{}
+	t.Setenv("GIANT_AGENT_TEST_HELPER", "progress-throttle")
+	supervisor := &worker.Supervisor{Command: []string{os.Args[0], "-test.run=TestAgentWorkerHelperProcess", "--"}}
+	if err := supervisor.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = supervisor.Stop(context.Background()) }()
+
+	agent, err := New(Config{Client: client, Supervisor: supervisor, Token: "executor-token"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := agent.state.Transition(StateReady); err != nil {
+		t.Fatal(err)
+	}
+	claim := ClaimResult{Job: Job{ID: "job-1", VideoURL: "https://material.hnqingyuwen.top/video.mp4", DurationSeconds: 1}, LeaseToken: "lease", LeaseGeneration: 1}
+	if err := agent.process(context.Background(), claim); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := client.progressPercents, []int{1, 100, 100, 100}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("progress percents=%v want=%v", got, want)
+	}
+}
+
 func TestAgentWorkerHelperProcess(t *testing.T) {
-	if os.Getenv("GIANT_AGENT_TEST_HELPER") != "1" {
+	mode := os.Getenv("GIANT_AGENT_TEST_HELPER")
+	if mode == "" {
 		return
 	}
 	scanner := bufio.NewScanner(os.Stdin)
 	if !scanner.Scan() {
 		os.Exit(2)
 	}
-	for _, event := range []string{
+	events := []string{
 		`{"type":"progress","jobId":"job-1","completed":1,"total":1,"percent":100}`,
 		`{"type":"complete","jobId":"job-1","text":"正文","characters":2}`,
 		`{"type":"idle","jobId":"job-1"}`,
-	} {
+	}
+	if mode == "progress-throttle" {
+		events = []string{
+			`{"type":"progress","jobId":"job-1","completed":1,"total":100,"percent":1}`,
+			`{"type":"progress","jobId":"job-1","completed":2,"total":100,"percent":2}`,
+			`{"type":"progress","jobId":"job-1","completed":100,"total":100,"percent":100}`,
+			`{"type":"complete","jobId":"job-1","text":"正文","characters":2}`,
+			`{"type":"idle","jobId":"job-1"}`,
+		}
+	}
+	for _, event := range events {
 		fmt.Fprintln(os.Stdout, event)
 	}
 	os.Exit(0)
 }
 
 type recordingClient struct {
-	progressStates []State
-	completed      bool
+	progressStates   []State
+	progressPercents []int
+	completed        bool
 }
 
 func (c *recordingClient) Heartbeat(context.Context, string, HeartbeatRequest) error { return nil }
@@ -101,8 +138,9 @@ func (c *recordingClient) Claim(context.Context, string) (ClaimResult, error) {
 	return ClaimResult{}, ErrNoClaimableJob
 }
 func (c *recordingClient) Renew(context.Context, string, string, LeaseCredential) error { return nil }
-func (c *recordingClient) Progress(_ context.Context, _ string, _ string, _ LeaseCredential, state State, _ JobProgress) error {
+func (c *recordingClient) Progress(_ context.Context, _ string, _ string, _ LeaseCredential, state State, progress JobProgress) error {
 	c.progressStates = append(c.progressStates, state)
+	c.progressPercents = append(c.progressPercents, progress.Percent)
 	return nil
 }
 func (c *recordingClient) Complete(context.Context, string, string, LeaseCredential, Result) error {

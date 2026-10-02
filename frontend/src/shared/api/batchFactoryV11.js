@@ -5,6 +5,7 @@ import { apiRequest } from './client.js';
 const BASE = '/api/batch-factory/v12';
 const LOCAL_EXECUTOR_ARTIFACT_PREFIX = '/api/shuihuo-production/local-executor-artifacts/';
 const LOCAL_MERGE_MEDIA_PATTERN = /^\/api\/batch-factory\/v1[12]\/batches\/[^/]+\/merge-media\/[^/]+$/;
+const LOCAL_MERGE_COVER_PATTERN = /^\/api\/batch-factory\/v1[12]\/batches\/[^/]+\/merge-cover\/[^/]+$/;
 
 function id(value) {
   return encodeURIComponent(String(value ?? ''));
@@ -48,6 +49,27 @@ function localExecutorArtifactRequestPath(value) {
   }
 }
 
+function mergeCoverRequestPath(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  if (raw.startsWith('/')) {
+    try {
+      const parsed = new URL(raw, 'http://qiantie.local');
+      return LOCAL_MERGE_COVER_PATTERN.test(parsed.pathname) ? `${parsed.pathname}${parsed.search}` : '';
+    } catch (_) {
+      return '';
+    }
+  }
+  if (typeof window === 'undefined' || !window.location?.origin) return '';
+  try {
+    const parsed = new URL(raw, window.location.origin);
+    if (parsed.origin !== window.location.origin || !LOCAL_MERGE_COVER_PATTERN.test(parsed.pathname)) return '';
+    return `${parsed.pathname}${parsed.search}`;
+  } catch (_) {
+    return '';
+  }
+}
+
 export function isProtectedProductionMediaURL(value) {
   return Boolean(localExecutorArtifactRequestPath(value));
 }
@@ -56,6 +78,19 @@ export function getProductionMediaBlob(mediaUrl) {
   const path = localExecutorArtifactRequestPath(mediaUrl);
   if (!path) return Promise.reject(new Error('Production media URL is not a local executor artifact or local merge artifact'));
   return apiRequest(path, { responseType: 'blob' });
+}
+
+export function isBatchFactoryMergeCoverURL(value) {
+  return Boolean(mergeCoverRequestPath(value));
+}
+
+// Native <img> requests cannot carry the app bearer token. Merge covers stay
+// private, so load the small cached JPG through the authenticated API client
+// instead of exposing a public video or image URL.
+export function getBatchFactoryMergeCoverBlob(coverUrl) {
+  const path = mergeCoverRequestPath(coverUrl);
+  if (!path) return Promise.reject(new Error('Merge cover URL is not a local Batch Factory cover artifact'));
+  return apiRequest(path, { responseType: 'blob', silent: true, suppressGlobalError: true });
 }
 
 export function bf11Path(path = '') {
@@ -110,6 +145,12 @@ export function appendNovelFetchIntake(batchId, intakeId, { allowDuplicate = fal
 
 export function listBatches() {
   return apiRequest(bf11Path('batches'));
+}
+
+// The project library must not download full originals and storyboard payloads
+// for every batch. Detailed data remains available through getBatch(batchId).
+export function listBatchSummaries() {
+  return apiRequest(bf11Path('batches/summary'));
 }
 
 export function createBatch(payload) {
@@ -390,6 +431,10 @@ export function getBatchAutomationStatus(batchId) {
   return apiRequest(bf11Path(`batches/${id(batchId)}/automation`), { cache: 'no-store' });
 }
 
+export function getBatchRuntimeSummary(batchId, options = {}) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/runtime-summary`), { ...options, cache: 'no-store' });
+}
+
 export function listSchedules() {
   return apiRequest(bf11Path('schedules'));
 }
@@ -424,6 +469,10 @@ export function saveBatchAutomationPreset(batchId, name) {
 
 export function startBatchAutomation(batchId, payload = {}) {
   return apiRequest(bf11Path(`batches/${id(batchId)}/automation/start`), { method: 'POST', body: body(payload) });
+}
+
+export function repairLegacyAutomationOverrides(batchId) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/automation/repair-legacy-overrides`), { method: 'POST', body: body({}) });
 }
 
 export function pauseBatchAutomation(batchId) {
@@ -557,6 +606,7 @@ export default {
   createLocalExecutorPairing,
   getProductionStatus,
   getBatchAutomationStatus,
+  getBatchRuntimeSummary,
   listSchedules,
   createSchedule,
   deleteSchedule,
@@ -566,6 +616,7 @@ export default {
   deleteAutomationPreset,
   saveBatchAutomationPreset,
   startBatchAutomation,
+  repairLegacyAutomationOverrides,
   pauseBatchAutomation,
   resumeBatchAutomation,
   retryBatchAutomation,

@@ -20,7 +20,7 @@ type Store interface {
 	JobForOwner(context.Context, string, string) (JobRecord, error)
 	CancelJob(context.Context, string, string, time.Time) (JobRecord, error)
 	RequeueJob(context.Context, string, JobRecord, time.Time) (JobRecord, error)
-	ClaimJob(context.Context, ExecutorRecord, SecretHash, time.Time, time.Time) (JobRecord, error)
+	ClaimJob(context.Context, ExecutorRecord, SecretHash, time.Time, time.Time, bool) (JobRecord, error)
 	RenewJob(context.Context, string, string, SecretHash, int64, time.Time, time.Time) (JobRecord, error)
 	SetProgress(context.Context, string, string, SecretHash, int64, JobState, ProgressInput, time.Time) (JobRecord, error)
 	CompleteJob(context.Context, string, string, SecretHash, int64, ResultInput, time.Time) (JobRecord, error)

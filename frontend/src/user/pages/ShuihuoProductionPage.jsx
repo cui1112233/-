@@ -2,16 +2,18 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Modal, Spin, message } from 'antd';
 import { CommentaryWorkbench } from './shuihuo/CommentaryWorkbench';
 import { BatchFactoryNovelList } from './shuihuo/BatchFactoryNovelList';
-import { batchFactoryBatchFromResponse, batchFactoryCoverFrom, batchFactoryProjectsFrom, isBatchFactoryV11Project } from './shuihuo/batchFactoryProjects';
+import { batchFactoryBatchFromResponse, batchFactoryCoverFrom, batchFactoryProjectsFrom, createCoverHydrationScheduler, enrichBatchProjectCovers, isBatchFactoryV11Project } from './shuihuo/batchFactoryProjects';
 import { batchFactoryMergeCoverFrom } from './shuihuo/batchFactoryMergeCover';
+import { projectLibraryRefreshResult } from './shuihuo/projectLibraryLoadState';
 import { ProjectsView } from './shuihuo/ProjectsView';
 import { AssetsView } from './shuihuo/AssetsView';
 import { confirmSegmentation, createProject, deleteProject, getProductionHealth, getProject, listModels, listProjects, paragraphSegmentation, replaceProjectSource, smartSegmentation } from '../../shared/api/shuihuoProduction';
-import { appendNovelFetchIntake, classifyFetchedBatchMetadata, createBatchFromIntake, createManualIntake, deleteBatchFactoryProject, getBatch, getIntake, getMergeStatus, getProductionStatus, listBatches, startBatchAutomation } from '../../shared/api/batchFactoryV11';
+import { appendNovelFetchIntake, classifyFetchedBatchMetadata, createBatchFromIntake, createManualIntake, deleteBatchFactoryProject, getBatch, getIntake, getMergeStatus, getProductionStatus, listBatchSummaries, startBatchAutomation } from '../../shared/api/batchFactoryV11';
 import { BATCH_FACTORY_ACTIVE_BATCH_STORAGE_KEY, novelFetchIntakeBooks, pendingNovelFetchIntakeId } from './shuihuo/batchFactoryNovelFetchHandoff';
 import './shuihuo-production.css';
 
 const modelNames = { text: '文本模型', image: '图片模型', video: '视频模型', audio: '配音模型' };
+const projectCoverCacheMs = 30_000;
 
 function readinessItems(health) {
   const enabled = new Set(health?.enabledModelKinds || []);
@@ -28,10 +30,16 @@ export function ShuihuoProductionPage({ openBatchOnLoad = false }) {
   const [assetsOpen, setAssetsOpen] = useState(false);
   const [health, setHealth] = useState(null);
   const [healthError, setHealthError] = useState('');
+  const [projectsLoadError, setProjectsLoadError] = useState('');
   const mountedRef = useRef(true);
   const projectRequestRef = useRef(0);
   const refreshRequestRef = useRef(0);
+  const projectCoverCacheRef = useRef(new Map());
+  const projectsRef = useRef([]);
+  const coverHydrationSchedulerRef = useRef(null);
   const novelFetchHandoffRef = useRef('');
+  if (!coverHydrationSchedulerRef.current) coverHydrationSchedulerRef.current = createCoverHydrationScheduler();
+  projectsRef.current = projects;
 
   useEffect(() => {
     mountedRef.current = true;
@@ -52,62 +60,75 @@ export function ShuihuoProductionPage({ openBatchOnLoad = false }) {
   }, []);
 
   const refreshProjects = useCallback(async () => {
+    const requestId = refreshRequestRef.current + 1;
+    refreshRequestRef.current = requestId;
     setLoading(true);
     try {
       const [water, batch] = await Promise.allSettled([
         listProjects({ silent: true }),
-        listBatches()
+        listBatchSummaries()
       ]);
 
-      const waterProjects =
-        water.status === 'fulfilled'
-          ? (Array.isArray(water.value?.projects)
-              ? water.value.projects
-              : Array.isArray(water.value?.data?.projects)
-                ? water.value.data.projects
-                : [])
-          : [];
-
-      const batchPayload =
-        batch.status === 'fulfilled' ? batch.value : null;
-
-      const batches =
-        Array.isArray(batchPayload) ? batchPayload :
-        Array.isArray(batchPayload?.batches) ? batchPayload.batches :
-        Array.isArray(batchPayload?.items) ? batchPayload.items :
-        Array.isArray(batchPayload?.data?.batches) ? batchPayload.data.batches :
-        Array.isArray(batchPayload?.data?.items) ? batchPayload.data.items :
-        [];
-
-      const batchProjects = batchFactoryProjectsFrom(batches);
-
       if (batch.status === 'rejected') {
-        console.error('[共享作品库] 批量工厂读取失败', batch.reason);
-        message.error(
-          `批量工厂工程读取失败：${batch.reason?.message || '接口请求失败'}`
-        );
+        if (requestId === refreshRequestRef.current) {
+          console.error('[共享作品库] 批量工厂读取失败', batch.reason);
+        }
       }
 
       if (water.status === 'rejected') {
         console.error('[共享作品库] 漫剧作品读取失败', water.reason);
       }
 
-      if (water.status === 'rejected' && batch.status === 'rejected') {
-        throw batch.reason || water.reason;
+      const refreshResult = projectLibraryRefreshResult({
+        previousProjects: projectsRef.current,
+        water,
+        batch,
+        batchProjectsFrom: batchFactoryProjectsFrom
+      });
+      if (!mountedRef.current || requestId !== refreshRequestRef.current) return;
+      if (refreshResult.error) {
+        setProjectsLoadError(refreshResult.error);
+        setLoading(false);
+        return;
       }
 
-      setProjects([...waterProjects, ...batchProjects]);
-      const coveredProjects = await Promise.all(batchProjects.map(async project => {
-        const [productionStatus, mergeStatus] = await Promise.all([
-          getProductionStatus(project.batchId, { silent: true }).catch(() => null),
-          getMergeStatus(project.batchId, { silent: true }).catch(() => null)
-        ]);
-        const productionCover = batchFactoryCoverFrom(project.batch, productionStatus);
-        const mergeCover = batchFactoryMergeCoverFrom(project.batch, mergeStatus);
-        return { ...project, coverMedia: productionCover || mergeCover };
-      }));
-      if (mountedRef.current) setProjects([...waterProjects, ...coveredProjects]);
-    } catch (error) { message.error(error.message || '读取项目库失败'); } finally { setLoading(false); }
+      const now = Date.now();
+      const pendingCoverProjects = [];
+      const cachedBatchProjects = refreshResult.batchProjects.map(project => {
+        const cached = projectCoverCacheRef.current.get(project.batchId);
+        if (cached?.expiresAt > now) return { ...project, coverMedia: cached.coverMedia };
+        pendingCoverProjects.push(project);
+        return project;
+      });
+      const batchProjectIds = new Set(refreshResult.batchProjects.map(project => project.id));
+      const baseProjects = refreshResult.projects.map(project => batchProjectIds.has(project.id)
+        ? cachedBatchProjects.find(candidate => candidate.id === project.id) || project
+        : project);
+      if (!mountedRef.current || requestId !== refreshRequestRef.current) return;
+      projectsRef.current = baseProjects;
+      setProjects(baseProjects);
+      setProjectsLoadError('');
+      setLoading(false);
+      void coverHydrationSchedulerRef.current(() => enrichBatchProjectCovers(pendingCoverProjects, {
+        concurrency: 2,
+        shouldContinue: () => mountedRef.current && requestId === refreshRequestRef.current,
+        loadProduction: project => getProductionStatus(project.batchId, { silent: true }),
+        loadMerge: project => getMergeStatus(project.batchId, { silent: true }),
+        coverFrom: (project, productionStatus, mergeStatus) => batchFactoryCoverFrom(project.batch, productionStatus) || batchFactoryMergeCoverFrom(project.batch, mergeStatus),
+        onUpdate: (coveredProject, metadata) => {
+          if (!metadata.hadRequestFailure || coveredProject.coverMedia) {
+            projectCoverCacheRef.current.set(coveredProject.batchId, { coverMedia: coveredProject.coverMedia, expiresAt: Date.now() + projectCoverCacheMs });
+          }
+          if (!mountedRef.current || requestId !== refreshRequestRef.current) return;
+          setProjects(current => current.map(project => project.id === coveredProject.id ? coveredProject : project));
+        }
+      })).catch(error => console.error('[共享作品库] 封面后台读取失败', error));
+    } catch (error) {
+      if (mountedRef.current && requestId === refreshRequestRef.current) {
+        message.error(error.message || '读取项目库失败');
+        setLoading(false);
+      }
+    }
   }, []);
   useEffect(() => { refreshProjects(); }, [refreshProjects]);
   useEffect(() => {
@@ -180,7 +201,7 @@ export function ShuihuoProductionPage({ openBatchOnLoad = false }) {
     // 巨量素材弹窗已提前建好 intake（含 N 本占位书）：直接从 intake 建批量。
     // 旧路径 createManualIntake 的 Go 端 ManualIntakeInput 不认识 intakeId，会按空 InputText 解析报错。
     const created = input?.intakeId
-      ? await createBatchFromIntake(input.intakeId, { title: input.title })
+      ? await createBatchFromIntake(input.intakeId, { title: input.title, giantAutomation: input.giantAutomation })
       : await createManualIntake(input);
     const batch = created?.batch || created?.data?.batch || created;
     localStorage.setItem(BATCH_FACTORY_ACTIVE_BATCH_STORAGE_KEY, batch.id);
@@ -319,7 +340,7 @@ export function ShuihuoProductionPage({ openBatchOnLoad = false }) {
     {view !== 'projects' && health ? <div className="shuihuo-readiness-strip" role="status" aria-live="polite"><strong className="shuihuo-readiness-title">运行依赖</strong>{readinessItems(health).map(([name, dependency]) => <span className={dependency?.ready ? 'ready' : 'missing'} key={name} title={dependency?.reason || `${name}已配置`}>{name}：{dependency?.ready ? '已配置' : '未配置'}{dependency?.ready || !dependency?.reason ? '' : `（${dependency.reason}）`}</span>)}</div> : null}
     {view === 'studio' && healthError ? <div className="shuihuo-readiness-strip" role="status" aria-live="polite"><span className="missing">状态读取失败：{healthError}</span></div> : null}
     {loading && view === 'projects' ? <div className="shuihuo-loading"><Spin /></div> : null}
-    {!loading && view === 'projects' ? <ProjectsView projects={projects} health={health} onCreate={handleCreate} onImported={handleImported} onCreateBatch={handleCreateBatch} onOpen={openProject} onDelete={handleDelete} onRefresh={refreshProjects} openCreateOnLoad={openBatchOnLoad} /> : null}
+    {!loading && view === 'projects' ? <ProjectsView projects={projects} loadError={projectsLoadError} health={health} onCreate={handleCreate} onImported={handleImported} onCreateBatch={handleCreateBatch} onOpen={openProject} onDelete={handleDelete} onRefresh={refreshProjects} openCreateOnLoad={openBatchOnLoad} /> : null}
     {view === 'batch-novels' && activeBatchProject ? <BatchFactoryNovelList batch={activeBatchProject} onBack={() => { setActiveBatchProject(null); setView('projects'); refreshProjects(); }} onBatchChanged={async () => { const current = batchFactoryBatchFromResponse(await getBatch(activeBatchProject.id)); setActiveBatchProject(current); await refreshProjects(); }} /> : null}
     {view === 'studio' && activeProject ? <CommentaryWorkbench data={activeProject} readiness={health} importNotice={importNotice} onBackToProjects={() => { setImportNotice(null); setView('projects'); refreshProjects(); }} onOpenAssets={() => setAssetsOpen(true)} onDataChange={applyReadModel} /> : null}
     <Modal title="人物场景预设" open={assetsOpen} onCancel={() => setAssetsOpen(false)} footer={null} width="min(1360px, calc(100vw - 48px))" className="shuihuo-assets-modal" destroyOnClose={false}>

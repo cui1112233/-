@@ -180,11 +180,18 @@ func (s *Service) CreateJob(ctx context.Context, owner string, input CreateJobIn
 		return JobView{}, ErrInvalidInput
 	}
 	now := s.now().UTC()
-	targetExecutorID := ""
-	if executors, listErr := s.store.ListExecutors(ctx, owner); listErr == nil {
-		targetExecutorID = newestOnlineExecutorID(executors, now)
-	} else {
-		return JobView{}, listErr
+	// 新任务钉选：用户显式设置过平台偏好时，优先该平台里最新、未冷却的
+	// 设备，偏好平台没人能干活才兜底其他平台；从未设置过偏好（只有系统
+	// 默认值）时沿用"钉给最新在线设备"的老行为；全都冷却时留空走公共池。
+	preferredOS := ""
+	if preferenceRecord, preferenceErr := s.store.GetPreference(ctx, owner); preferenceErr == nil {
+		preferredOS = preferenceRecord.PreferredOS
+	} else if !errors.Is(preferenceErr, ErrPreferenceNotFound) {
+		return JobView{}, preferenceErr
+	}
+	targetExecutorID, err := s.pickTargetExecutor(ctx, owner, preferredOS, now)
+	if err != nil {
+		return JobView{}, err
 	}
 	record := JobRecord{ID: randomID("gme_job_"), OwnerUsername: owner, Platform: PlatformGiantMaterial, MaterialID: strings.TrimSpace(input.MaterialID), PlatformBookID: strings.TrimSpace(input.PlatformBookID), Title: bounded(input.Title, 191), VideoURL: strings.TrimSpace(input.VideoURL), VideoExpiresAt: input.VideoExpiresAt, DurationSeconds: input.DurationSeconds, ModelVersion: bounded(input.ModelVersion, 64), ContentRangeLines: bounded(input.ContentRangeLines, 64), TargetExecutorID: targetExecutorID, State: JobQueued, CreatedAt: now, UpdatedAt: now}
 	key := jobKey(record)
@@ -212,21 +219,44 @@ func (s *Service) CreateJob(ctx context.Context, owner string, input CreateJobIn
 	return jobView(record), nil
 }
 
-func newestOnlineExecutorID(executors []ExecutorRecord, now time.Time) string {
-	var chosen *ExecutorRecord
-	for index := range executors {
-		candidate := &executors[index]
-		if candidate.Platform != PlatformGiantMaterial || candidate.LastSeenAt == nil || candidate.LastSeenAt.Before(now.Add(-OnlineThreshold)) {
-			continue
+// pickTargetExecutor 选择新任务的钉选目标。preferredOS 非空时先在该平台
+// 的在线、未冷却设备里选最新；偏好平台没有能干活的设备才兜底其他平台；
+// 全都在冷却时返回空串，任务留在公共池等待冷却结束。preferredOS 为空表示
+// 不按偏好过滤（显式 RetryJob 沿用"选最新在线设备"语义）。
+func (s *Service) pickTargetExecutor(ctx context.Context, owner, preferredOS string, now time.Time) (string, error) {
+	executors, err := s.store.ListExecutors(ctx, owner)
+	if err != nil {
+		return "", err
+	}
+	pick := func(wantOS string) string {
+		var chosen *ExecutorRecord
+		for index := range executors {
+			candidate := &executors[index]
+			if candidate.Platform != PlatformGiantMaterial || candidate.LastSeenAt == nil || candidate.LastSeenAt.Before(now.Add(-OnlineThreshold)) {
+				continue
+			}
+			if wantOS != "" && candidate.OS != wantOS {
+				continue
+			}
+		
+			if failure, failureErr := s.store.LatestPlatformFailure(ctx, owner, candidate.OS, now.Add(-FailureCooldown)); failureErr != nil || failure != nil {
+				continue
+			}
+			if chosen == nil || candidate.LastSeenAt.After(*chosen.LastSeenAt) || (candidate.LastSeenAt.Equal(*chosen.LastSeenAt) && candidate.ID > chosen.ID) {
+				chosen = candidate
+			}
 		}
-		if chosen == nil || candidate.LastSeenAt.After(*chosen.LastSeenAt) || (candidate.LastSeenAt.Equal(*chosen.LastSeenAt) && candidate.ID > chosen.ID) {
-			chosen = candidate
+		if chosen == nil {
+			return ""
+		}
+		return chosen.ID
+	}
+	if preferredOS != "" {
+		if id := pick(preferredOS); id != "" {
+			return id, nil
 		}
 	}
-	if chosen == nil {
-		return ""
-	}
-	return chosen.ID
+	return pick(""), nil
 }
 
 func (s *Service) GetJob(ctx context.Context, owner, id string) (JobView, error) {
@@ -261,11 +291,12 @@ func (s *Service) RetryJob(ctx context.Context, owner, id string) (JobView, erro
 	if record.State != JobFailed && record.State != JobCancelled {
 		return JobView{}, ErrInvalidJobState
 	}
-	executors, err := s.store.ListExecutors(ctx, owner)
+	// 显式重试不按平台偏好过滤（用户手动重试通常就想交给最新上线的设备），
+	// 但仍绕开正在失败冷却中的设备；全都冷却时留空走公共池。
+	record.TargetExecutorID, err = s.pickTargetExecutor(ctx, owner, "", s.now().UTC())
 	if err != nil {
 		return JobView{}, err
 	}
-	record.TargetExecutorID = newestOnlineExecutorID(executors, s.now().UTC())
 	requeued, err := s.store.RequeueJob(ctx, record.ID, record, s.now().UTC())
 	if err != nil {
 		return JobView{}, err
@@ -279,6 +310,27 @@ func (s *Service) Claim(ctx context.Context, token string) (ClaimResult, error) 
 		return ClaimResult{}, err
 	}
 	now := s.now().UTC()
+	leaseToken, err := randomToken()
+	if err != nil {
+		return ClaimResult{}, err
+	}
+	expires := now.Add(JobLeaseTTL)
+	// 第一步：明确点名给本执行器的定向重试任务优先领取。平台偏好门控
+	// 不拦截显式定向（任务指定谁就是谁），但失败冷却这道安全门仍然生效。
+	callerFailure, err := s.store.LatestPlatformFailure(ctx, executor.OwnerUsername, executor.OS, now.Add(-FailureCooldown))
+	if err != nil {
+		return ClaimResult{}, err
+	}
+	if callerFailure == nil {
+		record, claimErr := s.store.ClaimJob(ctx, executor, hashSecret(leaseToken), expires, now, true)
+		if claimErr == nil {
+			return ClaimResult{Job: executorJobView(record), LeaseToken: leaseToken, LeaseGeneration: record.LeaseGeneration, LeaseExpiresAt: expires}, nil
+		}
+		if !errors.Is(claimErr, ErrNoClaimableJob) {
+			return ClaimResult{}, claimErr
+		}
+	}
+	// 第二步：没有点名任务时，才走平台偏好门控领取公共池任务。
 	allowed, err := s.canClaimPlatform(ctx, executor, now)
 	if err != nil {
 		return ClaimResult{}, err
@@ -286,16 +338,48 @@ func (s *Service) Claim(ctx context.Context, token string) (ClaimResult, error) 
 	if !allowed {
 		return ClaimResult{}, ErrNoClaimableJob
 	}
-	leaseToken, err := randomToken()
-	if err != nil {
-		return ClaimResult{}, err
-	}
-	expires := now.Add(JobLeaseTTL)
-	record, err := s.store.ClaimJob(ctx, executor, hashSecret(leaseToken), expires, now)
+	record, err := s.store.ClaimJob(ctx, executor, hashSecret(leaseToken), expires, now, false)
 	if err != nil {
 		return ClaimResult{}, err
 	}
 	return ClaimResult{Job: executorJobView(record), LeaseToken: leaseToken, LeaseGeneration: record.LeaseGeneration, LeaseExpiresAt: expires}, nil
+}
+
+// ClaimLongPollWait 是没活时 claim 请求在服务器侧最多等待的时间。执行器
+// 用的是无超时 HTTP 客户端，Nginx/Node 转发层余量都大于该值，老版本执行器
+// 无需升级也会被自动“按住”，空转敲门从每秒一次降到每个等待窗口一次。
+const ClaimLongPollWait = 25 * time.Second
+
+// claimLongPollInterval 是等待期间复查数据库的节奏。新任务出现后最坏延迟
+// 一个 interval（OCR 任务本身耗时约十分钟，2 秒领取延迟可忽略）。
+var claimLongPollInterval = 2 * time.Second
+
+// ClaimWhenAvailable 先立刻试领；没活时在服务器侧等待最多 wait，期间定期
+// 复查，一有任务立刻返回；到点仍无任务才返回 ErrNoClaimableJob。客户端
+// 断开（ctx 取消）时立即退出，不继续翻数据库。
+func (s *Service) ClaimWhenAvailable(ctx context.Context, token string, wait time.Duration) (ClaimResult, error) {
+	result, err := s.Claim(ctx, token)
+	if err == nil || !errors.Is(err, ErrNoClaimableJob) || wait <= 0 {
+		return result, err
+	}
+	remaining := wait
+	for remaining > 0 {
+		step := claimLongPollInterval
+		if step > remaining {
+			step = remaining
+		}
+		select {
+		case <-ctx.Done():
+			return ClaimResult{}, ctx.Err()
+		case <-time.After(step):
+		}
+		remaining -= step
+		result, err = s.Claim(ctx, token)
+		if err == nil || !errors.Is(err, ErrNoClaimableJob) {
+			return result, err
+		}
+	}
+	return ClaimResult{}, ErrNoClaimableJob
 }
 
 func (s *Service) canClaimPlatform(ctx context.Context, executor ExecutorRecord, now time.Time) (bool, error) {

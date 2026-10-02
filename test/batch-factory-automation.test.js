@@ -42,11 +42,11 @@ function fixture() {
   };
 }
 
-test('automation advances a book to ready_for_upload without uploading', async () => {
+test('video-only automation advances a book to ready_for_upload without uploading', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-test-'));
   const { adapter } = fixture();
   const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} } });
-  await controller.start({ owner: 'user', batchId: 'batch-1', concurrency: 1 });
+  await controller.start({ owner: 'user', batchId: 'batch-1', concurrency: 1, runMode: 'video_no_submit' });
   for (let i = 0; i < 10; i += 1) { await controller.tick(); await wait(); }
   const status = controller.status({ owner: 'user', batchId: 'batch-1' });
   assert.equal(status.state, 'completed');
@@ -55,12 +55,32 @@ test('automation advances a book to ready_for_upload without uploading', async (
   assert.match(status.books[0].message, /等待人工上传/);
 });
 
-test('storyboard-only automation stops after director compilation and never submits VIDEO', async () => {
+test('automation defaults to full submission after merged video is ready', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-test-'));
   const { adapter } = fixture();
+  let publishCalls = 0;
+  adapter.publishBook = async () => {
+    publishCalls += 1;
+    return { status: 'confirmed', receipt: { remoteRecord: { found: true, headVideo: true } } };
+  };
+  const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} } });
+  await controller.start({ owner: 'user', batchId: 'batch-1', concurrency: 1 });
+  for (let i = 0; i < 12; i += 1) { await controller.tick(); await wait(); }
+  const status = controller.status({ owner: 'user', batchId: 'batch-1' });
+  assert.equal(status.runMode, 'full_submit');
+  assert.equal(status.books[0].stage, 'uploaded');
+  assert.equal(publishCalls, 1);
+});
+
+test('storyboard-only automation stops after director compilation and never submits VIDEO', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-test-'));
+  const { batch, adapter } = fixture();
+  batch.settingsState.patch.textModelId = 'text-current';
   const stages = [];
-  adapter.runStage = async ({ book, stage }) => {
+  const models = [];
+  adapter.runStage = async ({ book, stage, settings }) => {
     stages.push(stage);
+    models.push(settings.textModelId);
     if (stage === 'assets') { book.assetRecords = [{ id: 'a1', kind: 'character' }]; }
     if (stage === 'director') { book.directorRevision = { id: 'd1' }; book.videos = [{ id: 'video-1', label: 'VIDEO01', visualPrompt: '最终 Prompt' }]; }
     if (stage === 'video') throw new Error('storyboard-only mode must not submit VIDEO');
@@ -79,7 +99,9 @@ test('storyboard-only automation stops after director compilation and never subm
   assert.equal(status.runMode, 'storyboard_only');
   assert.equal(status.preset.id, 'preset-1');
   assert.equal(status.preset.version, 3);
-  assert.deepEqual(appliedSnapshot, { textModelId: 'text-a' });
+  assert.equal(appliedSnapshot, null);
+  assert.deepEqual(models, ['text-current', 'text-current']);
+  assert.deepEqual(batch.books[0].settingsState.patch, {});
   assert.deepEqual(stages, ['assets', 'director']);
   assert.equal(compileCalls, 1);
   assert.equal(status.books[0].stage, 'ready_for_video');
@@ -133,7 +155,7 @@ test('automation with autoPublish uploads a confirmed merged book exactly once',
   assert.equal(publishCalls, 1);
 });
 
-test('full-submit upload receives the frozen publish settings instead of live batch settings', async () => {
+test('full-submit upload receives current batch publish settings after a live change', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-test-'));
   const { batch, adapter } = fixture();
   let publishSettings = null;
@@ -148,7 +170,7 @@ test('full-submit upload receives the frozen publish settings instead of live ba
   });
   batch.settingsState.patch.publishSettings = { organization: 'live-org', category: 'LIVE' };
   for (let i = 0; i < 12; i += 1) { await controller.tick(); await wait(); }
-  assert.deepEqual(publishSettings, { organization: 'frozen-org', category: 'FROZEN' });
+  assert.deepEqual(publishSettings, { organization: 'live-org', category: 'LIVE' });
 });
 
 test('automation freezes the requested per-job concurrency and defaults old callers to two books', async () => {
@@ -216,12 +238,97 @@ test('invalid API keys remain terminal instead of consuming automatic retries', 
   const { adapter } = fixture();
   adapter.runStage = async () => { throw new Error('personal video provider did not create a task: Invalid API key'); };
   const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} } });
-  await controller.start({ owner: 'user', batchId: 'batch-1', concurrency: 2 });
+  await controller.start({ owner: 'user', batchId: 'batch-1', concurrency: 2, runMode: 'video_no_submit' });
   await controller.tick();
   await wait();
   const status = controller.status({ owner: 'user', batchId: 'batch-1' });
   assert.equal(status.books[0].status, 'failed');
   assert.equal(status.books[0].retryCount, 0);
+});
+
+test('a transient stage gets at most three automatic attempts before it yields the slot', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-retry-cap-'));
+  const { batch, adapter } = fixture();
+  let currentTime = 0;
+  let attempts = 0;
+  adapter.runStage = async () => { attempts += 1; throw new Error('provider temporarily unavailable'); };
+  const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} }, now: () => currentTime });
+  await controller.start({ owner: 'user', batchId: batch.id, concurrency: 1, runMode: 'storyboard_only' });
+  await wait();
+  currentTime = 30_000;
+  await controller.tick(); await wait();
+  currentTime = 150_000;
+  await controller.tick(); await wait();
+  currentTime = 450_000;
+  await controller.tick(); await wait();
+  const status = controller.status({ owner: 'user', batchId: batch.id });
+  assert.equal(attempts, 3);
+  assert.equal(status.books[0].status, 'failed');
+  assert.match(status.books[0].message, /已停止并让位/);
+});
+
+test('starting automation again does not reset a hard failure without an explicit book retry', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-restart-cap-'));
+  const { batch, adapter } = fixture();
+  let attempts = 0;
+  adapter.runStage = async () => { attempts += 1; throw new Error('invalid input: director returned invalid JSON'); };
+  const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} } });
+  await controller.start({ owner: 'user', batchId: batch.id, runMode: 'video_no_submit', concurrency: 1 });
+  await wait();
+  assert.equal(controller.status({ owner: 'user', batchId: batch.id }).books[0].status, 'failed');
+  await controller.start({ owner: 'user', batchId: batch.id, concurrency: 1 });
+  await controller.tick(); await wait();
+  assert.equal(attempts, 1);
+  assert.equal(controller.status({ owner: 'user', batchId: batch.id }).books[0].status, 'failed');
+});
+
+test('an explicit retry gives the failed stage a fresh three-attempt budget', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-explicit-retry-budget-'));
+  const { batch, adapter } = fixture();
+  let currentTime = 0;
+  let attempts = 0;
+  adapter.runStage = async () => { attempts += 1; throw new Error('provider temporarily unavailable'); };
+  const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} }, now: () => currentTime });
+  await controller.start({ owner: 'user', batchId: batch.id, concurrency: 1 });
+  await wait();
+  currentTime = 30_000; await controller.tick(); await wait();
+  currentTime = 150_000; await controller.tick(); await wait();
+  assert.equal(controller.status({ owner: 'user', batchId: batch.id }).books[0].status, 'failed');
+  await controller.retry({ owner: 'user', batchId: batch.id, bookIds: [batch.books[0].id] });
+  await controller.tick(); await wait();
+  assert.equal(attempts, 4);
+  assert.equal(controller.status({ owner: 'user', batchId: batch.id }).books[0].status, 'waiting');
+});
+
+test('a changed stage input gets a new retry budget, while metadata-only changes do not', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-revised-book-retry-'));
+  const { batch, adapter } = fixture();
+  let currentTime = 0;
+  let attempts = 0;
+  adapter.runStage = async () => { attempts += 1; throw new Error('provider temporarily unavailable'); };
+  const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} }, now: () => currentTime });
+  await controller.start({ owner: 'user', batchId: batch.id, concurrency: 1 });
+  await wait();
+  currentTime = 30_000; await controller.tick(); await wait();
+  currentTime = 150_000; await controller.tick(); await wait();
+  assert.equal(attempts, 3);
+  assert.equal(controller.status({ owner: 'user', batchId: batch.id }).books[0].status, 'failed');
+
+  await controller.start({ owner: 'user', batchId: batch.id, concurrency: 1 });
+  await controller.tick(); await wait();
+  assert.equal(attempts, 3);
+
+  batch.books[0].revision = 1;
+  await controller.start({ owner: 'user', batchId: batch.id, concurrency: 1 });
+  await controller.tick(); await wait();
+  assert.equal(attempts, 3);
+
+  batch.books[0].workingFrontContent = '修改后的生产正文';
+  batch.books[0].revision = 2;
+  await controller.start({ owner: 'user', batchId: batch.id, concurrency: 1 });
+  await wait();
+  assert.equal(attempts, 4);
+  assert.equal(controller.status({ owner: 'user', batchId: batch.id }).books[0].status, 'waiting');
 });
 
 test('removing one book clears only that book automation state', async () => {
@@ -238,7 +345,7 @@ test('removing one book clears only that book automation state', async () => {
   assert.deepEqual(status.books.map(book => book.bookId), ['book-2']);
 });
 
-test('continue automation resets a failed book and resumes from its missing stage', async () => {
+test('an explicit single-book retry resets a failed book and resumes from its missing stage', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-resume-'));
   const { adapter } = fixture();
   let attempts = 0;
@@ -254,7 +361,7 @@ test('continue automation resets a failed book and resumes from its missing stag
   await wait();
   assert.equal(controller.status({ owner: 'user', batchId: 'batch-1' }).books[0].status, 'failed');
 
-  const resumed = await controller.resume({ owner: 'user', batchId: 'batch-1' });
+  const resumed = await controller.retry({ owner: 'user', batchId: 'batch-1', bookIds: ['book-1'] });
   assert.equal(resumed.state, 'running');
   assert.equal(resumed.books[0].status, 'pending');
 
@@ -350,21 +457,35 @@ test('a transient video-management upload failure retries only after merged medi
   assert.equal(calls, 2);
 });
 
-test('automation freezes a deep copy of the selected unified preset at start', async () => {
+test('scheduled automation ignores preset snapshots and preserves sparse book overrides', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-test-'));
-  const { adapter } = fixture();
+  const { batch, adapter } = fixture();
   let currentTime = 0;
   let appliedSnapshot = null;
   adapter.applyExecutionSnapshot = async ({ configSnapshot: value }) => { appliedSnapshot = value; };
+  batch.books[0].settingsState.patch = { openingEnabled: false };
+  const settingsSeen = [];
+  const originalRunStage = adapter.runStage;
+  adapter.runStage = async input => { settingsSeen.push(input.settings); return originalRunStage(input); };
   const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} }, now: () => currentTime });
   const configSnapshot = { textModelId: 'frozen-text', publishSettings: { organization: 'frozen-org' }, aiPromptConfig: { constraints: { baseSetup: { enabled: false } } } };
   await controller.start({ owner: 'user', batchId: 'batch-1', scheduledAt: '1970-01-01T00:00:01.000Z', runMode: 'storyboard_only', preset: { id: 'preset-1', name: '夜间 H3', version: 1 }, configSnapshot });
   configSnapshot.publishSettings.organization = 'mutated-org';
   configSnapshot.aiPromptConfig.constraints.baseSetup.enabled = true;
+  batch.settingsState.patch = { textModelId: 'text-current', publishSettings: { organization: 'live-org' }, aiPromptConfig: { constraints: { baseSetup: { enabled: true } } } };
   currentTime = 1_000;
   for (let index = 0; index < 4; index += 1) { await controller.tick(); await wait(); }
-  assert.equal(appliedSnapshot.publishSettings.organization, 'frozen-org');
-  assert.equal(appliedSnapshot.aiPromptConfig.constraints.baseSetup.enabled, false);
+  assert.equal(appliedSnapshot, null);
+  assert.ok(settingsSeen.length > 0);
+  for (const settings of settingsSeen) {
+    assert.equal(settings.textModelId, 'text-current');
+    assert.equal(settings.publishSettings.organization, 'live-org');
+    assert.equal(settings.aiPromptConfig.constraints.baseSetup.enabled, true);
+    assert.equal(settings.openingEnabled, false);
+  }
+  assert.deepEqual(batch.books[0].settingsState.patch, { openingEnabled: false });
+  const saved = Object.values(JSON.parse(fs.readFileSync(controller.statePath, 'utf8')).jobs)[0];
+  assert.equal(Object.hasOwn(saved, 'configSnapshot'), false);
 });
 
 test('one blocked book does not erase another completed book', async () => {
@@ -372,7 +493,7 @@ test('one blocked book does not erase another completed book', async () => {
   const { batch, adapter } = fixture();
   batch.books.push({ id: 'book-2', bookId: '102', title: '缺正文', sourceText: '', settingsState: { patch: {} }, videos: [] });
   const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} } });
-  await controller.start({ owner: 'user', batchId: 'batch-1', concurrency: 2 });
+  await controller.start({ owner: 'user', batchId: 'batch-1', concurrency: 2, runMode: 'video_no_submit' });
   for (let i = 0; i < 10; i += 1) { await controller.tick(); await wait(); }
   const status = controller.status({ owner: 'user', batchId: 'batch-1' });
   assert.equal(status.state, 'needs_attention');
@@ -399,7 +520,7 @@ test('retry regenerates only a failed VIDEO and then completes', async () => {
   };
   adapter.submitBookMerge = async ({ bookId }) => { merge.jobs.push({ id: 'm-ok', bookId, status: 'succeeded', outputUrl: '/media/merged.mp4' }); };
   const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} } });
-  await controller.start({ owner: 'user', batchId: batch.id, concurrency: 1 });
+  await controller.start({ owner: 'user', batchId: batch.id, concurrency: 1, runMode: 'video_no_submit' });
   for (let i = 0; i < 10; i += 1) {
     await controller.tick();
     await wait();
@@ -416,22 +537,234 @@ test('retry regenerates only a failed VIDEO and then completes', async () => {
   assert.deepEqual(modes[0], { stage: 'video', mode: 'force', videoId: 'video-1' });
 });
 
-test('giant placeholder book waits for content instead of blocking forever', async () => {
+test('giant placeholder without an executor task fails that book and lets the next book run', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-test-'));
   const { batch, adapter } = fixture();
   batch.books.push({ id: 'book-2', bookId: '102', title: '巨量占位', sourceText: '', sourceMetadata: { sourceMode: 'giant_material', contentPending: true }, settingsState: { patch: {} }, assetRecords: [], videos: [] });
   const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} } });
-  await controller.start({ owner: 'user', batchId: 'batch-1', concurrency: 2 });
+  await controller.start({ owner: 'user', batchId: 'batch-1', runMode: 'video_no_submit', concurrency: 2 });
   for (let i = 0; i < 6; i += 1) { await controller.tick(); await wait(); }
   let status = controller.status({ owner: 'user', batchId: 'batch-1' });
-  assert.equal(status.books[1].status, 'waiting');
-  assert.equal(status.books[1].message, '等待正文读取（巨量素材）');
-  assert.equal(status.state, 'running');
-  // 正文回填后，下一轮巡检自动进入流水线并走到待上传
-  batch.books[1].sourceText = '巨量读取到的正文';
+  assert.equal(status.books[0].status, 'ready');
+  assert.equal(status.books[1].status, 'failed');
+  assert.equal(status.books[1].stage, 'source');
+  assert.match(status.books[1].message, /未启动.*执行器/);
+  assert.match(status.books[1].error, /执行器任务/);
+  assert.equal(status.counts.failed, 1);
+  assert.equal(status.state, 'needs_attention');
+});
+
+test('automation fetches a giant placeholder directly before requiring an executor', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-direct-source-'));
+  const { batch, adapter } = fixture();
+  const book = batch.books[0];
+  book.sourceText = '';
+  book.sourceMetadata = { sourceMode: 'giant_material', contentPending: true };
+  let directFetches = 0;
+  adapter.fetchDirectSource = async ({ book: requestedBook }) => {
+    directFetches += 1;
+    requestedBook.sourceText = '从书城直接获取的完整正文';
+    requestedBook.sourceMetadata = { ...requestedBook.sourceMetadata, contentPending: false, originalReadVia: 'bookstore' };
+    return { state: 'succeeded', characters: requestedBook.sourceText.length };
+  };
+  const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} } });
+
+  await controller.start({ owner: 'user', batchId: batch.id, runMode: 'video_no_submit', concurrency: 1 });
   for (let i = 0; i < 10; i += 1) { await controller.tick(); await wait(); }
-  status = controller.status({ owner: 'user', batchId: 'batch-1' });
-  assert.equal(status.books[1].stage, 'ready_for_upload');
+
+  const status = controller.status({ owner: 'user', batchId: batch.id });
+  assert.equal(directFetches, 1);
+  assert.equal(status.state, 'completed');
+  assert.equal(status.books[0].status, 'ready');
+  assert.equal(status.books[0].stage, 'ready_for_upload');
+});
+
+test('a direct-source failure stops only that giant book and releases the next book', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-direct-source-failure-'));
+  const { batch, adapter } = fixture();
+  batch.books[0].sourceText = '';
+  batch.books[0].sourceMetadata = { sourceMode: 'giant_material', contentPending: true };
+  batch.books.push({ id: 'book-2', bookId: '102', title: '下一本', sourceText: '下一本可生产正文', settingsState: { patch: {} }, assetRecords: [], videos: [] });
+  let directFetches = 0;
+  adapter.fetchDirectSource = async () => {
+    directFetches += 1;
+    return { state: 'failed', error: '书城无正文' };
+  };
+  const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} } });
+
+  await controller.start({ owner: 'user', batchId: batch.id, runMode: 'video_no_submit', concurrency: 1 });
+  for (let i = 0; i < 10; i += 1) { await controller.tick(); await wait(); }
+
+  const status = controller.status({ owner: 'user', batchId: batch.id });
+  const failed = status.books.find(item => item.bookId === 'book-1');
+  const next = status.books.find(item => item.bookId === 'book-2');
+  assert.equal(directFetches, 1);
+  assert.equal(failed.status, 'failed');
+  assert.equal(failed.stage, 'source');
+  assert.match(failed.message, /书城正文直取失败/);
+  assert.match(failed.error, /书城无正文/);
+  assert.equal(next.status, 'ready');
+});
+
+test('a queued giant OCR task fails immediately and frees its automation slot', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-queued-giant-'));
+  const { batch, adapter } = fixture();
+  batch.books[0].sourceText = '';
+  batch.books[0].sourceMetadata = { sourceMode: 'giant_material', contentPending: true, executorJobId: 'giant-job-queued' };
+  adapter.reconcileGiantMaterialSource = async () => ({ state: 'queued', queuedAt: '2026-10-02T00:00:00.000Z' });
+  const controller = createBatchFactoryAutomationController({
+    adapter,
+    statePath: path.join(directory, 'state.json'),
+    pollMs: 60_000,
+    now: () => new Date('2026-10-02T00:00:01.000Z'),
+    logger: { error() {} }
+  });
+
+  await controller.start({ owner: 'user', batchId: batch.id, concurrency: 1 });
+  for (let i = 0; i < 3; i += 1) { await controller.tick(); await wait(); }
+
+  const status = controller.status({ owner: 'user', batchId: batch.id });
+  assert.equal(status.state, 'needs_attention');
+  assert.equal(status.books[0].status, 'failed');
+  assert.match(status.books[0].message, /未被执行器领取/);
+  assert.match(status.books[0].error, /尚未领取/);
+});
+
+test('a giant OCR task with an expired executor lease fails and frees its automation slot', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-expired-giant-'));
+  const { batch, adapter } = fixture();
+  batch.books[0].sourceText = '';
+  batch.books[0].sourceMetadata = { sourceMode: 'giant_material', contentPending: true, executorJobId: 'giant-job-expired' };
+  adapter.reconcileGiantMaterialSource = async () => ({
+    state: 'running',
+    leaseExpiresAt: '2026-10-02T00:00:00.000Z',
+    progress: { percent: 90 }
+  });
+  const controller = createBatchFactoryAutomationController({
+    adapter,
+    statePath: path.join(directory, 'state.json'),
+    pollMs: 60_000,
+    now: () => new Date('2026-10-02T00:00:01.000Z'),
+    logger: { error() {} }
+  });
+
+  await controller.start({ owner: 'user', batchId: batch.id, concurrency: 1 });
+  for (let i = 0; i < 3; i += 1) { await controller.tick(); await wait(); }
+
+  const status = controller.status({ owner: 'user', batchId: batch.id });
+  assert.equal(status.state, 'needs_attention');
+  assert.equal(status.books[0].status, 'failed');
+  assert.match(status.books[0].message, /执行器已离线/);
+  assert.match(status.books[0].error, /租约已过期/);
+});
+
+test('a queued giant OCR task is failed during the preflight sweep even when it is not next in line', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-preflight-giant-'));
+  const { batch, adapter } = fixture();
+  batch.books.push({
+    id: 'book-2', bookId: '102', title: '排在后面的巨量书', sourceText: '',
+    sourceMetadata: { sourceMode: 'giant_material', contentPending: true, executorJobId: 'giant-job-later' },
+    settingsState: { patch: {} }, assetRecords: [], videos: []
+  });
+  adapter.reconcileGiantMaterialSource = async () => ({ state: 'queued' });
+  const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} } });
+
+  await controller.start({ owner: 'user', batchId: batch.id, concurrency: 1 });
+  for (let i = 0; i < 2; i += 1) { await controller.tick(); await wait(); }
+
+  const status = controller.status({ owner: 'user', batchId: batch.id });
+  const giant = status.books.find(book => book.bookId === 'book-2');
+  assert.equal(giant.status, 'failed');
+  assert.match(giant.message, /未被执行器领取/);
+});
+
+test('reload migrates historic unclaimed giant OCR blocks into failed books', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-giant-migrate-'));
+  const statePath = path.join(directory, 'state.json');
+  fs.writeFileSync(statePath, JSON.stringify({
+    jobs: {
+      'user:batch-1': {
+        owner: 'user', batchId: 'batch-1', state: 'needs_attention', books: {
+          'book-1': {
+            bookId: 'book-1', title: '历史巨量书', status: 'blocked', stage: 'source',
+            message: '未启动本地巨量执行器，无法读取正文',
+            error: '巨量素材尚未创建执行器任务，请启动执行器后重新派发读取任务'
+          }
+        }
+      }
+    }
+  }));
+  const { adapter } = fixture();
+  const controller = createBatchFactoryAutomationController({ adapter, statePath, pollMs: 60_000, logger: { error() {} } });
+  const status = controller.status({ owner: 'user', batchId: 'batch-1' });
+  assert.equal(status.books[0].status, 'failed');
+  assert.match(status.books[0].message, /已停止本书并继续下一本/);
+  assert.equal(status.counts.failed, 1);
+});
+
+test('server reconciliation saves a completed giant OCR result without a browser being open', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-giant-reconcile-'));
+  const { batch, adapter } = fixture();
+  batch.books[0].sourceText = '';
+  batch.books[0].sourceMetadata = {
+    sourceMode: 'giant_material',
+    contentPending: true,
+    executorJobId: 'giant-job-1',
+    giantAutomationPlan: { presetId: 'preset-1', runMode: 'storyboard_only' }
+  };
+  let reconciled = 0;
+  adapter.reconcileGiantMaterialSource = async ({ book }) => {
+    reconciled += 1;
+    book.sourceText = '执行器已经识别出的正文';
+    book.sourceMetadata = { ...book.sourceMetadata, contentPending: false, originalReadStage: 'completed', originalReadVia: 'ocr' };
+    return { state: 'succeeded', characters: book.sourceText.length };
+  };
+  const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} } });
+  await controller.start({ owner: 'user', batchId: batch.id, concurrency: 1, runMode: 'storyboard_only' });
+  await wait();
+  let status = controller.status({ owner: 'user', batchId: batch.id });
+  assert.equal(reconciled, 1);
+  assert.equal(status.books[0].stage, 'source');
+  assert.match(status.books[0].message, /正文已回填/);
+  await controller.tick();
+  await wait();
+  status = controller.status({ owner: 'user', batchId: batch.id });
+  assert.notEqual(status.books[0].stage, 'source');
+});
+
+test('a giant OCR failure resumes automatically when live source text arrives later', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-giant-live-source-'));
+  const { batch, adapter } = fixture();
+  const book = batch.books[0];
+  book.sourceText = '';
+  book.sourceMetadata = {
+    sourceMode: 'giant_material',
+    contentPending: true,
+    executorJobId: 'giant-job-failed'
+  };
+  let assetRuns = 0;
+  adapter.reconcileGiantMaterialSource = async () => ({ state: 'failed', error: '滚屏 OCR 未完成' });
+  adapter.runStage = async ({ stage }) => {
+    if (stage === 'assets') assetRuns += 1;
+  };
+  const controller = createBatchFactoryAutomationController({
+    adapter,
+    statePath: path.join(directory, 'state.json'),
+    pollMs: 60_000,
+    logger: { error() {} }
+  });
+
+  await controller.start({ owner: 'user', batchId: batch.id, concurrency: 1 });
+  await wait();
+  assert.equal(controller.status({ owner: 'user', batchId: batch.id }).books[0].status, 'failed');
+
+  book.sourceText = '已保存的生产正文';
+  book.sourceMetadata = { ...book.sourceMetadata, contentPending: false };
+  await controller.tick();
+  await wait();
+
+  assert.equal(assetRuns, 1);
+  assert.equal(controller.status({ owner: 'user', batchId: batch.id }).books[0].status, 'pending');
 });
 
 test('non-giant book without source text still blocks as before', async () => {
@@ -443,4 +776,456 @@ test('non-giant book without source text still blocks as before', async () => {
   for (let i = 0; i < 4; i += 1) { await controller.tick(); await wait(); }
   const status = controller.status({ owner: 'user', batchId: 'batch-1' });
   assert.equal(status.counts.blocked, 1);
+});
+
+test('books waiting on external conditions do not block later books whose videos are ready', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-waiting-yield-'));
+  const { batch, adapter } = fixture();
+  const readyBook = (id, videoId) => ({
+    id, title: id, sourceText: '正文', settingsState: { patch: {} },
+    assetRecords: [{ id: `asset-${id}`, kind: 'character' }],
+    directorRevision: { id: `director-${id}` },
+    videos: [{ id: videoId, label: 'VIDEO01', visualPrompt: '画面提示词' }]
+  });
+  batch.books = [
+    { id: 'book-1', title: '巨量等正文', sourceText: '', sourceMetadata: { sourceMode: 'giant_material', contentPending: true }, settingsState: { patch: {} }, videos: [] },
+    readyBook('book-2', 'video-2'),
+    readyBook('book-3', 'video-3'),
+    readyBook('book-4', 'video-4')
+  ];
+  const production = { batchId: batch.id, jobs: [
+    { bookId: 'book-2', tasks: [{ videoId: 'video-2', status: 'running' }] },
+    { bookId: 'book-3', tasks: [{ videoId: 'video-3', status: 'running' }] },
+    { bookId: 'book-4', tasks: [{ videoId: 'video-4', status: 'running' }] }
+  ] };
+  const merge = { batchId: batch.id, jobs: [] };
+  const summaries = new Map(['book-2', 'book-3', 'book-4'].map(id => [id, { bookId: id, runs: [{ stage: 'assets', status: 'succeeded' }, { stage: 'director', status: 'succeeded' }] }]));
+  adapter.getStageSummary = async (_owner, _isOwner, _batchId, bookId) => summaries.get(bookId) || { bookId, runs: [] };
+  adapter.getProductionStatus = async () => production;
+  adapter.getMergeStatus = async () => merge;
+  const submittedMerges = [];
+  adapter.submitBookMerge = async ({ bookId }) => {
+    submittedMerges.push(bookId);
+    merge.jobs.push({ id: `merge-${bookId}`, bookId, status: 'running' });
+  };
+  const unexpectedStages = [];
+  adapter.runStage = async ({ book, stage }) => { unexpectedStages.push(`${book.id}:${stage}`); };
+
+  const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} } });
+  await controller.start({ owner: 'user', batchId: batch.id, runMode: 'video_no_submit', concurrency: 2 });
+  // 前两轮把四本书都送入 waiting（1 本等正文，3 本等视频回读）
+  await controller.tick(); await wait();
+  await controller.tick(); await wait();
+  // 供应商只回好了排在最后的 book-4
+  const book4Job = production.jobs.find(job => job.bookId === 'book-4');
+  book4Job.tasks = [{ videoId: 'video-4', status: 'succeeded', mediaUrl: '/media/video-4.mp4' }];
+  // 连续多轮巡检：即使前面三本书一直干等，book-4 也必须被发现并提交合成
+  for (let i = 0; i < 5; i += 1) { await controller.tick(); await wait(); }
+  assert.ok(submittedMerges.includes('book-4'), `book-4 should reach merge even while earlier books wait, got: ${submittedMerges.join(',')}`);
+  assert.deepEqual(unexpectedStages, []);
+  // 合成完成后继续自动走到待上传
+  const mergeJob = merge.jobs.find(job => job.bookId === 'book-4');
+  mergeJob.status = 'succeeded';
+  mergeJob.outputUrl = '/media/merged-4.mp4';
+  for (let i = 0; i < 3; i += 1) { await controller.tick(); await wait(); }
+  const state = controller.status({ owner: 'user', batchId: batch.id }).books.find(book => book.bookId === 'book-4');
+  assert.equal(state.stage, 'ready_for_upload');
+});
+
+// -------- 巨量批量自动兜底巡查的回归测试 --------
+
+function recoveryFixture({ savedPlan = null, batchId = 'giant-batch-1' } = {}) {
+  const normalizedPlan = savedPlan ? { presetId: 'preset-1', ...savedPlan } : null;
+  const batch = {
+    id: batchId,
+    title: '巨量批量',
+    settingsState: { patch: { publishSettings: { organization: 'org' } } },
+    books: [{
+      id: 'g-book-1', bookId: '201', title: '巨量书', sourceText: '',
+      sourceMetadata: { sourceMode: 'giant_material', contentPending: true, ...(normalizedPlan ? { giantAutomationPlan: normalizedPlan } : {}) },
+      settingsState: { patch: {} }, assetRecords: [], videos: []
+    }]
+  };
+  const base = fixture();
+  const recoveries = [];
+  let controller;
+  const adapter = {
+    ...base.adapter,
+    async loadBatch() { return batch; },
+    async listOwners() { return [{ username: 'user', isOwner: true }]; },
+    async listBatches() { return [batch]; },
+    async startRecovery({ owner, batch: currentBatch, savedPlan: plan }) {
+      recoveries.push({ owner, batchId: currentBatch.id, plan });
+      const runModeValue = String(plan?.runMode || 'full_submit');
+      await controller.start({
+        owner,
+        batchId: currentBatch.id,
+        runMode: runModeValue,
+        autoPublish: runModeValue === 'full_submit',
+        concurrency: plan?.concurrency,
+        configSnapshot: currentBatch.settingsState.patch
+      });
+    }
+  };
+  return { batch, adapter, recoveries, setController(value) { controller = value; } };
+}
+
+const silentLogger = () => ({ error() {}, warn() {}, info() {}, debug() {} });
+
+test('recovery sweep leaves a giant batch without a saved plan idle instead of guessing full automation', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-recovery-'));
+  const setup = recoveryFixture();
+  const controller = createBatchFactoryAutomationController({
+    adapter: setup.adapter, statePath: path.join(directory, 'state.json'),
+    pollMs: 60_000, recoveryEnabled: false, logger: silentLogger()
+  });
+  setup.setController(controller);
+  await controller.runRecovery();
+  assert.equal(setup.recoveries.length, 0);
+  const status = controller.status({ owner: 'user', batchId: 'giant-batch-1' });
+  assert.equal(status.state, 'idle');
+});
+
+test('recovery sweep backfills a completed giant OCR result without starting automation', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-recovery-ocr-only-'));
+  const setup = recoveryFixture();
+  setup.batch.books[0].sourceMetadata.executorJobId = 'giant-job-complete';
+  let reconciled = 0;
+  setup.adapter.reconcileGiantMaterialSource = async ({ book }) => {
+    reconciled += 1;
+    book.sourceText = '已从 OCR 回填的正文';
+    book.sourceMetadata = { ...book.sourceMetadata, contentPending: false, originalReadStage: 'completed', originalReadVia: 'ocr' };
+    return { state: 'succeeded', characters: book.sourceText.length };
+  };
+  const controller = createBatchFactoryAutomationController({
+    adapter: setup.adapter, statePath: path.join(directory, 'state.json'),
+    pollMs: 60_000, recoveryEnabled: false, logger: silentLogger()
+  });
+  setup.setController(controller);
+
+  await controller.runRecovery();
+
+  assert.equal(reconciled, 1);
+  assert.equal(setup.batch.books[0].sourceText, '已从 OCR 回填的正文');
+  assert.equal(setup.batch.books[0].sourceMetadata.contentPending, false);
+  assert.equal(setup.recoveries.length, 0);
+});
+
+test('recovery sweep restarts only a source-failed giant batch after live text arrives', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-recovery-live-source-'));
+  const setup = recoveryFixture({ savedPlan: { runMode: 'video_no_submit', concurrency: 1 } });
+  const book = setup.batch.books[0];
+  book.sourceMetadata.executorJobId = 'giant-job-failed';
+  setup.adapter.reconcileGiantMaterialSource = async () => ({ state: 'failed', error: '滚屏 OCR 未完成' });
+  const controller = createBatchFactoryAutomationController({
+    adapter: setup.adapter, statePath: path.join(directory, 'state.json'),
+    pollMs: 60_000, recoveryEnabled: false, logger: silentLogger()
+  });
+  setup.setController(controller);
+
+  await controller.start({ owner: 'user', batchId: setup.batch.id, runMode: 'video_no_submit', concurrency: 1 });
+  await wait();
+  assert.equal(controller.status({ owner: 'user', batchId: setup.batch.id }).state, 'needs_attention');
+
+  book.sourceText = '之后写入的生产正文';
+  book.sourceMetadata = { ...book.sourceMetadata, contentPending: false };
+  await controller.runRecovery();
+
+  assert.equal(setup.recoveries.length, 1);
+  assert.equal(setup.recoveries[0].batchId, setup.batch.id);
+});
+
+test('recovery sweep honors the saved plan: video_no_submit with concurrency 1', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-recovery-plan-'));
+  const setup = recoveryFixture({ savedPlan: { runMode: 'video_no_submit', concurrency: 1 } });
+  setup.batch.books[0].sourceMetadata.executorJobId = 'giant-job-running';
+  setup.adapter.reconcileGiantMaterialSource = async () => ({ state: 'running', progress: { percent: 1 } });
+  const controller = createBatchFactoryAutomationController({
+    adapter: setup.adapter, statePath: path.join(directory, 'state.json'),
+    pollMs: 60_000, recoveryEnabled: false, logger: silentLogger()
+  });
+  setup.setController(controller);
+  await controller.runRecovery();
+  const status = controller.status({ owner: 'user', batchId: 'giant-batch-1' });
+  assert.equal(status.state, 'running');
+  assert.equal(status.runMode, 'video_no_submit');
+  assert.equal(status.autoPublish, false);
+  assert.equal(status.concurrency, 1);
+});
+
+test('recovery sweep never restarts active, paused or cancelled jobs', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-recovery-skip-'));
+  const setup = recoveryFixture();
+  const controller = createBatchFactoryAutomationController({
+    adapter: setup.adapter, statePath: path.join(directory, 'state.json'),
+    pollMs: 60_000, recoveryEnabled: false, logger: silentLogger()
+  });
+  setup.setController(controller);
+  await controller.start({ owner: 'user', batchId: 'giant-batch-1', runMode: 'full_submit', autoPublish: true });
+  await controller.runRecovery();
+  assert.equal(setup.recoveries.length, 0);
+  await controller.pause({ owner: 'user', batchId: 'giant-batch-1' });
+  await controller.runRecovery();
+  assert.equal(setup.recoveries.length, 0);
+  await controller.cancel({ owner: 'user', batchId: 'giant-batch-1' });
+  await controller.runRecovery();
+  assert.equal(setup.recoveries.length, 0);
+});
+
+test('recovery sweep waits for a future scheduled plan and starts once it is due', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-recovery-schedule-'));
+  const setup = recoveryFixture({ savedPlan: { runMode: 'full_submit', scheduledAt: '2999-01-01T00:00:00.000Z' } });
+  const controller = createBatchFactoryAutomationController({
+    adapter: setup.adapter, statePath: path.join(directory, 'state.json'),
+    pollMs: 60_000, recoveryEnabled: false, logger: silentLogger()
+  });
+  setup.setController(controller);
+  await controller.runRecovery();
+  assert.equal(setup.recoveries.length, 0);
+  setup.batch.books[0].sourceMetadata.giantAutomationPlan.scheduledAt = '2000-01-01T00:00:00.000Z';
+  await controller.runRecovery();
+  assert.equal(setup.recoveries.length, 1);
+});
+
+test('recovery sweep ignores non-giant batches and survives a failing recovery attempt', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-recovery-error-'));
+  const setup = recoveryFixture({ savedPlan: {} });
+  const normalBatch = {
+    id: 'normal-batch',
+    settingsState: { patch: {} },
+    books: [{ id: 'n-book-1', sourceMetadata: {}, settingsState: { patch: {} } }]
+  };
+  setup.adapter.listBatches = async () => [normalBatch, setup.batch];
+  let failNext = true;
+  const originalStartRecovery = setup.adapter.startRecovery;
+  setup.adapter.startRecovery = async input => {
+    if (failNext) { failNext = false; throw new Error('temporary recovery error'); }
+    return originalStartRecovery(input);
+  };
+  const warnings = [];
+  const controller = createBatchFactoryAutomationController({
+    adapter: setup.adapter, statePath: path.join(directory, 'state.json'),
+    pollMs: 60_000, recoveryEnabled: false,
+    logger: { ...silentLogger(), warn() { warnings.push(1); } }
+  });
+  setup.setController(controller);
+
+  await assert.doesNotReject(controller.runRecovery());
+  assert.equal(setup.recoveries.length, 0); // 尝试失败，不算开工
+  assert.equal(warnings.length, 1);
+  await controller.runRecovery(); // 故障解除，巡查下一轮必须能重新启动
+  assert.equal(setup.recoveries.length, 1);
+  assert.equal(setup.recoveries[0].batchId, 'giant-batch-1');
+});
+
+test('recovery sweep runs automatically shortly after controller creation', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-recovery-auto-'));
+  const setup = recoveryFixture({ savedPlan: {} });
+  const controller = createBatchFactoryAutomationController({
+    adapter: setup.adapter, statePath: path.join(directory, 'state.json'),
+    pollMs: 60_000, recoveryMs: 60_000, logger: silentLogger()
+  });
+  setup.setController(controller);
+  await wait(80);
+  assert.equal(setup.recoveries.length, 1);
+});
+
+// 路由层 startRecovery 适配器的冒烟测试。
+// 上一轮的 "text is not defined" 事故说明：只测编排器、不测路由真实代码，
+// 适配器内部的引用错误会一路漏到公网。这里通过替换编排器工厂，把路由闭包
+// 内部构造的 adapter 捕获出来，直接执行真实的 startRecovery。
+function captureRouterRecoveryAdapter(presetStore, routerOptions = {}) {
+  const orchestrator = require('../lib/batch-factory-v11/automation-orchestrator');
+  const originalFactory = orchestrator.createBatchFactoryAutomationController;
+  let captured = null;
+  const starts = [];
+  orchestrator.createBatchFactoryAutomationController = options => {
+    captured = options.adapter;
+    return {
+      start: async args => { starts.push(args); return { state: 'running' }; },
+      pause() {}, resume() {}, retry() {}, cancel() {}, removeBook() {}, removeBatch() {},
+      status() { return { state: 'idle' }; }
+    };
+  };
+  delete require.cache[require.resolve('../routes/batch-factory-v11')];
+  const { createBatchFactoryV11Router } = require('../routes/batch-factory-v11');
+  createBatchFactoryV11Router({
+    accountStore: { listAccounts: () => [] },
+    automationPresetStore: presetStore,
+    logger: { error() {}, warn() {}, info() {} },
+    ...routerOptions
+  });
+  return {
+    adapter: captured,
+    starts,
+    restore() {
+      orchestrator.createBatchFactoryAutomationController = originalFactory;
+      delete require.cache[require.resolve('../routes/batch-factory-v11')];
+    }
+  };
+}
+
+test('router startRecovery rejects a missing giant plan instead of defaulting to full automation', async () => {
+  const presetStore = { list: async () => [], get: async () => null };
+  const setup = captureRouterRecoveryAdapter(presetStore);
+  try {
+    const batch = { id: 'b1', settingsState: { patch: { textModelId: 'm1' } } };
+    await assert.rejects(
+      () => setup.adapter.startRecovery({ owner: 'u', isOwner: false, batch, savedPlan: null }),
+      error => error?.code === 'GIANT_AUTOMATION_PLAN_MISSING'
+    );
+    assert.equal(setup.starts.length, 0);
+  } finally {
+    setup.restore();
+  }
+});
+
+test('router startRecovery honors its saved plan without copying preset configuration', async () => {
+  const presets = new Map([['p1', { id: 'p1', name: '夜间', version: 3, config: { textModelId: 'from-preset' } }]]);
+  const presetStore = { list: async () => [...presets.values()], get: async (_owner, id) => presets.get(id) };
+  const setup = captureRouterRecoveryAdapter(presetStore, {
+    configReader: () => ({
+      model: 'provider-current-text',
+      modelCatalogVersion: 1,
+      modelCatalog: [{
+        id: 'current-text', kind: 'text', displayName: '当前文本模型', providerType: 'openai_compatible',
+        baseUrl: 'https://models.example.test/v1', modelId: 'provider-current-text', credential: 'test-key', enabled: true
+      }]
+    })
+  });
+  try {
+    const batch = { id: 'b2', settingsState: { patch: { openingEnabled: false } } };
+    await setup.adapter.startRecovery({
+      owner: 'user', isOwner: true, batch,
+      savedPlan: { presetId: 'p1', runMode: 'video_no_submit', concurrency: 1, scheduledAt: '2026-10-02T10:01:00.000Z' }
+    });
+    assert.equal(setup.starts[0].runMode, 'video_no_submit');
+    assert.equal(setup.starts[0].autoPublish, false);
+    assert.equal(setup.starts[0].concurrency, 1);
+    assert.equal(setup.starts[0].preset.id, 'p1');
+    assert.equal(setup.starts[0].scheduledAt, '2026-10-02T10:01:00.000Z');
+    assert.equal(Object.hasOwn(setup.starts[0], 'configSnapshot'), false);
+    assert.deepEqual(batch.settingsState.patch, { openingEnabled: false });
+  } finally {
+    setup.restore();
+  }
+});
+
+// "继承引擎配置"纯函数测试
+const { applyEngineConfigInheritance } = require('../routes/batch-factory-v11');
+
+async function runRecoveryWithRealStageAdapter(t, { batchPatch = {}, bookPatch = {}, defaultEnabled = true } = {}) {
+  const orchestrator = require('../lib/batch-factory-v11/automation-orchestrator');
+  const originalFactory = orchestrator.createBatchFactoryAutomationController;
+  let controller;
+  let adapter;
+  const outgoing = [];
+  const batch = {
+    id: 'batch-1', settingsState: { patch: { automationPresetSnapshot: { id: 'p1', name: '冻结预设', version: 1 }, ...batchPatch } },
+    books: [{ id: 'book-1', sourceText: '真实生产正文', settingsState: { patch: bookPatch }, assetRecords: [], videos: [] }]
+  };
+  const statePath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-real-stage-')), 'state.json');
+  const configReader = () => ({ model: 'provider-default', modelCatalog: [
+    { id: 'account-default', kind: 'text', modelId: 'provider-default', enabled: defaultEnabled, baseUrl: 'http://default.local/v1', credential: 'default-fixture-key' },
+    { id: 'book-text', kind: 'text', modelId: 'provider-book', enabled: true, baseUrl: 'http://book.local/v1', credential: 'book-fixture-key' },
+    { id: 'batch-text', kind: 'text', modelId: 'provider-batch', enabled: true, baseUrl: 'http://batch.local/v1', credential: 'batch-fixture-key' }
+  ] });
+  orchestrator.createBatchFactoryAutomationController = options => {
+    adapter = options.adapter;
+    controller = originalFactory(options);
+    return controller;
+  };
+  delete require.cache[require.resolve('../routes/batch-factory-v11')];
+  try {
+    require('../routes/batch-factory-v11').createBatchFactoryV11Router({
+      automationStatePath: statePath, automationPollMs: 60_000, automationRecoveryEnabled: false,
+      automationPresetStore: {}, configReader,
+      memberStore: { getMember: username => ({ username, active: true, role: 'manager' }) },
+      goBaseUrl: 'http://go.local', bridgeSecret: 'fixture-secret', logger: silentLogger(),
+      fetchImpl: async (url, init) => {
+        const pathname = new URL(url).pathname;
+        if (init.method === 'GET' && pathname === '/api/batch-factory/v11/batches/batch-1') return new Response(JSON.stringify({ batch }));
+        if (init.method === 'GET' && /\/(?:status|merge-status)$/.test(pathname)) return new Response(JSON.stringify({ jobs: [] }));
+        if (init.method === 'GET' && pathname.endsWith('/stages')) return new Response(JSON.stringify({ summary: { runs: [] } }));
+        assert.equal(init.method, 'POST');
+        assert.equal(pathname, '/api/batch-factory/v11/batches/batch-1/books/book-1/stages/assets');
+        outgoing.push(JSON.parse(init.body));
+        return new Response(JSON.stringify({ ok: true }));
+      }
+    });
+  } finally {
+    orchestrator.createBatchFactoryAutomationController = originalFactory;
+    delete require.cache[require.resolve('../routes/batch-factory-v11')];
+  }
+  t.after(() => controller.cancel({ owner: 'stage-test-user', batchId: batch.id }));
+  await adapter.startRecovery({ owner: 'stage-test-user', isOwner: true, batch, savedPlan: { presetId: 'p1', runMode: 'storyboard_only', concurrency: 1 } });
+  for (let i = 0; i < 4; i += 1) {
+    await controller.tick();
+    await wait();
+    if (outgoing.length || controller.status({ owner: 'stage-test-user', batchId: batch.id }).books?.[0]?.error) break;
+  }
+  const status = controller.status({ owner: 'stage-test-user', batchId: batch.id });
+  await controller.pause({ owner: 'stage-test-user', batchId: batch.id });
+  const saved = Object.values(JSON.parse(fs.readFileSync(statePath, 'utf8')).jobs)[0];
+  assert.equal(Object.hasOwn(saved, 'configSnapshot'), false);
+  assert.deepEqual(batch.books[0].settingsState.patch, bookPatch);
+  return { outgoing, status };
+}
+
+for (const { name, options, model, endpoint } of [
+  { name: 'enabled account default', options: {}, model: 'provider-default', endpoint: 'http://default.local/v1/chat/completions' },
+  { name: 'sparse explicit book model over a disabled default and batch model', options: { batchPatch: { textModelId: 'batch-text' }, bookPatch: { textModelId: 'book-text' }, defaultEnabled: false }, model: 'provider-book', endpoint: 'http://book.local/v1/chat/completions' },
+  { name: 'explicit batch model', options: { batchPatch: { textModelId: 'batch-text' } }, model: 'provider-batch', endpoint: 'http://batch.local/v1/chat/completions' }
+]) {
+  test(`real controller and stage adapter dispatch the ${name}`, async t => {
+    const { outgoing } = await runRecoveryWithRealStageAdapter(t, options);
+    assert.equal(outgoing.length, 1);
+    assert.equal(outgoing[0].textProvider.model, model);
+    assert.equal(outgoing[0].textProvider.endpoint, endpoint);
+    assert.equal(outgoing[0].mode, 'missing');
+  });
+}
+
+for (const { name, options } of [
+  { name: 'disabled account default', options: { defaultEnabled: false } },
+  { name: 'explicit blank batch model', options: { batchPatch: { textModelId: '' } } },
+  { name: 'sparse explicit blank book model', options: { batchPatch: { textModelId: 'batch-text' }, bookPatch: { textModelId: '' } } }
+]) {
+  test(`real controller and stage adapter reject ${name} before dispatch`, async t => {
+    const { outgoing, status } = await runRecoveryWithRealStageAdapter(t, options);
+    assert.deepEqual(outgoing, []);
+    assert.equal(status.books[0].stage, 'assets');
+    assert.match(status.books[0].error, /选择已启用的文本模型/);
+  });
+}
+
+test('engine inheritance retains an explicit blank model instead of falling back', () => {
+  assert.deepEqual(applyEngineConfigInheritance({ textModelId: '' }, { model: 'default-text', modelCatalog: [] }), { textModelId: '' });
+});
+
+test('engine inheritance fills the account default text model when batch snapshot has none', () => {
+  const accountConfig = { model: 'default-text', modelCatalog: [] };
+  const result = applyEngineConfigInheritance({}, accountConfig);
+  assert.equal(result.textModelId, 'default-text');
+});
+
+test('engine inheritance never overrides an explicitly selected batch model', () => {
+  const accountConfig = { model: 'default-text', modelCatalog: [] };
+  const result = applyEngineConfigInheritance({ textModelId: 'batch-pick' }, accountConfig);
+  assert.equal(result.textModelId, 'batch-pick');
+});
+
+test('engine inheritance skips a default model that is explicitly disabled in the catalog', () => {
+  const accountConfig = {
+    model: 'disabled-model',
+    modelCatalog: [{ id: 'disabled-model', kind: 'text', enabled: false }]
+  };
+  const result = applyEngineConfigInheritance({}, accountConfig);
+  assert.equal(result.textModelId, undefined);
+});
+
+test('engine inheritance works for legacy configs without a catalog and tolerates missing config', () => {
+  assert.equal(applyEngineConfigInheritance({}, { model: 'legacy-model' }).textModelId, 'legacy-model');
+  assert.deepEqual(applyEngineConfigInheritance({}, null), {});
+  assert.deepEqual(applyEngineConfigInheritance({ keep: 1 }, { model: '' }), { keep: 1 });
 });

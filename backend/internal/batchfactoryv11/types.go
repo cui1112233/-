@@ -114,6 +114,14 @@ type CreateBookInput struct {
 type CreateBatchInput struct {
 	Title string            `json:"title"`
 	Books []CreateBookInput `json:"books,omitempty"`
+	// InitialBatchSettings is written as the batch-level patch during creation.
+	// It exists so a batch cannot be consumed from an intake before its selected
+	// automation preset has been frozen into the batch itself.
+	InitialBatchSettings SettingsPatch `json:"initialBatchSettings,omitempty"`
+	// GiantAutomationPlan is copied into each newly created giant-material book.
+	// The executor recovery path then reads the persisted plan instead of browser
+	// state that can disappear after the batch creation request returns.
+	GiantAutomationPlan map[string]any `json:"giantAutomationPlan,omitempty"`
 }
 type Intake struct {
 	ID         string          `json:"id"`

@@ -465,7 +465,7 @@ func (s *MergeService) GetBatchStatus(ctx context.Context, owner, batchID string
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.Store.GetBatch(ctx, owner, batchID); err != nil {
+	if err := ensureBatchOwnership(ctx, s.Store, owner, batchID); err != nil {
 		return nil, err
 	}
 	jobs, err := repository.ListMergeJobs(ctx, owner, batchID)

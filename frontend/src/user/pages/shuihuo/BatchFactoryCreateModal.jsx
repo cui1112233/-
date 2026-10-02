@@ -1,10 +1,10 @@
-import { Alert, Button, Input, InputNumber, Modal, Select, Space, Tag, message } from 'antd';
+import { Alert, Button, Input, InputNumber, Modal, Select, Space, Switch, Tag, message } from 'antd';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getWorkshopPlatforms } from '../../../shared/api/novelFetchWorkshop';
-import { createNovelFetchIntake, fetchDirectOriginals, getBatch, getBatchAutomationStatus, listAutomationPresets, listBatches, updateBookMetadata } from '../../../shared/api/batchFactoryV11';
+import { createNovelFetchIntake, fetchBookOriginal, fetchDirectOriginals, getBatch, getBatchAutomationStatus, listAutomationPresets, listBatches, startBatchAutomation, updateBookMetadata } from '../../../shared/api/batchFactoryV11';
 import { batchFactoryPlatformOptions } from './batchFactoryPlatformOptions';
 import { buildManualBatchSubmission, manualBookIDsFromInput, removePlatformGroup, replacePlatformGroup, totalGroupBookCount, upsertPlatformGroup } from './batchFactoryManualFetch';
-import { formatBeijingDatetimeLocal, normalizeAutomationConcurrency, parseBeijingDatetimeLocal } from './batchFactoryAutomationSchedule';
+import { automationPresetSnapshot, formatBeijingDatetimeLocal, normalizeAutomationConcurrency, parseBeijingDatetimeLocal } from './batchFactoryAutomationSchedule';
 import { resolveGiantMaterialForBatch } from '../giantMaterialExtractionClient.js';
 import { parseGiantMaterialIds } from './batchFactoryGiantMaterialQueue.js';
 import { createGiantMaterialJob } from '../../../shared/api/giantMaterialExecutorPublic.js';
@@ -89,6 +89,7 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated, onBatchUpda
   const [giantBusy, setGiantBusy] = useState(false);
   const [giantError, setGiantError] = useState('');
   const [executorHealth, setExecutorHealth] = useState(null);
+  const [giantOriginalReadStrategy, setGiantOriginalReadStrategy] = useState('ocr_first');
   const giantControllerRef = useRef(null);
 
   async function loadPlatforms() {
@@ -143,6 +144,7 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated, onBatchUpda
     setGiantBusy(false);
     setGiantError('');
     setExecutorHealth(null);
+    setGiantOriginalReadStrategy('ocr_first');
     setTitle('');
     setInputText('');
     setScheduleDialogOpen(false);
@@ -279,6 +281,50 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated, onBatchUpda
     }
   }
 
+  async function queueGiantOcrFallback(batchId, entry, giantAutomationPlan, directReadError = '') {
+    const durationSeconds = Number(entry.item.material?.durationSeconds || entry.item.material?.duration || 0);
+    if (!(durationSeconds > 0)) throw new Error('QINGYU_VIDEO_DURATION_MISSING');
+    const createdResponse = await createGiantMaterialJob({
+      materialId: entry.item.id,
+      platformBookId: entry.book.platformBookId || entry.book.bookId,
+      title: entry.book.title,
+      videoUrl: entry.item.material.videoUrl,
+      durationSeconds,
+      modelVersion: 'windows-paddleocr-v1',
+      contentRangeLines
+    });
+    const createdJob = createdResponse?.job || createdResponse?.data?.job || createdResponse;
+    if (!createdJob?.id) throw new Error('GIANT_EXECUTOR_FAILED');
+
+    let latestError;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        const latestResponse = await getBatch(batchId);
+        const latestBatch = latestResponse?.batch || latestResponse?.data?.batch || latestResponse?.data || latestResponse;
+        const latestBook = findRegisteredGiantMaterialBook(latestBatch?.books, entry.item.id);
+        if (!latestBook?.id) throw new Error('GIANT_MATERIAL_BOOK_NOT_FOUND');
+        await updateBookMetadata(batchId, latestBook.id, {
+          metadata: {
+            ...(latestBook.sourceMetadata || {}),
+            executorJobId: createdJob.id,
+            contentPending: true,
+            originalReadStage: 'ocr',
+            originalReadError: '',
+            directOriginalReadError: directReadError,
+            giantOcrState: String(createdJob.state || 'queued').toLowerCase(),
+            giantAutomationPlan
+          },
+          expectedRevision: Number(latestBook.revision || 0)
+        });
+        return createdJob;
+      } catch (bindError) {
+        latestError = bindError;
+        if (Number(bindError?.status) !== 409) break;
+      }
+    }
+    throw latestError || new Error('GIANT_EXECUTOR_FAILED');
+  }
+
   async function submitGiantMaterial({ scheduledRun = false, automationRun = false } = {}) {
     if (!title.trim()) return message.warning('请填写作品名称');
     const items = giantItems.filter(item => item.status === 'resolved');
@@ -287,8 +333,8 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated, onBatchUpda
     if ((scheduledRun || automationRun) && !automationPresetID) return message.warning('请选择自动化预设');
     const scheduledAtISO = scheduledRun ? parseBeijingDatetimeLocal(scheduledAt) : '';
     if (scheduledRun && (!scheduledAtISO || new Date(scheduledAtISO).getTime() <= Date.now())) return message.warning('北京时间自动启动时间需要晚于现在');
-    if (executorHealth?.online !== true) return message.warning('巨量素材执行器未安装或未登录，请先在执行器配置页完成配对');
-    const missingDuration = items.find(item => !(Number(item.material?.durationSeconds || item.material?.duration || 0) > 0));
+    if (giantOriginalReadStrategy !== 'direct_first' && executorHealth?.online !== true) return message.warning('巨量素材执行器未安装或未登录，请先在执行器配置页完成配对');
+    const missingDuration = giantOriginalReadStrategy !== 'direct_first' && items.find(item => !(Number(item.material?.durationSeconds || item.material?.duration || 0) > 0));
     if (missingDuration) return message.warning(`素材 ${missingDuration.id} 没有有效的视频时长，暂时不能交给执行器处理`);
     const selected = items.map(item => ({ item, book: selectGiantMaterialBook(item.material, item.selectedBookKey) }));
     const missingSelection = selected.find(entry => !entry.book);
@@ -300,11 +346,20 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated, onBatchUpda
       const importedAt = new Date().toISOString();
       const intakePayload = buildGiantMaterialPlaceholderIntakes(
         selected.map(entry => ({ giantMaterialId: entry.item.id, material: entry.item.material, book: entry.book })),
-        { contentRangeLines, importedAt }
+        { contentRangeLines, importedAt, originalReadStrategy: giantOriginalReadStrategy }
       );
       const intakeResponse = await createNovelFetchIntake(intakePayload);
       const intake = intakeResponse?.intake || intakeResponse;
       if (!intake?.id) throw new Error('GIANT_MATERIAL_INTAKE_FAILED');
+      const selectedPreset = (scheduledRun || automationRun) ? automationPresetSnapshot(automationPresets, automationPresetID) : null;
+      if ((scheduledRun || automationRun) && !selectedPreset) throw new Error('所选自动化预设不存在或没有可用配置，请重新选择。');
+      const giantAutomationPlan = (scheduledRun || automationRun) ? {
+        scheduledAt: scheduledAtISO,
+        presetId: selectedPreset.id,
+        runMode: automationRunMode,
+        autoPublish: automationRun && automationRunMode === 'full_submit',
+        concurrency: normalizeAutomationConcurrency(automationConcurrency)
+      } : undefined;
       const batch = await onCreated?.({
         intakeId: intake.id,
         title: title.trim(),
@@ -315,13 +370,59 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated, onBatchUpda
         autoPublishEnabled: false,
         presetId: automationPresetID,
         runMode: automationRunMode,
-        automationConcurrency: normalizeAutomationConcurrency(automationConcurrency)
+        automationConcurrency: normalizeAutomationConcurrency(automationConcurrency),
+        giantAutomation: selectedPreset ? {
+          presetId: selectedPreset.id,
+          expectedPresetVersion: selectedPreset.version,
+          runMode: automationRunMode,
+          concurrency: normalizeAutomationConcurrency(automationConcurrency),
+          scheduledAt: scheduledAtISO
+        } : undefined
       });
       const batchId = batch?.id;
       if (!batchId) throw new Error('GIANT_MATERIAL_INTAKE_FAILED');
       let queued = 0;
       for (const entry of selected) {
         try {
+          if (giantOriginalReadStrategy === 'direct_first') {
+            const latestResponse = await getBatch(batchId);
+            const latestBatch = latestResponse?.batch || latestResponse?.data?.batch || latestResponse?.data || latestResponse;
+            const book = findRegisteredGiantMaterialBook(latestBatch?.books, entry.item.id);
+            if (!book?.id) throw new Error('GIANT_MATERIAL_BOOK_NOT_FOUND');
+            await updateBookMetadata(batchId, book.id, {
+              metadata: { ...(book.sourceMetadata || {}), originalReadStage: 'direct', originalReadError: '', contentPending: true, giantAutomationPlan },
+              expectedRevision: Number(book.revision || 0)
+            });
+            try {
+              await fetchBookOriginal(batchId, book.id);
+            } catch (directFetchError) {
+              const directReadError = normalizedError(directFetchError, '书城获取原文失败');
+              try {
+                await queueGiantOcrFallback(batchId, entry, giantAutomationPlan, directReadError);
+                message.info(`书城获取失败，已自动转为滚屏 OCR：${entry.book.title || entry.item.id}`);
+                queued += 1;
+                continue;
+              } catch (fallbackError) {
+                const refreshedResponse = await getBatch(batchId);
+                const refreshedBatch = refreshedResponse?.batch || refreshedResponse?.data?.batch || refreshedResponse?.data || refreshedResponse;
+                const refreshedBook = findRegisteredGiantMaterialBook(refreshedBatch?.books, entry.item.id);
+                if (refreshedBook?.id) {
+                  await updateBookMetadata(batchId, refreshedBook.id, {
+                    metadata: {
+                      ...(refreshedBook.sourceMetadata || {}),
+                      originalReadStage: 'failed',
+                      originalReadError: `${directReadError}；自动转滚屏 OCR 失败：${normalizedError(fallbackError, '执行器任务派发失败')}`,
+                      contentPending: true
+                    },
+                    expectedRevision: Number(refreshedBook.revision || 0)
+                  });
+                }
+                throw fallbackError;
+              }
+            }
+            queued += 1;
+            continue;
+          }
           const durationSeconds = Number(entry.item.material.durationSeconds || entry.item.material.duration || 0);
           const createdResponse = await createGiantMaterialJob({
             materialId: entry.item.id,
@@ -348,14 +449,10 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated, onBatchUpda
                   ...(book.sourceMetadata || {}),
                   executorJobId: createdJob.id,
                   contentPending: true,
+                  originalReadStage: 'ocr',
+                  originalReadError: '',
                   giantOcrState: String(createdJob.state || 'queued').toLowerCase(),
-                  giantAutomationPlan: (scheduledRun || automationRun) ? {
-                    scheduledAt: scheduledAtISO,
-                    presetId: automationPresetID,
-                    runMode: automationRunMode,
-                    autoPublish: automationRun && automationRunMode === 'full_submit',
-                    concurrency: normalizeAutomationConcurrency(automationConcurrency)
-                  } : undefined
+                  giantAutomationPlan
                 },
                 expectedRevision: Number(book.revision || 0)
               });
@@ -372,12 +469,27 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated, onBatchUpda
           console.warn('巨量读取任务派发失败', entry.item.id, error);
         }
       }
+      // 自动化只在整批素材的正文读取已全部派发后启动一次。引擎会把仍在直取或 OCR
+      // 的书保持在“等待正文读取”，而不是把每条 ID 的成功回调都当成一条新生产任务。
+      if (giantAutomationPlan?.presetId) {
+        try {
+          await startBatchAutomation(batchId, giantAutomationPlan);
+        } catch (automationError) {
+          // 正文读取任务已派发；自动生产失败不能把它们误标成“正文获取失败”。
+          console.warn('巨量书城读取已派发，但自动制作未启动', batchId, automationError);
+          message.warning(`正文读取已派发；自动生产请在工作区重试：${normalizedError(automationError, '启动失败')}`);
+        }
+      }
       if (queued) {
         try { await onBatchUpdated?.(batchId); } catch (refreshError) { console.warn('巨量读取任务已派发，但工作区刷新失败', refreshError); }
       }
       message.success(queued
-        ? `已创建批量并排队读取 ${queued}/${selected.length} 本书；正文进度请在工作区书卡查看。`
-        : '已创建批量，但读取任务派发失败；可在工作区用“原文获取”兜底。');
+        ? giantOriginalReadStrategy === 'direct_first'
+          ? `已创建批量并通过书城获取 ${queued}/${selected.length} 本正文；失败的书可在工作区重试或改用滚屏 OCR。`
+          : `已创建批量并排队读取 ${queued}/${selected.length} 本书；正文进度请在工作区书卡查看。`
+        : giantOriginalReadStrategy === 'direct_first'
+          ? '已创建批量，但书城获取原文失败；可在工作区重试或改用滚屏 OCR。'
+          : '已创建批量，但读取任务派发失败；可在工作区用“原文获取”兜底。');
       reset();
     } catch (error) {
       const text = normalizedError(error, '巨量素材创建失败');
@@ -567,6 +679,13 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated, onBatchUpda
       rows={isGiantMaterial ? 3 : 9}
       placeholder={isGiantMaterial ? '每行一个巨量素材 ID，数量不限\n例如：7689285355255727121' : '每行一本小说，可粘贴 ID、书名、男女频、风格、标签、推荐理由、评级。\n示例：2080989285751305136\t重生书\t女频\t现代爽文\t重生,逆袭\t女主逆袭\tS'}
     />
+    {isGiantMaterial ? <div className="batch-factory-giant-read-strategy">
+      <Switch checked={giantOriginalReadStrategy === 'direct_first'} onChange={checked => setGiantOriginalReadStrategy(checked ? 'direct_first' : 'ocr_first')} />
+      <span>优先直接获取原文</span>
+      <small>{giantOriginalReadStrategy === 'direct_first'
+        ? '先通过书城和 Book ID 获取正文；失败后自动改用滚屏 OCR。'
+        : '先读取视频滚屏；失败后自动通过书城获取正文。'}</small>
+    </div> : null}
 
     {isGiantMaterial && giantItems.length ? <div className="batch-factory-giant-items">
       {giantItems.map((item, index) => <div key={`${item.id}-${index}`} className={item.status === 'error' ? 'batch-factory-giant-item is-error' : 'batch-factory-giant-item'}>

@@ -85,6 +85,11 @@ test('automation preset manager changes the unified draft only after confirmatio
   assert.doesNotMatch(source, /setDraftPatch\(.*saveBatchSettings/);
 });
 
+test('unified configuration does not describe production settings as frozen preset metadata', () => {
+  assert.doesNotMatch(source, /automationPresetSnapshot/);
+  assert.doesNotMatch(source, /本批次已冻结自动化预设/);
+});
+
 test('shows the precise 121 session failure and never reports a failed verification as a completed login', () => {
   assert.doesNotMatch(source, /Boolean\(result\?\.ok && \(result\?\.checks \|\| \[\]\)\.some/);
   assert.match(source, /const hasSession = result => Boolean\(\(result\?\.checks \|\| \[\]\)\.some/);
@@ -106,16 +111,19 @@ test('treats the legacy novel-fetch browser session as the same shared 121 login
   assert.match(source, /SESSION_CHECK_NAMES\s*=\s*\[\s*'视频管理系统登录会话',\s*'121 后台登录会话',\s*'目标站登录会话'\s*\]/);
 });
 
-test('unified settings write the opening variants toggle and count at the patch root', () => {
+test('unified engine settings write the opening variants toggle and count at the patch root', () => {
   assert.match(source, /换开头/);
   assert.match(source, /openingEnabled/);
   assert.match(source, /openingCount/);
   assert.match(source, /min=\{1\}/);
   assert.match(source, /max=\{8\}/);
-  assert.match(source, /disabled=\{draftPatch\.openingEnabled !== true\}/);
+  assert.match(source, /disabled=\{value\.openingEnabled !== true\}/);
   assert.match(source, /条（含原始）/);
-  assert.match(source, /\{ \.\.\.draftPatch, openingEnabled/);
-  assert.match(source, /\{ \.\.\.draftPatch, openingCount/);
+  assert.match(source, /patch\(\{ openingEnabled: enabled, openingCount: value\.openingCount \?\? 4 \}\)/);
+  assert.match(source, /patch\(\{ openingCount: count \?\? 4 \}\)/);
+  // 换开头是根级生产开关，不得塞进 AI 推理草稿或 aiPromptConfig
+  assert.doesNotMatch(source, /openingConfig/);
+  assert.doesNotMatch(source, /onOpeningChange/);
   assert.doesNotMatch(source, /\{ \.\.\.config, openingEnabled/);
 });
 
@@ -129,4 +137,23 @@ test('unified AI reasoning selects extraction, character and scene prompts witho
   assert.match(source, /assets: \{ \.\.\.assets, enabled: true, character: presetFor\(presetId\) \}/);
   assert.match(source, /assets: \{ \.\.\.assets, enabled: true, scene: presetFor\(presetId\) \}/);
   assert.match(source, /video: \{ \.\.\.video, \.\.\.presetValue\(catalog\.find\(item => item\.id === presetId\)\), enabled: true \}/);
+});
+
+test('unified AI reasoning exposes all four constraint layers plus the base-setup switch', () => {
+  assert.match(source, /<b>画面前缀词（智能统一）<\/b>/);
+  assert.match(source, /<b>画质约束<\/b>/);
+  assert.match(source, /<b>画面限制<\/b>/);
+  assert.match(source, /<b>负面提示词<\/b>/);
+  for (const category of ['prefix', 'quality', 'restriction', 'negative']) {
+    assert.match(source, new RegExp(`selectedConstraint\\('${category}'\\)`));
+    assert.match(source, new RegExp(`byConstraint\\('${category}'\\)`));
+    assert.match(source, new RegExp(`updateConstraint\\('${category}', presetId\\)`));
+  }
+});
+
+test('unified constraint selector fetches and persists the preset body instead of saving an empty selection', () => {
+  assert.match(source, /import \{ getConstraintPresetTexts \} from '..\/..\/..\/shared\/api\/generation'/);
+  assert.match(source, /getConstraintPresetTexts\(\[presetId\]\)/);
+  assert.match(source, /const body = String\(result\?\.texts\?\.\[presetId\] \|\| ''\)/);
+  assert.match(source, /selections: \[\.\.\.rest, \{ \.\.\.presetValue\(selected\), body \}\]/);
 });

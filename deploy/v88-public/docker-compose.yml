@@ -7,6 +7,9 @@ services:
       QIANTIE_MYSQL_DSN: ${MYSQL_USER}:${MYSQL_PASSWORD}@tcp(mysql:3306)/${MYSQL_DATABASE}?parseTime=true&charset=utf8mb4&collation=utf8mb4_0900_ai_ci
       QIANTIE_BRIDGE_SECRET: ${QIANTIE_BRIDGE_SECRET}
       QIANTIE_RELEASE_SHA: ${QIANTIE_RELEASE_SHA}
+      # Service-side Qingyu credential for giant-material metadata resolution.
+      # The value lives only in the protected production .env file.
+      QINGYU_N8_ADMIN_TOKEN: ${QINGYU_N8_ADMIN_TOKEN:-}
       QIANTIE_BATCH_FACTORY_V11_SLICE: ${QIANTIE_BATCH_FACTORY_V11_SLICE:-1}
       QIANTIE_BATCH_FACTORY_V11_TEXT_ENDPOINT: ${QIANTIE_BATCH_FACTORY_V11_TEXT_ENDPOINT:-}
       QIANTIE_BATCH_FACTORY_V11_TEXT_API_KEY: ${QIANTIE_BATCH_FACTORY_V11_TEXT_API_KEY:-}
@@ -16,6 +19,11 @@ services:
       QIANTIE_BATCH_FACTORY_V11_DYNAMIC_TEXT_PROVIDER: ${QIANTIE_BATCH_FACTORY_V11_DYNAMIC_TEXT_PROVIDER:-1}
       QIANTIE_BATCH_FACTORY_V11_PRODUCTION_ENABLED: ${QIANTIE_BATCH_FACTORY_V11_PRODUCTION_ENABLED:-0}
       QIANTIE_BATCH_FACTORY_V11_LOCAL_MERGE_ENABLED: ${QIANTIE_BATCH_FACTORY_V11_LOCAL_MERGE_ENABLED:-1}
+      # 内置合成的成片工作目录必须落在持久卷上：否则 go-api 容器一重建，
+      # 已合成的 mp4 随容器内部目录一起丢失，上传时会 404。
+      QIANTIE_LOCAL_EXECUTOR_ARTIFACT_DIR: /data/local-executor-artifacts
+    volumes:
+      - go_api_artifacts:/data/local-executor-artifacts
     expose:
       - "4000"
     networks:
@@ -136,3 +144,6 @@ volumes:
   shuihuo_objects:
     external: true
     name: v88-public_shuihuo_objects
+  go_api_artifacts:
+    external: true
+    name: v88-public_go_api_artifacts

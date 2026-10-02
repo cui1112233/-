@@ -35,6 +35,7 @@ func TestEncodeExtractCommandAllowsOnlyKnownQingyuMediaHosts(t *testing.T) {
 	for _, rawURL := range []string{
 		"https://material.hnqingyuwen.top/video.mp4",
 		"https://mlzr-material.hnqingyuwen.top/video.mp4",
+		"https://ml-material.hnqingyuwen.top/video.mp4",
 	} {
 		if _, err := EncodeExtractCommand(ExtractRequest{JobID: "job-1", VideoURL: rawURL, DurationSeconds: 2}); err != nil {
 			t.Fatalf("expected %s to be allowed: %v", rawURL, err)

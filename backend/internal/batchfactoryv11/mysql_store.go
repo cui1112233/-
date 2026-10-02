@@ -241,6 +241,9 @@ func createBatchTx(ctx context.Context, tx *sql.Tx, owner string, input CreateBa
 	batch := Batch{ID: batchID, Title: title, SourceIntakeID: sourceIntakeID, Revision: 1, Books: []Book{}, CreatedAt: now, UpdatedAt: now}
 	for bookOrdinal, rawBook := range input.Books {
 		bi := normalizeNovelFetchBook(rawBook)
+		if len(input.GiantAutomationPlan) > 0 {
+			bi.SourceMetadata = copySourceMetadataWithGiantPlan(bi.SourceMetadata, input.GiantAutomationPlan)
+		}
 		bookID, err := newID("book")
 		if err != nil {
 			return Batch{}, err
@@ -278,7 +281,43 @@ func createBatchTx(ctx context.Context, tx *sql.Tx, owner string, input CreateBa
 		}
 		batch.Books = append(batch.Books, book)
 	}
+	if len(input.InitialBatchSettings) > 0 {
+		encoded, err := json.Marshal(input.InitialBatchSettings)
+		if err != nil {
+			return Batch{}, ErrInvalid
+		}
+		const initialRevision int64 = 2
+		if _, err := tx.ExecContext(ctx, `UPDATE batch_factory_v11_batches SET revision=?,updated_at=? WHERE id=? AND owner_username=?`, initialRevision, now, batchID, owner); err != nil {
+			return Batch{}, err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO batch_factory_v11_settings_patches(scope_type,scope_id,owner_username,batch_id,book_id,video_id,patch_json,revision,updated_at) VALUES(?,?,?,?,?,?,?,?,?)`, string(ScopeBatch), batchID, owner, batchID, nil, nil, encoded, initialRevision, now); err != nil {
+			return Batch{}, err
+		}
+		batch.Revision = initialRevision
+		batch.SettingsState = SettingsState{Patch: cloneSettingsPatch(input.InitialBatchSettings), Revision: initialRevision}
+	}
 	return batch, nil
+}
+
+func copySourceMetadataWithGiantPlan(metadata map[string]any, plan map[string]any) map[string]any {
+	copyMetadata := make(map[string]any, len(metadata)+1)
+	for key, value := range metadata {
+		copyMetadata[key] = value
+	}
+	copyPlan := make(map[string]any, len(plan))
+	for key, value := range plan {
+		copyPlan[key] = value
+	}
+	copyMetadata["giantAutomationPlan"] = copyPlan
+	return copyMetadata
+}
+
+func cloneSettingsPatch(patch SettingsPatch) SettingsPatch {
+	copyPatch := make(SettingsPatch, len(patch))
+	for key, value := range patch {
+		copyPatch[key] = append(json.RawMessage(nil), value...)
+	}
+	return copyPatch
 }
 
 func (s *MySQLStore) UpdateBookMetadata(ctx context.Context, owner, batchID, bookID string, input UpdateBookMetadataInput) (Book, error) {
@@ -416,35 +455,94 @@ func nullableFloat(v float64) any {
 }
 
 func (s *MySQLStore) ListBatches(ctx context.Context, owner string) ([]Batch, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id FROM batch_factory_v11_batches WHERE owner_username=? ORDER BY created_at DESC,id DESC`, owner)
+	rows, err := s.db.QueryContext(ctx, `SELECT b.id,r.title,COALESCE(r.source_intake_id,''),b.revision,b.created_at,b.updated_at FROM batch_factory_v11_batches b JOIN batch_factory_v11_batch_records r ON r.batch_id=b.id WHERE b.owner_username=? ORDER BY b.created_at DESC,b.id DESC`, owner)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	ids := []string{}
+	out := []Batch{}
+	byID := map[string]int{}
 	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
+		var batch Batch
+		if err := rows.Scan(&batch.ID, &batch.Title, &batch.SourceIntakeID, &batch.Revision, &batch.CreatedAt, &batch.UpdatedAt); err != nil {
 			return nil, err
 		}
-		ids = append(ids, id)
+		batch.Books = []Book{}
+		byID[batch.ID] = len(out)
+		out = append(out, batch)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	out := make([]Batch, 0, len(ids))
-	for _, id := range ids {
-		b, err := s.GetBatch(ctx, owner, id)
-		if err != nil {
+	rows.Close()
+	if len(out) == 0 {
+		return out, nil
+	}
+
+	books, err := s.db.QueryContext(ctx, `SELECT b.batch_id,b.id,r.title,COALESCE(r.source_book_id,''),COALESCE(r.platform,''),b.revision FROM batch_factory_v11_books b JOIN batch_factory_v11_book_records r ON r.book_id=b.id WHERE b.owner_username=? ORDER BY b.batch_id,b.ordinal,b.id`, owner)
+	if err != nil {
+		return nil, err
+	}
+	defer books.Close()
+	for books.Next() {
+		var batchID string
+		var book Book
+		if err := books.Scan(&batchID, &book.ID, &book.Title, &book.BookID, &book.Platform, &book.Revision); err != nil {
 			return nil, err
 		}
-		out = append(out, b)
+		index, ok := byID[batchID]
+		if !ok {
+			continue
+		}
+		book.BatchID = batchID
+		if book.BookID == "" {
+			book.BookID = book.ID
+		}
+		book.Videos = []Video{}
+		out[index].Books = append(out[index].Books, book)
+	}
+	if err := books.Err(); err != nil {
+		return nil, err
 	}
 	return out, nil
 }
 
 func (s *MySQLStore) GetBatch(ctx context.Context, owner, id string) (Batch, error) {
 	return loadBatch(ctx, s.db, owner, id)
+}
+
+// GetBatchRuntimeIndex returns only the identity data needed by the live
+// runtime summary. The full GetBatch response hydrates every settings patch,
+// director revision, asset and video; doing that every few seconds turns a
+// status poll into thousands of prepared statements on mature batches.
+func (s *MySQLStore) GetBatchRuntimeIndex(ctx context.Context, owner, id string) (Batch, error) {
+	var batch Batch
+	err := s.db.QueryRowContext(ctx, `SELECT b.id,b.revision,b.created_at,b.updated_at FROM batch_factory_v11_batches b WHERE b.id=? AND b.owner_username=?`, id, owner).
+		Scan(&batch.ID, &batch.Revision, &batch.CreatedAt, &batch.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Batch{}, ErrNotFound
+	}
+	if err != nil {
+		return Batch{}, err
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT id,revision FROM batch_factory_v11_books WHERE batch_id=? AND owner_username=? ORDER BY ordinal,id`, id, owner)
+	if err != nil {
+		return Batch{}, err
+	}
+	defer rows.Close()
+	batch.Books = []Book{}
+	for rows.Next() {
+		var book Book
+		if err := rows.Scan(&book.ID, &book.Revision); err != nil {
+			return Batch{}, err
+		}
+		book.BatchID = batch.ID
+		batch.Books = append(batch.Books, book)
+	}
+	if err := rows.Err(); err != nil {
+		return Batch{}, err
+	}
+	return batch, nil
 }
 
 func (s *MySQLStore) DeleteBook(ctx context.Context, owner, batchID, bookID string) error {
@@ -621,15 +719,6 @@ func loadBatch(ctx context.Context, q batchQueryer, owner, id string) (Batch, er
 			return Batch{}, err
 		}
 		book.SourceMetadata = decodeSourceMetadata(metadata)
-		var working sql.NullString
-		workingErr := q.QueryRowContext(ctx, `SELECT content FROM batch_factory_v11_drafts WHERE owner_username=? AND draft_key=? AND kind='working-front-content' AND scope=?`, owner, "working-front:"+book.ID, b.ID).Scan(&working)
-		if workingErr != nil && !errors.Is(workingErr, sql.ErrNoRows) {
-			rows.Close()
-			return Batch{}, workingErr
-		}
-		if working.Valid {
-			book.WorkingFrontContent = working.String
-		}
 		if book.BookID == "" {
 			book.BookID = book.ID
 		}
@@ -642,6 +731,20 @@ func loadBatch(ctx context.Context, q batchQueryer, owner, id string) (Batch, er
 		return Batch{}, err
 	}
 	rows.Close()
+	// Release the book-list connection before loading per-book drafts. If many
+	// clients open the same batch together, holding one rows cursor per request
+	// while each request asks the pool for another connection can exhaust the
+	// pool and deadlock every authenticated batch read.
+	for i := range b.Books {
+		var working sql.NullString
+		workingErr := q.QueryRowContext(ctx, `SELECT content FROM batch_factory_v11_drafts WHERE owner_username=? AND draft_key=? AND kind='working-front-content' AND scope=?`, owner, "working-front:"+b.Books[i].ID, b.ID).Scan(&working)
+		if workingErr != nil && !errors.Is(workingErr, sql.ErrNoRows) {
+			return Batch{}, workingErr
+		}
+		if working.Valid {
+			b.Books[i].WorkingFrontContent = working.String
+		}
+	}
 	for i := range b.Books {
 		vrows, err := q.QueryContext(ctx, `SELECT v.id,r.label,COALESCE(r.video_prompt,''),COALESCE(r.visual_prompt,''),COALESCE(r.duration_seconds,0),v.compatibility_state,v.revision FROM batch_factory_v11_videos v JOIN batch_factory_v11_video_records r ON r.video_id=v.id WHERE v.batch_id=? AND v.book_id=? AND v.owner_username=? AND v.compatibility_state='active' ORDER BY v.ordinal,v.id`, b.ID, b.Books[i].ID, owner)
 		if err != nil {

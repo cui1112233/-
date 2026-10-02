@@ -36,6 +36,7 @@ struct ScrollTextSelfTest {
         } catch {}
         _ = try validateExtractRequest(jobID: "job", videoURL: "https://material.hnqingyuwen.top/a.mp4", duration: 12)
         _ = try validateExtractRequest(jobID: "job", videoURL: "https://mlzr-material.hnqingyuwen.top/a.mp4", duration: 12)
+        _ = try validateExtractRequest(jobID: "job", videoURL: "https://ml-material.hnqingyuwen.top/a.mp4", duration: 12)
         print("ScrollTextSelfTest passed")
     }
 }

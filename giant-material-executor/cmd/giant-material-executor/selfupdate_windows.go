@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"os/exec"
@@ -24,6 +25,11 @@ func startSelfUpdater(ctx context.Context, stop context.CancelFunc, snapshot fun
 		log.Printf("self update disabled: executable path unavailable")
 		return nil
 	}
+	publicKey, err := update.PublicKeyFromBase64(bakedUpdatePublicKey)
+	if err != nil {
+		log.Printf("self update disabled: signed update key unavailable")
+		return nil
+	}
 	updater := &update.SelfUpdater{
 		Root:           root,
 		CurrentVersion: version,
@@ -36,18 +42,21 @@ func startSelfUpdater(ctx context.Context, stop context.CancelFunc, snapshot fun
 			state := snapshot().State
 			return state == agent.StateReady || state == agent.StateFailed || state == agent.StateIdle
 		},
-		Apply: func(nextVersion string) {
-			log.Printf("self update %s ready; restarting executor", nextVersion)
-			applyPath := filepath.Join(root, ".updates", "apply-update.cmd")
-			command := exec.Command("cmd", "/C", applyPath)
-			// Start the handoff script before stopping this process.
+		PublicKey: publicKey,
+		Target:    update.ReleaseTarget{Platform: "windows", Architecture: "amd64"},
+		Apply: func(nextVersion string) error {
+			helper := filepath.Join(root, "GiantMaterialExecutorUpdater.exe")
+			if _, err := os.Stat(helper); err != nil {
+				return fmt.Errorf("update helper unavailable: %w", err)
+			}
+			command := exec.Command(helper, "-platform", "windows", "-parent-pid", fmt.Sprint(os.Getpid()), "-app-root", root, "-stage-dir", filepath.Join(root, ".updates", nextVersion))
 			command.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
 			if err := command.Start(); err != nil {
-				log.Printf("start apply-update.cmd failed: %v; keep running on %s", err, version)
-				return
+				return fmt.Errorf("start update helper: %w", err)
 			}
-			log.Printf("apply-update.cmd started; exiting for update")
+			log.Printf("PID-scoped update helper started; stopping executor for %s", nextVersion)
 			stop()
+			return nil
 		},
 	}
 	go updater.Run(ctx)

@@ -25,6 +25,10 @@ export function bookConfigRegionStatus(book, region) {
   if (region === 'assets' && Object.hasOwn(patch, 'starredCharacterNames')) return { label: '已单书覆盖', tone: 'overridden' };
   if (!module) return { label: '继承作品配置', tone: 'inherited' };
   if (module.enabled === false) return { label: '本书未启用', tone: 'disabled' };
+  if (region === 'constraints') {
+    const count = Array.isArray(module.selections) ? module.selections.filter(Boolean).length : 0;
+    if (count > 0) return { label: `${count} 条约束已启用`, tone: 'overridden' };
+  }
   return { label: '已单书覆盖', tone: 'overridden' };
 }
 

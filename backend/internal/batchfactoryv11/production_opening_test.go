@@ -85,6 +85,27 @@ func TestProductionOpeningVariants(t *testing.T) {
 		}
 	})
 
+	t.Run("blocks video submission until every required opening variant succeeds", func(t *testing.T) {
+		store, batch, book, _ := seedCompiledSDOpening(t, []OpeningVariant{
+			{Index: 1, Label: "分镜一 | 换开头1", Status: "failed", FailureReason: "模型未输出该变体分段"},
+		})
+		adapter := &recordingProductionAdapter{ref: ProviderTaskRef{State: ProductionSucceeded}}
+		service := &ProductionService{Store: store, Compiler: &PromptCompilerService{Store: store}, Adapter: adapter, Enabled: true, Model: FrozenVideoModel{ID: "video-model-a", MaxDuration: 15}}
+		if _, err := service.SubmitBookProduction(context.Background(), "alice", batch.ID, book.ID, "request-opening-missing"); !errors.Is(err, ErrConflict) {
+			t.Fatalf("expected opening prerequisite conflict, got %v", err)
+		}
+		if adapter.calls != 0 {
+			t.Fatalf("provider must not be called while opening is incomplete, calls=%d", adapter.calls)
+		}
+		jobs, err := store.ListProductionJobs(context.Background(), "alice", batch.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(jobs) != 0 {
+			t.Fatalf("blocked submission must not persist a job, jobs=%+v", jobs)
+		}
+	})
+
 	t.Run("variant compile failure aborts the whole submission", func(t *testing.T) {
 		store, batch, book, _ := seedCompiledSDOpening(t, []OpeningVariant{
 			{Index: 1, Label: "分镜一 | 换开头1", Prompt: "变体一开场", Status: "success"},

@@ -20,9 +20,17 @@ test('single-book configuration selects enabled text, image and video models', (
   assert.match(source, /listAvailableModels\('text'\)/);
   assert.match(source, /listAvailableModels\('image'\)/);
   assert.match(source, /listAvailableModels\('video'\)/);
+  assert.match(source, /modelSelectOptions\(models, 'text'\)/);
+  assert.match(source, /modelSelectOptions\(models, 'image'\)/);
+  assert.match(source, /modelSelectOptions\(models, 'video'\)/);
   assert.match(source, /文本模型/);
   assert.match(source, /图片模型/);
   assert.match(source, /视频模型/);
+  assert.match(source, /import \{ listAvailableModels, modelSelectOptions \} from '\.\.\/\.\.\/\.\.\/shared\/api\/modelCatalog'/);
+  for (const kind of ['text', 'image', 'video']) {
+    assert.ok(source.includes(`modelSelectOptions(models, '${kind}')`));
+  }
+  assert.doesNotMatch(source, /item\.name \|\| item\.id/);
 });
 
 test('single-book configuration has the same layered script constraints and video overrides as the confirmed V11 plan', () => {
@@ -80,6 +88,26 @@ test('single-book assets independently override extraction, character and scene 
   assert.match(source, /updateAssetSelection\('character', selection\)/);
   assert.match(source, /updateAssetSelection\('scene', selection\)/);
   assert.match(source, /const moduleKeys = region === 'video' \|\| region === 'media' \? \['video'\] : \[moduleKey\]/);
+});
+
+test('single-book engine settings can override opening variants and restore batch inheritance', () => {
+  assert.match(source, /'openingEnabled', 'openingCount'/);
+  assert.match(source, /for \(const key of \['openingEnabled', 'openingCount'\]\)/);
+  assert.match(source, /form\.openingEnabled === true/);
+  assert.match(source, /patch\(\{ openingEnabled: enabled, openingCount: form\.openingCount \?\? inherited\.openingCount \?\? 4 \}\)/);
+  assert.match(source, /patch\(\{ openingCount: count \?\? 4 \}\)/);
+  assert.match(source, /Object\.hasOwn\(bookPatch, 'openingEnabled'\)/);
+  // 换开头属于引擎配置，不再出现在资产设置卡
+  assert.doesNotMatch(source, /换开头（当前书覆盖）/);
+});
+
+test('single-book constraints view backfills empty system-constraint bodies on open for display', () => {
+  // 打开约束页时，对“系统预设 + 有 presetId + 正文为空”的层静默拉取正文回显
+  assert.match(source, /if \(!open \|\| region !== 'constraints' \|\| loading\) return undefined/);
+  assert.match(source, /layer\.source === 'system' && layer\.presetId && !String\(layer\.body \|\| ''\)\.trim\(\)/);
+  assert.match(source, /getConstraintPresetTexts\(missing\.map\(\(\{ layer \}\) => layer\.presetId\)\)/);
+  assert.match(source, /const body = String\(texts\[layer\.presetId\] \|\| ''\)\.trim\(\)/);
+  assert.match(source, /withDirectorConstraintSelections\(rules\)/);
 });
 
 test('keeps storyboard duration in engine configuration instead of video settings', () => {

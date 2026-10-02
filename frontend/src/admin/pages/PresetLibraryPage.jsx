@@ -77,7 +77,8 @@ const batchFactoryPresetSections = [
     matches: preset => [
       'batch-hook-adaptation',
       'batch-original-director',
-      'batch-viral-director'
+      'batch-viral-director',
+      'batch-opening-meta'
     ].includes(preset.id)
   },
   {

@@ -22,7 +22,7 @@ from urllib.parse import urlparse
 
 
 MAX_OUTPUT_BYTES = 2 * 1024 * 1024
-ALLOWED_VIDEO_HOSTS = {"material.hnqingyuwen.top", "mlzr-material.hnqingyuwen.top"}
+ALLOWED_VIDEO_HOSTS = {"material.hnqingyuwen.top", "mlzr-material.hnqingyuwen.top", "ml-material.hnqingyuwen.top"}
 HAN_OR_TEXT = re.compile(r"[\u3400-\u9fffA-Za-z0-9]")
 
 
