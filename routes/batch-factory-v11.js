@@ -105,14 +105,21 @@ async function repairLegacyExecutionOverrides({ owner, isOwner = false, batch, s
     if (!bookId || books.filter(book => book?.id === bookId).length !== 1) { skip(bookId, 'malformed_book'); continue; }
     if (!validEvidence) { skip(bookId, 'missing_snapshot'); continue; }
     if (!snapshot.appliedBookIds.includes(bookId)) { skip(bookId, 'snapshot_not_applied'); continue; }
+    const initialCandidate = legacyRestoreCandidate(initialBook, config);
+    if (initialCandidate.reason) { skip(bookId, initialCandidate.reason); continue; }
+    const restoreKeys = Object.freeze([...initialCandidate.restoreKeys]);
+    const initialPatch = JSON.parse(JSON.stringify(initialBook.settingsState.patch));
     let book = initialBook;
     for (let attempt = 0; attempt < 2; attempt++) {
-      const candidate = legacyRestoreCandidate(book, config);
+      const candidate = attempt === 0 ? initialCandidate : legacyRestoreCandidate(book, config);
       if (candidate.reason) { skip(bookId, candidate.reason); break; }
+      // A concurrent matching value can be a new manual edit. The original
+      // proof never authorizes deleting keys added while this repair runs.
+      if (attempt > 0 && !isDeepStrictEqual(book.settingsState.patch, initialPatch)) { skip(bookId, 'changed_patch'); break; }
       try {
         await v11JSONRequest({
           ...request, method: 'PUT', pathname: `${batchPath}/books/${encodeURIComponent(bookId)}/override`,
-          payload: { patch: {}, restoreKeys: candidate.restoreKeys, expectedRevision: book.revision }
+          payload: { patch: {}, restoreKeys, expectedRevision: book.revision }
         });
         result.repairedBookIds.push(bookId);
         break;

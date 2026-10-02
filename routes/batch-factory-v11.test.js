@@ -127,6 +127,27 @@ for (const outcome of ['same', 'manual', 'unresolved', 'already-restored']) {
   });
 }
 
+test('legacy repair skips a changed patch when a user adds a matching historical field during conflict', async () => {
+  const fixture = repairFixture([{ textModelId: 'old-text' }], { textModelId: 'old-text', videoModelId: 'old-video' });
+  const requests = [];
+  fixture.bridgeOptions.fetchImpl = async (url, init) => {
+    requests.push({ method: init.method, payload: init.body ? JSON.parse(init.body) : null });
+    if (requests.length === 1) return new Response('{"error":"revision conflict"}', { status: 409 });
+    if (init.method === 'GET') {
+      fixture.batch.books[0].revision = 8;
+      fixture.batch.books[0].settingsState.patch.videoModelId = 'old-video';
+      return new Response(JSON.stringify({ batch: fixture.batch }), { status: 200 });
+    }
+    for (const key of JSON.parse(init.body).restoreKeys) delete fixture.batch.books[0].settingsState.patch[key];
+    return new Response('{}', { status: 200 });
+  };
+  const result = await repairLegacyExecutionOverrides(fixture);
+  assert.deepEqual(requests.map(request => request.method), ['PUT', 'GET']);
+  assert.deepEqual(requests[0].payload, { patch: {}, restoreKeys: ['textModelId'], expectedRevision: 7 });
+  assert.deepEqual(result, { repairedBookIds: [], skippedBookIds: ['book-1'], skippedBooks: [{ bookId: 'book-1', reason: 'changed_patch' }] });
+  assert.deepEqual(fixture.batch.books[0].settingsState.patch, { textModelId: 'old-text', videoModelId: 'old-video' });
+});
+
 for (const authenticated of [true, false]) {
   test(`legacy repair endpoint ${authenticated ? 'uses authenticated owner evidence and ignores client snapshots' : 'rejects missing authentication before reads'}`, async t => {
     const fixture = repairFixture([{ textModelId: 'old' }]);
