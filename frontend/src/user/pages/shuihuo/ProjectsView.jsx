@@ -3,6 +3,7 @@ import { Button, Input, Modal, Popconfirm, Select, Switch, Upload, message } fro
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { importProject } from '../../../shared/api/shuihuoProduction';
 import { getBatchFactoryMergeCoverBlob, isBatchFactoryMergeCoverURL } from '../../../shared/api/batchFactoryV11';
+import { ProductionMediaBoundary } from '../batch-factory-v11/ProductionMediaBoundary';
 import { BatchFactoryCreateModal } from './BatchFactoryCreateModal';
 import { isBatchFactoryV11Project } from './batchFactoryProjects';
 
@@ -149,7 +150,7 @@ export function ProjectsView({ projects, health, onCreate, onImported, onCreateB
     const media = project?.coverMedia;
     if (!media?.url) return null;
     return media.kind === 'video'
-      ? <video className="shuihuo-project-card-cover-media" src={media.url} muted playsInline preload="auto" onLoadedMetadata={event => { event.currentTarget.currentTime = 0.001; }} aria-label={`${project.name} 封面视频`} />
+      ? <ProductionMediaBoundary showDownload={false}><video className="shuihuo-project-card-cover-media" src={media.url} muted playsInline preload="auto" onLoadedMetadata={event => { event.currentTarget.currentTime = 0.001; }} aria-label={`${project.name} 封面视频`} /></ProductionMediaBoundary>
       : <AuthenticatedProjectCover src={media.url} alt={`${project.name} 封面`} />;
   }
 
