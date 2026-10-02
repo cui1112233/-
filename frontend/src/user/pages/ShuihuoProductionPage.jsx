@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Modal, Spin, message } from 'antd';
 import { CommentaryWorkbench } from './shuihuo/CommentaryWorkbench';
 import { BatchFactoryNovelList } from './shuihuo/BatchFactoryNovelList';
-import { batchFactoryBatchFromResponse, batchFactoryCoverFrom, batchFactoryProjectsFrom, enrichBatchProjectCovers, isBatchFactoryV11Project } from './shuihuo/batchFactoryProjects';
+import { batchFactoryBatchFromResponse, batchFactoryCoverFrom, batchFactoryProjectsFrom, createCoverHydrationScheduler, enrichBatchProjectCovers, isBatchFactoryV11Project } from './shuihuo/batchFactoryProjects';
 import { batchFactoryMergeCoverFrom } from './shuihuo/batchFactoryMergeCover';
 import { ProjectsView } from './shuihuo/ProjectsView';
 import { AssetsView } from './shuihuo/AssetsView';
@@ -33,7 +33,9 @@ export function ShuihuoProductionPage({ openBatchOnLoad = false }) {
   const projectRequestRef = useRef(0);
   const refreshRequestRef = useRef(0);
   const projectCoverCacheRef = useRef(new Map());
+  const coverHydrationSchedulerRef = useRef(null);
   const novelFetchHandoffRef = useRef('');
+  if (!coverHydrationSchedulerRef.current) coverHydrationSchedulerRef.current = createCoverHydrationScheduler();
 
   useEffect(() => {
     mountedRef.current = true;
@@ -86,10 +88,12 @@ export function ShuihuoProductionPage({ openBatchOnLoad = false }) {
       const batchProjects = batchFactoryProjectsFrom(batches);
 
       if (batch.status === 'rejected') {
-        console.error('[共享作品库] 批量工厂读取失败', batch.reason);
-        message.error(
-          `批量工厂工程读取失败：${batch.reason?.message || '接口请求失败'}`
-        );
+        if (requestId === refreshRequestRef.current) {
+          console.error('[共享作品库] 批量工厂读取失败', batch.reason);
+          message.error(
+            `批量工厂工程读取失败：${batch.reason?.message || '接口请求失败'}`
+          );
+        }
       }
 
       if (water.status === 'rejected') {
@@ -112,21 +116,25 @@ export function ShuihuoProductionPage({ openBatchOnLoad = false }) {
       if (!mountedRef.current || requestId !== refreshRequestRef.current) return;
       setProjects(baseProjects);
       setLoading(false);
-      void enrichBatchProjectCovers(pendingCoverProjects, {
+      void coverHydrationSchedulerRef.current(() => enrichBatchProjectCovers(pendingCoverProjects, {
         concurrency: 2,
         shouldContinue: () => mountedRef.current && requestId === refreshRequestRef.current,
         loadProduction: project => getProductionStatus(project.batchId, { silent: true }),
         loadMerge: project => getMergeStatus(project.batchId, { silent: true }),
         coverFrom: (project, productionStatus, mergeStatus) => batchFactoryCoverFrom(project.batch, productionStatus) || batchFactoryMergeCoverFrom(project.batch, mergeStatus),
-        onUpdate: coveredProject => {
-          projectCoverCacheRef.current.set(coveredProject.batchId, { coverMedia: coveredProject.coverMedia, expiresAt: Date.now() + projectCoverCacheMs });
+        onUpdate: (coveredProject, metadata) => {
+          if (!metadata.hadRequestFailure || coveredProject.coverMedia) {
+            projectCoverCacheRef.current.set(coveredProject.batchId, { coverMedia: coveredProject.coverMedia, expiresAt: Date.now() + projectCoverCacheMs });
+          }
           if (!mountedRef.current || requestId !== refreshRequestRef.current) return;
           setProjects(current => current.map(project => project.id === coveredProject.id ? coveredProject : project));
         }
-      }).catch(error => console.error('[共享作品库] 封面后台读取失败', error));
+      })).catch(error => console.error('[共享作品库] 封面后台读取失败', error));
     } catch (error) {
-      message.error(error.message || '读取项目库失败');
-      if (mountedRef.current && requestId === refreshRequestRef.current) setLoading(false);
+      if (mountedRef.current && requestId === refreshRequestRef.current) {
+        message.error(error.message || '读取项目库失败');
+        setLoading(false);
+      }
     }
   }, []);
   useEffect(() => { refreshProjects(); }, [refreshProjects]);

@@ -4,6 +4,15 @@ function text(value) {
   return String(value ?? '').trim();
 }
 
+export function createCoverHydrationScheduler() {
+  let tail = Promise.resolve();
+  return task => {
+    const scheduled = tail.catch(() => {}).then(task);
+    tail = scheduled;
+    return scheduled;
+  };
+}
+
 export function batchFactoryBatchFromResponse(response) {
   const batch = response?.batch;
   if (!text(batch?.id)) throw new Error('批量工厂作品读取结果无效');
@@ -60,12 +69,19 @@ export async function enrichBatchProjectCovers(projects, {
     while (cursor < queue.length && shouldContinue()) {
       const project = queue[cursor];
       cursor += 1;
-      const productionStatus = await loadProduction(project).catch(() => null);
+      let hadRequestFailure = false;
+      const productionStatus = await loadProduction(project).catch(() => {
+        hadRequestFailure = true;
+        return null;
+      });
       if (!shouldContinue()) return;
-      const mergeStatus = await loadMerge(project).catch(() => null);
+      const mergeStatus = await loadMerge(project).catch(() => {
+        hadRequestFailure = true;
+        return null;
+      });
       if (!shouldContinue()) return;
       const coverMedia = coverFrom(project, productionStatus, mergeStatus);
-      onUpdate({ ...project, coverMedia: coverMedia || null });
+      onUpdate({ ...project, coverMedia: coverMedia || null }, { hadRequestFailure });
     }
   }
   await Promise.all(Array.from({ length: limit }, () => worker()));

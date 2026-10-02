@@ -19,10 +19,12 @@ test('shared Shuihuo library loads batch summaries instead of every full origina
 test('shared project library renders before bounded cover hydration finishes', () => {
   const page = fs.readFileSync(pagePath, 'utf8');
 
-  assert.match(page, /setProjects\(baseProjects\);\s*setLoading\(false\);\s*void enrichBatchProjectCovers/s);
+  assert.match(page, /setProjects\(baseProjects\);\s*setLoading\(false\);\s*void coverHydrationSchedulerRef\.current\(\(\) => enrichBatchProjectCovers/s);
   assert.doesNotMatch(page, /await Promise\.all\(batchProjects\.map/);
   assert.match(page, /concurrency:\s*2/);
   assert.match(page, /if \(!mountedRef\.current \|\| requestId !== refreshRequestRef\.current\) return;\s*setProjects\(baseProjects\)/s);
+  assert.match(page, /if \(!metadata\.hadRequestFailure \|\| coveredProject\.coverMedia\)/);
+  assert.match(page, /if \(requestId === refreshRequestRef\.current\) \{\s*console\.error\('\[共享作品库\] 批量工厂读取失败'/s);
 });
 
 test('manual batch creation in the public Shuihuo page starts detached publish-metadata classification', () => {

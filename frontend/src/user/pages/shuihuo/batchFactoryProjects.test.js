@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   batchFactoryBatchFromResponse,
   batchFactoryCoverFrom,
+  createCoverHydrationScheduler,
   enrichBatchProjectCovers,
   batchFactoryProjectsFrom,
   isBatchFactoryV11Project
@@ -90,4 +91,44 @@ test('hydrates project covers with bounded request concurrency and streams each 
   assert.ok(maximumActive <= 2, `expected at most 2 active requests, saw ${maximumActive}`);
   assert.equal(updates.length, 5);
   assert.deepEqual(updates.map(project => project.coverMedia?.url), projects.map(project => `/${project.batchId}.mp4`));
+});
+
+test('serializes superseding cover hydration runs so their combined request concurrency stays bounded', async () => {
+  const schedule = createCoverHydrationScheduler();
+  const projects = Array.from({ length: 2 }, (_, index) => ({ id: `batch:${index}`, batchId: `batch-${index}` }));
+  let active = 0;
+  let maximumActive = 0;
+  const request = () => new Promise(resolve => {
+    active += 1;
+    maximumActive = Math.max(maximumActive, active);
+    setTimeout(() => {
+      active -= 1;
+      resolve({});
+    }, 5);
+  });
+  const hydrate = () => enrichBatchProjectCovers(projects, {
+    concurrency: 2,
+    loadProduction: request,
+    loadMerge: request,
+    coverFrom: () => null,
+    onUpdate: () => {}
+  });
+
+  await Promise.all([schedule(hydrate), schedule(hydrate)]);
+
+  assert.ok(maximumActive <= 2, `expected at most 2 active requests across runs, saw ${maximumActive}`);
+});
+
+test('reports hydration request failures so callers do not cache a transient empty result', async () => {
+  const updates = [];
+
+  await enrichBatchProjectCovers([{ id: 'batch:1', batchId: 'batch-1' }], {
+    loadProduction: async () => { throw new Error('temporary outage'); },
+    loadMerge: async () => ({}),
+    coverFrom: () => null,
+    onUpdate: (project, metadata) => updates.push({ project, metadata })
+  });
+
+  assert.equal(updates.length, 1);
+  assert.equal(updates[0].metadata.hadRequestFailure, true);
 });
