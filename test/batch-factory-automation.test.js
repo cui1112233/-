@@ -549,6 +549,41 @@ test('server reconciliation saves a completed giant OCR result without a browser
   assert.notEqual(status.books[0].stage, 'source');
 });
 
+test('a giant OCR failure resumes automatically when live source text arrives later', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-giant-live-source-'));
+  const { batch, adapter } = fixture();
+  const book = batch.books[0];
+  book.sourceText = '';
+  book.sourceMetadata = {
+    sourceMode: 'giant_material',
+    contentPending: true,
+    executorJobId: 'giant-job-failed'
+  };
+  let assetRuns = 0;
+  adapter.reconcileGiantMaterialSource = async () => ({ state: 'failed', error: '滚屏 OCR 未完成' });
+  adapter.runStage = async ({ stage }) => {
+    if (stage === 'assets') assetRuns += 1;
+  };
+  const controller = createBatchFactoryAutomationController({
+    adapter,
+    statePath: path.join(directory, 'state.json'),
+    pollMs: 60_000,
+    logger: { error() {} }
+  });
+
+  await controller.start({ owner: 'user', batchId: batch.id, concurrency: 1 });
+  await wait();
+  assert.equal(controller.status({ owner: 'user', batchId: batch.id }).books[0].status, 'failed');
+
+  book.sourceText = '已保存的生产正文';
+  book.sourceMetadata = { ...book.sourceMetadata, contentPending: false };
+  await controller.tick();
+  await wait();
+
+  assert.equal(assetRuns, 1);
+  assert.equal(controller.status({ owner: 'user', batchId: batch.id }).books[0].status, 'pending');
+});
+
 test('non-giant book without source text still blocks as before', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-test-'));
   const { batch, adapter } = fixture();
@@ -691,6 +726,30 @@ test('recovery sweep backfills a completed giant OCR result without starting aut
   assert.equal(setup.batch.books[0].sourceText, '已从 OCR 回填的正文');
   assert.equal(setup.batch.books[0].sourceMetadata.contentPending, false);
   assert.equal(setup.recoveries.length, 0);
+});
+
+test('recovery sweep restarts only a source-failed giant batch after live text arrives', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-recovery-live-source-'));
+  const setup = recoveryFixture({ savedPlan: { runMode: 'video_no_submit', concurrency: 1 } });
+  const book = setup.batch.books[0];
+  book.sourceMetadata.executorJobId = 'giant-job-failed';
+  setup.adapter.reconcileGiantMaterialSource = async () => ({ state: 'failed', error: '滚屏 OCR 未完成' });
+  const controller = createBatchFactoryAutomationController({
+    adapter: setup.adapter, statePath: path.join(directory, 'state.json'),
+    pollMs: 60_000, recoveryEnabled: false, logger: silentLogger()
+  });
+  setup.setController(controller);
+
+  await controller.start({ owner: 'user', batchId: setup.batch.id, runMode: 'video_no_submit', concurrency: 1 });
+  await wait();
+  assert.equal(controller.status({ owner: 'user', batchId: setup.batch.id }).state, 'needs_attention');
+
+  book.sourceText = '之后写入的生产正文';
+  book.sourceMetadata = { ...book.sourceMetadata, contentPending: false };
+  await controller.runRecovery();
+
+  assert.equal(setup.recoveries.length, 1);
+  assert.equal(setup.recoveries[0].batchId, setup.batch.id);
 });
 
 test('recovery sweep honors the saved plan: video_no_submit with concurrency 1', async () => {
