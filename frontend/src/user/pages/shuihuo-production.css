@@ -2976,6 +2976,16 @@ body.batch-factory-column-resizing, body.batch-factory-column-resizing * { curso
 .batch-factory-giant-pending-compact{display:inline-flex;flex-direction:column;align-items:flex-start;gap:4px;max-width:100%;margin-top:4px;cursor:default}
 .batch-factory-giant-pending-compact .is-error-text{color:#ff8f8f;font-size:11px;line-height:1.4;font-style:normal;white-space:nowrap}
 .batch-factory-giant-pending-compact .is-actions{align-items:flex-start}
+/* 小说列表弹窗：正文读取进度挪到列表上方通栏，不再占“内容”格子 */
+.batch-factory-novel-pending-strip{display:flex;flex-direction:column;gap:6px;margin:0 0 10px;padding:8px 10px;border:1px solid var(--sh-line);border-radius:10px;background:var(--sh-panel)}
+.batch-factory-novel-pending-count{color:var(--sh-muted);font-size:11px}
+.batch-factory-giant-pending-banner{display:flex;align-items:center;gap:10px;font-size:11px;color:#8ec5ff}
+.batch-factory-giant-pending-banner .is-title{flex:none;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.batch-factory-giant-pending-banner .is-title .anticon{margin-right:6px}
+.batch-factory-giant-pending-banner .ant-progress{width:180px;flex:none;margin:0}
+.batch-factory-giant-pending-banner .ant-progress-line{padding-bottom:0}
+.batch-factory-giant-pending-banner .ant-progress-text{font-size:10px;color:var(--sh-muted)}
+.batch-factory-giant-pending-banner .is-detail{color:var(--sh-muted);white-space:nowrap}
 
 /* 新建批量弹窗：巨量素材多 ID 解析清单 */
 .batch-factory-giant-items { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; max-height: 220px; overflow-y: auto; }

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Button, message, Progress, Space, Tooltip } from 'antd';
+import { InfoCircleOutlined } from '@ant-design/icons';
 import { classifyBookPublishMetadata, fetchBookOriginal, getBatch, getBatchAutomationStatus, startBatchAutomation, updateBookMetadata, updateBookSource } from '../../../shared/api/batchFactoryV11.js';
 import { findRegisteredGiantMaterialBook } from './batchFactoryGiantMaterialImport.js';
 import { createGiantMaterialJob, getGiantMaterialJob } from '../../../shared/api/giantMaterialExecutorPublic.js';
@@ -41,7 +42,8 @@ async function startSavedGiantAutomation(batchId, plan) {
 // 占位书正文进度条：巨量素材登记后正文为空，Windows 执行器读取期间在书卡“小说正文”位置
 // 显示实时进度（视频 x/y 秒 + 百分比）。读取完成后在这里直接回填正文并刷新，弹窗关了也不丢。
 // 读取失败或未绑定任务时提供“原文获取”：用书卡已有的书名 + Book ID + 书城直接拉正文兜底。
-export function BatchFactoryGiantMaterialPendingProgress({ book, batchId, onContentReady, visible = true }) {
+// variant='banner'：小说列表弹窗顶部的通栏提示条，一行展示，不占表格格子。
+export function BatchFactoryGiantMaterialPendingProgress({ book, batchId, onContentReady, visible = true, variant = 'inline' }) {
   const metadata = book?.sourceMetadata || {};
   const jobId = String(metadata.executorJobId || '').trim();
   const pending = Boolean(metadata.contentPending);
@@ -213,5 +215,12 @@ export function BatchFactoryGiantMaterialPendingProgress({ book, batchId, onCont
   const percent = Math.max(0, Math.min(100, Number(progress?.percent || 0)));
   const seconds = progress?.total ? ` · 视频 ${progress.completed || 0}/${progress.total} 秒` : '';
   const detail = percent > 0 ? `正在读取正文 ${percent}%${seconds}` : '正在排队读取正文…';
+  if (variant === 'banner') {
+    return <div className="batch-factory-giant-pending-banner" onClick={event => event.stopPropagation()}>
+      <span className="is-title"><InfoCircleOutlined />滚屏 OCR · {book?.title || '当前小说'}</span>
+      <Progress percent={percent} size="small" status="active" />
+      <span className="is-detail">{detail}</span>
+    </div>;
+  }
   return <Alert className="batch-factory-giant-pending" type="info" showIcon message="滚屏 OCR" description={<><Progress percent={percent} size="small" status="active" /><span>{detail}</span></>} onClick={event => event.stopPropagation()} />;
 }

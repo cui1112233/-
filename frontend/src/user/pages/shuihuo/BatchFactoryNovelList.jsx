@@ -425,7 +425,12 @@ function NovelMetadata({ books, createdAt, selectedBookIds, onSelectionChange, o
   const allSelected = books.length > 0 && books.every(book => selected.has(book.id));
   const selectedCount = selectedBookIds.length;
   const toggleAll = checked => onSelectionChange(checked ? books.map(book => book.id) : []);
+  const pendingContentBooks = books.filter(book => book?.sourceMetadata?.contentPending);
   return <div className="batch-factory-novel-list batch-factory-novel-fetch-list batch-factory-novel-list-v13" role="table" aria-label="小说列表">
+    {pendingContentBooks.length ? <div className="batch-factory-novel-pending-strip" role="status">
+      <span className="batch-factory-novel-pending-count">正在读取 {pendingContentBooks.length} 本书正文</span>
+      {pendingContentBooks.map(book => <BatchFactoryGiantMaterialPendingProgress key={book.id} book={book} batchId={batchId} variant="banner" onContentReady={onContentReady} />)}
+    </div> : null}
     <div className="batch-factory-novel-list-toolbar">
       <Space size={8}>
         <Checkbox checked={allSelected} indeterminate={!allSelected && selected.size > 0} onChange={event => toggleAll(event.target.checked)} aria-label="全选小说"><b>序号</b></Checkbox>
@@ -443,7 +448,7 @@ function NovelMetadata({ books, createdAt, selectedBookIds, onSelectionChange, o
       return <div className="batch-factory-novel-list-row" key={book.id} role="row">
         <span className="is-order"><Checkbox checked={selected.has(book.id)} onChange={event => onSelectionChange(event.target.checked ? [...selected, book.id] : [...selected].filter(id => id !== book.id))} aria-label={`选择 ${row.title}`} /><b>{String(index + 1).padStart(2, '0')}</b></span>
         <span className="is-book"><strong title={row.title}>{row.title}</strong><small>ID {row.bookId} · {bookPlatformName(book, platformNames)}</small></span>
-        <span><i className={`batch-factory-content-mode is-${mode}`}>{batchFactoryContentModeLabel(book)}</i><BatchFactoryGiantMaterialPendingProgress book={book} batchId={batchId} onContentReady={onContentReady} /></span>
+        <span><i className={`batch-factory-content-mode is-${mode}`}>{batchFactoryContentModeLabel(book)}</i></span>
         <span>{publicationMetadataValue(metadata, 'style')}</span>
         <span>{publicationMetadataValue(metadata, 'gender')}</span>
         <span className={row.status === '处理中' ? 'is-scheduled' : ''} title={row.state?.detail}>{row.status}{row.state?.manual ? ' · 已手调' : ''}</span>
