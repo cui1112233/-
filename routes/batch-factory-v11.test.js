@@ -39,8 +39,48 @@ const {
   batchFactoryProductionText,
   splitVideoPresetBody,
   singleBookDirectorStageTarget,
-  generateOpeningVariantsAfterSingleDirector
+  generateOpeningVariantsAfterSingleDirector,
+  fetchBatchFactoryAutomationDirectSource
 } = require('./batch-factory-v11');
+
+test('automation direct source refill uses the same book-store source write as manual retrieval', async () => {
+  const writes = [];
+  const result = await fetchBatchFactoryAutomationDirectSource({
+    owner: 'alice',
+    isOwner: false,
+    batch: { id: 'batch-1' },
+    book: { id: 'book-1', bookId: '101', platform: '3', sourceText: '', revision: 2, sourceMetadata: { sourceMode: 'giant_material', contentPending: true } },
+    options: {
+      workshopStoreFactory: () => ({
+        getPlatforms: () => [{ id: '3', name: '七猫付费' }],
+        fetchDirectOriginal: async () => ({ text: '书城正文', attempts: 1 })
+      })
+    },
+    upstreamOptions: {
+      goBaseUrl: 'http://go.local',
+      bridgeSecret: 'secret',
+      fetchImpl: async (url, init) => {
+        writes.push({ pathname: new URL(url).pathname, payload: JSON.parse(init.body) });
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      }
+    }
+  });
+
+  assert.deepEqual(result, { state: 'succeeded', characters: 4 });
+  assert.deepEqual(writes, [{
+    pathname: '/api/batch-factory/v11/batches/batch-1/books/book-1/source',
+    payload: {
+      sourceText: '书城正文',
+      expectedRevision: 2,
+      sourceMetadata: {
+        sourceMode: 'giant_material', contentPending: false,
+        sourceFetchedAt: writes[0]?.payload?.sourceMetadata?.sourceFetchedAt,
+        sourceFetchAttempts: 1, sourceCaptureCharacters: 4000, sourceBookId: '101', sourceOriginalRaw: '书城正文',
+        originalReadStage: 'completed', originalReadVia: 'bookstore', originalReadError: ''
+      }
+    }
+  }]);
+});
 
 test('runtime settings inherit the current enabled account default using its catalogue ID', () => {
   const batch = { settingsState: { patch: { aiPromptConfig: { assets: { enabled: true } } } } };

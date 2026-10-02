@@ -14,6 +14,8 @@ const { create121CredentialStore } = require('../lib/novel-fetch-workshop/121-cr
 const targetUpload = require('../lib/target-upload');
 const { createBatchFactoryAutomationController } = require('../lib/batch-factory-v11/automation-orchestrator');
 const { createAutomationPresetStore } = require('../lib/batch-factory-v11/automation-presets');
+const { createMySQLWorkshopStore } = require('../lib/novel-fetch-workshop/mysql-store');
+const { refillMissingBatchFactoryBookSource } = require('../lib/batch-factory-v11/source-refill');
 
 const PERSONAL_PROVIDER = 'personal_api';
 const LOCAL_PROVIDER = 'doubao_local_executor';
@@ -1971,6 +1973,37 @@ function automationCompilePayload(book, settings, audioAssetID = '', semantic = 
   };
 }
 
+async function fetchBatchFactoryAutomationDirectSource({ owner: username, isOwner, batch, book, options = {}, upstreamOptions = {} } = {}) {
+  try {
+    const account = { username, isOwner };
+    const createStore = options.workshopStoreFactory || createMySQLWorkshopStore;
+    const store = createStore({
+      targetBaseUrl: options.targetBaseUrl,
+      bridgeSecret: upstreamOptions.bridgeSecret,
+      account
+    });
+    const result = await refillMissingBatchFactoryBookSource({
+      book,
+      platforms: store.getPlatforms?.() || [],
+      fetchDirectOriginal: input => store.fetchDirectOriginal(input),
+      captureSource: payload => v11JSONRequest({
+        username,
+        isOwner,
+        method: 'PUT',
+        pathname: `/api/batch-factory/v11/batches/${encodeURIComponent(batch?.id || '')}/books/${encodeURIComponent(book?.id || '')}/source`,
+        payload,
+        goBaseUrl: upstreamOptions.goBaseUrl,
+        bridgeSecret: upstreamOptions.bridgeSecret,
+        fetchImpl: upstreamOptions.fetchImpl,
+        now: upstreamOptions.now
+      })
+    });
+    return { state: 'succeeded', characters: Number(result?.fetched?.length || 0) };
+  } catch (error) {
+    return { state: 'failed', error: String(error?.message || '书城正文直取失败') };
+  }
+}
+
 function createBatchFactoryV11Router(options = {}) {
   const upstreamOptions = { ...options, goBaseUrl: options.goBaseUrl || resolveV11GoBaseUrl() };
   const automationPresets = options.automationPresetStore || createAutomationPresetStore({ statePath: options.automationPresetStatePath });
@@ -1999,6 +2032,11 @@ function createBatchFactoryV11Router(options = {}) {
         });
         return result?.summary || result;
       },
+      fetchDirectSource: input => fetchBatchFactoryAutomationDirectSource({
+        ...input,
+        options,
+        upstreamOptions
+      }),
       reconcileGiantMaterialSource: async ({ owner: username, isOwner, batch, book }) => {
         const metadata = object(book?.sourceMetadata);
         const executorJobId = String(metadata.executorJobId || '').trim();
@@ -2572,6 +2610,7 @@ module.exports = {
   prepareBatchFactoryBookClassification,
   ensureBatchFactory121ResubmissionAllowed,
   persisted121PublicationMetadata,
+  fetchBatchFactoryAutomationDirectSource,
   persistBatchFactory121Publication,
   v11JSONRequest,
   smartUnifiedSelected,
