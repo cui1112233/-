@@ -1,7 +1,8 @@
 import { AppstoreOutlined, ClockCircleOutlined, CloseOutlined, DeleteOutlined, DownOutlined, FileTextOutlined, FolderOpenOutlined, PlusOutlined, SearchOutlined, UploadOutlined, UserOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import { Button, Input, Modal, Popconfirm, Select, Switch, Upload, message } from 'antd';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { importProject } from '../../../shared/api/shuihuoProduction';
+import { getBatchFactoryMergeCoverBlob, isBatchFactoryMergeCoverURL } from '../../../shared/api/batchFactoryV11';
 import { BatchFactoryCreateModal } from './BatchFactoryCreateModal';
 import { isBatchFactoryV11Project } from './batchFactoryProjects';
 
@@ -18,6 +19,53 @@ function formatTime(value) {
   if (!value) return '尚未开始制作';
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? '已创建' : date.toLocaleDateString('zh-CN');
+}
+
+function AuthenticatedProjectCover({ src, alt }) {
+  const imageRef = useRef(null);
+  const protectedCover = isBatchFactoryMergeCoverURL(src);
+  const [visible, setVisible] = useState(!protectedCover);
+  const [blobURL, setBlobURL] = useState('');
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setVisible(!protectedCover);
+    setBlobURL('');
+    setFailed(false);
+    if (!protectedCover || typeof IntersectionObserver === 'undefined') {
+      setVisible(true);
+      return undefined;
+    }
+    const observer = new IntersectionObserver(entries => {
+      if (entries.some(entry => entry.isIntersecting)) {
+        setVisible(true);
+        observer.disconnect();
+      }
+    }, { rootMargin: '240px' });
+    if (imageRef.current) observer.observe(imageRef.current);
+    return () => observer.disconnect();
+  }, [protectedCover, src]);
+
+  useEffect(() => {
+    if (!protectedCover || !visible) return undefined;
+    let active = true;
+    let objectURL = '';
+    getBatchFactoryMergeCoverBlob(src)
+      .then(blob => {
+        objectURL = URL.createObjectURL(blob);
+        if (active) setBlobURL(objectURL);
+      })
+      .catch(() => {
+        if (active) setFailed(true);
+      });
+    return () => {
+      active = false;
+      if (objectURL) URL.revokeObjectURL(objectURL);
+    };
+  }, [protectedCover, src, visible]);
+
+  if (failed) return <span className="shuihuo-project-card-cover-fallback">封面读取失败</span>;
+  return <img ref={imageRef} className="shuihuo-project-card-cover-media" src={protectedCover ? (blobURL || undefined) : src} alt={alt} loading="lazy" />;
 }
 
 export function ProjectsView({ projects, health, onCreate, onImported, onCreateBatch, onOpen, onDelete, onRefresh, openCreateOnLoad = false }) {
@@ -102,7 +150,7 @@ export function ProjectsView({ projects, health, onCreate, onImported, onCreateB
     if (!media?.url) return null;
     return media.kind === 'video'
       ? <video className="shuihuo-project-card-cover-media" src={media.url} muted playsInline preload="auto" onLoadedMetadata={event => { event.currentTarget.currentTime = 0.001; }} aria-label={`${project.name} 封面视频`} />
-      : <img className="shuihuo-project-card-cover-media" src={media.url} alt={`${project.name} 封面`} loading="lazy" />;
+      : <AuthenticatedProjectCover src={media.url} alt={`${project.name} 封面`} />;
   }
 
   return <section className="shuihuo-project-library">

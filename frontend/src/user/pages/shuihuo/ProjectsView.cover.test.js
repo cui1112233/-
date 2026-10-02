@@ -11,3 +11,8 @@ test('project-video covers seek a first frame instead of leaving a metadata-only
   assert.match(source, /preload="auto"/);
   assert.match(source, /currentTime\s*=\s*0\.001/);
 });
+
+test('private batch merge covers are fetched with the logged-in API client instead of a bare image request', () => {
+  assert.match(source, /getBatchFactoryMergeCoverBlob/);
+  assert.match(source, /AuthenticatedProjectCover/);
+});

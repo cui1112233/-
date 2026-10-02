@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"net/http"
 	"os"
@@ -142,6 +143,39 @@ func TestSliceFiveServesOnlyTheOwnersLocalMergedArtifact(t *testing.T) {
 	other := signedJSONRequest(t, api, now, "bob", http.MethodGet, path, nil)
 	if other.Code != http.StatusNotFound {
 		t.Fatalf("other status=%d body=%s", other.Code, other.Body.String())
+	}
+}
+
+func TestSliceFiveServesCachedMergeCoverOnlyToItsOwner(t *testing.T) {
+	now := time.Unix(1700000000, 0)
+	store := batchfactoryv11.NewMemoryStore()
+	batch, err := store.CreateBatch(context.Background(), "alice", batchfactoryv11.CreateBatchInput{Title: "b", Books: []batchfactoryv11.CreateBookInput{{Title: "k", SourceText: "正文"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := localartifact.NewStore(t.TempDir(), 1<<20)
+	artifactID := "merge_local_cover_1"
+	if _, err := files.SaveMP4(artifactID, strings.NewReader("0000ftypisom-local-merged-video")); err != nil {
+		t.Fatal(err)
+	}
+	coverBytes := append([]byte{0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 'J', 'F', 'I', 'F', 0x00, 0x01, 0x01, 0x00, 0x00, 0x01}, bytes.Repeat([]byte{0}, 32)...)
+	if _, err := files.SaveImage(artifactID, "image/jpeg", bytes.NewReader(coverBytes)); err != nil {
+		t.Fatal(err)
+	}
+	output := "/api/batch-factory/v11/batches/" + batch.ID + "/merge-media/" + artifactID
+	if _, err := store.CreateMergeJob(context.Background(), batchfactoryv11.MergeJob{Owner: "alice", BatchID: batch.ID, RequestID: "local-cover", Status: batchfactoryv11.MergeSucceeded, OutputURL: output, CreatedAt: now, UpdatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	merge := &batchfactoryv11.MergeService{Store: store, Enabled: true}
+	api := NewRouter(RouterOptions{BridgeSecret: "secret", Now: func() time.Time { return now }, Slice: 5, Store: store, Merge: merge, LocalArtifacts: files})
+	coverPath := "/api/batch-factory/v11/batches/" + batch.ID + "/merge-cover/" + artifactID
+	owner := signedJSONRequest(t, api, now, "alice", http.MethodGet, coverPath, nil)
+	if owner.Code != http.StatusOK || owner.Header().Get("Content-Type") != "image/jpeg" || owner.Body.Len() == 0 {
+		t.Fatalf("owner cover status=%d type=%q bytes=%d", owner.Code, owner.Header().Get("Content-Type"), owner.Body.Len())
+	}
+	other := signedJSONRequest(t, api, now, "bob", http.MethodGet, coverPath, nil)
+	if other.Code != http.StatusNotFound {
+		t.Fatalf("cross-owner cover status=%d body=%s", other.Code, other.Body.String())
 	}
 }
 
