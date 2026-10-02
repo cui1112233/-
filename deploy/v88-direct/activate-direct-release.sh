@@ -4,7 +4,7 @@
 #   bash activate-direct-release.sh <git-sha>
 #
 # 安全保证：
-#   - 只重启 go-api 和 v88-node 两个应用容器，不碰 MySQL/浏览器工人/Nginx；
+#   - 只重建 go-api、v88-node，以及反代它们的 Nginx；不碰 MySQL/浏览器工人；
 #   - 切换前记录上一版软链，健康检查失败自动回滚并恢复旧版本；
 #   - 不修改、不依赖任何国外镜像拉取。
 set -Eeuo pipefail
@@ -56,12 +56,14 @@ rollback() {
     ln -sfn "$PREV_DIR" "$DIRECT_ROOT/current"
     if [ -n "$PREV_SHA" ]; then set_env DIRECT_RELEASE_SHA "$PREV_SHA"; fi
     docker compose -f "$BASE_COMPOSE" -f "$OVERRIDE" up -d --no-deps --force-recreate --pull never go-api v88-node >/dev/null 2>&1 || true
+    docker compose -f "$BASE_COMPOSE" restart nginx >/dev/null 2>&1 || true
   else
     # First direct release has no prior release symlink. Restore the base
     # image runtime rather than mounting the failed, partial release again.
     rm -f "$DIRECT_ROOT/current"
     set_env DIRECT_RELEASE_SHA ""
     docker compose -f "$BASE_COMPOSE" up -d --no-deps --force-recreate --pull never go-api v88-node >/dev/null 2>&1 || true
+    docker compose -f "$BASE_COMPOSE" restart nginx >/dev/null 2>&1 || true
   fi
   exit "$status"
 }
@@ -76,6 +78,10 @@ docker compose -f "$BASE_COMPOSE" -f "$OVERRIDE" config -q
 
 # 4) 只重建两个应用容器，明确 --pull never，绝不走国外镜像下载。
 docker compose -f "$BASE_COMPOSE" -f "$OVERRIDE" up -d --no-deps --force-recreate --pull never go-api v88-node
+
+# Nginx 在启动时会缓存上游容器 IP。Node 重建后必须让它重载一次，否则公网会
+# 继续转发到已退出的旧 IP 并表现为 502；这不改变任何业务数据或依赖容器。
+docker compose -f "$BASE_COMPOSE" restart nginx
 
 # 5) 健康检查：build-info 必须回报本次 SHA（最多等 90 秒）。
 ok=0
