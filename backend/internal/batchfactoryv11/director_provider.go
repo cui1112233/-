@@ -50,8 +50,13 @@ func (p *OpenAICompatibleProvider) Complete(ctx context.Context, input TextCompl
 			{"role": "user", "content": input.UserPrompt},
 		},
 		"temperature": input.Temperature,
-		"max_tokens": input.MaxTokens,
-		"response_format": map[string]string{"type": "json_object"},
+		"max_tokens":  input.MaxTokens,
+	}
+	// SD director cards and opening variants have a deliberately plain-text
+	// wire protocol. Sending OpenAI's JSON-only response_format for those calls
+	// contradicts their required ===VIDEO/时长 lines and causes false failures.
+	if !input.DisableJSONResponse {
+		payload["response_format"] = map[string]string{"type": "json_object"}
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -81,7 +86,9 @@ func (p *OpenAICompatibleProvider) Complete(ctx context.Context, input TextCompl
 	}
 	var decoded struct {
 		Choices []struct {
-			Message struct { Content string `json:"content"` } `json:"message"`
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
 			Text         string `json:"text"`
 			FinishReason string `json:"finish_reason"`
 		} `json:"choices"`

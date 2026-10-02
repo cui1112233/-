@@ -3,6 +3,7 @@ package batchfactoryv11
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -216,6 +217,9 @@ func TestRunOpeningVariantsFailsWhenARequiredVariantIsMissing(t *testing.T) {
 	variants, err := (&DirectorService{Store: store, Provider: provider}).RunOpeningVariants(context.Background(), "alice", batch.ID, book.ID, PresetSnapshot{})
 	if err == nil {
 		t.Fatal("missing required variant must fail the opening stage")
+	}
+	if !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("missing model variant must be retryable, got %v", err)
 	}
 	if len(variants) != 3 || variants[2].Status != "failed" || variants[2].FailureReason == "" {
 		t.Fatalf("variants = %#v", variants)

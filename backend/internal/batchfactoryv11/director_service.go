@@ -16,6 +16,16 @@ type DirectorService struct {
 	Provider DirectorProvider
 }
 
+// retryableModelOutputError keeps the production contract strict while making
+// an occasional malformed model reply recoverable. Configuration and input
+// validation continue to use ErrInvalid so they stop immediately.
+func retryableModelOutputError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("%w: 文本模型输出不符合当前格式要求，可重试：%v", ErrUnavailable, err)
+}
+
 func sourceDigest(source string) string {
 	sum := sha256.Sum256([]byte(source))
 	return hex.EncodeToString(sum[:])
@@ -325,7 +335,7 @@ func (s *DirectorService) runDirector(ctx context.Context, owner, batchID, bookI
 	if err != nil {
 		return DirectorRevision{}, err
 	}
-	completion, err := s.Provider.Complete(ctx, TextCompletionRequest{SystemPrompt: contract.SystemPrompt, UserPrompt: contract.UserPrompt, Temperature: contract.Temperature, MaxTokens: contract.MaxTokens})
+	completion, err := s.Provider.Complete(ctx, TextCompletionRequest{SystemPrompt: contract.SystemPrompt, UserPrompt: contract.UserPrompt, Temperature: contract.Temperature, MaxTokens: contract.MaxTokens, DisableJSONResponse: contract.SDTextProtocol})
 	if err != nil {
 		return DirectorRevision{}, err
 	}
@@ -333,16 +343,16 @@ func (s *DirectorService) runDirector(ctx context.Context, owner, batchID, bookI
 	if contract.SDTextProtocol {
 		result, err = parseSDDirectorText(completion, contract.Normalization.MaxVideoDuration)
 		if err != nil {
-			return DirectorRevision{}, fmt.Errorf("%w: %v", ErrInvalid, err)
+			return DirectorRevision{}, retryableModelOutputError(err)
 		}
 	} else {
 		raw, err := ParseDirectorJSON(completion)
 		if err != nil {
-			return DirectorRevision{}, fmt.Errorf("%w: %v", ErrInvalid, err)
+			return DirectorRevision{}, retryableModelOutputError(err)
 		}
 		result, err = NormalizeDirectorOutput(raw, contract.Normalization)
 		if err != nil {
-			return DirectorRevision{}, fmt.Errorf("%w: %v", ErrInvalid, err)
+			return DirectorRevision{}, retryableModelOutputError(err)
 		}
 	}
 	if smartUnifiedAnalysis != nil {
@@ -384,11 +394,11 @@ func (s *DirectorService) RunAssetExtraction(ctx context.Context, owner, batchID
 	}
 	raw, err := ParseDirectorJSON(completion)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
+		return nil, retryableModelOutputError(err)
 	}
 	assets, err := NormalizeAssetExtractionOutput(raw)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
+		return nil, retryableModelOutputError(err)
 	}
 	// The visual baseline is deliberately optional. Asset extraction remains
 	// productive even if a model omitted or malformed the extra analysis field.
@@ -479,7 +489,7 @@ func (s *DirectorService) RunOpeningVariants(ctx context.Context, owner, batchID
 		return nil, err
 	}
 	contract := BuildOpeningVariantsContract(book, first, followUps, meta, variantCount, snapshot.MaxVideoDuration)
-	text, err := s.Provider.Complete(ctx, TextCompletionRequest{SystemPrompt: contract.SystemPrompt, UserPrompt: contract.UserPrompt, Temperature: contract.Temperature, MaxTokens: contract.MaxTokens})
+	text, err := s.Provider.Complete(ctx, TextCompletionRequest{SystemPrompt: contract.SystemPrompt, UserPrompt: contract.UserPrompt, Temperature: contract.Temperature, MaxTokens: contract.MaxTokens, DisableJSONResponse: true})
 	if err != nil {
 		return nil, err
 	}
@@ -514,7 +524,7 @@ func requireSuccessfulOpeningVariants(variants []OpeningVariant, variantCount in
 	if len(failed) == 0 {
 		return nil
 	}
-	return fmt.Errorf("%w: 换开头变体未全部生成；%s", ErrInvalid, strings.Join(failed, "；"))
+	return retryableModelOutputError(fmt.Errorf("换开头变体未全部生成；%s", strings.Join(failed, "；")))
 }
 
 // saveOpeningVariants writes the generated variants into VIDEO01's settings

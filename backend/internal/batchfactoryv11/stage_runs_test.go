@@ -85,6 +85,22 @@ func TestNormalizeStageExecutionErrorMarksTextProviderTransportFailureRetryable(
 	}
 }
 
+func TestBookStageAssetMalformedModelOutputIsRetryable(t *testing.T) {
+	store, batch, book := seedDirectorBook(t, "original", false)
+	service := &BookStageService{
+		Store:    store,
+		Director: &DirectorService{Store: store, Provider: &queuedDirectorProvider{values: []string{"不是 JSON"}}},
+	}
+
+	summary, err := service.Run(context.Background(), "alice", batch.ID, book.ID, BookStageAssets, StageModeMissing, "asset-malformed-output", "")
+	if !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("malformed model output must be retryable, got %v", err)
+	}
+	if summary.LastFailed == nil || summary.LastFailed.Stage != BookStageAssets || !strings.Contains(summary.LastFailed.ErrorMessage, "导演模型没有返回合法 JSON") {
+		t.Fatalf("failed asset run = %#v", summary.LastFailed)
+	}
+}
+
 func TestBookStageDirectorUsesStructuredH3KernelWhenH3VideoPresetIsSelected(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join("testdata", "h3_v12_complete_director_trace.json"))
 	if err != nil {

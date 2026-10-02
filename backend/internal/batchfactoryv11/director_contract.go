@@ -16,10 +16,11 @@ var DirectorPrefixKeys = []string{
 }
 
 type TextCompletionRequest struct {
-	SystemPrompt string
-	UserPrompt   string
-	Temperature  float64
-	MaxTokens    int
+	SystemPrompt        string
+	UserPrompt          string
+	Temperature         float64
+	MaxTokens           int
+	DisableJSONResponse bool
 }
 
 type PromptContract struct {

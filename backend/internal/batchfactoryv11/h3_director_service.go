@@ -68,21 +68,21 @@ func (s *DirectorService) RunH3Director(ctx context.Context, owner, batchID, boo
 	}
 	raw, err := ParseDirectorJSON(completion)
 	if err != nil {
-		return DirectorRevision{}, fmt.Errorf("%w: %v", ErrInvalid, err)
+		return DirectorRevision{}, retryableModelOutputError(err)
 	}
 	raw, err = bindH3DirectorAssets(raw, book.AssetRecords)
 	if err != nil {
-		return DirectorRevision{}, err
+		return DirectorRevision{}, retryableModelOutputError(err)
 	}
 	document, err := ParseH3DirectorDocument(raw, source)
 	if err != nil {
-		return DirectorRevision{}, err
+		return DirectorRevision{}, retryableModelOutputError(err)
 	}
 	if document.DirectorPresetKey != request.Preset.Key || document.DirectorPresetRevision != request.Preset.Revision {
-		return DirectorRevision{}, fmt.Errorf("%w: H3 director output preset does not match frozen preset", ErrInvalid)
+		return DirectorRevision{}, retryableModelOutputError(fmt.Errorf("H3 director output preset does not match frozen preset"))
 	}
 	if h3VisualBaselineText(document.VisualBaseline) == "" {
-		return DirectorRevision{}, fmt.Errorf("%w: H3 visual_baseline is required", ErrInvalid)
+		return DirectorRevision{}, retryableModelOutputError(fmt.Errorf("H3 visual_baseline is required"))
 	}
 	if analysis != nil {
 		// The style request is an independently frozen upstream result.  The
