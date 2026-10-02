@@ -537,7 +537,7 @@ test('giant placeholder without an executor task fails that book and lets the ne
   assert.equal(status.state, 'needs_attention');
 });
 
-test('a giant OCR task that no executor claims within five minutes is blocked', async () => {
+test('a queued giant OCR task fails immediately and frees its automation slot', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-queued-giant-'));
   const { batch, adapter } = fixture();
   batch.books[0].sourceText = '';
@@ -547,7 +547,7 @@ test('a giant OCR task that no executor claims within five minutes is blocked', 
     adapter,
     statePath: path.join(directory, 'state.json'),
     pollMs: 60_000,
-    now: () => new Date('2026-10-02T00:05:01.000Z'),
+    now: () => new Date('2026-10-02T00:00:01.000Z'),
     logger: { error() {} }
   });
 
@@ -558,7 +558,35 @@ test('a giant OCR task that no executor claims within five minutes is blocked', 
   assert.equal(status.state, 'needs_attention');
   assert.equal(status.books[0].status, 'failed');
   assert.match(status.books[0].message, /未被执行器领取/);
-  assert.match(status.books[0].error, /5 分钟/);
+  assert.match(status.books[0].error, /尚未领取/);
+});
+
+test('a giant OCR task with an expired executor lease fails and frees its automation slot', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-expired-giant-'));
+  const { batch, adapter } = fixture();
+  batch.books[0].sourceText = '';
+  batch.books[0].sourceMetadata = { sourceMode: 'giant_material', contentPending: true, executorJobId: 'giant-job-expired' };
+  adapter.reconcileGiantMaterialSource = async () => ({
+    state: 'running',
+    leaseExpiresAt: '2026-10-02T00:00:00.000Z',
+    progress: { percent: 90 }
+  });
+  const controller = createBatchFactoryAutomationController({
+    adapter,
+    statePath: path.join(directory, 'state.json'),
+    pollMs: 60_000,
+    now: () => new Date('2026-10-02T00:00:01.000Z'),
+    logger: { error() {} }
+  });
+
+  await controller.start({ owner: 'user', batchId: batch.id, concurrency: 1 });
+  for (let i = 0; i < 3; i += 1) { await controller.tick(); await wait(); }
+
+  const status = controller.status({ owner: 'user', batchId: batch.id });
+  assert.equal(status.state, 'needs_attention');
+  assert.equal(status.books[0].status, 'failed');
+  assert.match(status.books[0].message, /执行器已离线/);
+  assert.match(status.books[0].error, /租约已过期/);
 });
 
 test('reload migrates historic unclaimed giant OCR blocks into failed books', () => {

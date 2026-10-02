@@ -2046,7 +2046,12 @@ function createBatchFactoryV11Router(options = {}) {
         if (state === 'failed' || state === 'cancelled') {
           return { state, error: String(giantJob?.error || giantJob?.result?.error || '滚屏 OCR 未完成') };
         }
-        return { state: state || 'waiting', progress: giantJob?.progress || {}, queuedAt: giantJob?.createdAt || giantJob?.created_at || '' };
+        return {
+          state: state || 'waiting',
+          progress: giantJob?.progress || {},
+          queuedAt: giantJob?.createdAt || giantJob?.created_at || '',
+          leaseExpiresAt: giantJob?.leaseExpiresAt || giantJob?.lease_expires_at || ''
+        };
       },
       runStage: async ({ owner: username, isOwner, batch, book, stage, mode, videoId = '', requestId, settings: frozenSettings }) => {
         const batchId = batch.id;
