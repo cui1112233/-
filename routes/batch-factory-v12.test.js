@@ -6,14 +6,18 @@ const {
   batchFactoryBatchListSummary,
   fetchBatchFactoryOriginals,
   refillMissingBatchFactoryBookSource,
-  buildFrozenGiantBatchCreatePayload,
+  buildGiantBatchCreatePayload,
   routeV12UpstreamPath,
   rewriteV12PathForLegacyRead,
   rejectLegacyV11Mutations
 } = require('./batch-factory-v12');
 
-test('freezes the selected giant automation preset into the intake creation request', () => {
-  const payload = buildFrozenGiantBatchCreatePayload({
+test('applies the selected giant automation preset as initial unified settings without frozen metadata', () => {
+  const preset = {
+    id: 'preset-1', name: '全自动预设', version: 3,
+    config: { textModelId: 'text-model-a', imageModelId: 'image-model-a', automationPresetSnapshot: { id: 'legacy' } }
+  };
+  const payload = buildGiantBatchCreatePayload({
     title: '巨量测试',
     giantAutomation: {
       presetId: 'preset-1',
@@ -22,26 +26,34 @@ test('freezes the selected giant automation preset into the intake creation requ
       concurrency: 2,
       scheduledAt: '2026-10-02T12:00:00.000Z'
     }
-  }, {
-    id: 'preset-1', name: '全自动预设', version: 3,
-    config: { textModelId: 'text-model-a', imageModelId: 'image-model-a' }
-  }, () => new Date('2026-10-02T10:00:00.000Z'));
+  }, preset);
 
   assert.deepEqual(payload, {
     title: '巨量测试',
     initialBatchSettings: {
-      textModelId: 'text-model-a', imageModelId: 'image-model-a',
-      automationPresetSnapshot: {
-        id: 'preset-1', name: '全自动预设', version: 3,
-        frozenAt: '2026-10-02T10:00:00.000Z'
-      }
+      textModelId: 'text-model-a', imageModelId: 'image-model-a'
     },
     giantAutomationPlan: {
       presetId: 'preset-1', runMode: 'full_submit', concurrency: 2,
       scheduledAt: '2026-10-02T12:00:00.000Z'
     }
   });
-  assert.throws(() => buildFrozenGiantBatchCreatePayload({ giantAutomation: { presetId: 'preset-1', expectedPresetVersion: 2 } }, { id: 'preset-1', version: 3, config: { textModelId: 'text-model-a' } }), /版本已变化/);
+  payload.initialBatchSettings.textModelId = 'changed-after-creation';
+  assert.equal(preset.config.textModelId, 'text-model-a');
+  assert.deepEqual(preset.config.automationPresetSnapshot, { id: 'legacy' });
+  assert.throws(() => buildGiantBatchCreatePayload({ giantAutomation: { presetId: 'preset-1', expectedPresetVersion: 2 } }, preset), /版本已变化/);
+});
+
+test('giant preset application keeps an immediate plan and rejects unavailable preset config', () => {
+  const body = { title: '巨量测试', giantAutomation: {
+    presetId: 'preset-1', expectedPresetVersion: 3, runMode: 'full_submit', concurrency: 2
+  } };
+  assert.deepEqual(buildGiantBatchCreatePayload(body, { id: 'preset-1', version: 3, config: { textModelId: 'text-preset' } }), {
+    title: '巨量测试', initialBatchSettings: { textModelId: 'text-preset' },
+    giantAutomationPlan: { presetId: 'preset-1', runMode: 'full_submit', concurrency: 2, scheduledAt: '' }
+  });
+  assert.throws(() => buildGiantBatchCreatePayload(body, null), /预设不存在/);
+  assert.throws(() => buildGiantBatchCreatePayload(body, { id: 'preset-1', version: 3, config: { automationPresetSnapshot: { id: 'legacy' } } }), /没有可用配置/);
 });
 
 test('lists batch projects without serializing their full source and storyboard payloads', () => {

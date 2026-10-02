@@ -352,7 +352,7 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated, onBatchUpda
       const intake = intakeResponse?.intake || intakeResponse;
       if (!intake?.id) throw new Error('GIANT_MATERIAL_INTAKE_FAILED');
       const selectedPreset = (scheduledRun || automationRun) ? automationPresetSnapshot(automationPresets, automationPresetID) : null;
-      if ((scheduledRun || automationRun) && !selectedPreset) throw new Error('巨量素材自动化预设未能随创建冻结：所选预设不存在或没有可用配置，请重新选择。');
+      if ((scheduledRun || automationRun) && !selectedPreset) throw new Error('所选自动化预设不存在或没有可用配置，请重新选择。');
       const giantAutomationPlan = (scheduledRun || automationRun) ? {
         scheduledAt: scheduledAtISO,
         presetId: selectedPreset.id,
@@ -381,12 +381,6 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated, onBatchUpda
       });
       const batchId = batch?.id;
       if (!batchId) throw new Error('GIANT_MATERIAL_INTAKE_FAILED');
-      if (selectedPreset) {
-        const snapshot = batch?.settingsState?.patch?.automationPresetSnapshot;
-        if (String(snapshot?.id || '') !== String(selectedPreset.id)) {
-          throw new Error('巨量素材自动化预设未能随创建冻结，请关闭弹窗后重新创建；尚未派发读取任务。');
-        }
-      }
       let queued = 0;
       for (const entry of selected) {
         try {

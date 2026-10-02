@@ -27,6 +27,32 @@ const STATUS_PATH = '/api/batch-factory/v11/video-provider/status';
 const AI_PROMPT_MODULES = ['assets', 'constraints', 'hook', 'originalDirector', 'viralDirector', 'video', 'visual'];
 function object(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
 
+function sanitizeAutomationPresetConfig(value) {
+  const config = JSON.parse(JSON.stringify(object(value)));
+  delete config.automationPresetSnapshot;
+  return config;
+}
+
+async function applyAutomationPresetToBatch({ username, isOwner, batch, preset, bridgeOptions }) {
+  const current = sanitizeAutomationPresetConfig(batch?.settingsState?.patch);
+  const config = sanitizeAutomationPresetConfig(preset?.config);
+  if (!Object.keys(config).length) throw requestError('自动化预设没有可用配置', 422, 'AUTOMATION_PRESET_CONFIG_REQUIRED');
+  const patch = { ...current, ...config };
+  for (const key of ['aiPromptConfig', 'publishSettings']) {
+    if (Object.hasOwn(current, key) || Object.hasOwn(config, key)) {
+      patch[key] = { ...object(current[key]), ...object(config[key]) };
+    }
+  }
+  const pathname = `/api/batch-factory/v11/batches/${encodeURIComponent(batch.id)}`;
+  const request = { ...bridgeOptions, username, isOwner };
+  await v11JSONRequest({
+    ...request, method: 'PUT', pathname: `${pathname}/settings`,
+    payload: { patch, restoreKeys: ['automationPresetSnapshot'], expectedRevision: Number(batch.revision || 0) }
+  });
+  const reloaded = await v11JSONRequest({ ...request, method: 'GET', pathname });
+  return reloaded?.batch || reloaded;
+}
+
 // "单书继承作品配置、作品继承引擎配置"：批量自身的设置里没选文本模型时，
 // 自动化不能直接卡死，要按老规矩回退到该账号在设置页保存的默认文本模型。
 // 纯函数：传入批量设置快照和账号配置，返回补齐后的快照。
@@ -2099,6 +2125,14 @@ function createBatchFactoryV11Router(options = {}) {
       if (!presetId) throw requestError('请先选择自动化预设', 400, 'AUTOMATION_PRESET_REQUIRED');
       const preset = presetId ? await automationPresets.get(req.username, presetId) : null;
       if (presetId && !preset) throw requestError('自动化预设不存在或不属于当前账号', 404, 'AUTOMATION_PRESET_NOT_FOUND');
+      const isOwner = req.auth?.account?.isOwner === true;
+      const loaded = await v11JSONRequest({
+        ...upstreamOptions, username: req.username, isOwner, method: 'GET',
+        pathname: `/api/batch-factory/v11/batches/${encodeURIComponent(req.params.batchId)}`
+      });
+      await applyAutomationPresetToBatch({
+        username: req.username, isOwner, batch: loaded?.batch || loaded, preset, bridgeOptions: upstreamOptions
+      });
       const result = await automation.start({
         ...automationContext(req), scheduledAt: req.body?.scheduledAt,
         runMode: req.body?.runMode, concurrency: req.body?.concurrency,
@@ -2243,6 +2277,8 @@ function createBatchFactoryV11Router(options = {}) {
 }
 
 module.exports = {
+  sanitizeAutomationPresetConfig,
+  applyAutomationPresetToBatch,
   H3_PROVIDER,
   PERSONAL_PROVIDER,
   LOCAL_PROVIDER,

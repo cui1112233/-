@@ -4,6 +4,7 @@ const {
   normalizedBookGender,
   normalizedBookStyle,
   prepareBatchFactoryBookClassification,
+  sanitizeAutomationPresetConfig,
   v11JSONRequest
 } = require('./batch-factory-v11');
 const { createMySQLWorkshopStore } = require('../lib/novel-fetch-workshop/mysql-store');
@@ -36,14 +37,10 @@ function plainObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }
 
-function cloneJSON(value) {
-  return JSON.parse(JSON.stringify(value));
-}
-
-// The browser sends only the selected preset identity.  Resolving and freezing
-// its config here makes creation a single durable server-side operation: a
+// The browser sends only the selected preset identity. Resolving its initial
+// unified settings here makes creation a single durable server-side operation: a
 // stale tab cannot create a batch and then lose a separate settings save.
-function buildFrozenGiantBatchCreatePayload(body = {}, preset, now = () => new Date()) {
+function buildGiantBatchCreatePayload(body = {}, preset) {
   const giantAutomation = plainObject(body.giantAutomation);
   const presetID = String(giantAutomation.presetId || '').trim();
   if (!presetID || String(preset?.id || '') !== presetID) throw new Error('自动化预设不存在或不属于当前账号');
@@ -51,24 +48,14 @@ function buildFrozenGiantBatchCreatePayload(body = {}, preset, now = () => new D
   if (Number.isFinite(expectedVersion) && expectedVersion > 0 && expectedVersion !== Number(preset.version)) {
     throw new Error('自动化预设版本已变化，请刷新后重试');
   }
-  const config = plainObject(preset.config);
+  const config = sanitizeAutomationPresetConfig(preset.config);
   if (!Object.keys(config).length) throw new Error('自动化预设没有可用配置');
   const runMode = ['storyboard_only', 'video_no_submit', 'full_submit'].includes(String(giantAutomation.runMode || ''))
     ? String(giantAutomation.runMode)
     : 'full_submit';
-  const capturedNow = now();
-  const frozenAt = (capturedNow instanceof Date ? capturedNow : new Date(capturedNow)).toISOString();
   return {
     title: String(body.title || '').trim(),
-    initialBatchSettings: {
-      ...cloneJSON(config),
-      automationPresetSnapshot: {
-        id: presetID,
-        name: String(preset.name || '自动化预设'),
-        version: Number(preset.version || 0),
-        frozenAt
-      }
-    },
+    initialBatchSettings: config,
     giantAutomationPlan: {
       presetId: presetID,
       runMode,
@@ -340,7 +327,7 @@ function createBatchFactoryV12Router(options = {}) {
       const account = { username: req.username, isOwner: req.auth?.account?.isOwner === true };
       const presetID = String(giantAutomation.presetId || '').trim();
       const preset = presetID ? await automationPresetStore.get(account.username, presetID) : null;
-      const payload = buildFrozenGiantBatchCreatePayload(req.body || {}, preset, options.now || (() => new Date()));
+      const payload = buildGiantBatchCreatePayload(req.body || {}, preset);
       const result = await v11JSONRequest({
         ...account,
         method: 'POST',
@@ -490,7 +477,7 @@ module.exports = {
   classifyBatchFactoryBooks,
   cleanBatchFactorySourceText,
   fetchBatchFactoryOriginals,
-  buildFrozenGiantBatchCreatePayload,
+  buildGiantBatchCreatePayload,
   refillMissingBatchFactoryBookSource,
   buildBatchFactoryRuntimeSummary,
   isNativeV12H3Path,

@@ -39,23 +39,44 @@ const {
   generateOpeningVariantsAfterSingleDirector
 } = require('./batch-factory-v11');
 
-test('automation start forwards plan metadata without freezing preset configuration', async t => {
+test('automation start persists the selected preset as unified settings before queueing metadata', async t => {
   const calls = [];
+  let batch = {
+    id: 'batch-1', revision: 7,
+    settingsState: { patch: {
+      textModelId: 'text-current', imageModelId: 'image-current',
+      automationPresetSnapshot: { id: 'legacy' },
+      aiPromptConfig: { assets: { enabled: true }, video: { presetId: 'current-video' } },
+      publishSettings: { organization: 'current-org', category: 'NEW_BOOK' }
+    } }
+  };
   const app = express();
   app.use(express.json());
   app.use((req, res, next) => { req.username = 'alice'; next(); });
   app.use('/api/batch-factory/v11', createBatchFactoryV11Router({
     goBaseUrl: 'http://go.local', bridgeSecret: 'secret',
     automationPresetStore: {
-      get: async () => ({ id: 'preset-1', name: '预设', version: 2, config: { textModelId: 'text-preset-old' } })
+      get: async () => ({ id: 'preset-1', name: '预设', version: 2, config: {
+        textModelId: 'text-preset', openingEnabled: false, openingCount: 0,
+        automationPresetSnapshot: { id: 'preset-legacy' },
+        aiPromptConfig: { video: { presetId: 'preset-video' } },
+        publishSettings: { category: 'FINISHED_BOOK', startTime: '' }
+      } })
     },
     automationController: {
-      start: async input => { calls.push(input); return { state: 'scheduled' }; }
+      start: async input => { calls.push({ start: input }); return { state: 'scheduled' }; }
     },
-    fetchImpl: async () => ({
-      ok: true, status: 200,
-      text: async () => JSON.stringify({ batch: { id: 'batch-1', settingsState: { patch: { textModelId: 'text-current' } } } })
-    })
+    fetchImpl: async (url, options) => {
+      const payload = options.body ? JSON.parse(options.body) : undefined;
+      calls.push({ method: options.method, pathname: new URL(url).pathname, payload });
+      if (options.method === 'PUT') {
+        assert.equal(payload.expectedRevision, batch.revision);
+        const patch = { ...batch.settingsState.patch };
+        for (const key of payload.restoreKeys || []) delete patch[key];
+        batch = { ...batch, revision: 8, settingsState: { patch: { ...patch, ...payload.patch } } };
+      }
+      return { ok: true, status: 200, text: async () => JSON.stringify({ batch }) };
+    }
   }));
   const server = app.listen(0, '127.0.0.1');
   t.after(() => new Promise(resolve => server.close(resolve)));
@@ -65,13 +86,60 @@ test('automation start forwards plan metadata without freezing preset configurat
     body: JSON.stringify({ presetId: 'preset-1', runMode: 'storyboard_only', concurrency: 4, scheduledAt: '2026-10-02T10:01:00.000Z' })
   });
   assert.equal(response.status, 201);
-  assert.equal(calls.length, 1);
-  assert.deepEqual(calls[0], {
+  assert.equal(calls.length, 4);
+  assert.deepEqual(calls.slice(0, 3), [
+    { method: 'GET', pathname: '/api/batch-factory/v11/batches/batch-1', payload: undefined },
+    { method: 'PUT', pathname: '/api/batch-factory/v11/batches/batch-1/settings', payload: {
+      expectedRevision: 7, restoreKeys: ['automationPresetSnapshot'], patch: {
+        textModelId: 'text-preset', imageModelId: 'image-current', openingEnabled: false, openingCount: 0,
+        aiPromptConfig: { assets: { enabled: true }, video: { presetId: 'preset-video' } },
+        publishSettings: { organization: 'current-org', category: 'FINISHED_BOOK', startTime: '' }
+      }
+    } },
+    { method: 'GET', pathname: '/api/batch-factory/v11/batches/batch-1', payload: undefined }
+  ]);
+  assert.equal(batch.settingsState.patch.textModelId, 'text-preset');
+  assert.equal(Object.hasOwn(batch.settingsState.patch, 'automationPresetSnapshot'), false);
+  assert.deepEqual(calls[3].start, {
     owner: 'alice', isOwner: false, batchId: 'batch-1',
     scheduledAt: '2026-10-02T10:01:00.000Z', runMode: 'storyboard_only', concurrency: 4,
     preset: { id: 'preset-1', name: '预设', version: 2 }
   });
 });
+
+for (const failedRequest of [1, 2, 3]) {
+  test(`automation does not queue when preset application bridge request ${failedRequest} fails`, async t => {
+    let requests = 0;
+    let starts = 0;
+    const app = express();
+    app.use(express.json());
+    app.use((req, res, next) => { req.username = 'alice'; next(); });
+    app.use('/api/batch-factory/v11', createBatchFactoryV11Router({
+      goBaseUrl: 'http://go.local', bridgeSecret: 'secret',
+      automationPresetStore: { get: async () => ({ id: 'preset-1', config: { textModelId: 'text-preset' } }) },
+      automationController: { start: async () => { starts++; return { state: 'running' }; } },
+      fetchImpl: async () => {
+        requests++;
+        const failed = requests === failedRequest;
+        return {
+          ok: !failed, status: failed ? 409 : 200,
+          text: async () => JSON.stringify(failed ? { error: 'revision conflict' } : {
+            batch: { id: 'batch-1', revision: 7, settingsState: { patch: {} } }
+          })
+        };
+      }
+    }));
+    const server = app.listen(0, '127.0.0.1');
+    t.after(() => new Promise(resolve => server.close(resolve)));
+    await new Promise(resolve => server.once('listening', resolve));
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/batch-factory/v11/batches/batch-1/automation/start`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ presetId: 'preset-1' })
+    });
+    assert.equal(response.status, 409);
+    assert.equal(starts, 0);
+    assert.equal(requests, failedRequest);
+  });
+}
 
 test('recovers giant automation using its saved plan without requiring a frozen preset', () => {
   const recovered = liveGiantAutomationRecovery({

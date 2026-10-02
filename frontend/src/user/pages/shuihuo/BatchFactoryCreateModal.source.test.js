@@ -91,12 +91,13 @@ test('giant immediate execution opens the same automation-plan dialog as other b
   assert.doesNotMatch(giantToolbar, /onClick=\{\(\) => submitGiantMaterial\(\)\}/);
 });
 
-test('giant creation asks the server to freeze the selected automation preset before dispatching reads', () => {
+test('giant creation selects a versioned preset without requiring frozen metadata before dispatching reads', () => {
 	assert.match(source, /giantAutomation:/);
 	assert.match(source, /expectedPresetVersion: selectedPreset\.version/);
 	assert.match(source, /automationPresetSnapshot\(automationPresets, automationPresetID\)/);
 	assert.doesNotMatch(source, /saveBatchSettings/);
-	assert.match(source, /巨量素材自动化预设未能随创建冻结/);
+	assert.doesNotMatch(source, /settingsState\?\.patch\?\.automationPresetSnapshot/);
+	assert.doesNotMatch(source, /巨量素材自动化预设未能随创建冻结/);
 });
 
 test('lets giant batches choose a mutually exclusive original acquisition priority', () => {
