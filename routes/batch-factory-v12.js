@@ -5,6 +5,8 @@ const {
   normalizedBookStyle,
   prepareBatchFactoryBookClassification,
   sanitizeAutomationPresetConfig,
+  validateBatchFactoryModelPatch,
+  redactBatchFactorySystemPromptBodies,
   v11JSONRequest
 } = require('./batch-factory-v11');
 const { createMySQLWorkshopStore } = require('../lib/novel-fetch-workshop/mysql-store');
@@ -328,6 +330,7 @@ function createBatchFactoryV12Router(options = {}) {
       const presetID = String(giantAutomation.presetId || '').trim();
       const preset = presetID ? await automationPresetStore.get(account.username, presetID) : null;
       const payload = buildGiantBatchCreatePayload(req.body || {}, preset);
+      validateBatchFactoryModelPatch({ ...options, username: req.username, account: req.auth?.account, patch: payload.initialBatchSettings });
       const result = await v11JSONRequest({
         ...account,
         method: 'POST',
@@ -439,8 +442,20 @@ function createBatchFactoryV12Router(options = {}) {
       return res.status(Number(error?.status) || 502).json({ error: error?.message || '读取批量运行状态失败' });
     }
   });
-	// Deletion is intentionally the only V12 mutation delegated to Go.  It is
-	// owner-scoped and removes only local records; no 121 or provider call runs.
+  router.put(['/batches/:batchId/settings', '/batches/:batchId/books/:bookId/override'], async (req, res) => {
+    try {
+      validateBatchFactoryModelPatch({ ...options, username: req.username, account: req.auth?.account, patch: req.body?.patch });
+      const result = await v11JSONRequest({
+        ...options, username: req.username, isOwner: req.auth?.account?.isOwner === true,
+        method: 'PUT', pathname: rewriteV12PathForLegacyRead(new URL(req.originalUrl, 'http://qiantie.local').pathname), payload: req.body
+      });
+      res.setHeader('X-Batch-Factory-Version', 'v12');
+      return res.json(redactBatchFactorySystemPromptBodies(result));
+    } catch (error) {
+      return res.status(Number(error?.status) || 502).json({ error: error?.message || '保存批量工厂配置失败', code: error?.code || 'BFV11_UPSTREAM_UNAVAILABLE' });
+    }
+  });
+	// Deletion is owner-scoped and removes only local records; no 121 or provider call runs.
 	router.delete('/batches/:batchId/books/:bookId', async (req, res) => {
 		try {
 		const account = { username: req.username, isOwner: req.auth?.account?.isOwner === true };

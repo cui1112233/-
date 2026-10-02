@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const express = require('express');
 
 const {
   classifyBatchFactoryBooks,
@@ -9,8 +10,74 @@ const {
   buildGiantBatchCreatePayload,
   routeV12UpstreamPath,
   rewriteV12PathForLegacyRead,
-  rejectLegacyV11Mutations
+  rejectLegacyV11Mutations,
+  createBatchFactoryV12Router
 } = require('./batch-factory-v12');
+
+for (const target of ['settings', 'books/book-1/override']) {
+  for (const invalid of [true, false]) {
+    test(`V12 ${target} ${invalid ? 'rejects wrong-kind model before persistence' : 'forwards sparse inheritance and valid model fields unchanged'}`, async t => {
+      const calls = [];
+      const app = express();
+      app.use(express.json());
+      app.use((req, res, next) => { req.username = 'alice'; req.auth = { account: { isOwner: true } }; next(); });
+      app.use('/api/batch-factory/v12', createBatchFactoryV12Router({
+        goBaseUrl: 'http://go.local', bridgeSecret: 'secret', automationController: {},
+        configReader: () => ({ modelCatalogVersion: 1, modelCatalog: [
+          { id: 'text-1', kind: 'text', enabled: true, baseUrl: 'https://text.example/v1', modelId: 'text-provider', credential: 'test-key' }
+        ] }),
+        fetchImpl: async (url, init) => {
+          calls.push({ method: init.method, pathname: new URL(url).pathname, payload: JSON.parse(init.body) });
+          return new Response(JSON.stringify({ batch: { id: 'batch-1', revision: 8,
+            settingsState: { patch: { aiPromptConfig: { assets: { presetId: 'preset-assets', body: 'server-only preset body' } } } } }
+          }), { status: 200 });
+        }
+      }));
+      const server = app.listen(0, '127.0.0.1');
+      t.after(() => new Promise(resolve => server.close(resolve)));
+      await new Promise(resolve => server.once('listening', resolve));
+      const payload = { expectedRevision: 7, restoreKeys: ['videoModelId'], patch: invalid
+        ? { videoModelId: 'text-1' }
+        : target === 'settings' ? { textModelId: 'text-1', openingEnabled: false } : { openingEnabled: false } };
+      const response = await fetch(`http://127.0.0.1:${server.address().port}/api/batch-factory/v12/batches/batch-1/${target}`, {
+        method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload)
+      });
+      assert.equal(response.status, invalid ? 422 : 200);
+      if (invalid) {
+        assert.match((await response.json()).error, /视频模型不可用/);
+        assert.deepEqual(calls, []);
+      } else {
+        assert.deepEqual(await response.json(), { batch: { id: 'batch-1', revision: 8,
+          settingsState: { patch: { aiPromptConfig: { assets: { presetId: 'preset-assets' } } } } }
+        });
+        assert.equal(response.headers.get('x-batch-factory-version'), 'v12');
+        assert.deepEqual(calls, [{ method: 'PUT', pathname: `/api/batch-factory/v11/batches/batch-1/${target}`, payload }]);
+      }
+    });
+  }
+}
+
+test('V12 giant creation rejects an unavailable preset model before creating the batch', async t => {
+  const calls = [];
+  const app = express();
+  app.use(express.json());
+  app.use((req, res, next) => { req.username = 'alice'; req.auth = { account: { isOwner: true } }; next(); });
+  app.use('/api/batch-factory/v12', createBatchFactoryV12Router({
+    goBaseUrl: 'http://go.local', bridgeSecret: 'secret', automationController: {},
+    configReader: () => ({ modelCatalogVersion: 1, modelCatalog: [] }),
+    automationPresetStore: { get: async () => ({ id: 'preset-1', config: { textModelId: 'removed-text' } }) },
+    fetchImpl: async (url, init) => { calls.push({ url, init }); return new Response('{}', { status: 201 }); }
+  }));
+  const server = app.listen(0, '127.0.0.1');
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  await new Promise(resolve => server.once('listening', resolve));
+  const response = await fetch(`http://127.0.0.1:${server.address().port}/api/batch-factory/v12/intakes/intake-1/batches`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ giantAutomation: { presetId: 'preset-1' } })
+  });
+  assert.equal(response.status, 422);
+  assert.match((await response.json()).error, /文本模型不可用/);
+  assert.deepEqual(calls, []);
+});
 
 test('applies the selected giant automation preset as initial unified settings without frozen metadata', () => {
   const preset = {

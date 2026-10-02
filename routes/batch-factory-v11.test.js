@@ -33,11 +33,158 @@ const {
   safeAutomationStatus,
   liveGiantAutomationRecovery,
   createBatchFactoryV11Router,
+  validateBatchFactoryModelPatch,
   batchFactoryProductionText,
   splitVideoPresetBody,
   singleBookDirectorStageTarget,
   generateOpeningVariantsAfterSingleDirector
 } = require('./batch-factory-v11');
+
+function modelValidationOptions() {
+  return {
+    memberStore: { getMember: username => ({ username, active: true, role: 'manager' }) },
+    configReader: () => ({ modelCatalogVersion: 1, modelCatalog: [
+      { id: 'text-preset', kind: 'text', enabled: true, baseUrl: 'https://text.example/v1', modelId: 'text-provider', credential: 'test-key' },
+      { id: 'image-current', kind: 'image', enabled: true, baseUrl: 'https://image.example/v1', modelId: 'image-provider', credential: 'test-key' },
+      { id: 'video-current', kind: 'video', enabled: true, baseUrl: 'https://video.example/v1', modelId: 'video-provider', credential: 'test-key' },
+      { id: 'text-disabled', kind: 'text', enabled: false, credential: 'test-key' }
+    ] })
+  };
+}
+
+for (const patch of [{ textModelId: 'old-text' }, { textModelId: 'text-disabled' }, { textModelId: 'image-current' }]) {
+  test(`rejects unavailable or wrong-kind text selection ${patch.textModelId}`, () => {
+    assert.throws(() => validateBatchFactoryModelPatch({ username: 'alice', patch, ...modelValidationOptions() }),
+      error => error.status === 422 && /文本模型不可用、未配置或尚未启用/.test(error.message));
+  });
+}
+
+test('validates all three model kinds without rejecting missing inherited book fields or mutating the patch', () => {
+  const patch = { textModelId: 'text-preset', imageModelId: 'image-current', videoModelId: 'video-current' };
+  assert.doesNotThrow(() => validateBatchFactoryModelPatch({ username: 'alice', patch, ...modelValidationOptions() }));
+  assert.deepEqual(patch, { textModelId: 'text-preset', imageModelId: 'image-current', videoModelId: 'video-current' });
+  assert.doesNotThrow(() => validateBatchFactoryModelPatch({ username: 'alice', patch: { openingEnabled: false, textModelId: '' }, configReader: () => ({}) }));
+  for (const key of ['imageModelId', 'videoModelId']) {
+    assert.throws(() => validateBatchFactoryModelPatch({ username: 'alice', patch: { [key]: 'text-preset' }, ...modelValidationOptions() }), error => error.status === 422);
+  }
+});
+
+for (const target of ['settings', 'books/book-1/override']) {
+  test(`V11 ${target} rejects an invalid selected model before bridge persistence`, async t => {
+    const writes = [];
+    const app = express();
+    app.use(express.json());
+    app.use((req, res, next) => { req.username = 'alice'; next(); });
+    app.use('/api/batch-factory/v11', createBatchFactoryV11Router({
+      ...modelValidationOptions(), goBaseUrl: 'http://go.local', bridgeSecret: 'secret', automationController: {}, presetStore: presetStore(),
+      fetchImpl: async (url, init) => { writes.push({ url, init }); return new Response('{}', { status: 200 }); }
+    }));
+    const server = app.listen(0, '127.0.0.1');
+    t.after(() => new Promise(resolve => server.close(resolve)));
+    await new Promise(resolve => server.once('listening', resolve));
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/batch-factory/v11/batches/batch-1/${target}`, {
+      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ patch: { textModelId: 'old-text' }, expectedRevision: 7 })
+    });
+    assert.equal(response.status, 422);
+    assert.match((await response.json()).error, /文本模型不可用/);
+    assert.deepEqual(writes, []);
+  });
+}
+
+for (const invalidTarget of ['preset', 'book']) {
+  test(`automation start rejects an unavailable ${invalidTarget} model before batch persistence or queueing`, async t => {
+    const calls = [];
+    let starts = 0;
+    const app = express();
+    app.use(express.json());
+    app.use((req, res, next) => { req.username = 'alice'; next(); });
+    app.use('/api/batch-factory/v11', createBatchFactoryV11Router({
+      ...modelValidationOptions(), goBaseUrl: 'http://go.local', bridgeSecret: 'secret',
+      automationPresetStore: { get: async () => ({ id: 'preset-1', config: { textModelId: invalidTarget === 'preset' ? 'text-disabled' : 'text-preset' } }) },
+      automationController: { start: async () => { starts++; return {}; } },
+      fetchImpl: async (url, init) => {
+        calls.push(init.method);
+        return new Response(JSON.stringify({ batch: { id: 'batch-1', revision: 7, settingsState: { patch: {} },
+          books: [{ id: 'book-1', settingsState: { patch: invalidTarget === 'book' ? { imageModelId: 'old-image' } : {} } }] } }), { status: 200 });
+      }
+    }));
+    const server = app.listen(0, '127.0.0.1');
+    t.after(() => new Promise(resolve => server.close(resolve)));
+    await new Promise(resolve => server.once('listening', resolve));
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/batch-factory/v11/batches/batch-1/automation/start`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ presetId: 'preset-1' })
+    });
+    assert.equal(response.status, 422);
+    assert.match((await response.json()).error, /模型不可用/);
+    assert.deepEqual(calls, ['GET']);
+    assert.equal(starts, 0);
+  });
+}
+
+for (const stage of ['opening', 'visual']) {
+  test(`manual ${stage} dispatch rejects wrong-kind selected models before any bridge request`, async t => {
+    const calls = [];
+    const app = express();
+    app.use(express.json());
+    app.use((req, res, next) => { req.username = 'alice'; next(); });
+    app.use('/api/batch-factory/v11', createBatchFactoryV11Router({
+      ...modelValidationOptions(), goBaseUrl: 'http://go.local', bridgeSecret: 'secret', automationController: {},
+      fetchImpl: async (url, init) => { calls.push({ url, init }); return new Response('{}', { status: 201 }); }
+    }));
+    const server = app.listen(0, '127.0.0.1');
+    t.after(() => new Promise(resolve => server.close(resolve)));
+    await new Promise(resolve => server.once('listening', resolve));
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/batch-factory/v11/batches/batch-1/books/book-1/stages/${stage}`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ imageModelId: 'text-preset' })
+    });
+    assert.equal(response.status, 422);
+    assert.match((await response.json()).error, /图片模型不可用/);
+    assert.deepEqual(calls, []);
+  });
+}
+
+test('automation revalidates the live catalogue before stage dispatch after a selected image model is disabled', async t => {
+  const fs = require('node:fs/promises');
+  const os = require('node:os');
+  const path = require('node:path');
+  const stateDir = await fs.mkdtemp(path.join(os.tmpdir(), 'bf-model-validation-'));
+  const options = modelValidationOptions();
+  const config = options.configReader();
+  const calls = [];
+  const batch = { id: 'batch-1', settingsState: { patch: { textModelId: 'text-preset', imageModelId: 'image-current' } },
+    books: [{ id: 'book-1', revision: 1, sourceText: '测试小说正文', settingsState: { patch: {} } }] };
+  const router = createBatchFactoryV11Router({
+    ...options, configReader: () => config, goBaseUrl: 'http://go.local', bridgeSecret: 'secret',
+    automationStatePath: path.join(stateDir, 'automation.json'), automationRecoveryEnabled: false, automationPollMs: 60000,
+    fetchImpl: async (url, init) => {
+      calls.push({ method: init.method, pathname: new URL(url).pathname });
+      if (url.endsWith('/stages')) {
+        config.modelCatalog.find(model => model.id === 'image-current').enabled = false;
+        return new Response(JSON.stringify({ summary: { runs: [] } }), { status: 200 });
+      }
+      if (url.endsWith('/batches/batch-1')) return new Response(JSON.stringify({ batch }), { status: 200 });
+      return new Response(JSON.stringify({ jobs: [] }), { status: 200 });
+    }
+  });
+  const controller = router.automationController;
+  t.after(async () => {
+    await controller.cancel({ owner: 'alice', batchId: 'batch-1' });
+    await fs.rm(stateDir, { recursive: true, force: true });
+  });
+  await controller.start({ owner: 'alice', batchId: 'batch-1', runMode: 'storyboard_only' });
+  let status;
+  for (let attempt = 0; attempt < 100; attempt++) {
+    await new Promise(resolve => setTimeout(resolve, 5));
+    status = controller.status({ owner: 'alice', batchId: 'batch-1' });
+    const saved = JSON.parse(await fs.readFile(path.join(stateDir, 'automation.json'), 'utf8'));
+    if (Object.values(saved.jobs).some(job => job.counts?.total === 1)) {
+      await new Promise(resolve => setImmediate(resolve));
+      break;
+    }
+  }
+  assert.match(status?.books?.[0]?.error || '', /图片模型不可用/);
+  assert.equal(calls.some(call => call.method !== 'GET'), false, 'no stage/provider request or settings write is allowed');
+});
 
 test('automation start persists the selected preset as unified settings before queueing metadata', async t => {
   const calls = [];
@@ -54,6 +201,7 @@ test('automation start persists the selected preset as unified settings before q
   app.use(express.json());
   app.use((req, res, next) => { req.username = 'alice'; next(); });
   app.use('/api/batch-factory/v11', createBatchFactoryV11Router({
+    ...modelValidationOptions(),
     goBaseUrl: 'http://go.local', bridgeSecret: 'secret',
     automationPresetStore: {
       get: async () => ({ id: 'preset-1', name: '预设', version: 2, config: {
@@ -115,6 +263,7 @@ for (const failedRequest of [1, 2, 3]) {
     app.use(express.json());
     app.use((req, res, next) => { req.username = 'alice'; next(); });
     app.use('/api/batch-factory/v11', createBatchFactoryV11Router({
+      ...modelValidationOptions(),
       goBaseUrl: 'http://go.local', bridgeSecret: 'secret',
       automationPresetStore: { get: async () => ({ id: 'preset-1', config: { textModelId: 'text-preset' } }) },
       automationController: { start: async () => { starts++; return { state: 'running' }; } },
