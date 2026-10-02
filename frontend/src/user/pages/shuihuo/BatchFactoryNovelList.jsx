@@ -52,7 +52,6 @@ import {
   getH3Trace,
 	measureH3Audio,
 	compileH3Video,
-  getBookStageSummary,
   getDraft,
   getBatchRuntimeSummary,
   listAutomationPresets,
@@ -2532,10 +2531,6 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
   async function resetBookAudioMeasurement(book, expectedRevision = book?.revision) {
     return saveBookOverrideWithRetry(batch.id, book.id, Number(expectedRevision || 0), { patch: { audioDurationSeconds: 0, audioDurationFingerprint: '', audioDurationManual: false } });
   }
-  async function loadStageSummaries() {
-    const results = await Promise.allSettled(books.map(book => getBookStageSummary(batch.id, book.id)));
-    setStageSummaries(Object.fromEntries(results.flatMap((result, index) => result.status === 'fulfilled' ? [[books[index].id, resultData(result.value, 'summary')]] : [])));
-  }
   async function loadRuntimeStatus({ quiet = false, runtimeCapabilities = capabilities } = {}) {
     if (!batch?.id) return;
     // 自动化轮询、生产抽屉和首次加载可能在同一时刻触发；复用同一个请求，
@@ -2805,10 +2800,17 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
     if (!batch?.id || !book?.id || actionBusy) return;
     setActionBusy(stageActionKey('retry', book.id));
     try {
-      const summary = resultData(await getBookStageSummary(batch.id, book.id), 'summary');
+      // Historical rows can outlive a per-book stage document.  The batch
+      // snapshot deliberately marks those rows unavailable instead of turning
+      // a retry click into a browser-visible 404.
+      const runtime = await loadRuntimeStatus({ quiet: true });
+      const summary = runtime?.stageSummaries?.[book.id] || stageSummaries[book.id];
+      if (summary?.unavailable) {
+        message.info('当前书没有可读取的阶段记录，暂不能自动重试。');
+        return;
+      }
       if (!summary?.lastFailed) {
         message.info('当前小说没有可重试的失败步骤。');
-        await loadStageSummaries();
         return;
       }
       const settings = effectiveBookSettings(batch, book);

@@ -419,6 +419,15 @@ test('keeps persisted production and merge status readable when new work is disa
   assert.match(source, /setMergeStatus\(runtime\?\.merge \|\| \{ jobs: \[\] \}\)/);
 });
 
+test('retries failed stages from the batch runtime snapshot instead of querying every historical book stage directly', () => {
+  const retry = source.match(/async function retryLastFailedStage\([\s\S]*?\n  }\n  async function/)?.[0] || '';
+  assert.match(retry, /const runtime = await loadRuntimeStatus\(\{ quiet: true \}\);/);
+  assert.match(retry, /runtime\?\.stageSummaries\?\.\[book\.id\] \|\| stageSummaries\[book\.id\]/);
+  assert.match(retry, /当前书没有可读取的阶段记录，暂不能自动重试。/);
+  assert.doesNotMatch(source, /getBookStageSummary/);
+  assert.doesNotMatch(source, /async function loadStageSummaries/);
+});
+
 test('persists named AI reasoning presets through the V11 backend and lets users rename and load them', () => {
   assert.match(reasoningSource, /AI 推理预设/);
   assert.match(reasoningSource, /createConfigVersion/);
