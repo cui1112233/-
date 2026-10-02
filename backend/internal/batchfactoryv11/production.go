@@ -250,8 +250,11 @@ func productionError(err error) string {
 		return ""
 	}
 	message := strings.TrimSpace(err.Error())
-	if len(message) > 240 {
-		return message[:240]
+	// The column is VARCHAR(255). Truncate well below the byte limit so UTF-8
+	// multibyte characters never exceed it and the INSERT never fails with
+	// Error 1406 (Data too long), which used to cause an infinite retry loop.
+	if len(message) > 200 {
+		return message[:200] + "..."
 	}
 	return message
 }

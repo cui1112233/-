@@ -2196,7 +2196,7 @@ function UploadNetwork({ batch, books, selectedBookIds, productionStatus, mergeS
     const timer = setInterval(() => {
       if (document.hidden) return; // 切到后台时不刷，上传在服务端照常进行
       onRefresh().catch(() => {});
-    }, 1200);
+    }, 5000);
     return () => clearInterval(timer);
   }, [uploadingBookId, onRefresh]);
   const publishSessionReady = Boolean(publishSession?.environment?.ok && publishSession?.visible?.ok);
@@ -2623,13 +2623,13 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
     void poll();
     // 页面切到后台（最小化/切标签）时暂停轮询，回前台立刻补刷一次再继续，
     // 避免多人多标签把小服务器刷爆。页面一打开就在后台则等回前台再启动。
-    let timer = document.hidden ? null : setInterval(poll, 5000);
+    let timer = document.hidden ? null : setInterval(poll, 15000);
     const onVisibilityChange = () => {
       if (document.hidden) {
         if (timer) { clearInterval(timer); timer = null; }
       } else if (timer === null) {
         void poll();
-        timer = setInterval(poll, 5000);
+        timer = setInterval(poll, 15000);
       }
     };
     document.addEventListener('visibilitychange', onVisibilityChange);
@@ -2673,7 +2673,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
   const hasActiveProduction = (productionStatus?.jobs || []).some(job => (job?.tasks || []).some(task => ['queued', 'running'].includes(String(task?.status || '').toLowerCase())));
   useEffect(() => {
     if (!batch?.id || !(viewingBook || mediaBook || promptBook || hasActiveProduction)) return undefined;
-    const delay = hasActiveProduction ? 2000 : 5000;
+    const delay = hasActiveProduction ? 15000 : 30000;
     const tick = () => { loadRuntimeStatus({ quiet: true }); };
     // 同自动化轮询：切后台暂停，回前台补刷。
     let timer = document.hidden ? null : setInterval(tick, delay);
