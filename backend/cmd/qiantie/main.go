@@ -32,6 +32,7 @@ func main() {
 		log.Fatal(err)
 	}
 	defer db.Close()
+	configureDatabasePool(db)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	handler, err := app.Build(ctx, cfg, db, nil)
@@ -41,6 +42,16 @@ func main() {
 	server := &http.Server{Addr: cfg.ListenAddr, Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 	log.Printf("qiantie Go V11 listening on %s", cfg.ListenAddr)
 	log.Fatal(server.ListenAndServe())
+}
+
+func configureDatabasePool(db *sql.DB) {
+	// Runtime status refreshes arrive in short bursts. Keep those connections
+	// reusable instead of closing back to database/sql's default of two idle
+	// connections and reopening/authenticating them on every poll.
+	db.SetMaxOpenConns(24)
+	db.SetMaxIdleConns(24)
+	db.SetConnMaxIdleTime(10 * time.Minute)
+	db.SetConnMaxLifetime(time.Hour)
 }
 
 func healthURL(listenAddr string) string {

@@ -672,7 +672,7 @@ func (s *ProductionService) GetBatchStatus(ctx context.Context, owner, batchID s
 	if err != nil {
 		return BatchStatus{}, err
 	}
-	if _, err := s.Store.GetBatch(ctx, owner, batchID); err != nil {
+	if err := ensureBatchOwnership(ctx, s.Store, owner, batchID); err != nil {
 		return BatchStatus{}, err
 	}
 	if err := s.reconcileBatch(ctx, repository, owner, batchID); err != nil {
