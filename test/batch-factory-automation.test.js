@@ -537,6 +537,58 @@ test('giant placeholder without an executor task fails that book and lets the ne
   assert.equal(status.state, 'needs_attention');
 });
 
+test('automation fetches a giant placeholder directly before requiring an executor', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-direct-source-'));
+  const { batch, adapter } = fixture();
+  const book = batch.books[0];
+  book.sourceText = '';
+  book.sourceMetadata = { sourceMode: 'giant_material', contentPending: true };
+  let directFetches = 0;
+  adapter.fetchDirectSource = async ({ book: requestedBook }) => {
+    directFetches += 1;
+    requestedBook.sourceText = '从书城直接获取的完整正文';
+    requestedBook.sourceMetadata = { ...requestedBook.sourceMetadata, contentPending: false, originalReadVia: 'bookstore' };
+    return { state: 'succeeded', characters: requestedBook.sourceText.length };
+  };
+  const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} } });
+
+  await controller.start({ owner: 'user', batchId: batch.id, concurrency: 1 });
+  for (let i = 0; i < 10; i += 1) { await controller.tick(); await wait(); }
+
+  const status = controller.status({ owner: 'user', batchId: batch.id });
+  assert.equal(directFetches, 1);
+  assert.equal(status.state, 'completed');
+  assert.equal(status.books[0].status, 'ready');
+  assert.equal(status.books[0].stage, 'ready_for_upload');
+});
+
+test('a direct-source failure stops only that giant book and releases the next book', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-direct-source-failure-'));
+  const { batch, adapter } = fixture();
+  batch.books[0].sourceText = '';
+  batch.books[0].sourceMetadata = { sourceMode: 'giant_material', contentPending: true };
+  batch.books.push({ id: 'book-2', bookId: '102', title: '下一本', sourceText: '下一本可生产正文', settingsState: { patch: {} }, assetRecords: [], videos: [] });
+  let directFetches = 0;
+  adapter.fetchDirectSource = async () => {
+    directFetches += 1;
+    return { state: 'failed', error: '书城无正文' };
+  };
+  const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} } });
+
+  await controller.start({ owner: 'user', batchId: batch.id, concurrency: 1 });
+  for (let i = 0; i < 10; i += 1) { await controller.tick(); await wait(); }
+
+  const status = controller.status({ owner: 'user', batchId: batch.id });
+  const failed = status.books.find(item => item.bookId === 'book-1');
+  const next = status.books.find(item => item.bookId === 'book-2');
+  assert.equal(directFetches, 1);
+  assert.equal(failed.status, 'failed');
+  assert.equal(failed.stage, 'source');
+  assert.match(failed.message, /书城正文直取失败/);
+  assert.match(failed.error, /书城无正文/);
+  assert.equal(next.status, 'ready');
+});
+
 test('a queued giant OCR task fails immediately and frees its automation slot', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-queued-giant-'));
   const { batch, adapter } = fixture();
