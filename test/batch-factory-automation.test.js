@@ -918,9 +918,9 @@ test('router startRecovery honors its saved plan without copying preset configur
   const presetStore = { list: async () => [...presets.values()], get: async (_owner, id) => presets.get(id) };
   const setup = captureRouterRecoveryAdapter(presetStore);
   try {
-    const batch = { id: 'b2', settingsState: { patch: { textModelId: 'from-batch' } } };
+    const batch = { id: 'b2', settingsState: { patch: { openingEnabled: false } } };
     await setup.adapter.startRecovery({
-      owner: 'u', isOwner: true, batch,
+      owner: 'user', isOwner: true, batch,
       savedPlan: { presetId: 'p1', runMode: 'video_no_submit', concurrency: 1, scheduledAt: '2026-10-02T10:01:00.000Z' }
     });
     assert.equal(setup.starts[0].runMode, 'video_no_submit');
@@ -929,7 +929,7 @@ test('router startRecovery honors its saved plan without copying preset configur
     assert.equal(setup.starts[0].preset.id, 'p1');
     assert.equal(setup.starts[0].scheduledAt, '2026-10-02T10:01:00.000Z');
     assert.equal(Object.hasOwn(setup.starts[0], 'configSnapshot'), false);
-    assert.deepEqual(batch.settingsState.patch, { textModelId: 'from-batch' });
+    assert.deepEqual(batch.settingsState.patch, { openingEnabled: false });
   } finally {
     setup.restore();
   }
