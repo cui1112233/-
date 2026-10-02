@@ -323,6 +323,11 @@ function createConfigRouter({
       return res.json(managedPublicConfig(nextConfig, member));
     }
     const nextConfig = {
+      // Generic preference saves must be field-preserving. Model credentials
+      // are managed by /models and may be referenced by automation presets;
+      // rebuilding this object from a short allow-list used to erase the
+      // complete modelCatalog whenever a manager saved an unrelated setting.
+      ...oldConfig,
       provider: body.provider || oldConfig.provider || DEFAULT_CONFIG.provider,
       baseUrl: body.baseUrl || oldConfig.baseUrl || DEFAULT_CONFIG.baseUrl,
       model: body.model || oldConfig.model || DEFAULT_CONFIG.model,
