@@ -44,6 +44,10 @@ func TestOpeningVariantsRouteReturnsGeneratedVariants(t *testing.T) {
 		"===VARIANT 2===",
 		"时长：10秒",
 		"变体二：雨夜推门而入，两人对视沉默。",
+		"",
+		"===VARIANT 3===",
+		"时长：10秒",
+		"变体三：庭院灯影摇晃，她攥紧婚书。",
 	}, "\n")
 	provider := &directorHTTPProvider{output: reply}
 	service := &batchfactoryv11.DirectorService{Store: store, Provider: provider}
@@ -57,7 +61,7 @@ func TestOpeningVariantsRouteReturnsGeneratedVariants(t *testing.T) {
 		Variants []batchfactoryv11.OpeningVariant `json:"variants"`
 	}](t, rec)
 	if len(body.Variants) != 3 {
-		t.Fatalf("variants = %d, want 3 (2 success + 1 failed)", len(body.Variants))
+		t.Fatalf("variants = %d, want 3", len(body.Variants))
 	}
 	if body.Variants[0].Status != "success" || !strings.Contains(body.Variants[0].Prompt, "茶盏砸落") {
 		t.Fatalf("variant[0] = %#v", body.Variants[0])
@@ -65,8 +69,8 @@ func TestOpeningVariantsRouteReturnsGeneratedVariants(t *testing.T) {
 	if body.Variants[1].Status != "success" || !strings.Contains(body.Variants[1].Prompt, "雨夜推门而入") {
 		t.Fatalf("variant[1] = %#v", body.Variants[1])
 	}
-	if body.Variants[2].Status != "failed" || body.Variants[2].Prompt != "" {
-		t.Fatalf("variant[2] must be a failed placeholder, got %#v", body.Variants[2])
+	if body.Variants[2].Status != "success" || !strings.Contains(body.Variants[2].Prompt, "庭院灯影") {
+		t.Fatalf("variant[2] = %#v", body.Variants[2])
 	}
 	if provider.calls != 1 {
 		t.Fatalf("provider calls=%d", provider.calls)
