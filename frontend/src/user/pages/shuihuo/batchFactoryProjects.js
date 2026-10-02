@@ -45,6 +45,32 @@ export function batchFactoryCoverFrom(batch, productionStatus, imageURL = '') {
   return image ? { kind: 'image', url: image } : null;
 }
 
+export async function enrichBatchProjectCovers(projects, {
+  loadProduction,
+  loadMerge,
+  coverFrom,
+  onUpdate,
+  shouldContinue = () => true,
+  concurrency = 2
+} = {}) {
+  const queue = Array.isArray(projects) ? projects : [];
+  const limit = Math.max(1, Math.min(Number(concurrency) || 1, queue.length || 1));
+  let cursor = 0;
+  async function worker() {
+    while (cursor < queue.length && shouldContinue()) {
+      const project = queue[cursor];
+      cursor += 1;
+      const productionStatus = await loadProduction(project).catch(() => null);
+      if (!shouldContinue()) return;
+      const mergeStatus = await loadMerge(project).catch(() => null);
+      if (!shouldContinue()) return;
+      const coverMedia = coverFrom(project, productionStatus, mergeStatus);
+      onUpdate({ ...project, coverMedia: coverMedia || null });
+    }
+  }
+  await Promise.all(Array.from({ length: limit }, () => worker()));
+}
+
 export function isBatchFactoryV11Project(project) {
   return project?.source === BATCH_FACTORY_V11_SOURCE && Boolean(text(project.batchId));
 }

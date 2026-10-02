@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Modal, Spin, message } from 'antd';
 import { CommentaryWorkbench } from './shuihuo/CommentaryWorkbench';
 import { BatchFactoryNovelList } from './shuihuo/BatchFactoryNovelList';
-import { batchFactoryBatchFromResponse, batchFactoryCoverFrom, batchFactoryProjectsFrom, isBatchFactoryV11Project } from './shuihuo/batchFactoryProjects';
+import { batchFactoryBatchFromResponse, batchFactoryCoverFrom, batchFactoryProjectsFrom, enrichBatchProjectCovers, isBatchFactoryV11Project } from './shuihuo/batchFactoryProjects';
 import { batchFactoryMergeCoverFrom } from './shuihuo/batchFactoryMergeCover';
 import { ProjectsView } from './shuihuo/ProjectsView';
 import { AssetsView } from './shuihuo/AssetsView';
@@ -12,6 +12,7 @@ import { BATCH_FACTORY_ACTIVE_BATCH_STORAGE_KEY, novelFetchIntakeBooks, pendingN
 import './shuihuo-production.css';
 
 const modelNames = { text: '文本模型', image: '图片模型', video: '视频模型', audio: '配音模型' };
+const projectCoverCacheMs = 30_000;
 
 function readinessItems(health) {
   const enabled = new Set(health?.enabledModelKinds || []);
@@ -31,6 +32,7 @@ export function ShuihuoProductionPage({ openBatchOnLoad = false }) {
   const mountedRef = useRef(true);
   const projectRequestRef = useRef(0);
   const refreshRequestRef = useRef(0);
+  const projectCoverCacheRef = useRef(new Map());
   const novelFetchHandoffRef = useRef('');
 
   useEffect(() => {
@@ -52,6 +54,8 @@ export function ShuihuoProductionPage({ openBatchOnLoad = false }) {
   }, []);
 
   const refreshProjects = useCallback(async () => {
+    const requestId = refreshRequestRef.current + 1;
+    refreshRequestRef.current = requestId;
     setLoading(true);
     try {
       const [water, batch] = await Promise.allSettled([
@@ -96,18 +100,34 @@ export function ShuihuoProductionPage({ openBatchOnLoad = false }) {
         throw batch.reason || water.reason;
       }
 
-      setProjects([...waterProjects, ...batchProjects]);
-      const coveredProjects = await Promise.all(batchProjects.map(async project => {
-        const [productionStatus, mergeStatus] = await Promise.all([
-          getProductionStatus(project.batchId, { silent: true }).catch(() => null),
-          getMergeStatus(project.batchId, { silent: true }).catch(() => null)
-        ]);
-        const productionCover = batchFactoryCoverFrom(project.batch, productionStatus);
-        const mergeCover = batchFactoryMergeCoverFrom(project.batch, mergeStatus);
-        return { ...project, coverMedia: productionCover || mergeCover };
-      }));
-      if (mountedRef.current) setProjects([...waterProjects, ...coveredProjects]);
-    } catch (error) { message.error(error.message || '读取项目库失败'); } finally { setLoading(false); }
+      const now = Date.now();
+      const pendingCoverProjects = [];
+      const cachedBatchProjects = batchProjects.map(project => {
+        const cached = projectCoverCacheRef.current.get(project.batchId);
+        if (cached?.expiresAt > now) return { ...project, coverMedia: cached.coverMedia };
+        pendingCoverProjects.push(project);
+        return project;
+      });
+      const baseProjects = [...waterProjects, ...cachedBatchProjects];
+      if (!mountedRef.current || requestId !== refreshRequestRef.current) return;
+      setProjects(baseProjects);
+      setLoading(false);
+      void enrichBatchProjectCovers(pendingCoverProjects, {
+        concurrency: 2,
+        shouldContinue: () => mountedRef.current && requestId === refreshRequestRef.current,
+        loadProduction: project => getProductionStatus(project.batchId, { silent: true }),
+        loadMerge: project => getMergeStatus(project.batchId, { silent: true }),
+        coverFrom: (project, productionStatus, mergeStatus) => batchFactoryCoverFrom(project.batch, productionStatus) || batchFactoryMergeCoverFrom(project.batch, mergeStatus),
+        onUpdate: coveredProject => {
+          projectCoverCacheRef.current.set(coveredProject.batchId, { coverMedia: coveredProject.coverMedia, expiresAt: Date.now() + projectCoverCacheMs });
+          if (!mountedRef.current || requestId !== refreshRequestRef.current) return;
+          setProjects(current => current.map(project => project.id === coveredProject.id ? coveredProject : project));
+        }
+      }).catch(error => console.error('[共享作品库] 封面后台读取失败', error));
+    } catch (error) {
+      message.error(error.message || '读取项目库失败');
+      if (mountedRef.current && requestId === refreshRequestRef.current) setLoading(false);
+    }
   }, []);
   useEffect(() => { refreshProjects(); }, [refreshProjects]);
   useEffect(() => {
