@@ -30,6 +30,10 @@ import (
 
 var version = "dev"
 
+// publicAPIClientTimeout 必须大于服务端的 25 秒 claim 长轮询窗口。
+// 否则空闲执行器会在服务端返回前自行断开，后续新任务也无法稳定领取。
+const publicAPIClientTimeout = 35 * time.Second
+
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -94,7 +98,7 @@ func main() {
 	if parsed, parseErr := url.Parse(publicURL); parseErr == nil && parsed.Scheme != "" && parsed.Host != "" {
 		executorOrigin = parsed.Scheme + "://" + parsed.Host
 	}
-	publicClient := agent.NewHTTPClient(publicURL, &http.Client{Timeout: 20 * time.Second})
+	publicClient := agent.NewHTTPClient(publicURL, &http.Client{Timeout: publicAPIClientTimeout})
 	getPublicClient := func() *agent.HTTPClient {
 		publicURLMu.RLock()
 		defer publicURLMu.RUnlock()
@@ -110,7 +114,7 @@ func main() {
 		}
 		publicURLMu.Lock()
 		publicURL = normalized
-		publicClient = agent.NewHTTPClient(normalized, &http.Client{Timeout: 20 * time.Second})
+		publicClient = agent.NewHTTPClient(normalized, &http.Client{Timeout: publicAPIClientTimeout})
 		publicURLMu.Unlock()
 		if parsed, parseErr := url.Parse(normalized); parseErr == nil && parsed.Scheme != "" && parsed.Host != "" {
 			executorOriginMu.Lock()
@@ -311,7 +315,25 @@ func newCredentialStore() (credential.Store, error) {
 		}
 		path = filepath.Join(root, "YizhanShengming", "GiantMaterialExecutor", "credential.bin")
 	}
+	if runtime.GOOS == "darwin" {
+		// Older macOS executors persist a paired device in this restricted local
+		// file. Keep using a valid existing record so an upgrade cannot force a
+		// user to pair again; fresh installs still use the device store.
+		return preferLegacyCredentialStore(credential.NewDeviceStore(path), credential.NewFileStore(path))
+	}
 	return credential.NewDeviceStore(path), nil
+}
+
+func preferLegacyCredentialStore(deviceStore, legacyStore credential.Store) (credential.Store, error) {
+	if deviceStore == nil || legacyStore == nil {
+		return nil, errors.New("credential store is required")
+	}
+	if _, err := legacyStore.Load(); err == nil {
+		return legacyStore, nil
+	} else if !errors.Is(err, credential.ErrNotFound) {
+		return nil, err
+	}
+	return deviceStore, nil
 }
 
 func savePairResult(store credential.Store, result agent.PairResult) error {

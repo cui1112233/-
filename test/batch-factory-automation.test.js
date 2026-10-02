@@ -668,6 +668,31 @@ test('recovery sweep leaves a giant batch without a saved plan idle instead of g
   assert.equal(status.state, 'idle');
 });
 
+test('recovery sweep backfills a completed giant OCR result without starting automation', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-recovery-ocr-only-'));
+  const setup = recoveryFixture();
+  setup.batch.books[0].sourceMetadata.executorJobId = 'giant-job-complete';
+  let reconciled = 0;
+  setup.adapter.reconcileGiantMaterialSource = async ({ book }) => {
+    reconciled += 1;
+    book.sourceText = '已从 OCR 回填的正文';
+    book.sourceMetadata = { ...book.sourceMetadata, contentPending: false, originalReadStage: 'completed', originalReadVia: 'ocr' };
+    return { state: 'succeeded', characters: book.sourceText.length };
+  };
+  const controller = createBatchFactoryAutomationController({
+    adapter: setup.adapter, statePath: path.join(directory, 'state.json'),
+    pollMs: 60_000, recoveryEnabled: false, logger: silentLogger()
+  });
+  setup.setController(controller);
+
+  await controller.runRecovery();
+
+  assert.equal(reconciled, 1);
+  assert.equal(setup.batch.books[0].sourceText, '已从 OCR 回填的正文');
+  assert.equal(setup.batch.books[0].sourceMetadata.contentPending, false);
+  assert.equal(setup.recoveries.length, 0);
+});
+
 test('recovery sweep honors the saved plan: video_no_submit with concurrency 1', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-recovery-plan-'));
   const setup = recoveryFixture({ savedPlan: { runMode: 'video_no_submit', concurrency: 1 } });

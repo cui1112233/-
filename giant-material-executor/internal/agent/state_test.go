@@ -20,6 +20,18 @@ func TestSuccessfulJobReturnsToIdleAndKeepsWorkerResident(t *testing.T) {
 	}
 }
 
+func TestIdleWorkerCanStartTheNextClaimedJob(t *testing.T) {
+	machine := NewStateMachine()
+	for _, state := range []State{StateReady, StateRunning, StateCleaning, StateUploading, StateIdle, StateRunning} {
+		if err := machine.Transition(state); err != nil {
+			t.Fatalf("transition to %s: %v", state, err)
+		}
+	}
+	if got := machine.Snapshot().State; got != StateRunning {
+		t.Fatalf("state=%s, want %s", got, StateRunning)
+	}
+}
+
 func TestInvalidTransitionDoesNotSilentlyStopTheAgent(t *testing.T) {
 	machine := NewStateMachine()
 	if err := machine.Transition(StateUploading); err == nil {
