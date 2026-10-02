@@ -10,7 +10,7 @@ import {
 } from './batchFactoryProjects.js';
 
 test('V11 batches retain their upstream ID when shown in the shared personal works list', () => {
-  const [project] = batchFactoryProjectsFrom([{ id: 'batch-42', title: '九月批量', books: [] }]);
+  const [project] = batchFactoryProjectsFrom([{ id: 'batch-42', title: '九月批量', books: [], coverMedia: { kind: 'image', url: '/cover.png' } }]);
 
   assert.deepEqual(project, {
     id: 'batch:batch-42',
@@ -20,7 +20,8 @@ test('V11 batches retain their upstream ID when shown in the shared personal wor
     source: 'batch_factory_v11',
     createdAt: undefined,
     updatedAt: undefined,
-    batch: { id: 'batch-42', title: '九月批量', books: [] }
+    coverMedia: { kind: 'image', url: '/cover.png' },
+    batch: { id: 'batch-42', title: '九月批量', books: [], coverMedia: { kind: 'image', url: '/cover.png' } }
   });
   assert.equal(isBatchFactoryV11Project(project), true);
 });

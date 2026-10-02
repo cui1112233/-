@@ -84,14 +84,15 @@ type Book struct {
 	Videos              []Video           `json:"videos"`
 }
 type Batch struct {
-	ID             string        `json:"id"`
-	Title          string        `json:"title"`
-	SourceIntakeID string        `json:"sourceIntakeId,omitempty"`
-	Revision       int64         `json:"revision"`
-	SettingsState  SettingsState `json:"settingsState"`
-	Books          []Book        `json:"books"`
-	CreatedAt      time.Time     `json:"createdAt,omitempty"`
-	UpdatedAt      time.Time     `json:"updatedAt,omitempty"`
+	ID                string        `json:"id"`
+	Title             string        `json:"title"`
+	SourceIntakeID    string        `json:"sourceIntakeId,omitempty"`
+	ProjectCoverJobID string        `json:"projectCoverJobId,omitempty"`
+	Revision          int64         `json:"revision"`
+	SettingsState     SettingsState `json:"settingsState"`
+	Books             []Book        `json:"books"`
+	CreatedAt         time.Time     `json:"createdAt,omitempty"`
+	UpdatedAt         time.Time     `json:"updatedAt,omitempty"`
 }
 type CreateVideoInput struct {
 	Label           string  `json:"label"`

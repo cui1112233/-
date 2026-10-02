@@ -180,6 +180,7 @@ test('lists batch projects without serializing their full source and storyboard 
   const result = batchFactoryBatchListSummary({
     id: 'batch-1',
     title: '测试批量',
+    projectCoverJobId: 'merge-1',
     createdAt: '2026-10-01T00:00:00.000Z',
     updatedAt: '2026-10-01T00:00:00.000Z',
     revision: 3,
@@ -195,7 +196,7 @@ test('lists batch projects without serializing their full source and storyboard 
 
   assert.deepEqual(result, {
     id: 'batch-1', title: '测试批量', createdAt: '2026-10-01T00:00:00.000Z', updatedAt: '2026-10-01T00:00:00.000Z',
-    revision: 3, bookCount: 1,
+    revision: 3, bookCount: 1, coverMedia: { kind: 'image', url: '/api/batch-factory/v11/batches/batch-1/merge-cover/merge-1' },
     books: [{ id: 'book-1', bookId: '558154', title: '后来情深情亦浅', platform: '七猫' }]
   });
 });

@@ -32,6 +32,7 @@ export function batchFactoryProjectsFrom(batches) {
       source: BATCH_FACTORY_V11_SOURCE,
       createdAt: batch.createdAt,
       updatedAt: batch.updatedAt,
+      ...(batch.coverMedia?.url ? { coverMedia: batch.coverMedia } : {}),
       batch
     }];
   });

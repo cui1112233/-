@@ -73,13 +73,16 @@ function buildGiantBatchCreatePayload(body = {}, preset) {
 // single-batch endpoint so opening the library never freezes the browser.
 function batchFactoryBatchListSummary(batch = {}) {
   const books = Array.isArray(batch?.books) ? batch.books : [];
+  const batchId = String(batch?.id || '');
+  const coverJobId = String(batch?.projectCoverJobId || '').trim();
   return {
-    id: String(batch?.id || ''),
+    id: batchId,
     title: String(batch?.title || ''),
     createdAt: batch?.createdAt,
     updatedAt: batch?.updatedAt,
     revision: Number(batch?.revision || 0),
     bookCount: books.length,
+    ...(coverJobId ? { coverMedia: { kind: 'image', url: `${V11_BASE}/batches/${encodeURIComponent(batchId)}/merge-cover/${encodeURIComponent(coverJobId)}` } } : {}),
     books: books.map(book => ({
       id: String(book?.id || ''),
       bookId: String(book?.bookId || ''),

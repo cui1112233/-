@@ -27,6 +27,11 @@ func TestListBatchSummaryIndexReadsOnlyProjectCardFields(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"batch_id", "id", "book_id", "title", "platform"}).
 			AddRow("batch-1", "book-1", "558154", "后来情深情亦浅", "七猫").
 			AddRow("batch-2", "book-2", "1201790", "第二通电话", "七猫"))
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT j.batch_id,j.id FROM batch_factory_v11_merge_jobs j LEFT JOIN batch_factory_v11_books b ON b.id=j.book_id AND b.owner_username=j.owner_username WHERE j.owner_username=? AND j.status='succeeded' AND COALESCE(j.output_url,'')<>'' ORDER BY j.batch_id,COALESCE(b.ordinal,2147483647),j.updated_at DESC,j.id DESC`)).
+		WithArgs("alice").
+		WillReturnRows(sqlmock.NewRows([]string{"batch_id", "job_id"}).
+			AddRow("batch-1", "merge-new").
+			AddRow("batch-1", "merge-old"))
 
 	got, err := NewMySQLStore(db).ListBatchSummaryIndex(context.Background(), "alice")
 	if err != nil {
@@ -37,6 +42,9 @@ func TestListBatchSummaryIndexReadsOnlyProjectCardFields(t *testing.T) {
 	}
 	if got[1].Books[0].BookID != "558154" || got[1].Books[0].Platform != "七猫" {
 		t.Fatalf("unexpected book summary: %#v", got[1].Books[0])
+	}
+	if got[1].ProjectCoverJobID != "merge-new" || got[0].ProjectCoverJobID != "" {
+		t.Fatalf("unexpected project cover jobs: %#v", got)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)

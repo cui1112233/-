@@ -7,23 +7,21 @@ import { fileURLToPath } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const pagePath = path.join(here, 'ShuihuoProductionPage.jsx');
 
-test('shared Shuihuo library loads batch summaries instead of every full original and storyboard', () => {
+test('shared Shuihuo library loads self-contained batch summaries instead of polling every historical project', () => {
   const page = fs.readFileSync(pagePath, 'utf8');
 
   assert.match(page, /Promise\.allSettled\(\[\s*listProjects\(\{ silent: true \}\),\s*listBatchSummaries\(\)/s);
   assert.match(page, /projectLibraryRefreshResult\(\{[\s\S]*batchProjectsFrom: batchFactoryProjectsFrom/);
-  assert.match(page, /getProductionStatus\(project\.batchId/);
-  assert.match(page, /getMergeStatus\(project\.batchId/);
+  assert.doesNotMatch(page, /getProductionStatus\(project\.batchId/);
+  assert.doesNotMatch(page, /getMergeStatus\(project\.batchId/);
 });
 
-test('shared project library renders before bounded cover hydration finishes', () => {
+test('shared project library renders directly without background cover fan-out', () => {
   const page = fs.readFileSync(pagePath, 'utf8');
 
-  assert.match(page, /setProjects\(baseProjects\);\s*setProjectsLoadError\(''\);\s*setLoading\(false\);\s*void coverHydrationSchedulerRef\.current\(\(\) => enrichBatchProjectCovers/s);
-  assert.doesNotMatch(page, /await Promise\.all\(batchProjects\.map/);
-  assert.match(page, /concurrency:\s*2/);
-  assert.match(page, /if \(!mountedRef\.current \|\| requestId !== refreshRequestRef\.current\) return;\s*projectsRef\.current = baseProjects;\s*setProjects\(baseProjects\)/s);
-  assert.match(page, /if \(!metadata\.hadRequestFailure \|\| coveredProject\.coverMedia\)/);
+  assert.match(page, /projectsRef\.current = refreshResult\.projects;\s*setProjects\(refreshResult\.projects\);\s*setProjectsLoadError\(''\);\s*setLoading\(false\)/s);
+  assert.doesNotMatch(page, /enrichBatchProjectCovers/);
+  assert.doesNotMatch(page, /projectCoverCacheRef/);
   assert.match(page, /if \(requestId === refreshRequestRef\.current\) \{\s*console\.error\('\[共享作品库\] 批量工厂读取失败'/s);
 });
 

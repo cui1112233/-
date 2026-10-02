@@ -552,6 +552,33 @@ func (s *MySQLStore) ListBatchSummaryIndex(ctx context.Context, owner string) ([
 	if err := bookRows.Err(); err != nil {
 		return nil, err
 	}
+	bookRows.Close()
+
+	// A project card needs at most one already-generated cover. Reading that
+	// choice here in one bulk query prevents the browser from polling full
+	// production and merge histories for every old project after each reload.
+	coverRows, err := s.db.QueryContext(ctx, `SELECT j.batch_id,j.id FROM batch_factory_v11_merge_jobs j LEFT JOIN batch_factory_v11_books b ON b.id=j.book_id AND b.owner_username=j.owner_username WHERE j.owner_username=? AND j.status='succeeded' AND COALESCE(j.output_url,'')<>'' ORDER BY j.batch_id,COALESCE(b.ordinal,2147483647),j.updated_at DESC,j.id DESC`, owner)
+	if err != nil {
+		return nil, err
+	}
+	defer coverRows.Close()
+	seenCover := map[string]bool{}
+	for coverRows.Next() {
+		var batchID, jobID string
+		if err := coverRows.Scan(&batchID, &jobID); err != nil {
+			return nil, err
+		}
+		if seenCover[batchID] {
+			continue
+		}
+		seenCover[batchID] = true
+		if index, ok := batchIndexByID[batchID]; ok {
+			batches[index].ProjectCoverJobID = jobID
+		}
+	}
+	if err := coverRows.Err(); err != nil {
+		return nil, err
+	}
 	return batches, nil
 }
 
