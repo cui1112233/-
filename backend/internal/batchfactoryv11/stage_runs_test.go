@@ -237,7 +237,7 @@ func seedOpeningStageBook(t *testing.T, sdResponse string) (*MemoryStore, Batch,
 	if _, err := store.SaveSettings(context.Background(), "alice", ScopeRef{Kind: ScopeBook, BatchID: batch.ID, BookID: book.ID}, SettingsUpdate{Patch: patch, ExpectedRevision: book.Revision}); err != nil {
 		t.Fatal(err)
 	}
-	variantResponse := "===VARIANT 1===\n时长：10秒\n画面故事脚本：雨夜推门而入的开场。"
+	variantResponse := "===VARIANT 1===\n时长：10秒\n画面故事脚本：雨夜推门而入的开场。\n\n===VARIANT 2===\n时长：10秒\n画面故事脚本：客厅灯光骤暗，她握紧玻璃杯。\n\n===VARIANT 3===\n时长：10秒\n画面故事脚本：门外脚步逼近，她回头看向玄关。"
 	provider := &queuedDirectorProvider{values: []string{sdResponse, variantResponse}}
 	service := &BookStageService{Store: store, Director: &DirectorService{Store: store, Provider: provider}, OpeningMeta: PresetSnapshot{ID: "batch-opening-meta", Body: "换开头元提示词"}}
 	if _, err := service.Run(context.Background(), "alice", batch.ID, book.ID, BookStageDirector, StageModeForce, "director-1", ""); err != nil {
@@ -292,6 +292,28 @@ func TestBookStageOpeningSucceedsForTwoStoryboardSDBook(t *testing.T) {
 	}
 	if len(variants) == 0 || variants[0].Status != "success" || !strings.Contains(variants[0].Prompt, "雨夜推门而入") {
 		t.Fatalf("variants = %+v", variants)
+	}
+}
+
+func TestBookStageOpeningFailsAndRecordsReasonWhenARequiredVariantIsMissing(t *testing.T) {
+	sdResponse := `===VIDEO 01===
+时长：10秒
+段内执行约束：无台词。
+[场景 1] 总时长：10.000秒
+[镜头 1] 中景，缓慢推轨，林晚推开门。
+===VIDEO 02===
+时长：10秒
+段内执行约束：无台词。
+[场景 1] 总时长：10.000秒
+[镜头 1] 近景，林晚握紧玻璃杯。`
+	_, batch, book, service := seedOpeningStageBook(t, sdResponse)
+	service.Director.Provider = &queuedDirectorProvider{values: []string{"===VARIANT 1===\n时长：10秒\n画面故事脚本：雨夜推门而入的开场。"}}
+	summary, err := service.Run(context.Background(), "alice", batch.ID, book.ID, BookStageOpening, StageModeForce, "opening-missing", "")
+	if err == nil {
+		t.Fatal("missing opening variants must fail the stage")
+	}
+	if summary.LastFailed == nil || summary.LastFailed.Stage != BookStageOpening || !strings.Contains(summary.LastFailed.ErrorMessage, "换开头2") {
+		t.Fatalf("last failed stage = %#v", summary.LastFailed)
 	}
 }
 

@@ -484,24 +484,51 @@ func (s *DirectorService) RunOpeningVariants(ctx context.Context, owner, batchID
 		return nil, err
 	}
 	variants := parseOpeningVariants(text, snapshot.MaxVideoDuration, variantCount)
-	if err := s.saveOpeningVariants(ctx, owner, batchID, bookID, book.Videos[0].ID, variants); err != nil {
+	merged, err := s.saveOpeningVariants(ctx, owner, batchID, bookID, book.Videos[0].ID, variants)
+	if err != nil {
 		return nil, err
 	}
-	return variants, nil
+	if err := requireSuccessfulOpeningVariants(merged, variantCount); err != nil {
+		return merged, err
+	}
+	return merged, nil
+}
+
+func requireSuccessfulOpeningVariants(variants []OpeningVariant, variantCount int) error {
+	byIndex := make(map[int]OpeningVariant, len(variants))
+	for _, variant := range variants {
+		byIndex[variant.Index] = variant
+	}
+	failed := make([]string, 0)
+	for index := 1; index <= variantCount; index++ {
+		variant, ok := byIndex[index]
+		if ok && variant.Status == "success" && strings.TrimSpace(variant.Prompt) != "" {
+			continue
+		}
+		reason := "模型未输出该变体分段"
+		if ok && strings.TrimSpace(variant.FailureReason) != "" {
+			reason = strings.TrimSpace(variant.FailureReason)
+		}
+		failed = append(failed, fmt.Sprintf("换开头%d：%s", index, reason))
+	}
+	if len(failed) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%w: 换开头变体未全部生成；%s", ErrInvalid, strings.Join(failed, "；"))
 }
 
 // saveOpeningVariants writes the generated variants into VIDEO01's settings
 // patch under openingVariants. A failed slot never overwrites a previously
 // stored success at the same index, so a bad rerun cannot destroy usable
 // variants; every other patch key is left untouched by the sparse update.
-func (s *DirectorService) saveOpeningVariants(ctx context.Context, owner, batchID, bookID, videoID string, variants []OpeningVariant) error {
+func (s *DirectorService) saveOpeningVariants(ctx context.Context, owner, batchID, bookID, videoID string, variants []OpeningVariant) ([]OpeningVariant, error) {
 	batch, err := s.Store.GetBatch(ctx, owner, batchID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	book, err := bookFromBatch(batch, bookID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var video *Video
 	for i := range book.Videos {
@@ -511,7 +538,7 @@ func (s *DirectorService) saveOpeningVariants(ctx context.Context, owner, batchI
 		}
 	}
 	if video == nil {
-		return ErrNotFound
+		return nil, ErrNotFound
 	}
 	merged := append([]OpeningVariant(nil), variants...)
 	if raw, ok := video.SettingsState.Patch["openingVariants"]; ok {
@@ -532,11 +559,14 @@ func (s *DirectorService) saveOpeningVariants(ctx context.Context, owner, batchI
 	}
 	encoded, err := json.Marshal(merged)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	_, err = s.Store.SaveSettings(ctx, owner, ScopeRef{Kind: ScopeVideo, BatchID: batchID, BookID: bookID, VideoID: videoID}, SettingsUpdate{
 		Patch:            SettingsPatch{"openingVariants": encoded},
 		ExpectedRevision: video.Revision,
 	})
-	return err
+	if err != nil {
+		return nil, err
+	}
+	return merged, nil
 }

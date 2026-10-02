@@ -104,6 +104,10 @@ func TestRunOpeningVariantsGeneratesForStructuredFirstStoryboard(t *testing.T) {
 		"===VARIANT 2===",
 		"时长：10秒",
 		"变体二：雨夜推门而入，两人对视沉默。",
+		"",
+		"===VARIANT 3===",
+		"时长：10秒",
+		"变体三：庭院灯影摇晃，她攥紧婚书。",
 	}, "\n")
 	provider := &queuedDirectorProvider{values: []string{reply}}
 	variants, err := (&DirectorService{Store: store, Provider: provider}).RunOpeningVariants(context.Background(), "alice", batch.ID, book.ID, PresetSnapshot{})
@@ -111,7 +115,7 @@ func TestRunOpeningVariantsGeneratesForStructuredFirstStoryboard(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(variants) != 3 {
-		t.Fatalf("variants = %d, want 3 (2 success + 1 failed)", len(variants))
+		t.Fatalf("variants = %d, want 3", len(variants))
 	}
 	if variants[0].Status != "success" || variants[0].DurationSec != 10 || !strings.Contains(variants[0].Prompt, "茶盏砸落") {
 		t.Fatalf("variant[0] = %#v", variants[0])
@@ -165,6 +169,10 @@ func TestRunOpeningVariantsGeneratesAndPersistsVariants(t *testing.T) {
 		"===VARIANT 2===",
 		"时长：10秒",
 		"变体二：雨夜推门而入，两人对视沉默。",
+		"",
+		"===VARIANT 3===",
+		"时长：10秒",
+		"变体三：庭院灯影摇晃，她攥紧婚书。",
 	}, "\n")
 	provider := &queuedDirectorProvider{values: []string{reply}}
 	variants, err := (&DirectorService{Store: store, Provider: provider}).RunOpeningVariants(context.Background(), "alice", batch.ID, book.ID, PresetSnapshot{})
@@ -180,8 +188,8 @@ func TestRunOpeningVariantsGeneratesAndPersistsVariants(t *testing.T) {
 	if variants[1].Status != "success" || !strings.Contains(variants[1].Prompt, "雨夜推门而入") {
 		t.Fatalf("variant[1] = %#v", variants[1])
 	}
-	if variants[2].Status != "failed" || variants[2].Prompt != "" {
-		t.Fatalf("variant[2] must be a failed placeholder, got %#v", variants[2])
+	if variants[2].Status != "success" || !strings.Contains(variants[2].Prompt, "庭院灯影") {
+		t.Fatalf("variant[2] = %#v", variants[2])
 	}
 	if len(provider.calls) != 1 {
 		t.Fatalf("provider calls = %d, want 1", len(provider.calls))
@@ -193,6 +201,42 @@ func TestRunOpeningVariantsGeneratesAndPersistsVariants(t *testing.T) {
 	saved := openingVariantsFromPatch(t, store, batch.ID, book.ID, book.Videos[0].ID)
 	if len(saved) != 3 || saved[0].Status != "success" || !strings.Contains(saved[0].Prompt, "茶盏砸落") {
 		t.Fatalf("VIDEO01 patch must persist openingVariants, got %#v", saved)
+	}
+}
+
+func TestRunOpeningVariantsFailsWhenARequiredVariantIsMissing(t *testing.T) {
+	store, batch, book := seedOpeningBook(t, true, 4, []DirectorVideo{
+		{DurationSec: 10, FinalPrompt: "原分镜一：新娘低头抚平嫁衣袖口。"},
+		{DurationSec: 10, FinalPrompt: "分镜二：陆沉推门而入。"},
+	})
+	provider := &queuedDirectorProvider{values: []string{strings.Join([]string{
+		"===VARIANT 1===", "时长：10秒", "变体一：茶盏砸落大理石地面碎裂。", "",
+		"===VARIANT 2===", "时长：10秒", "变体二：雨夜推门而入。",
+	}, "\n")}}
+	variants, err := (&DirectorService{Store: store, Provider: provider}).RunOpeningVariants(context.Background(), "alice", batch.ID, book.ID, PresetSnapshot{})
+	if err == nil {
+		t.Fatal("missing required variant must fail the opening stage")
+	}
+	if len(variants) != 3 || variants[2].Status != "failed" || variants[2].FailureReason == "" {
+		t.Fatalf("variants = %#v", variants)
+	}
+	saved := openingVariantsFromPatch(t, store, batch.ID, book.ID, book.Videos[0].ID)
+	if len(saved) != 3 || saved[2].Status != "failed" || saved[2].FailureReason == "" {
+		t.Fatalf("saved variants = %#v", saved)
+	}
+}
+
+func TestBuildOpeningVariantsContractAppendsCanonicalOutputFormat(t *testing.T) {
+	contract := BuildOpeningVariantsContract(
+		Book{Title: "K", SourceText: "正文"},
+		DirectorVideo{DurationSec: 10, FinalPrompt: "分镜一"},
+		[]DirectorVideo{{DurationSec: 10, FinalPrompt: "分镜二"}},
+		PresetSnapshot{Body: "旧版规则要求把时长与标记写在一行。"},
+		3,
+		10,
+	)
+	if !strings.Contains(contract.SystemPrompt, "===VARIANT 1===\n时长：10秒\n可直接替换的分镜一提示词正文") {
+		t.Fatalf("contract missing canonical machine format:\n%s", contract.SystemPrompt)
 	}
 }
 
@@ -209,6 +253,10 @@ func TestRunOpeningVariantsKeepsStoredSuccessesWhenReplyIsInvalid(t *testing.T) 
 		"===VARIANT 2===",
 		"时长：10秒",
 		"变体二：雨夜推门而入，两人对视沉默。",
+		"",
+		"===VARIANT 3===",
+		"时长：10秒",
+		"变体三：庭院灯影摇晃，她攥紧婚书。",
 	}, "\n")
 	service := &DirectorService{Store: store, Provider: &queuedDirectorProvider{values: []string{good}}}
 	if _, err := service.RunOpeningVariants(context.Background(), "alice", batch.ID, book.ID, PresetSnapshot{}); err != nil {
@@ -223,8 +271,8 @@ func TestRunOpeningVariantsKeepsStoredSuccessesWhenReplyIsInvalid(t *testing.T) 
 		t.Fatalf("variants = %d, want 3", len(variants))
 	}
 	for i, variant := range variants {
-		if variant.Status != "failed" {
-			t.Fatalf("variant[%d].status = %q, want failed", i, variant.Status)
+		if variant.Status != "success" {
+			t.Fatalf("variant[%d].status = %q, want success", i, variant.Status)
 		}
 	}
 	saved := openingVariantsFromPatch(t, store, batch.ID, book.ID, book.Videos[0].ID)
