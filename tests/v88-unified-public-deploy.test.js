@@ -22,6 +22,10 @@ test('unified V88 release deploys the paired immutable Node and Go images from t
   assert.match(workflow, /up -d[^\n]*go-api browser-worker v88-node/);
 });
 
+test('unified V88 deploy updates the Node-specific build identity used by the public endpoint', () => {
+  assert.match(workflow, /set_env QIANTIE_NODE_RELEASE_SHA "\$expected_sha"/);
+});
+
 test('unified V88 deploy records rollback state and restores it on failed acceptance', () => {
   assert.match(workflow, /PREVIOUS_PUBLIC_BUILD/);
   assert.match(workflow, /backup_env/);
