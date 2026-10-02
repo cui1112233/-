@@ -2171,7 +2171,7 @@ function UploadNetwork({ batch, books, selectedBookIds, productionStatus, mergeS
   }, [mode, defaultOrganizationID]);
   useEffect(() => {
     if (!uploadingBookId || !onRefresh) return undefined;
-    const timer = setInterval(() => { onRefresh().catch(() => {}); }, 1200);
+    const timer = setInterval(() => { onRefresh().catch(() => {}); }, 5000);
     return () => clearInterval(timer);
   }, [uploadingBookId, onRefresh]);
   const publishSessionReady = Boolean(publishSession?.environment?.ok && publishSession?.visible?.ok);
@@ -2592,7 +2592,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
       } finally { polling = false; }
     };
     void poll();
-    const timer = setInterval(poll, 3000);
+    const timer = setInterval(poll, 15000);
     return () => { active = false; clearInterval(timer); };
   }, [batch?.id]);
   useEffect(() => {
@@ -2629,7 +2629,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
   const hasActiveProduction = (productionStatus?.jobs || []).some(job => (job?.tasks || []).some(task => ['queued', 'running'].includes(String(task?.status || '').toLowerCase())));
   useEffect(() => {
     if (!batch?.id || !(viewingBook || mediaBook || promptBook || hasActiveProduction)) return undefined;
-    const timer = setInterval(() => { loadRuntimeStatus({ quiet: true }); }, hasActiveProduction ? 2000 : 5000);
+    const timer = setInterval(() => { loadRuntimeStatus({ quiet: true }); }, hasActiveProduction ? 15000 : 30000);
     return () => clearInterval(timer);
   }, [batch?.id, viewingBook?.id, mediaBook?.id, promptBook?.id, hasActiveProduction]);
 

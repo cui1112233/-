@@ -279,6 +279,7 @@ func (s *MemoryStore) RequeueJob(_ context.Context, id string, update JobRecord,
 	record.VideoExpiresAt = update.VideoExpiresAt
 	record.DurationSeconds = update.DurationSeconds
 	record.ContentRangeLines = update.ContentRangeLines
+	record.TargetExecutorID = update.TargetExecutorID
 	record.LeaseExecutorID = ""
 	record.LeaseTokenHash = SecretHash{}
 	record.LeaseGeneration++
@@ -297,7 +298,7 @@ func (s *MemoryStore) ClaimJob(_ context.Context, executor ExecutorRecord, lease
 	defer s.mu.Unlock()
 	var picked *JobRecord
 	for _, candidate := range s.jobs {
-		if candidate.OwnerUsername != executor.OwnerUsername || candidate.Platform != PlatformGiantMaterial || candidate.CancelRequested || candidate.State == JobCancelled || candidate.State == JobSucceeded || candidate.State == JobFailed {
+		if candidate.OwnerUsername != executor.OwnerUsername || candidate.Platform != PlatformGiantMaterial || candidate.TargetExecutorID != "" && candidate.TargetExecutorID != executor.ID || candidate.CancelRequested || candidate.State == JobCancelled || candidate.State == JobSucceeded || candidate.State == JobFailed {
 			continue
 		}
 		stuck := false

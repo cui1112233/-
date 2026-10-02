@@ -145,7 +145,10 @@ export default function BatchFactoryWorkbenchPage() {
   }, [refreshBatches]);
 
   async function createBatch(input) {
-    const batch = asBatch(await createManualIntake(input));
+    const created = input?.intakeId
+      ? await createBatchFromIntake(input.intakeId, { title: input.title })
+      : await createManualIntake(input);
+    const batch = asBatch(created);
     localStorage.setItem(BATCH_FACTORY_ACTIVE_BATCH_STORAGE_KEY, batch.id);
     setActiveBatch(batch);
     await refreshBatches({ quiet: true });
@@ -165,7 +168,7 @@ export default function BatchFactoryWorkbenchPage() {
     }).catch(error => {
       if (mountedRef.current) message.warning(`男女频与风格暂未识别：${error?.message || '可在单书中重试；不影响生产。'}`);
     });
-    if (!input?.automationEnabled) return;
+    if (!input?.automationEnabled) return batch;
     try {
       await startBatchAutomation(batch.id, {
         scheduledAt: input.scheduledAt || '',
@@ -177,6 +180,7 @@ export default function BatchFactoryWorkbenchPage() {
     } catch (requestError) {
       message.warning(`批量工程已创建，但自动生产启动失败：${requestError?.message || '请进入工程后手动启动'}`);
     }
+    return batch;
   }
 
   if (activeBatch) {
@@ -199,6 +203,6 @@ export default function BatchFactoryWorkbenchPage() {
       {batches.map(batch => <button type="button" className="batch-factory-workbench-card" key={batch.id} onClick={() => openBatch(batch.id)}><FileTextOutlined /><strong>{batch.title || '未命名批量'}</strong><span>{bookCount(batch)} 本小说</span><small>{batch.updatedAt || batch.createdAt || '刚刚创建'}</small></button>)}
       {!batches.length ? <div className="batch-factory-workbench-home-state"><FileTextOutlined /><strong>还没有批量工程</strong><span>新建批量后即可进入每本小说的完整生产工作台。</span><Button type="primary" onClick={() => setCreateOpen(true)}>新建批量</Button></div> : null}
     </section> : null}
-    <BatchFactoryCreateModal open={createOpen} onCancel={() => setCreateOpen(false)} onCreated={async input => { await createBatch(input); setCreateOpen(false); }} />
+    <BatchFactoryCreateModal open={createOpen} onCancel={() => setCreateOpen(false)} onCreated={async input => { const batch = await createBatch(input); setCreateOpen(false); return batch; }} onBatchUpdated={async batchId => { const refreshed = asBatch(await getBatch(batchId)); if (mountedRef.current) setActiveBatch(refreshed); await refreshBatches({ quiet: true }); }} />
   </main>;
 }

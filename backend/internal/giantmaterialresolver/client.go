@@ -35,6 +35,12 @@ func CodeOf(err error) string {
 type Book struct {
 	PlatformBookID string `json:"platformBookId"`
 	PlatformName   string `json:"platformName,omitempty"`
+	// PlatformCode is the provider's stable raw code (for example CD). Keep it
+	// alongside the human-readable label so a later provider rename is traceable.
+	PlatformCode string `json:"platformCode,omitempty"`
+	// PlatformID is the target 视频管理系统 source-platform ID. It is supplied
+	// only for provider codes with a verified mapping, never guessed at upload.
+	PlatformID string `json:"platformId,omitempty"`
 	Title          string `json:"title"`
 }
 
@@ -142,15 +148,13 @@ func normalize(payload map[string]any) Material {
 			}
 			id := text(work["cp_work_id"])
 			name := text(work["name"])
-			platform := text(work["cp_type"])
-			if id == "" || name == "" || seen[platform+":"+id] {
+			platformCode := text(work["cp_type"])
+			if id == "" || name == "" || seen[platformCode+":"+id] {
 				continue
 			}
-			seen[platform+":"+id] = true
-			if platform == "QM" {
-				platform = "七猫"
-			}
-			books = append(books, Book{PlatformBookID: id, PlatformName: platform, Title: name})
+			seen[platformCode+":"+id] = true
+			platformName, platformID := normalizePlatform(platformCode)
+			books = append(books, Book{PlatformBookID: id, PlatformName: platformName, PlatformCode: platformCode, PlatformID: platformID, Title: name})
 		}
 	}
 	material := Material{
@@ -185,6 +189,22 @@ func normalize(payload map[string]any) Material {
 		material.MaterialTitle = text(source["name"])
 	}
 	return material
+}
+
+// normalizePlatform translates only codes whose display name and target
+// platform ID are verified by Qingyu's own platform configuration. Unknown
+// values remain visible but deliberately have no target ID, so callers cannot
+// silently submit a book to the wrong source platform.
+func normalizePlatform(code string) (name, platformID string) {
+	switch strings.TrimSpace(code) {
+	case "CD":
+		// Qingyu: 常读; its own automatic-text configuration uses platform_id 2.
+		return "常读", "2"
+	case "QM":
+		return "七猫", "3"
+	default:
+		return strings.TrimSpace(code), ""
+	}
 }
 
 func object(value any) map[string]any {

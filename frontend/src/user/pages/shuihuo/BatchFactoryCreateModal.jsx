@@ -60,7 +60,7 @@ function fallbackPlatformOptions() {
   return withGiantMaterialOption(batchFactoryPlatformOptions([], { fallback: true }));
 }
 
-export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
+export function BatchFactoryCreateModal({ open, onCancel, onCreated, onBatchUpdated }) {
   const [title, setTitle] = useState('');
   const [platformId, setPlatformId] = useState('');
   const [platformOptions, setPlatformOptions] = useState([]);
@@ -371,6 +371,9 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated }) {
         } catch (error) {
           console.warn('巨量读取任务派发失败', entry.item.id, error);
         }
+      }
+      if (queued) {
+        try { await onBatchUpdated?.(batchId); } catch (refreshError) { console.warn('巨量读取任务已派发，但工作区刷新失败', refreshError); }
       }
       message.success(queued
         ? `已创建批量并排队读取 ${queued}/${selected.length} 本书；正文进度请在工作区书卡查看。`

@@ -45,6 +45,24 @@ class ResidentWorkerProtocolTest(unittest.TestCase):
         self.assertEqual(events[-2]["code"], "OCR_VIDEO_NOT_ALLOWED")
         self.assertEqual(events[-1]["type"], "idle")
 
+    def test_allows_only_the_two_known_qingyu_media_hosts(self):
+        output = io.StringIO()
+        calls = []
+
+        def extractor(request, progress, cancel_event):
+            calls.append(request["jobId"])
+            return {"text": "正文", "characters": 2, "frames": 1, "duplicates": 0}
+
+        worker = Worker(output, extractor=extractor)
+        worker.handle_command({"type": "extract", "jobId": "legacy", "videoUrl": "https://material.hnqingyuwen.top/video.mp4", "durationSeconds": 1})
+        worker.handle_command({"type": "extract", "jobId": "mlzr", "videoUrl": "https://mlzr-material.hnqingyuwen.top/video.mp4", "durationSeconds": 1})
+        self.assertTrue(worker.wait_until_idle(timeout=2))
+        worker.handle_command({"type": "extract", "jobId": "lookalike", "videoUrl": "https://evilmaterial.hnqingyuwen.top/video.mp4", "durationSeconds": 1})
+
+        events = [json.loads(line) for line in output.getvalue().splitlines()]
+        self.assertEqual(calls, ["legacy", "mlzr"])
+        self.assertEqual(events[-2]["code"], "OCR_VIDEO_NOT_ALLOWED")
+
     def test_cancel_emits_one_failure_then_idle(self):
         output = io.StringIO()
         started = threading.Event()

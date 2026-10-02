@@ -95,6 +95,80 @@ func TestCancellationIsDurableAndNotClaimable(t *testing.T) {
 	}
 }
 
+func TestNewJobTargetsMostRecentlyOnlineExecutor(t *testing.T) {
+	clock := &testClock{now: time.Date(2026, 10, 1, 2, 0, 0, 0, time.UTC)}
+	service := NewService(NewMemoryStore(), clock.Now)
+	oldToken := pairTestExecutor(t, service, "alice")
+	if err := service.Heartbeat(context.Background(), oldToken, HeartbeatInput{DeviceName: "old-windows", OS: "windows", Version: "0.4.9"}); err != nil {
+		t.Fatal(err)
+	}
+	clock.now = clock.now.Add(time.Second)
+	newToken := pairTestExecutor(t, service, "alice")
+	if err := service.Heartbeat(context.Background(), newToken, HeartbeatInput{DeviceName: "new-mac", OS: "darwin", Version: "0.5.3"}); err != nil {
+		t.Fatal(err)
+	}
+	executors, err := service.ListExecutors(context.Background(), "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var macID string
+	for _, executor := range executors {
+		if executor.Name == "new-mac" {
+			macID = executor.ID
+		}
+	}
+	job, err := service.CreateJob(context.Background(), "alice", testJobInput("targeted-material", "targeted-book"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.TargetExecutorID != macID {
+		t.Fatalf("target=%q want newest online mac=%q", job.TargetExecutorID, macID)
+	}
+	if _, err := service.Claim(context.Background(), oldToken); !errors.Is(err, ErrNoClaimableJob) {
+		t.Fatalf("old executor claim error=%v", err)
+	}
+	claim, err := service.Claim(context.Background(), newToken)
+	if err != nil || claim.Job.ID != job.ID {
+		t.Fatalf("mac claim=%+v err=%v", claim, err)
+	}
+}
+
+func TestRetryCancelledJobRetargetsNewestOnlineExecutor(t *testing.T) {
+	clock := &testClock{now: time.Date(2026, 10, 1, 3, 0, 0, 0, time.UTC)}
+	service := NewService(NewMemoryStore(), clock.Now)
+	windowsToken := pairTestExecutor(t, service, "alice")
+	if err := service.Heartbeat(context.Background(), windowsToken, HeartbeatInput{DeviceName: "old-windows", OS: "windows", Version: "0.4.9"}); err != nil {
+		t.Fatal(err)
+	}
+	job, err := service.CreateJob(context.Background(), "alice", testJobInput("retry-material", "retry-book"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.CancelJob(context.Background(), "alice", job.ID); err != nil {
+		t.Fatal(err)
+	}
+	clock.now = clock.now.Add(time.Second)
+	macToken := pairTestExecutor(t, service, "alice")
+	if err := service.Heartbeat(context.Background(), macToken, HeartbeatInput{DeviceName: "new-mac", OS: "darwin", Version: "0.5.3"}); err != nil {
+		t.Fatal(err)
+	}
+
+	retried, err := service.RetryJob(context.Background(), "alice", job.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if retried.ID != job.ID || retried.State != JobQueued || retried.TargetExecutorID == "" {
+		t.Fatalf("retried=%+v", retried)
+	}
+	if _, err := service.Claim(context.Background(), windowsToken); !errors.Is(err, ErrNoClaimableJob) {
+		t.Fatalf("old executor claim error=%v", err)
+	}
+	claim, err := service.Claim(context.Background(), macToken)
+	if err != nil || claim.Job.ID != job.ID {
+		t.Fatalf("mac claim=%+v err=%v", claim, err)
+	}
+}
+
 func TestResultIsIdempotentByMaterialBookAndModel(t *testing.T) {
 	service := NewService(NewMemoryStore(), time.Now)
 	token := pairTestExecutor(t, service, "alice")
