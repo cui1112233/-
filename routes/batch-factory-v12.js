@@ -341,6 +341,10 @@ function createBatchFactoryV12Router(options = {}) {
     const batchId = String(req.params.batchId || '').trim();
     const cacheKey = `${account.username}:${batchId}`;
     const now = Date.now();
+    // 批量状态页会长时间停留；只保留仍有效的短缓存，避免账户/批量组合无限累积。
+    for (const [key, value] of runtimeSummaryCache) {
+      if (!value || Number(value.expiresAt || 0) <= now) runtimeSummaryCache.delete(key);
+    }
     const cached = runtimeSummaryCache.get(cacheKey);
     if (cached?.expiresAt > now) {
       try { return res.json(await cached.promise); }

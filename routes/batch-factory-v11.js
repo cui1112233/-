@@ -1712,7 +1712,7 @@ function createBatchFactoryV11Router(options = {}) {
           username,
           isOwner,
           method: 'GET',
-          pathname: `/api/giant-material-jobs/${encodeURIComponent(executorJobId)}`,
+          pathname: `/api/shuihuo-production/giant-material-jobs/${encodeURIComponent(executorJobId)}`,
           goBaseUrl: upstreamOptions.goBaseUrl,
           bridgeSecret: upstreamOptions.bridgeSecret,
           fetchImpl: upstreamOptions.fetchImpl,

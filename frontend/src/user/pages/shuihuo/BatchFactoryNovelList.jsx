@@ -2107,7 +2107,7 @@ function BatchLogs({ automationStatus, productionStatus, mergeStatus, error, boo
   const giantWaitingBooks = books.filter(book => book?.sourceMetadata?.giantMaterialId && book?.sourceMetadata?.contentPending === true);
   return <><Alert type={error ? 'warning' : 'info'} showIcon message={error || '实时读取 V12 自动生产、视频与合并状态'} description={autoPublish ? '自动生产完成合成后会提交视频管理系统，并等待视频管理系统回读确认；未确认前不会显示上传成功。' : '刷新只回读状态，不会额外提交新任务。自动生产默认停在待上传，不会自动提交视频管理系统。'} />
     {automationStatus?.state && automationStatus.state !== 'idle' ? <Alert type={['needs_attention', 'unavailable'].includes(automationStatus.state) ? 'warning' : automationStatus.state === 'completed' ? 'success' : 'info'} showIcon message={automationStatus.state === 'unavailable' ? '自动生产状态暂不可读' : `自动生产 · ${automationStatus.state}`} description={automationStatus.state === 'unavailable' ? '不影响当前书的手动提取、配音、VIDEO 或上传操作。' : `并行 ${Number(automationStatus.concurrency || 2)} 本；就绪 ${Number(automationCounts.ready || 0)} / ${Number(automationCounts.total || automationBooks.length)}；执行中 ${Number(automationCounts.running || 0)}；失败 ${Number(automationCounts.failed || 0)}；阻塞 ${Number(automationCounts.blocked || 0)}`} /> : null}
-    <div className="batch-factory-log-list">{giantWaitingBooks.map(book => <section key={`giant-source-${book.id}`}><strong>巨量素材 · {book.title || book.bookId}</strong><span>等待正文读取</span><p>{book.sourceMetadata?.originalReadStage === 'ocr' ? '正在等待滚屏 OCR 回填正文；正文到位后自动开始制作。' : '正在优先通过书城读取正文；失败后自动转为滚屏 OCR。'}</p></section>)}{automationBooks.map(book => <section key={`automation-${book.bookId}`}><strong>自动生产 · {book.title || book.bookId}</strong><span>{book.stage || 'pending'} · {book.status || 'pending'} · {book.updatedAt || '—'}</span><p>{batchFactoryVisibleError(book.message) || '等待自动生产'}{book.retryAt ? ` · 下次重试：北京时间 ${formatBeijingDatetimeLocal(book.retryAt)}` : ''}{book.error ? ` · ${batchFactoryVisibleError(book.error)}` : ''}</p></section>)}{jobs.map(job => <section key={job.id}><strong>生成任务 · {job.status}</strong><span>{job.bookId || '批量任务'} · {job.updatedAt || job.createdAt || '—'}</span>{(job.tasks || []).map(task => { const durations = [['目标', task.targetDurationSeconds], ['请求', task.requestedDurationSeconds], ['实际', task.actualDurationSeconds]].filter(([, value]) => Number(value) > 0).map(([label, value]) => `${label} ${Number(value).toFixed(2).replace(/\.00$/, '')}s`).join(' · '); return <p key={task.id}>{task.videoId} · {task.status}{durations ? ` · ${durations}` : ''}{task.errorMessage ? ` · ${batchFactoryVisibleError(task.errorMessage)}` : ''}</p>; })}</section>)}{merges.map(job => <section key={job.id}><strong>合并任务 · {job.status}</strong><span>{job.updatedAt || job.createdAt || '—'}</span><p>{job.outputUrl || batchFactoryVisibleError(job.errorMessage) || '等待合并结果'}</p></section>)}{!giantWaitingBooks.length && !automationBooks.length && !jobs.length && !merges.length ? <p>当前没有自动生产、视频或合并任务。</p> : null}</div>
+    <div className="batch-factory-log-list">{giantWaitingBooks.map(book => <section key={`giant-source-${book.id}`}><strong>巨量素材 · {book.title || book.bookId}</strong><span>等待正文读取</span><p>{book.sourceMetadata?.originalReadStage === 'ocr' ? '正在等待滚屏 OCR 回填正文；正文到位后自动开始制作。' : '正在优先通过书城读取正文；失败后自动转为滚屏 OCR。'}</p></section>)}{automationBooks.map(book => <section key={`automation-${book.bookId}`}><strong>自动生产 · {book.title || book.bookId}</strong><span>{book.stage || 'pending'} · {book.status || 'pending'} · {book.updatedAt || '—'}</span><p>{batchFactoryVisibleError(book.message) || '等待自动生产'}{Number(book.retryCount || 0) > 0 ? ` · 自动重试 ${Math.min(3, Number(book.retryCount || 0))}/3` : ''}{book.retryAt ? ` · 下次重试：北京时间 ${formatBeijingDatetimeLocal(book.retryAt)}` : ''}{book.error ? ` · ${batchFactoryVisibleError(book.error)}` : ''}</p></section>)}{jobs.map(job => <section key={job.id}><strong>生成任务 · {job.status}</strong><span>{job.bookId || '批量任务'} · {job.updatedAt || job.createdAt || '—'}</span>{(job.tasks || []).map(task => { const durations = [['目标', task.targetDurationSeconds], ['请求', task.requestedDurationSeconds], ['实际', task.actualDurationSeconds]].filter(([, value]) => Number(value) > 0).map(([label, value]) => `${label} ${Number(value).toFixed(2).replace(/\.00$/, '')}s`).join(' · '); return <p key={task.id}>{task.videoId} · {task.status}{durations ? ` · ${durations}` : ''}{task.errorMessage ? ` · ${batchFactoryVisibleError(task.errorMessage)}` : ''}</p>; })}</section>)}{merges.map(job => <section key={job.id}><strong>合并任务 · {job.status}</strong><span>{job.updatedAt || job.createdAt || '—'}</span><p>{job.outputUrl || batchFactoryVisibleError(job.errorMessage) || '等待合并结果'}</p></section>)}{!giantWaitingBooks.length && !automationBooks.length && !jobs.length && !merges.length ? <p>当前没有自动生产、视频或合并任务。</p> : null}</div>
   </>;
 }
 
@@ -2324,6 +2324,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
   const [columnWidths, setColumnWidths] = useState(null);
   const resizeActiveRef = useRef(false);
   const resizeStateRef = useRef(null);
+  const runtimeStatusRequestRef = useRef(null);
   const books = Array.isArray(batch?.books) ? batch.books : [];
   useEffect(() => {
     if (!mediaBook) return;
@@ -2537,25 +2538,38 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
   }
   async function loadRuntimeStatus({ quiet = false, runtimeCapabilities = capabilities } = {}) {
     if (!batch?.id) return;
+    // 自动化轮询、生产抽屉和首次加载可能在同一时刻触发；复用同一个请求，
+    // 让浏览器也始终只有一条批量运行状态读取在飞行。
+    if (runtimeStatusRequestRef.current) return runtimeStatusRequestRef.current;
     setLogsLoading(true);
-    try {
-      // 一个批量摘要替代“状态 + 合并 + 每本阶段”的浏览器 N+2 次请求。
-      // 服务端合并读取并短缓存，页面只消费同一时刻的快照。
-      const runtime = await getBatchRuntimeSummary(batch.id, { suppressGlobalError: true });
-      setProductionStatus(runtime?.production || { jobs: [] });
-      setMergeStatus(runtime?.merge || { jobs: [] });
-      setStageSummaries(runtime?.stageSummaries || {});
-      const nextAutomation = runtime?.automation || { state: 'idle', counts: { total: 0, ready: 0, running: 0, pending: 0, failed: 0, blocked: 0 } };
-      setAutomationStatus(nextAutomation);
-      setLogsError('');
-      return runtime;
-    } catch (error) {
-      const endpoint = String(error?.source || '').trim();
-      const status = Number.isInteger(error?.status) ? `HTTP ${error.status}` : '';
-      const text = [error?.message || '读取任务状态失败', status, endpoint ? `状态接口：${endpoint}` : ''].filter(Boolean).join(' · ');
-      setLogsError(text);
-      if (!quiet) message.error(text);
-    } finally { setLogsLoading(false); }
+    const request = (async () => {
+      try {
+        // 一个批量摘要替代“状态 + 合并 + 每本阶段”的浏览器 N+2 次请求。
+        // 服务端合并读取并短缓存，页面只消费同一时刻的快照。
+        const runtime = await getBatchRuntimeSummary(batch.id, { suppressGlobalError: true });
+        setProductionStatus(runtime?.production || { jobs: [] });
+        setMergeStatus(runtime?.merge || { jobs: [] });
+        setStageSummaries(runtime?.stageSummaries || {});
+        const nextAutomation = runtime?.automation || { state: 'idle', counts: { total: 0, ready: 0, running: 0, pending: 0, failed: 0, blocked: 0 } };
+        setAutomationStatus(nextAutomation);
+        setLogsError('');
+        return runtime;
+      } catch (error) {
+        const endpoint = String(error?.source || '').trim();
+        const status = Number.isInteger(error?.status) ? `HTTP ${error.status}` : '';
+        const text = [error?.message || '读取任务状态失败', status, endpoint ? `状态接口：${endpoint}` : ''].filter(Boolean).join(' · ');
+        setLogsError(text);
+        if (!quiet) message.error(text);
+        return undefined;
+      } finally {
+        setLogsLoading(false);
+      }
+    })();
+    runtimeStatusRequestRef.current = request;
+    try { return await request; }
+    finally {
+      if (runtimeStatusRequestRef.current === request) runtimeStatusRequestRef.current = null;
+    }
   }
   useEffect(() => {
     if (!batch?.id) return;

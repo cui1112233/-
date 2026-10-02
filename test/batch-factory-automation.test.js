@@ -278,6 +278,37 @@ test('an explicit retry gives the failed stage a fresh three-attempt budget', as
   assert.equal(controller.status({ owner: 'user', batchId: batch.id }).books[0].status, 'waiting');
 });
 
+test('a changed stage input gets a new retry budget, while metadata-only changes do not', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-revised-book-retry-'));
+  const { batch, adapter } = fixture();
+  let currentTime = 0;
+  let attempts = 0;
+  adapter.runStage = async () => { attempts += 1; throw new Error('provider temporarily unavailable'); };
+  const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} }, now: () => currentTime });
+  await controller.start({ owner: 'user', batchId: batch.id, concurrency: 1 });
+  await wait();
+  currentTime = 30_000; await controller.tick(); await wait();
+  currentTime = 150_000; await controller.tick(); await wait();
+  assert.equal(attempts, 3);
+  assert.equal(controller.status({ owner: 'user', batchId: batch.id }).books[0].status, 'failed');
+
+  await controller.start({ owner: 'user', batchId: batch.id, concurrency: 1 });
+  await controller.tick(); await wait();
+  assert.equal(attempts, 3);
+
+  batch.books[0].revision = 1;
+  await controller.start({ owner: 'user', batchId: batch.id, concurrency: 1 });
+  await controller.tick(); await wait();
+  assert.equal(attempts, 3);
+
+  batch.books[0].workingFrontContent = '修改后的生产正文';
+  batch.books[0].revision = 2;
+  await controller.start({ owner: 'user', batchId: batch.id, concurrency: 1 });
+  await wait();
+  assert.equal(attempts, 4);
+  assert.equal(controller.status({ owner: 'user', batchId: batch.id }).books[0].status, 'waiting');
+});
+
 test('removing one book clears only that book automation state', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-delete-test-'));
   const { adapter } = fixture();
