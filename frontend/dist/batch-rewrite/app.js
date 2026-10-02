@@ -3976,6 +3976,13 @@ document.addEventListener("change", (event) => {
 });
 
 window.addEventListener("DOMContentLoaded", async () => {
+  function bindOptionalControl(id, property, handler) {
+    const control = $(id);
+    if (control) control[property] = handler;
+  }
+  function listenOptionalControl(id, event, handler) {
+    $(id)?.addEventListener(event, handler);
+  }
   const sitePanel = $("siteSubmit");
   const mount = $("webSubmitMount");
   if (sitePanel && mount) {
@@ -3990,72 +3997,72 @@ window.addEventListener("DOMContentLoaded", async () => {
     sitePanel.remove();
   }
   bindWorkFormPersistence();
-  $("versionConfigBtn").onclick = openVersionConfigCard;
-  $("versionConfigCloseBtn").onclick = closeVersionConfigCard;
-  $("versionConfigCloseBtnBottom").onclick = closeVersionConfigCard;
-  $("versionConfigCard").addEventListener("cancel", event => {
+  bindOptionalControl("versionConfigBtn", "onclick", openVersionConfigCard);
+  bindOptionalControl("versionConfigCloseBtn", "onclick", closeVersionConfigCard);
+  bindOptionalControl("versionConfigCloseBtnBottom", "onclick", closeVersionConfigCard);
+  listenOptionalControl("versionConfigCard", "cancel", event => {
     event.preventDefault();
     if (!isModalBusy("versionConfigCard")) closeVersionConfigCard();
   });
-  $("versionConfigCard").addEventListener("pointerdown", event => {
+  listenOptionalControl("versionConfigCard", "pointerdown", event => {
     if (event.target === $("versionConfigCard") && !isModalBusy("versionConfigCard")) closeVersionConfigCard();
   });
-  $("versionConfigCard").addEventListener("click", event => {
+  listenOptionalControl("versionConfigCard", "click", event => {
     if (event.target === $("versionConfigCard") && !isModalBusy("versionConfigCard")) closeVersionConfigCard();
   });
-  $("processBtn").onclick = processInput;
-  $("refreshBtn").onclick = refreshTasksAndSubmitHistory;
-  $("taskRefreshBtn").onclick = refreshTasksAndSubmitHistory;
-  $("taskTodayBtn").onclick = async () => { state.viewMode = "date"; state.taskDate = todayDateKey(); await refreshTasksAndSubmitHistory(); };
-  $("taskPrevDayBtn").onclick = async () => { state.viewMode = "date"; state.taskDate = shiftTaskDateKey(state.taskDate || todayDateKey(), -1); await refreshTasksAndSubmitHistory(); };
-  $("taskNextDayBtn").onclick = async () => { state.viewMode = "date"; state.taskDate = shiftTaskDateKey(state.taskDate || todayDateKey(), 1); await refreshTasksAndSubmitHistory(); };
-  $("taskDefaultViewBtn").onclick = async () => { state.viewMode = "current"; state.taskDate = state.currentBatchDate || todayDateKey(); await refreshTasksAndSubmitHistory(); };
-  $("taskToggleBtn").onclick = () => { const details = $("taskListDetails"); details.open = !details.open; $("taskToggleBtn").textContent = details.open ? "收起任务" : "展开任务"; };
-  $("selectAllBtn").onclick = selectAllVisibleTasks;
-  $("clearSelectedBtn").onclick = clearSelectedTasks;
-  $("retrySelectedBtn").onclick = () => batchRetry("selected");
-  $("retryFailedBtn").onclick = () => batchRetry("failed");
-  $("transferBatchFactoryBtn").onclick = transferSelectedToBatchFactory;
-  $("applyRulesSelectedBtn").onclick = () => applyRules("selected");
-  $("applyRulesAllBtn").onclick = () => applyRules("all");
-  $("openWebSubmitBtn").onclick = openWebSubmitFromTasks;
-  $("submitTaskAllBtn").onclick = () => void submitWebSubmit("all");
-  $("updateAiCountSelectedBtn").onclick = updateSelectedAiCount;
-  $("deleteSelectedBtn").onclick = () => batchDelete("selected");
-  $("deleteFailedBtn").onclick = () => batchDelete("failed");
-  $("deleteAllBtn").onclick = () => batchDelete("all");
-  $("logsRefreshBtn").onclick = loadRecords;
-  $("saveConfigBtn").onclick = saveConfig;
-  $("saveKnowledgeConfigBtn").onclick = saveConfig;
-  $("saveRulesConfigBtn").onclick = saveConfig;
-  $("saveWorkflowBtn").onclick = saveConfig;
-  $("saveAiConfigBtn").onclick = saveConfig;
-  $("savePresetBtn").onclick = saveCurrentPreset;
-  $("applyPresetBtn").onclick = applySelectedPreset;
-  $("deletePresetBtn").onclick = deleteSelectedPreset;
-  $("testAiBtn").onclick = testAi;
-  $("libraryTypeSelect").onchange = () => renderLibraryManager(0);
-  $("librarySearchInput").oninput = () => renderLibraryManager(Number($("libraryItemSelect").value || 0));
-  $("addLibraryItemBtn").onclick = addLibraryItem;
-  $("duplicateLibraryItemBtn").onclick = duplicateLibraryItem;
-  $("saveLibraryItemBtn").onclick = () => saveLibraryItem(false);
-  $("deleteLibraryItemBtn").onclick = deleteLibraryItem;
-  $("optimizeLibraryItemBtn").onclick = optimizeLibraryItem;
-  $("openingAnalyzeBtn").onclick = analyzeOpeningPhrase;
-  $("openingSaveAnalyzedBtn").onclick = saveAnalyzedOpeningPhrase;
-  $("openingClearAnalyzeBtn").onclick = clearOpeningAnalyzer;
-  $("normalizeOpeningBtn").onclick = normalizeOpeningLibrary;
-  $("ruleTypeSelect").onchange = () => renderRuleEditor(0);
-  $("saveRuleEditorBtn").onclick = () => saveRuleEditor(false);
-  $("previewRuleBtn").onclick = previewRuleResult;
-  $("ruleAiSuggestBtn").onclick = suggestCurrentRuleWithAi;
-  $("ruleAiApplyBtn").onclick = applyRuleSuggestions;
-  $("syncWebProfilesBtn").onclick = () => syncWebSubmit("configs");
-  $("syncWebStylesBtn").onclick = () => syncWebSubmit("styles");
-  $("syncWebOrganizationsBtn").onclick = () => syncWebSubmit("organizations");
-  $("confirmWebSubmitSelectionBtn").onclick = confirmWebSubmitSelection;
-  $("webAllowResubmit").onchange = updateResubmitHint;
-  $("platformSelect").onchange = updatePlatformHint;
+  bindOptionalControl("processBtn", "onclick", processInput);
+  bindOptionalControl("refreshBtn", "onclick", refreshTasksAndSubmitHistory);
+  bindOptionalControl("taskRefreshBtn", "onclick", refreshTasksAndSubmitHistory);
+  bindOptionalControl("taskTodayBtn", "onclick", async () => { state.viewMode = "date"; state.taskDate = todayDateKey(); await refreshTasksAndSubmitHistory(); });
+  bindOptionalControl("taskPrevDayBtn", "onclick", async () => { state.viewMode = "date"; state.taskDate = shiftTaskDateKey(state.taskDate || todayDateKey(), -1); await refreshTasksAndSubmitHistory(); });
+  bindOptionalControl("taskNextDayBtn", "onclick", async () => { state.viewMode = "date"; state.taskDate = shiftTaskDateKey(state.taskDate || todayDateKey(), 1); await refreshTasksAndSubmitHistory(); });
+  bindOptionalControl("taskDefaultViewBtn", "onclick", async () => { state.viewMode = "current"; state.taskDate = state.currentBatchDate || todayDateKey(); await refreshTasksAndSubmitHistory(); });
+  bindOptionalControl("taskToggleBtn", "onclick", () => { const details = $("taskListDetails"); details.open = !details.open; $("taskToggleBtn").textContent = details.open ? "收起任务" : "展开任务"; });
+  bindOptionalControl("selectAllBtn", "onclick", selectAllVisibleTasks);
+  bindOptionalControl("clearSelectedBtn", "onclick", clearSelectedTasks);
+  bindOptionalControl("retrySelectedBtn", "onclick", () => batchRetry("selected"));
+  bindOptionalControl("retryFailedBtn", "onclick", () => batchRetry("failed"));
+  bindOptionalControl("transferBatchFactoryBtn", "onclick", transferSelectedToBatchFactory);
+  bindOptionalControl("applyRulesSelectedBtn", "onclick", () => applyRules("selected"));
+  bindOptionalControl("applyRulesAllBtn", "onclick", () => applyRules("all"));
+  bindOptionalControl("openWebSubmitBtn", "onclick", openWebSubmitFromTasks);
+  bindOptionalControl("submitTaskAllBtn", "onclick", () => void submitWebSubmit("all"));
+  bindOptionalControl("updateAiCountSelectedBtn", "onclick", updateSelectedAiCount);
+  bindOptionalControl("deleteSelectedBtn", "onclick", () => batchDelete("selected"));
+  bindOptionalControl("deleteFailedBtn", "onclick", () => batchDelete("failed"));
+  bindOptionalControl("deleteAllBtn", "onclick", () => batchDelete("all"));
+  bindOptionalControl("logsRefreshBtn", "onclick", loadRecords);
+  bindOptionalControl("saveConfigBtn", "onclick", saveConfig);
+  bindOptionalControl("saveKnowledgeConfigBtn", "onclick", saveConfig);
+  bindOptionalControl("saveRulesConfigBtn", "onclick", saveConfig);
+  bindOptionalControl("saveWorkflowBtn", "onclick", saveConfig);
+  bindOptionalControl("saveAiConfigBtn", "onclick", saveConfig);
+  bindOptionalControl("savePresetBtn", "onclick", saveCurrentPreset);
+  bindOptionalControl("applyPresetBtn", "onclick", applySelectedPreset);
+  bindOptionalControl("deletePresetBtn", "onclick", deleteSelectedPreset);
+  bindOptionalControl("testAiBtn", "onclick", testAi);
+  bindOptionalControl("libraryTypeSelect", "onchange", () => renderLibraryManager(0));
+  bindOptionalControl("librarySearchInput", "oninput", () => renderLibraryManager(Number($("libraryItemSelect").value || 0)));
+  bindOptionalControl("addLibraryItemBtn", "onclick", addLibraryItem);
+  bindOptionalControl("duplicateLibraryItemBtn", "onclick", duplicateLibraryItem);
+  bindOptionalControl("saveLibraryItemBtn", "onclick", () => saveLibraryItem(false));
+  bindOptionalControl("deleteLibraryItemBtn", "onclick", deleteLibraryItem);
+  bindOptionalControl("optimizeLibraryItemBtn", "onclick", optimizeLibraryItem);
+  bindOptionalControl("openingAnalyzeBtn", "onclick", analyzeOpeningPhrase);
+  bindOptionalControl("openingSaveAnalyzedBtn", "onclick", saveAnalyzedOpeningPhrase);
+  bindOptionalControl("openingClearAnalyzeBtn", "onclick", clearOpeningAnalyzer);
+  bindOptionalControl("normalizeOpeningBtn", "onclick", normalizeOpeningLibrary);
+  bindOptionalControl("ruleTypeSelect", "onchange", () => renderRuleEditor(0));
+  bindOptionalControl("saveRuleEditorBtn", "onclick", () => saveRuleEditor(false));
+  bindOptionalControl("previewRuleBtn", "onclick", previewRuleResult);
+  bindOptionalControl("ruleAiSuggestBtn", "onclick", suggestCurrentRuleWithAi);
+  bindOptionalControl("ruleAiApplyBtn", "onclick", applyRuleSuggestions);
+  bindOptionalControl("syncWebProfilesBtn", "onclick", () => syncWebSubmit("configs"));
+  bindOptionalControl("syncWebStylesBtn", "onclick", () => syncWebSubmit("styles"));
+  bindOptionalControl("syncWebOrganizationsBtn", "onclick", () => syncWebSubmit("organizations"));
+  bindOptionalControl("confirmWebSubmitSelectionBtn", "onclick", confirmWebSubmitSelection);
+  bindOptionalControl("webAllowResubmit", "onchange", updateResubmitHint);
+  bindOptionalControl("platformSelect", "onchange", updatePlatformHint);
   // 121 环境验证可能触发 Browser Worker，最慢时会等待超时。它只影响
   // 提交能力，不应阻塞小说获取工作台首次进入；配置和任务先完成后立即展示。
   void window.qiantieEnsureWebLoginEnvironment().catch(error => {

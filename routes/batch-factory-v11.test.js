@@ -900,10 +900,10 @@ test('single-book director target matches only POST stages/director for one book
   assert.equal(singleBookDirectorStageTarget({ method: 'POST' }, '/api/batch-factory/v11/batches/batch-1/books/book-1/stages/director/extra'), null);
 });
 
-function singleDirectorOptions({ openingEnabled, metaBody, fetchImpl }) {
+function singleDirectorOptions({ openingEnabled, openingCount = 3, metaBody, fetchImpl }) {
   const batch = {
     id: 'batch-1',
-    settingsState: { patch: { openingEnabled, textModelId: 'text-1' } },
+    settingsState: { patch: { openingEnabled, openingCount, textModelId: 'text-1' } },
     books: [{
       id: 'book-1',
       settingsState: { patch: {} },
@@ -945,7 +945,7 @@ test('after single-book director, opening variants are generated with the meta p
         const withVariants = JSON.parse(JSON.stringify(ctx.batch));
         withVariants.books[0].videos[0].settingsState.patch.openingVariants = [
           { index: 1, status: 'success', prompt: '变体一：茶盏碎裂。' },
-          { index: 2, status: 'failed', prompt: '' }
+          { index: 2, status: 'success', prompt: '变体二：雨夜推门。' }
         ];
         return new Response(JSON.stringify({ batch: withVariants }), { status: 200 });
       }
@@ -953,13 +953,43 @@ test('after single-book director, opening variants are generated with the meta p
     }
   });
   const result = await generateOpeningVariantsAfterSingleDirector(ctx.req, ctx.target, ctx.options);
-  assert.deepEqual(result, { triggered: true, generated: 1, succeeded: true, reason: '' });
+  assert.deepEqual(result, { triggered: true, generated: 2, succeeded: true, reason: '' });
   assert.equal(posts.length, 1);
   assert.match(posts[0].url, /books\/book-1\/stages\/opening$/);
   assert.equal(posts[0].body.mode, 'force');
   assert.equal(posts[0].body.openingMeta.presetId, 'batch-opening-meta');
   assert.equal(posts[0].body.openingMeta.body, '换开头元规则正文');
   assert.equal(posts[0].body.textProvider.model, 'gpt-x');
+});
+
+test('single-book director reports opening failure when a required variant is missing', async () => {
+  let batchGetCount = 0;
+  const ctx = singleDirectorOptions({
+    openingEnabled: true,
+    openingCount: 3,
+    metaBody: '换开头元规则正文',
+    fetchImpl: async (url, init = {}) => {
+      if (init.method === 'POST' && url.endsWith('/stages/opening')) {
+        return new Response(JSON.stringify({ runs: [{ stage: 'opening', status: 'failed' }] }), { status: 422 });
+      }
+      if (url.endsWith('/batches/batch-1') && (!init.method || init.method === 'GET')) {
+        batchGetCount += 1;
+        if (batchGetCount === 1) return new Response(JSON.stringify({ batch: ctx.batch }), { status: 200 });
+        const withFailure = JSON.parse(JSON.stringify(ctx.batch));
+        withFailure.books[0].videos[0].settingsState.patch.openingVariants = [
+          { index: 1, status: 'success', prompt: '变体一：茶盏碎裂。' },
+          { index: 2, status: 'failed', prompt: '', failureReason: '模型未输出该变体分段' }
+        ];
+        return new Response(JSON.stringify({ batch: withFailure }), { status: 200 });
+      }
+      throw new Error(`unexpected ${init.method || 'GET'} ${url}`);
+    }
+  });
+  const result = await generateOpeningVariantsAfterSingleDirector(ctx.req, ctx.target, ctx.options);
+  assert.equal(result.triggered, true);
+  assert.equal(result.generated, 1);
+  assert.equal(result.succeeded, false);
+  assert.match(result.reason, /换开头/);
 });
 
 test('single-book director does not call opening when the switch is off', async () => {

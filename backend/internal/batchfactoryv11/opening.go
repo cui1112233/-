@@ -91,6 +91,17 @@ func openingVariantFor(video Video, index int) (OpeningVariant, bool) {
 }
 
 func successfulOpeningVariants(video Video) []OpeningVariant {
+	variants := openingVariants(video)
+	out := []OpeningVariant{}
+	for _, variant := range variants {
+		if variant.Status == "success" && strings.TrimSpace(variant.Prompt) != "" {
+			out = append(out, variant)
+		}
+	}
+	return out
+}
+
+func openingVariants(video Video) []OpeningVariant {
 	raw, ok := video.SettingsState.Patch["openingVariants"]
 	if !ok {
 		return nil
@@ -99,11 +110,5 @@ func successfulOpeningVariants(video Video) []OpeningVariant {
 	if json.Unmarshal(raw, &variants) != nil {
 		return nil
 	}
-	out := []OpeningVariant{}
-	for _, variant := range variants {
-		if variant.Status == "success" && strings.TrimSpace(variant.Prompt) != "" {
-			out = append(out, variant)
-		}
-	}
-	return out
+	return variants
 }

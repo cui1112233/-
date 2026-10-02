@@ -1147,7 +1147,7 @@ function PromptPanel({ book, batch, batchId, settingsRevision, initialVideoId = 
         <Card size="small" title="分镜一（原始）"><pre style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{submittedVideoPrompt || '—'}</pre></Card>
         {(selectedVideo?.settingsState?.patch?.openingVariants || []).map(variant => (
           <Card key={variant.index} size="small" title={variant.label || `分镜一 | 换开头${variant.index}`} extra={<Tag color={variant.status === 'success' ? 'success' : 'error'}>{variant.status === 'success' ? '成功' : '失败'}</Tag>}>
-            {variant.status === 'success' ? <pre style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{variant.prompt}</pre> : <Alert type="error" showIcon message="AI 未生成出该变体，不参与生成与合成" />}
+            {variant.status === 'success' ? <pre style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{variant.prompt}</pre> : <Alert type="error" showIcon message="AI 未生成出该变体，已阻断后续生产" description={variant.failureReason || '历史记录未保留失败原因；请在任务/日志中查看并重试失败步骤。'} />}
           </Card>
         ))}
         {!(selectedVideo?.settingsState?.patch?.openingVariants || []).length ? <Alert type="info" showIcon message="换开头变体尚未生成" /> : null}

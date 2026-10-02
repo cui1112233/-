@@ -200,14 +200,35 @@ async function generateOpeningVariantsAfterSingleDirector(req, target, upstreamO
     openingMeta: { presetId: 'batch-opening-meta', presetName: '换开头元提示词', presetSlot: 'batch.opening-meta', presetVersion: 1, presetKey: 'batch-opening-meta', body: metaBody, constraintCategory: '' }
   };
   const openingPath = `/api/batch-factory/v11/batches/${encodeURIComponent(target.batchId)}/books/${encodeURIComponent(target.bookId)}/stages/opening`;
-  await v11JSONRequest({ ...goArgs, method: 'POST', pathname: openingPath, payload });
+  let openingError = null;
+  try {
+    await v11JSONRequest({ ...goArgs, method: 'POST', pathname: openingPath, payload });
+  } catch (error) {
+    // The director stage already succeeded. Read the persisted opening slots
+    // below so the caller receives the specific failed-variant reason instead
+    // of silently treating a partial response as usable.
+    openingError = error;
+  }
   const afterBatch = await loadBatch();
   const afterBook = (Array.isArray(afterBatch?.books) ? afterBatch.books : []).find(item => String(item?.id) === String(target.bookId));
-  const variants = afterBook?.videos?.[0]?.settingsState?.patch?.openingVariants;
-  const generated = Array.isArray(variants)
-    ? variants.filter(variant => variant?.status === 'success' && String(variant?.prompt || '').trim()).length
-    : 0;
-  return describe(true, generated, generated > 0, generated > 0 ? '' : '本次未生成可用换开头变体，可重试失败步骤');
+  const variants = Array.isArray(afterBook?.videos?.[0]?.settingsState?.patch?.openingVariants)
+    ? afterBook.videos[0].settingsState.patch.openingVariants
+    : [];
+  const configuredCount = Number.parseInt(String(settings.openingCount || 4), 10);
+  const required = Math.max(0, Math.min(7, (Number.isFinite(configuredCount) ? configuredCount : 4) - 1));
+  const successful = new Set(variants
+    .filter(variant => variant?.status === 'success' && String(variant?.prompt || '').trim())
+    .map(variant => Number(variant.index))
+    .filter(index => Number.isInteger(index) && index >= 1 && index <= required));
+  const missingIndex = Array.from({ length: required }, (_, offset) => offset + 1).find(index => !successful.has(index));
+  if (missingIndex === undefined && !openingError) return describe(true, successful.size, true, '');
+  const failedVariant = variants.find(variant => Number(variant?.index) === missingIndex);
+  const failureReason = String(failedVariant?.failureReason || '').trim();
+  const upstreamReason = String(openingError?.message || '').trim();
+  const reason = failureReason
+    ? `换开头${missingIndex}失败：${failureReason}`
+    : (upstreamReason || `换开头变体未全部生成（缺少换开头${missingIndex || 1}），可重试失败步骤`);
+  return describe(true, successful.size, false, reason);
 }
 
 function styleSystemBookPath(pathname) {

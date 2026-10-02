@@ -357,6 +357,15 @@ func (s *ProductionService) SubmitBookProductionWithOptions(ctx context.Context,
 		mediaVideos = mediaVideos[:1]
 	}
 	openingOn := rawBool(ResolveSettings(batch.SettingsState.Patch, book.SettingsState.Patch), "openingEnabled", false)
+	if openingOn && len(book.Videos) >= 2 {
+		count := rawInt(ResolveSettings(batch.SettingsState.Patch, book.SettingsState.Patch), "openingCount", 4)
+		if count < 1 || count > 8 {
+			return ProductionJob{}, fmt.Errorf("%w: openingCount must be between 1 and 8", ErrInvalid)
+		}
+		if err := requireSuccessfulOpeningVariants(openingVariants(book.Videos[0]), count-1); err != nil {
+			return ProductionJob{}, fmt.Errorf("%w: 请先重试失败的换开头步骤（%v）", ErrConflict, err)
+		}
+	}
 	pendingVideos := make([]Video, 0, len(mediaVideos))
 	for _, video := range mediaVideos {
 		if options.VideoID != "" && video.ID != options.VideoID {
