@@ -52,6 +52,15 @@ test('novel fetch gates the initial render until saved choices and login status 
   assert.match(styles, /正在读取当前配置/);
 });
 
+test('novel fetch startup tolerates controls omitted by the enhanced layout', () => {
+  const app = read('../../../../public/batch-rewrite/app.js');
+  const startup = app.slice(app.indexOf('window.addEventListener("DOMContentLoaded"'));
+
+  assert.match(startup, /function bindOptionalControl\(id, property, handler\)/);
+  assert.doesNotMatch(startup, /\$\("[^"]+"\)\.(?:onclick|onchange|oninput)\s*=/,
+    'a layout-specific missing control must not abort the whole startup hydrator');
+});
+
 test('novel fetch reuses a short-lived 121 session validation cache', () => {
   const service = readRepo('lib/novel-fetch-workshop/121-web-submit-service.js');
   const store = readRepo('lib/novel-fetch-store.js');
