@@ -25,3 +25,15 @@ export function normalizeAutomationConcurrency(value, fallback = 2) {
   const number = Number(value);
   return [1, 2, 4].includes(number) ? number : fallback;
 }
+
+export function automationPresetSnapshot(presets, presetId) {
+  const selected = (Array.isArray(presets) ? presets : []).find(item => String(item?.id || '') === String(presetId || ''));
+  const config = selected?.config && typeof selected.config === 'object' && !Array.isArray(selected.config) ? selected.config : null;
+  if (!selected || !config || !Object.keys(config).length) return null;
+  return {
+    id: String(selected.id),
+    name: String(selected.name || ''),
+    version: Number(selected.version || 0),
+    config: JSON.parse(JSON.stringify(config))
+  };
+}

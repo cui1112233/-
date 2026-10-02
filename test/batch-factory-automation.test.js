@@ -617,13 +617,14 @@ test('books waiting on external conditions do not block later books whose videos
 // -------- 巨量批量自动兜底巡查的回归测试 --------
 
 function recoveryFixture({ savedPlan = null, batchId = 'giant-batch-1' } = {}) {
+  const normalizedPlan = savedPlan ? { presetId: 'preset-1', ...savedPlan } : null;
   const batch = {
     id: batchId,
     title: '巨量批量',
     settingsState: { patch: { publishSettings: { organization: 'org' } } },
     books: [{
       id: 'g-book-1', bookId: '201', title: '巨量书', sourceText: '',
-      sourceMetadata: { sourceMode: 'giant_material', contentPending: true, ...(savedPlan ? { giantAutomationPlan: savedPlan } : {}) },
+      sourceMetadata: { sourceMode: 'giant_material', contentPending: true, ...(normalizedPlan ? { giantAutomationPlan: normalizedPlan } : {}) },
       settingsState: { patch: {} }, assetRecords: [], videos: []
     }]
   };
@@ -653,7 +654,7 @@ function recoveryFixture({ savedPlan = null, batchId = 'giant-batch-1' } = {}) {
 
 const silentLogger = () => ({ error() {}, warn() {}, info() {}, debug() {} });
 
-test('recovery sweep auto-starts a giant batch that never got a job as full_submit with auto upload', async () => {
+test('recovery sweep leaves a giant batch without a saved plan idle instead of guessing full automation', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-recovery-'));
   const setup = recoveryFixture();
   const controller = createBatchFactoryAutomationController({
@@ -662,12 +663,9 @@ test('recovery sweep auto-starts a giant batch that never got a job as full_subm
   });
   setup.setController(controller);
   await controller.runRecovery();
-  assert.equal(setup.recoveries.length, 1);
-  assert.equal(setup.recoveries[0].plan, null);
+  assert.equal(setup.recoveries.length, 0);
   const status = controller.status({ owner: 'user', batchId: 'giant-batch-1' });
-  assert.equal(status.state, 'running');
-  assert.equal(status.runMode, 'full_submit');
-  assert.equal(status.autoPublish, true);
+  assert.equal(status.state, 'idle');
 });
 
 test('recovery sweep honors the saved plan: video_no_submit with concurrency 1', async () => {
@@ -722,7 +720,7 @@ test('recovery sweep waits for a future scheduled plan and starts once it is due
 
 test('recovery sweep ignores non-giant batches and survives a failing recovery attempt', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-recovery-error-'));
-  const setup = recoveryFixture();
+  const setup = recoveryFixture({ savedPlan: {} });
   const normalBatch = {
     id: 'normal-batch',
     settingsState: { patch: {} },
@@ -753,7 +751,7 @@ test('recovery sweep ignores non-giant batches and survives a failing recovery a
 
 test('recovery sweep runs automatically shortly after controller creation', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-recovery-auto-'));
-  const setup = recoveryFixture();
+  const setup = recoveryFixture({ savedPlan: {} });
   const controller = createBatchFactoryAutomationController({
     adapter: setup.adapter, statePath: path.join(directory, 'state.json'),
     pollMs: 60_000, recoveryMs: 60_000, logger: silentLogger()
@@ -797,16 +795,16 @@ function captureRouterRecoveryAdapter(presetStore) {
   };
 }
 
-test('router startRecovery defaults to full_submit + autoPublish with batch patch snapshot', async () => {
+test('router startRecovery rejects a missing giant plan instead of defaulting to full automation', async () => {
   const presetStore = { list: async () => [], get: async () => null };
   const setup = captureRouterRecoveryAdapter(presetStore);
   try {
     const batch = { id: 'b1', settingsState: { patch: { textModelId: 'm1' } } };
-    await setup.adapter.startRecovery({ owner: 'u', isOwner: false, batch, savedPlan: null });
-    assert.equal(setup.starts.length, 1);
-    assert.equal(setup.starts[0].runMode, 'full_submit');
-    assert.equal(setup.starts[0].autoPublish, true);
-    assert.deepEqual(setup.starts[0].configSnapshot, { textModelId: 'm1' });
+    await assert.rejects(
+      () => setup.adapter.startRecovery({ owner: 'u', isOwner: false, batch, savedPlan: null }),
+      error => error?.code === 'GIANT_AUTOMATION_PLAN_MISSING'
+    );
+    assert.equal(setup.starts.length, 0);
   } finally {
     setup.restore();
   }
