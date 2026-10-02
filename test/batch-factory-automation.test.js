@@ -520,7 +520,7 @@ test('retry regenerates only a failed VIDEO and then completes', async () => {
   assert.deepEqual(modes[0], { stage: 'video', mode: 'force', videoId: 'video-1' });
 });
 
-test('giant placeholder book waits for content instead of blocking forever', async () => {
+test('giant placeholder without an executor task is blocked instead of waiting forever', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-test-'));
   const { batch, adapter } = fixture();
   batch.books.push({ id: 'book-2', bookId: '102', title: '巨量占位', sourceText: '', sourceMetadata: { sourceMode: 'giant_material', contentPending: true }, settingsState: { patch: {} }, assetRecords: [], videos: [] });
@@ -528,14 +528,35 @@ test('giant placeholder book waits for content instead of blocking forever', asy
   await controller.start({ owner: 'user', batchId: 'batch-1', concurrency: 2 });
   for (let i = 0; i < 6; i += 1) { await controller.tick(); await wait(); }
   let status = controller.status({ owner: 'user', batchId: 'batch-1' });
-  assert.equal(status.books[1].status, 'waiting');
-  assert.equal(status.books[1].message, '等待正文读取（巨量素材）');
-  assert.equal(status.state, 'running');
-  // 正文回填后，下一轮巡检自动进入流水线并走到待上传
-  batch.books[1].sourceText = '巨量读取到的正文';
-  for (let i = 0; i < 10; i += 1) { await controller.tick(); await wait(); }
-  status = controller.status({ owner: 'user', batchId: 'batch-1' });
-  assert.equal(status.books[1].stage, 'ready_for_upload');
+  assert.equal(status.books[1].status, 'blocked');
+  assert.equal(status.books[1].stage, 'source');
+  assert.match(status.books[1].message, /未启动.*执行器/);
+  assert.match(status.books[1].error, /执行器任务/);
+  assert.equal(status.state, 'needs_attention');
+});
+
+test('a giant OCR task that no executor claims within five minutes is blocked', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-queued-giant-'));
+  const { batch, adapter } = fixture();
+  batch.books[0].sourceText = '';
+  batch.books[0].sourceMetadata = { sourceMode: 'giant_material', contentPending: true, executorJobId: 'giant-job-queued' };
+  adapter.reconcileGiantMaterialSource = async () => ({ state: 'queued', queuedAt: '2026-10-02T00:00:00.000Z' });
+  const controller = createBatchFactoryAutomationController({
+    adapter,
+    statePath: path.join(directory, 'state.json'),
+    pollMs: 60_000,
+    now: () => new Date('2026-10-02T00:05:01.000Z'),
+    logger: { error() {} }
+  });
+
+  await controller.start({ owner: 'user', batchId: batch.id, concurrency: 1 });
+  for (let i = 0; i < 3; i += 1) { await controller.tick(); await wait(); }
+
+  const status = controller.status({ owner: 'user', batchId: batch.id });
+  assert.equal(status.state, 'needs_attention');
+  assert.equal(status.books[0].status, 'blocked');
+  assert.match(status.books[0].message, /未被执行器领取/);
+  assert.match(status.books[0].error, /5 分钟/);
 });
 
 test('server reconciliation saves a completed giant OCR result without a browser being open', async () => {

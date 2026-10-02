@@ -291,7 +291,9 @@ function createBatchFactoryV12Router(options = {}) {
   const legacy = createBatchFactoryV11Router({ ...options, automationPresetStore });
   const router = express.Router();
   const runtimeSummaryCache = new Map();
-  const runtimeSummaryTTL = 4_000;
+  // 浏览器运行摘要每 5 秒轮询一次；将相同账号/批量的昂贵聚合读取限为 15 秒一次，
+  // 避免多个页面或抽屉同时打开时把小规格公网机的 Go/MySQL 打满。
+  const runtimeSummaryTTL = 15_000;
   router.get('/batches/summary', async (req, res) => {
     try {
       const account = { username: req.username, isOwner: req.auth?.account?.isOwner === true };
