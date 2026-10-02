@@ -561,6 +561,30 @@ test('a giant OCR task that no executor claims within five minutes is blocked', 
   assert.match(status.books[0].error, /5 分钟/);
 });
 
+test('reload migrates historic unclaimed giant OCR blocks into failed books', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-giant-migrate-'));
+  const statePath = path.join(directory, 'state.json');
+  fs.writeFileSync(statePath, JSON.stringify({
+    jobs: {
+      'user:batch-1': {
+        owner: 'user', batchId: 'batch-1', state: 'needs_attention', books: {
+          'book-1': {
+            bookId: 'book-1', title: '历史巨量书', status: 'blocked', stage: 'source',
+            message: '未启动本地巨量执行器，无法读取正文',
+            error: '巨量素材尚未创建执行器任务，请启动执行器后重新派发读取任务'
+          }
+        }
+      }
+    }
+  }));
+  const { adapter } = fixture();
+  const controller = createBatchFactoryAutomationController({ adapter, statePath, pollMs: 60_000, logger: { error() {} } });
+  const status = controller.status({ owner: 'user', batchId: 'batch-1' });
+  assert.equal(status.books[0].status, 'failed');
+  assert.match(status.books[0].message, /已停止本书并继续下一本/);
+  assert.equal(status.counts.failed, 1);
+});
+
 test('server reconciliation saves a completed giant OCR result without a browser being open', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-giant-reconcile-'));
   const { batch, adapter } = fixture();
