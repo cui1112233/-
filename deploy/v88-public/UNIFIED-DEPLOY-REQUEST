@@ -1,3 +1,3 @@
-release_sha=7d75ac41154907eb5558fb85b42f817957ded2f9
-scope=batch-factory: default automation mode full_submit; preserve explicit video_no_submit and storyboard_only modes
-requested_at=2026-10-03T02:43:25+08:00
+release_sha=c887c6af1f03bab3e2434a9275300ac422484eef
+scope=deploy: synchronize Node-specific immutable release identity for external build-info verification
+requested_at=2026-10-03T03:12:00+08:00
