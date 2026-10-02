@@ -13,6 +13,7 @@ const {
   rejectLegacyV11Mutations,
   createBatchFactoryV12Router
 } = require('./batch-factory-v12');
+const { refillMissingBatchFactoryBookSource: refillSharedBatchFactoryBookSource } = require('../lib/batch-factory-v11/source-refill');
 
 const dispatchValidationCases = [
   { name: 'video stage inherits and rejects a disabled persisted batch video model', path: 'stages/video', batchPatch: { videoModelId: 'video-disabled' }, body: { mode: 'missing', textModelId: 'text-1', provider: 'doubao_local_executor' }, status: 422, message: /视频模型不可用/ },
@@ -291,6 +292,20 @@ test('refills a legacy empty book from its stored platform and book ID without o
   ]);
   assert.equal(result.book.sourceText, '抓回来的正文');
   await assert.rejects(() => refillMissingBatchFactoryBookSource({ book: { id: 'book-1', sourceText: '已存在正文' }, fetchDirectOriginal: async () => ({}) }), /已有正文/);
+});
+
+test('shared source refill keeps a giant placeholder on the bookstore path', async () => {
+  const writes = [];
+  const result = await refillSharedBatchFactoryBookSource({
+    book: { id: 'book-1', bookId: '101', platform: '七猫', sourceText: '', revision: 4, sourceMetadata: { sourceMode: 'giant_material', contentPending: true } },
+    platforms: [{ id: '3', name: '七猫' }],
+    fetchDirectOriginal: async () => ({ text: '修改中\n书城正文', attempts: 2 }),
+    captureSource: async payload => { writes.push(payload); return { ok: true }; }
+  });
+
+  assert.equal(result.fetched.length, 4);
+  assert.equal(writes[0].sourceMetadata.originalReadVia, 'bookstore');
+  assert.equal(writes[0].sourceMetadata.contentPending, false);
 });
 
 test('uses the leading stored Book ID when a legacy smart parse appended the title', async () => {

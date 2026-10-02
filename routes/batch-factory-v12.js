@@ -11,6 +11,7 @@ const {
 } = require('./batch-factory-v11');
 const { createMySQLWorkshopStore } = require('../lib/novel-fetch-workshop/mysql-store');
 const { createAutomationPresetStore } = require('../lib/batch-factory-v11/automation-presets');
+const { cleanBatchFactorySourceText, refillMissingBatchFactoryBookSource } = require('../lib/batch-factory-v11/source-refill');
 
 const V12_BASE = '/api/batch-factory/v12';
 const V11_BASE = '/api/batch-factory/v11';
@@ -102,31 +103,6 @@ function isV12DeletionPath(value) {
   return /^\/api\/batch-factory\/v12\/batches\/[^/]+(?:\/books\/[^/]+)?$/.test(parsed.pathname);
 }
 
-// Some book cities return a transient page-state line (for example "修改中")
-// before the actual novel text. Keep the upstream response separately for
-// audit/recovery, but never let browser placeholders enter AI production.
-function normalizedBatchFactorySourceLine(value) {
-  return String(value || '')
-    .replace(/&nbsp;|\u00a0|　/g, ' ')
-    .replace(/<[^>]*>/g, '')
-    .trim();
-}
-
-function isBatchFactoryLeadingPageStateLine(value) {
-  return /^(?:修改中|加载中|正文加载中|请稍候)$/.test(value);
-}
-
-function isBatchFactoryPunctuationOnlyLine(value) {
-  return /^[，。！？、；：…·—～~,.!?;:()（）【】\[\]{}「」『』“”"'\-]+$/.test(value);
-}
-
-function cleanBatchFactorySourceText(value) {
-  const lines = String(value || '').split(/\r?\n/).map(normalizedBatchFactorySourceLine).filter(Boolean);
-  let firstContent = 0;
-  while (firstContent < lines.length && isBatchFactoryLeadingPageStateLine(lines[firstContent])) firstContent += 1;
-  return lines.slice(firstContent).filter(line => !isBatchFactoryPunctuationOnlyLine(line)).join('\n');
-}
-
 async function fetchBatchFactoryOriginals(payload, fetchDirectOriginal) {
   const numericPlatform = Number(payload?.platform);
   if (!Number.isInteger(numericPlatform) || numericPlatform <= 0) throw new Error('无效的平台 ID');
@@ -197,68 +173,6 @@ async function classifyBatchFactoryBooks({ books, classifyBook } = {}) {
     }
   }
   return results;
-}
-
-// 巨量素材占位书的 platform 存的是青语显示名（"七猫"，多平台时"七猫 / 番茄"），
-// 而上游拉正文接口只认数字书城 ID。这里把显示名解析回数字 ID：
-// 数字原样通过 → 精确名匹配 → 去掉"/"后半段做唯一前缀匹配（"七猫"→"七猫付费"）。
-// 解析不出来就原样返回，走原有报错路径，不猜。
-function resolveWorkshopPlatformId(raw, platforms = []) {
-  const value = String(raw || '').trim();
-  if (!value) return '';
-  const list = (Array.isArray(platforms) ? platforms : []).filter(item => String(item?.id || '').trim() && String(item?.name || '').trim());
-  if (list.some(item => String(item.id) === value)) return value;
-  const short = value.split('/')[0].trim();
-  const exact = list.find(item => String(item.name) === short);
-  if (exact) return String(exact.id);
-  const matches = list.filter(item => String(item.name).startsWith(short) && short);
-  return matches.length === 1 ? String(matches[0].id) : value;
-}
-
-// Repairs only legacy/manual intake records where the source was never saved.
-// The Go store enforces the same fill-only rule atomically so retries cannot
-// replace a real source fetched by someone else.
-async function refillMissingBatchFactoryBookSource({ book, fetchDirectOriginal, captureSource, platforms = [], now = () => new Date() } = {}) {
-  if (String(book?.sourceText || '').trim()) throw new Error('当前书已有正文，不能覆盖');
-  const rawBookID = String(book?.bookId || '').trim();
-  // Older smart-input rows occasionally persisted "Book ID + title" in the
-  // bookId field. The source ID is the leading transport-safe token; retaining
-  // the title in that malformed field must not make the saved book impossible
-  // to repair.
-  const bookId = rawBookID.match(/^[A-Za-z0-9_.-]+/)?.[0] || '';
-  const rawPlatform = String(book?.platform || book?.sourceMetadata?.platformId || '').trim();
-  const platformId = resolveWorkshopPlatformId(rawPlatform, platforms);
-  const maxTxt = Number(book?.sourceMetadata?.contentCaptureCharacters || 4000);
-  if (!bookId || !platformId || !Number.isInteger(maxTxt) || maxTxt < 100 || maxTxt > 100000) throw new Error('当前书缺少可用的书城、Book ID 或正文范围');
-  const fetched = await fetchDirectOriginal({ bookId, platformId, maxTxt });
-  const rawSourceText = String(fetched?.rawText || fetched?.text || '').trim();
-  const sourceText = cleanBatchFactorySourceText(fetched?.text || '');
-  if (!sourceText) throw new Error('没有返回正文');
-  const existingMetadata = book?.sourceMetadata && typeof book.sourceMetadata === 'object'
-    ? book.sourceMetadata
-    : {};
-  const isGiantMaterial = existingMetadata.sourceMode === 'giant_material';
-  const response = await captureSource({
-    sourceText,
-    expectedRevision: Number(book?.revision || 0),
-    sourceMetadata: {
-      ...existingMetadata,
-      sourceMode: isGiantMaterial ? 'giant_material' : 'manual_refetched',
-      sourceFetchedAt: now().toISOString(),
-      sourceFetchAttempts: Number(fetched?.attempts || 0),
-      sourceCaptureCharacters: maxTxt,
-      sourceBookId: bookId,
-      sourceOriginalRaw: rawSourceText,
-      ...(isGiantMaterial ? {
-        originalReadStage: 'completed',
-        originalReadVia: 'bookstore',
-        originalReadError: '',
-        contentPending: false
-      } : {}),
-      ...(fetched?.bookinfo?.work_title ? { sourceBookTitle: String(fetched.bookinfo.work_title) } : {})
-    }
-  });
-  return { ...response, fetched: { length: sourceText.length, attempts: fetched?.attempts || 0, bookinfo: fetched?.bookinfo || {} } };
 }
 
 // The workbench used to refresh production, merge, automation and every book
