@@ -57,10 +57,13 @@ test('automation advances a book to ready_for_upload without uploading', async (
 
 test('storyboard-only automation stops after director compilation and never submits VIDEO', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-test-'));
-  const { adapter } = fixture();
+  const { batch, adapter } = fixture();
+  batch.settingsState.patch.textModelId = 'text-current';
   const stages = [];
-  adapter.runStage = async ({ book, stage }) => {
+  const models = [];
+  adapter.runStage = async ({ book, stage, settings }) => {
     stages.push(stage);
+    models.push(settings.textModelId);
     if (stage === 'assets') { book.assetRecords = [{ id: 'a1', kind: 'character' }]; }
     if (stage === 'director') { book.directorRevision = { id: 'd1' }; book.videos = [{ id: 'video-1', label: 'VIDEO01', visualPrompt: '最终 Prompt' }]; }
     if (stage === 'video') throw new Error('storyboard-only mode must not submit VIDEO');
@@ -79,7 +82,9 @@ test('storyboard-only automation stops after director compilation and never subm
   assert.equal(status.runMode, 'storyboard_only');
   assert.equal(status.preset.id, 'preset-1');
   assert.equal(status.preset.version, 3);
-  assert.deepEqual(appliedSnapshot, { textModelId: 'text-a' });
+  assert.equal(appliedSnapshot, null);
+  assert.deepEqual(models, ['text-current', 'text-current']);
+  assert.deepEqual(batch.books[0].settingsState.patch, {});
   assert.deepEqual(stages, ['assets', 'director']);
   assert.equal(compileCalls, 1);
   assert.equal(status.books[0].stage, 'ready_for_video');
@@ -133,7 +138,7 @@ test('automation with autoPublish uploads a confirmed merged book exactly once',
   assert.equal(publishCalls, 1);
 });
 
-test('full-submit upload receives the frozen publish settings instead of live batch settings', async () => {
+test('full-submit upload receives current batch publish settings after a live change', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-test-'));
   const { batch, adapter } = fixture();
   let publishSettings = null;
@@ -148,7 +153,7 @@ test('full-submit upload receives the frozen publish settings instead of live ba
   });
   batch.settingsState.patch.publishSettings = { organization: 'live-org', category: 'LIVE' };
   for (let i = 0; i < 12; i += 1) { await controller.tick(); await wait(); }
-  assert.deepEqual(publishSettings, { organization: 'frozen-org', category: 'FROZEN' });
+  assert.deepEqual(publishSettings, { organization: 'live-org', category: 'LIVE' });
 });
 
 test('automation freezes the requested per-job concurrency and defaults old callers to two books', async () => {
@@ -435,21 +440,35 @@ test('a transient video-management upload failure retries only after merged medi
   assert.equal(calls, 2);
 });
 
-test('automation freezes a deep copy of the selected unified preset at start', async () => {
+test('scheduled automation ignores preset snapshots and preserves sparse book overrides', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-test-'));
-  const { adapter } = fixture();
+  const { batch, adapter } = fixture();
   let currentTime = 0;
   let appliedSnapshot = null;
   adapter.applyExecutionSnapshot = async ({ configSnapshot: value }) => { appliedSnapshot = value; };
+  batch.books[0].settingsState.patch = { openingEnabled: false };
+  const settingsSeen = [];
+  const originalRunStage = adapter.runStage;
+  adapter.runStage = async input => { settingsSeen.push(input.settings); return originalRunStage(input); };
   const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} }, now: () => currentTime });
   const configSnapshot = { textModelId: 'frozen-text', publishSettings: { organization: 'frozen-org' }, aiPromptConfig: { constraints: { baseSetup: { enabled: false } } } };
   await controller.start({ owner: 'user', batchId: 'batch-1', scheduledAt: '1970-01-01T00:00:01.000Z', runMode: 'storyboard_only', preset: { id: 'preset-1', name: '夜间 H3', version: 1 }, configSnapshot });
   configSnapshot.publishSettings.organization = 'mutated-org';
   configSnapshot.aiPromptConfig.constraints.baseSetup.enabled = true;
+  batch.settingsState.patch = { textModelId: 'text-current', publishSettings: { organization: 'live-org' }, aiPromptConfig: { constraints: { baseSetup: { enabled: true } } } };
   currentTime = 1_000;
   for (let index = 0; index < 4; index += 1) { await controller.tick(); await wait(); }
-  assert.equal(appliedSnapshot.publishSettings.organization, 'frozen-org');
-  assert.equal(appliedSnapshot.aiPromptConfig.constraints.baseSetup.enabled, false);
+  assert.equal(appliedSnapshot, null);
+  assert.ok(settingsSeen.length > 0);
+  for (const settings of settingsSeen) {
+    assert.equal(settings.textModelId, 'text-current');
+    assert.equal(settings.publishSettings.organization, 'live-org');
+    assert.equal(settings.aiPromptConfig.constraints.baseSetup.enabled, true);
+    assert.equal(settings.openingEnabled, false);
+  }
+  assert.deepEqual(batch.books[0].settingsState.patch, { openingEnabled: false });
+  const saved = Object.values(JSON.parse(fs.readFileSync(controller.statePath, 'utf8')).jobs)[0];
+  assert.equal(Object.hasOwn(saved, 'configSnapshot'), false);
 });
 
 test('one blocked book does not erase another completed book', async () => {
@@ -894,7 +913,7 @@ test('router startRecovery rejects a missing giant plan instead of defaulting to
   }
 });
 
-test('router startRecovery honors saved runMode/concurrency and preset config', async () => {
+test('router startRecovery honors its saved plan without copying preset configuration', async () => {
   const presets = new Map([['p1', { id: 'p1', name: '夜间', version: 3, config: { textModelId: 'from-preset' } }]]);
   const presetStore = { list: async () => [...presets.values()], get: async (_owner, id) => presets.get(id) };
   const setup = captureRouterRecoveryAdapter(presetStore);
@@ -902,13 +921,15 @@ test('router startRecovery honors saved runMode/concurrency and preset config', 
     const batch = { id: 'b2', settingsState: { patch: { textModelId: 'from-batch' } } };
     await setup.adapter.startRecovery({
       owner: 'u', isOwner: true, batch,
-      savedPlan: { presetId: 'p1', runMode: 'video_no_submit', concurrency: 1 }
+      savedPlan: { presetId: 'p1', runMode: 'video_no_submit', concurrency: 1, scheduledAt: '2026-10-02T10:01:00.000Z' }
     });
     assert.equal(setup.starts[0].runMode, 'video_no_submit');
     assert.equal(setup.starts[0].autoPublish, false);
     assert.equal(setup.starts[0].concurrency, 1);
     assert.equal(setup.starts[0].preset.id, 'p1');
-    assert.deepEqual(setup.starts[0].configSnapshot, { textModelId: 'from-preset' });
+    assert.equal(setup.starts[0].scheduledAt, '2026-10-02T10:01:00.000Z');
+    assert.equal(Object.hasOwn(setup.starts[0], 'configSnapshot'), false);
+    assert.deepEqual(batch.settingsState.patch, { textModelId: 'from-batch' });
   } finally {
     setup.restore();
   }

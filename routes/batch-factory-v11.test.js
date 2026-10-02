@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const express = require('express');
 
 const {
   enrichBatchFactorySystemPresetConfig,
@@ -30,32 +31,71 @@ const {
   persisted121PublicationMetadata,
   v11JSONRequest,
   safeAutomationStatus,
-  frozenGiantAutomationRecovery,
+  liveGiantAutomationRecovery,
+  createBatchFactoryV11Router,
   batchFactoryProductionText,
   splitVideoPresetBody,
   singleBookDirectorStageTarget,
   generateOpeningVariantsAfterSingleDirector
 } = require('./batch-factory-v11');
 
-test('recovers giant automation from the frozen batch preset after the live preset is deleted', () => {
-  const recovered = frozenGiantAutomationRecovery({
-    settingsState: {
-      patch: {
-        textModelId: 'text-model-a',
-        automationPresetSnapshot: { id: 'preset-1', name: '全自动预设', version: 3, frozenAt: '2026-10-02T10:00:00.000Z' }
-      }
-    }
-  }, { presetId: 'preset-1', runMode: 'full_submit', concurrency: 2 });
+test('automation start forwards plan metadata without freezing preset configuration', async t => {
+  const calls = [];
+  const app = express();
+  app.use(express.json());
+  app.use((req, res, next) => { req.username = 'alice'; next(); });
+  app.use('/api/batch-factory/v11', createBatchFactoryV11Router({
+    goBaseUrl: 'http://go.local', bridgeSecret: 'secret',
+    automationPresetStore: {
+      get: async () => ({ id: 'preset-1', name: '预设', version: 2, config: { textModelId: 'text-preset-old' } })
+    },
+    automationController: {
+      start: async input => { calls.push(input); return { state: 'scheduled' }; }
+    },
+    fetchImpl: async () => ({
+      ok: true, status: 200,
+      text: async () => JSON.stringify({ batch: { id: 'batch-1', settingsState: { patch: { textModelId: 'text-current' } } } })
+    })
+  }));
+  const server = app.listen(0, '127.0.0.1');
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  await new Promise(resolve => server.once('listening', resolve));
+  const response = await fetch(`http://127.0.0.1:${server.address().port}/api/batch-factory/v11/batches/batch-1/automation/start`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ presetId: 'preset-1', runMode: 'storyboard_only', concurrency: 4, scheduledAt: '2026-10-02T10:01:00.000Z' })
+  });
+  assert.equal(response.status, 201);
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0], {
+    owner: 'alice', isOwner: false, batchId: 'batch-1',
+    scheduledAt: '2026-10-02T10:01:00.000Z', runMode: 'storyboard_only', concurrency: 4,
+    preset: { id: 'preset-1', name: '预设', version: 2 }
+  });
+});
+
+test('recovers giant automation using its saved plan without requiring a frozen preset', () => {
+  const recovered = liveGiantAutomationRecovery({
+    settingsState: { patch: { textModelId: 'text-current' } }
+  }, { presetId: 'preset-1', runMode: 'full_submit', concurrency: 2, scheduledAt: '2026-10-02T10:01:00.000Z' });
 
   assert.deepEqual(recovered, {
-    preset: { id: 'preset-1', name: '全自动预设', version: 3 },
-    configSnapshot: {
-      textModelId: 'text-model-a',
-      automationPresetSnapshot: { id: 'preset-1', name: '全自动预设', version: 3, frozenAt: '2026-10-02T10:00:00.000Z' }
-    },
-    runMode: 'full_submit', concurrency: 2, scheduledAt: ''
+    preset: { id: 'preset-1' },
+    runMode: 'full_submit', concurrency: 2, scheduledAt: '2026-10-02T10:01:00.000Z'
   });
-  assert.throws(() => frozenGiantAutomationRecovery({ settingsState: { patch: {} } }, { presetId: 'preset-1' }), /冻结配置缺失/);
+});
+
+test('giant recovery does not require historical preset metadata to match its saved plan', () => {
+  const recovered = liveGiantAutomationRecovery({
+    settingsState: { patch: { automationPresetSnapshot: { id: 'old-preset' }, textModelId: 'text-current' } }
+  }, { presetId: 'saved-preset', runMode: 'storyboard_only', concurrency: 4 });
+  assert.deepEqual(recovered, { preset: { id: 'saved-preset' }, runMode: 'storyboard_only', concurrency: 4, scheduledAt: '' });
+});
+
+test('giant recovery validates its saved plan identity and run timing', () => {
+  assert.throws(() => liveGiantAutomationRecovery({}, {}), error => error.code === 'GIANT_AUTOMATION_PLAN_MISSING');
+  assert.throws(() => liveGiantAutomationRecovery({
+    settingsState: { patch: { automationPresetSnapshot: { id: 'preset-1' } } }
+  }, { presetId: 'preset-1', scheduledAt: 'invalid-date' }), /定时执行时间无效/);
 });
 
 test('keeps book-city loading placeholders out of automated production text', () => {

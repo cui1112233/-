@@ -1,8 +1,7 @@
 const express = require('express');
 const crypto = require('crypto');
-const fs = require('fs');
 const path = require('path');
-const { getVideoApiKey, readConfig, getUserConfigPath } = require('../lib/shared');
+const { getVideoApiKey, readConfig } = require('../lib/shared');
 const { proxyV11Request, createSignedBridgeHeaders } = require('../lib/batch-factory-v11/go-proxy');
 const { BATCH_FACTORY_PRESET_REQUIREMENTS, isPublishedPresetAllowed, resolveSystemPresetBody } = require('../lib/system-preset-catalog');
 const { listVisibleModels, resolveRuntimeModel } = require('../lib/model-catalog-runtime');
@@ -46,28 +45,21 @@ function applyEngineConfigInheritance(snapshot, accountConfig) {
   return patch;
 }
 
-// Giant OCR may take long enough that the user changes or deletes a live
-// preset. Recovery must reproduce the batch that was created, not silently
-// switch to today's preset or leave the queue stranded. Legacy batches that
-// never froze a snapshot get an explicit repair message instead of a guess.
-function frozenGiantAutomationRecovery(batch, savedPlan) {
+// The saved plan authorizes recovery and retains its run timing. Execution
+// reloads current batch settings; preset metadata is only plan provenance.
+function liveGiantAutomationRecovery(batch, savedPlan) {
   const presetID = String(savedPlan?.presetId || '').trim();
   if (!presetID) throw requestError('巨量素材自动化计划缺失，请在工作台选择预设后手动启动', 409, 'GIANT_AUTOMATION_PLAN_MISSING');
-  const configSnapshot = object(batch?.settingsState?.patch);
-  const snapshot = object(configSnapshot.automationPresetSnapshot);
-  if (!String(snapshot.id || '').trim()) {
-    throw requestError('巨量素材冻结配置缺失：这是旧批次，无法安全猜测预设；请在统一配置中选择后手动启动。', 409, 'GIANT_AUTOMATION_SNAPSHOT_MISSING');
-  }
-  if (String(snapshot.id) !== presetID) {
-    throw requestError('巨量素材冻结配置与读取计划不一致，请在统一配置中重新确认后手动启动。', 409, 'GIANT_AUTOMATION_SNAPSHOT_MISMATCH');
+  const scheduledAt = String(savedPlan?.scheduledAt || '').trim();
+  if (scheduledAt && !Number.isFinite(new Date(scheduledAt).getTime())) {
+    throw requestError('定时执行时间无效', 422, 'GIANT_AUTOMATION_SCHEDULE_INVALID');
   }
   const runModeValue = String(savedPlan?.runMode || '').trim();
   return {
-    preset: { id: String(snapshot.id), name: String(snapshot.name || '自动化预设'), version: Number(snapshot.version || 0) },
-    configSnapshot,
+    preset: { id: presetID },
     runMode: ['storyboard_only', 'video_no_submit', 'full_submit'].includes(runModeValue) ? runModeValue : 'full_submit',
     concurrency: Number(savedPlan?.concurrency || 0) || undefined,
-    scheduledAt: String(savedPlan?.scheduledAt || '').trim()
+    scheduledAt
   };
 }
 
@@ -1820,23 +1812,6 @@ function createBatchFactoryV11Router(options = {}) {
         }
         return { state: state || 'waiting', progress: giantJob?.progress || {} };
       },
-      applyExecutionSnapshot: async ({ owner: username, isOwner, batch, book, configSnapshot }) => {
-        const currentBook = (Array.isArray(batch?.books) ? batch.books : []).find(item => item?.id === book?.id) || book;
-        const base = object(configSnapshot);
-        const override = object(currentBook?.settingsState?.patch);
-        const effective = {
-          ...base,
-          ...override,
-          publishSettings: { ...object(base.publishSettings), ...object(override.publishSettings) }
-        };
-        return v11JSONRequest({
-          username, isOwner, method: 'PUT',
-          pathname: `/api/batch-factory/v11/batches/${encodeURIComponent(batch.id)}/books/${encodeURIComponent(book.id)}/override`,
-          payload: { patch: effective, expectedRevision: Number(currentBook?.revision || 0) },
-          goBaseUrl: upstreamOptions.goBaseUrl, bridgeSecret: upstreamOptions.bridgeSecret,
-          fetchImpl: upstreamOptions.fetchImpl, now: upstreamOptions.now
-        });
-      },
       runStage: async ({ owner: username, isOwner, batch, book, stage, mode, videoId = '', requestId, settings: frozenSettings }) => {
         const batchId = batch.id;
         const bookId = book.id;
@@ -2058,16 +2033,9 @@ function createBatchFactoryV11Router(options = {}) {
         return Array.isArray(result?.batches) ? result.batches : [];
       },
       // 3) 对"含巨量书但没有活跃 job"的批量补启动：
-      //    只恢复创建时已保存的预设，绝不为旧批次猜测全自动配置。
-      //    已保存的快照缺文本模型时，按"继承引擎配置"补账号默认模型。
+      //    保存计划控制执行模式与时间，生产阶段读取当前批量配置。
       startRecovery: async ({ owner, isOwner, batch, savedPlan }) => {
-        const recovered = frozenGiantAutomationRecovery(batch, savedPlan);
-        let accountConfig = null;
-        try {
-          accountConfig = JSON.parse(fs.readFileSync(getUserConfigPath(owner), 'utf8'));
-        } catch (error) {
-          accountConfig = null;
-        }
+        const recovered = liveGiantAutomationRecovery(batch, savedPlan);
         return automation.start({
           owner,
           isOwner,
@@ -2076,8 +2044,7 @@ function createBatchFactoryV11Router(options = {}) {
           runMode: recovered.runMode,
           autoPublish: recovered.runMode === 'full_submit',
           concurrency: recovered.concurrency,
-          preset: recovered.preset,
-          configSnapshot: applyEngineConfigInheritance(recovered.configSnapshot, accountConfig)
+          preset: recovered.preset
         });
       }
     }
@@ -2132,18 +2099,10 @@ function createBatchFactoryV11Router(options = {}) {
       if (!presetId) throw requestError('请先选择自动化预设', 400, 'AUTOMATION_PRESET_REQUIRED');
       const preset = presetId ? await automationPresets.get(req.username, presetId) : null;
       if (presetId && !preset) throw requestError('自动化预设不存在或不属于当前账号', 404, 'AUTOMATION_PRESET_NOT_FOUND');
-      const current = await v11JSONRequest({
-        username: req.username, isOwner: req.auth?.account?.isOwner === true, method: 'GET',
-        pathname: `/api/batch-factory/v11/batches/${encodeURIComponent(req.params.batchId)}`,
-        goBaseUrl: upstreamOptions.goBaseUrl, bridgeSecret: upstreamOptions.bridgeSecret,
-        fetchImpl: upstreamOptions.fetchImpl, now: upstreamOptions.now
-      });
-      const batch = current?.batch || current;
       const result = await automation.start({
         ...automationContext(req), scheduledAt: req.body?.scheduledAt,
         runMode: req.body?.runMode, concurrency: req.body?.concurrency,
-        preset: preset ? { id: preset.id, name: preset.name, version: preset.version } : {},
-        configSnapshot: preset?.config || object(batch?.settingsState?.patch)
+        preset: preset ? { id: preset.id, name: preset.name, version: preset.version } : {}
       });
       return res.status(201).json({ automation: result });
     } catch (error) { return sendAutomationError(res, error); }
@@ -2342,6 +2301,6 @@ module.exports = {
   acquireBatchFactorySmartUnifiedBaseline,
   upstreamErrorMessage,
   applyEngineConfigInheritance,
-  frozenGiantAutomationRecovery,
+  liveGiantAutomationRecovery,
   createBatchFactoryV11Router
 };
