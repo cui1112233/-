@@ -88,17 +88,8 @@ func (s *ReadbackMySQLStore) GetBatch(ctx context.Context, owner, id string) (Ba
 }
 
 func (s *ReadbackMySQLStore) ListBatches(ctx context.Context, owner string) ([]Batch, error) {
-	batches, err := s.MySQLStore.ListBatches(ctx, owner)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]Batch, 0, len(batches))
-	for _, batch := range batches {
-		hydrated, err := s.hydrateSettingsState(ctx, owner, batch)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, hydrated)
-	}
-	return out, nil
+	// The library route only needs identity and book-count data. Hydrating
+	// settings, director documents, assets and videos here makes one damaged
+	// historical record hide every otherwise-readable batch from the library.
+	return s.MySQLStore.ListBatches(ctx, owner)
 }

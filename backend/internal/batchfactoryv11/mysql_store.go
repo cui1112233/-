@@ -455,29 +455,54 @@ func nullableFloat(v float64) any {
 }
 
 func (s *MySQLStore) ListBatches(ctx context.Context, owner string) ([]Batch, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id FROM batch_factory_v11_batches WHERE owner_username=? ORDER BY created_at DESC,id DESC`, owner)
+	rows, err := s.db.QueryContext(ctx, `SELECT b.id,r.title,COALESCE(r.source_intake_id,''),b.revision,b.created_at,b.updated_at FROM batch_factory_v11_batches b JOIN batch_factory_v11_batch_records r ON r.batch_id=b.id WHERE b.owner_username=? ORDER BY b.created_at DESC,b.id DESC`, owner)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	ids := []string{}
+	out := []Batch{}
+	byID := map[string]int{}
 	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
+		var batch Batch
+		if err := rows.Scan(&batch.ID, &batch.Title, &batch.SourceIntakeID, &batch.Revision, &batch.CreatedAt, &batch.UpdatedAt); err != nil {
 			return nil, err
 		}
-		ids = append(ids, id)
+		batch.Books = []Book{}
+		byID[batch.ID] = len(out)
+		out = append(out, batch)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	out := make([]Batch, 0, len(ids))
-	for _, id := range ids {
-		b, err := s.GetBatch(ctx, owner, id)
-		if err != nil {
+	rows.Close()
+	if len(out) == 0 {
+		return out, nil
+	}
+
+	books, err := s.db.QueryContext(ctx, `SELECT b.batch_id,b.id,r.title,COALESCE(r.source_book_id,''),COALESCE(r.platform,''),b.revision FROM batch_factory_v11_books b JOIN batch_factory_v11_book_records r ON r.book_id=b.id WHERE b.owner_username=? ORDER BY b.batch_id,b.ordinal,b.id`, owner)
+	if err != nil {
+		return nil, err
+	}
+	defer books.Close()
+	for books.Next() {
+		var batchID string
+		var book Book
+		if err := books.Scan(&batchID, &book.ID, &book.Title, &book.BookID, &book.Platform, &book.Revision); err != nil {
 			return nil, err
 		}
-		out = append(out, b)
+		index, ok := byID[batchID]
+		if !ok {
+			continue
+		}
+		book.BatchID = batchID
+		if book.BookID == "" {
+			book.BookID = book.ID
+		}
+		book.Videos = []Video{}
+		out[index].Books = append(out[index].Books, book)
+	}
+	if err := books.Err(); err != nil {
+		return nil, err
 	}
 	return out, nil
 }
