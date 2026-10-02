@@ -1996,10 +1996,10 @@ function createBatchFactoryV11Router(options = {}) {
       //    有预设按预设跑；没预设就 full_submit + 自动上传到"视频管理系统"，
       //    配置快照取批量自身的设置（与手动开工路由的兜底完全一致）。
       startRecovery: async ({ owner, isOwner, batch, savedPlan }) => {
-        const presetId = text(savedPlan?.presetId);
+        const presetId = String(savedPlan?.presetId || '').trim();
         const preset = presetId ? await automationPresets.get(owner, presetId) : null;
         if (presetId && !preset) throw requestError('自动化预设不存在或不属于当前账号', 404, 'AUTOMATION_PRESET_NOT_FOUND');
-        const runModeValue = text(savedPlan?.runMode);
+        const runModeValue = String(savedPlan?.runMode || '').trim();
         const runMode = ['storyboard_only', 'video_no_submit', 'full_submit'].includes(runModeValue) ? runModeValue : 'full_submit';
         return automation.start({
           owner,

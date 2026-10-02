@@ -762,3 +762,72 @@ test('recovery sweep runs automatically shortly after controller creation', asyn
   await wait(80);
   assert.equal(setup.recoveries.length, 1);
 });
+
+// 路由层 startRecovery 适配器的冒烟测试。
+// 上一轮的 "text is not defined" 事故说明：只测编排器、不测路由真实代码，
+// 适配器内部的引用错误会一路漏到公网。这里通过替换编排器工厂，把路由闭包
+// 内部构造的 adapter 捕获出来，直接执行真实的 startRecovery。
+function captureRouterRecoveryAdapter(presetStore) {
+  const orchestrator = require('../lib/batch-factory-v11/automation-orchestrator');
+  const originalFactory = orchestrator.createBatchFactoryAutomationController;
+  let captured = null;
+  const starts = [];
+  orchestrator.createBatchFactoryAutomationController = options => {
+    captured = options.adapter;
+    return {
+      start: async args => { starts.push(args); return { state: 'running' }; },
+      pause() {}, resume() {}, retry() {}, cancel() {}, removeBook() {}, removeBatch() {},
+      status() { return { state: 'idle' }; }
+    };
+  };
+  delete require.cache[require.resolve('../routes/batch-factory-v11')];
+  const { createBatchFactoryV11Router } = require('../routes/batch-factory-v11');
+  createBatchFactoryV11Router({
+    accountStore: { listAccounts: () => [] },
+    automationPresetStore: presetStore,
+    logger: { error() {}, warn() {}, info() {} }
+  });
+  return {
+    adapter: captured,
+    starts,
+    restore() {
+      orchestrator.createBatchFactoryAutomationController = originalFactory;
+      delete require.cache[require.resolve('../routes/batch-factory-v11')];
+    }
+  };
+}
+
+test('router startRecovery defaults to full_submit + autoPublish with batch patch snapshot', async () => {
+  const presetStore = { list: async () => [], get: async () => null };
+  const setup = captureRouterRecoveryAdapter(presetStore);
+  try {
+    const batch = { id: 'b1', settingsState: { patch: { textModelId: 'm1' } } };
+    await setup.adapter.startRecovery({ owner: 'u', isOwner: false, batch, savedPlan: null });
+    assert.equal(setup.starts.length, 1);
+    assert.equal(setup.starts[0].runMode, 'full_submit');
+    assert.equal(setup.starts[0].autoPublish, true);
+    assert.deepEqual(setup.starts[0].configSnapshot, { textModelId: 'm1' });
+  } finally {
+    setup.restore();
+  }
+});
+
+test('router startRecovery honors saved runMode/concurrency and preset config', async () => {
+  const presets = new Map([['p1', { id: 'p1', name: '夜间', version: 3, config: { textModelId: 'from-preset' } }]]);
+  const presetStore = { list: async () => [...presets.values()], get: async (_owner, id) => presets.get(id) };
+  const setup = captureRouterRecoveryAdapter(presetStore);
+  try {
+    const batch = { id: 'b2', settingsState: { patch: { textModelId: 'from-batch' } } };
+    await setup.adapter.startRecovery({
+      owner: 'u', isOwner: true, batch,
+      savedPlan: { presetId: 'p1', runMode: 'video_no_submit', concurrency: 1 }
+    });
+    assert.equal(setup.starts[0].runMode, 'video_no_submit');
+    assert.equal(setup.starts[0].autoPublish, false);
+    assert.equal(setup.starts[0].concurrency, 1);
+    assert.equal(setup.starts[0].preset.id, 'p1');
+    assert.deepEqual(setup.starts[0].configSnapshot, { textModelId: 'from-preset' });
+  } finally {
+    setup.restore();
+  }
+});
