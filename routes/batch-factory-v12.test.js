@@ -200,6 +200,26 @@ test('lists batch projects without serializing their full source and storyboard 
   });
 });
 
+test('loads project cards from the lightweight summary index instead of full historical batches', async t => {
+  const calls = [];
+  const app = express();
+  app.use((req, res, next) => { req.username = 'alice'; next(); });
+  app.use('/api/batch-factory/v12', createBatchFactoryV12Router({
+    goBaseUrl: 'http://go.local', bridgeSecret: 'secret', automationController: {},
+    fetchImpl: async (url, init) => {
+      calls.push({ pathname: new URL(url).pathname, method: init.method });
+      return new Response(JSON.stringify({ batches: [{ id: 'batch-1', title: '测试批量', books: [] }] }), { status: 200 });
+    }
+  }));
+  const server = app.listen(0, '127.0.0.1');
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  await new Promise(resolve => server.once('listening', resolve));
+
+  const response = await fetch(`http://127.0.0.1:${server.address().port}/api/batch-factory/v12/batches/summary`);
+  assert.equal(response.status, 200);
+  assert.deepEqual(calls, [{ pathname: '/api/batch-factory/v11/batches/summary-index', method: 'GET' }]);
+});
+
 test('classifies every fetched book independently without letting one failure block the others', async () => {
   const calls = [];
   const result = await classifyBatchFactoryBooks({

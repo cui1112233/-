@@ -39,6 +39,21 @@ test('reads Qingyu list metadata and preserves both associated platform books', 
   ]);
 });
 
+test('shows verified Qingyu platform codes as bookstore names', () => {
+  const result = normalizeGiantMaterialResponse({ code: 'SUCCESS', data: { list: [{
+    id: 10122318,
+    works: [
+      { cp_work_id: '748725', cp_type: 'qm', name: '七猫测试书' },
+      { cp_work_id: '2053423598178718885', cp_type: 'zh', name: '知乎测试书' }
+    ]
+  }] } });
+  assert.deepEqual(result.books, [
+    { platformBookId: '748725', platformName: '七猫', title: '七猫测试书' },
+    { platformBookId: '2053423598178718885', platformName: '知乎', title: '知乎测试书' }
+  ]);
+  assert.equal(result.platformName, '七猫 / 知乎');
+});
+
 test('does not select a material arbitrarily from multiple results', () => {
   assert.equal(normalizeGiantMaterialResponse({ data: { list: [{ id: 1 }, { id: 2 }] } }).materialId, '');
 });

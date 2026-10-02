@@ -507,6 +507,54 @@ func (s *MySQLStore) ListBatches(ctx context.Context, owner string) ([]Batch, er
 	return out, nil
 }
 
+// ListBatchSummaryIndex returns only the fields rendered by the project-card
+// list. It deliberately skips source text, settings patches, director
+// revisions, assets and videos; those belong to the single-batch detail path.
+// Keeping this as two bulk queries prevents the library page from turning N
+// historical batches into thousands of SQL statements.
+func (s *MySQLStore) ListBatchSummaryIndex(ctx context.Context, owner string) ([]Batch, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT b.id,r.title,b.revision,b.created_at,b.updated_at FROM batch_factory_v11_batches b JOIN batch_factory_v11_batch_records r ON r.batch_id=b.id WHERE b.owner_username=? ORDER BY b.created_at DESC,b.id DESC`, owner)
+	if err != nil {
+		return nil, err
+	}
+	batches := []Batch{}
+	batchIndexByID := map[string]int{}
+	for rows.Next() {
+		var batch Batch
+		if err := rows.Scan(&batch.ID, &batch.Title, &batch.Revision, &batch.CreatedAt, &batch.UpdatedAt); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		batch.Books = []Book{}
+		batches = append(batches, batch)
+		batchIndexByID[batch.ID] = len(batches) - 1
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+
+	bookRows, err := s.db.QueryContext(ctx, `SELECT b.batch_id,b.id,COALESCE(r.source_book_id,''),COALESCE(r.title,''),COALESCE(r.platform,'') FROM batch_factory_v11_books b JOIN batch_factory_v11_book_records r ON r.book_id=b.id WHERE b.owner_username=? ORDER BY b.batch_id,b.ordinal,b.id`, owner)
+	if err != nil {
+		return nil, err
+	}
+	defer bookRows.Close()
+	for bookRows.Next() {
+		var book Book
+		if err := bookRows.Scan(&book.BatchID, &book.ID, &book.BookID, &book.Title, &book.Platform); err != nil {
+			return nil, err
+		}
+		if index, ok := batchIndexByID[book.BatchID]; ok {
+			batches[index].Books = append(batches[index].Books, book)
+		}
+	}
+	if err := bookRows.Err(); err != nil {
+		return nil, err
+	}
+	return batches, nil
+}
+
 func (s *MySQLStore) GetBatch(ctx context.Context, owner, id string) (Batch, error) {
 	return loadBatch(ctx, s.db, owner, id)
 }

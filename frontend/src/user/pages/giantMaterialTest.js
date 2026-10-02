@@ -21,6 +21,13 @@ function numberOrNull(value) {
   return Number.isFinite(number) && number >= 0 ? number : null;
 }
 
+function platformName(value) {
+  const code = text(value).toUpperCase();
+  if (code === 'QM') return '七猫';
+  if (code === 'ZH') return '知乎';
+  return text(value);
+}
+
 export function normalizeGiantMaterialId(value) {
   const candidate = text(value);
   return /^\d{10,25}$/.test(candidate) ? candidate : '';
@@ -43,7 +50,7 @@ export function normalizeGiantMaterialResponse(payload) {
     const key = `${platform}:${platformBookId}`;
     if (!platformBookId || seenBooks.has(key)) continue;
     seenBooks.add(key);
-    books.push({ platformBookId, platformName: platform === 'QM' ? '七猫' : platform, title: text(work.name) });
+    books.push({ platformBookId, platformName: platformName(platform), title: text(work.name) });
   }
   const platformNames = [...new Set(books.map(book => book.platformName).filter(Boolean))];
   return {

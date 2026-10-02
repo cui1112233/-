@@ -218,9 +218,11 @@ function createBatchFactoryV12Router(options = {}) {
       const result = await v11JSONRequest({
         ...account,
         method: 'GET',
-        pathname: `${V11_BASE}/batches`,
+        pathname: `${V11_BASE}/batches/summary-index`,
         goBaseUrl: options.goBaseUrl,
-        bridgeSecret: options.bridgeSecret
+        bridgeSecret: options.bridgeSecret,
+        fetchImpl: options.fetchImpl,
+        now: options.now
       });
       const batches = Array.isArray(result?.batches) ? result.batches : [];
       return res.json({ batches: batches.map(batchFactoryBatchListSummary) });
