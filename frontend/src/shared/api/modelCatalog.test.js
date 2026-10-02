@@ -13,3 +13,15 @@ test('uses backend displayName for typed model choices', () => {
     { id: 'video-a', kind: 'video', name: '后台视频模型' }
   ], 'text'), [{ value: 'text-a', label: '后台文本模型' }]);
 });
+
+test('uses the available label fallback and skips entries without a usable ID', () => {
+  assert.deepEqual(modelSelectOptions([
+    { id: 'model-name', kind: 'image', name: '名称' },
+    { id: 'model-id', kind: 'image', modelId: '模型标识' },
+    { id: '   ', kind: 'image', displayName: '无 ID' },
+    { id: 'text-a', kind: 'text', displayName: '其他类型' }
+  ], 'image'), [
+    { value: 'model-name', label: '名称' },
+    { value: 'model-id', label: '模型标识' }
+  ]);
+});

@@ -1,4 +1,4 @@
-import { apiRequest } from './client';
+import { apiRequest } from './client.js';
 
 const MODEL_KIND_LABELS = Object.freeze({
   text: '文本',

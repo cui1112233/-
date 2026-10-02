@@ -20,6 +20,9 @@ test('single-book configuration selects enabled text, image and video models', (
   assert.match(source, /listAvailableModels\('text'\)/);
   assert.match(source, /listAvailableModels\('image'\)/);
   assert.match(source, /listAvailableModels\('video'\)/);
+  assert.match(source, /modelSelectOptions\(models, 'text'\)/);
+  assert.match(source, /modelSelectOptions\(models, 'image'\)/);
+  assert.match(source, /modelSelectOptions\(models, 'video'\)/);
   assert.match(source, /文本模型/);
   assert.match(source, /图片模型/);
   assert.match(source, /视频模型/);
