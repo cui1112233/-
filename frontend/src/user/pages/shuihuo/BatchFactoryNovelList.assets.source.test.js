@@ -22,3 +22,12 @@ test('asset popup uploads real image bytes and manages durable image versions', 
   assert.match(source, /切换为主图/);
   assert.doesNotMatch(source, /https:\/\/images\.example/);
 });
+
+test('SD plain-text storyboards fall back to their final prompt when structured asset references are absent', () => {
+  const start = source.indexOf('function storyboardAssetDefaults(');
+  const end = source.indexOf('\nfunction readStoryboardAssetSelection(', start);
+  const helper = start >= 0 && end > start ? source.slice(start, end) : '';
+  assert.match(helper, /storyboardAssetNamesFromPrompt/);
+  assert.match(helper, /draft\.final_prompt/);
+  assert.match(helper, /promptReferences/);
+});

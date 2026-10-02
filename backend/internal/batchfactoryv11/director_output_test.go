@@ -71,6 +71,44 @@ func TestDirectorParseFencedJSON(t *testing.T) {
 	}
 }
 
+func TestSDDirectorTextPreservesStructuredAssetReferences(t *testing.T) {
+	result, err := parseSDDirectorText(`===VIDEO 01===
+时长：10秒
+资产引用：人物=妈妈、我；场景=家中餐厅；道具=孕检单
+镜头画面：妈妈把孕检单放到家中餐厅的餐桌上，我站在一旁。`, 15)
+	if err != nil {
+		t.Fatalf("parseSDDirectorText returned error: %v", err)
+	}
+	if len(result.Storyboard) != 1 {
+		t.Fatalf("unexpected storyboard: %#v", result.Storyboard)
+	}
+	video := result.Storyboard[0]
+	if got, want := video.Characters, []string{"妈妈", "我"}; !equalStrings(got, want) {
+		t.Fatalf("characters = %#v, want %#v", got, want)
+	}
+	if video.Scene != "家中餐厅" {
+		t.Fatalf("scene = %q, want %q", video.Scene, "家中餐厅")
+	}
+	if got, want := video.Props, []string{"孕检单"}; !equalStrings(got, want) {
+		t.Fatalf("props = %#v, want %#v", got, want)
+	}
+	if strings.Contains(video.FinalPrompt, "资产引用：") {
+		t.Fatalf("internal asset-reference header leaked into prompt: %q", video.FinalPrompt)
+	}
+}
+
+func equalStrings(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func TestDirectorNormalizeValidOutput(t *testing.T) {
 	result, err := NormalizeDirectorOutput(json.RawMessage(validDirectorJSON()), DirectorSettings{
 		MaxVideoDuration: 15,

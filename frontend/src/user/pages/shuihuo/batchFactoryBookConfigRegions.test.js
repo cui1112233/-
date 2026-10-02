@@ -35,3 +35,22 @@ test('recognizes independent book media overrides as engine settings', () => {
   assert.equal(bookConfigRegionStatus({ settingsState: { patch: { imageAspectRatio: '1:1' } } }, 'engine').tone, 'overridden');
   assert.equal(bookConfigRegionStatus({ settingsState: { patch: { videoAspectRatio: '16:9', videoResolution: '1080p' } } }, 'engine').tone, 'overridden');
 });
+
+test('shows the actual enabled single-book constraint count in the card summary', () => {
+  const book = {
+    settingsState: {
+      patch: {
+        aiPromptConfig: {
+          constraints: {
+            enabled: true,
+            selections: [
+              { constraintCategory: 'quality', presetName: '画质约束' },
+              { constraintCategory: 'negative', presetName: '负面提示词' }
+            ]
+          }
+        }
+      }
+    }
+  };
+  assert.deepEqual(bookConfigRegionStatus(book, 'constraints'), { label: '2 条约束已启用', tone: 'overridden' });
+});

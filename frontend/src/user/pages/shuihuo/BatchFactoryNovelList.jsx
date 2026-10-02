@@ -664,10 +664,10 @@ function AssetEditor({ book, batchId, onSaved, onGenerate, onRegenerate, onRetry
 	          {mainImage ? <div className="batch-factory-asset-editor-main"><Image src={mainImage.url} alt={`${assetName(editing)} 主图`} preview={{ mask: '点击放大' }} /></div>
 	            : <div className="batch-factory-asset-editor-main is-empty"><PictureOutlined /><span>暂无主图，请上传图片或用 AI 生成</span></div>}
 	          <div className="batch-factory-asset-editor-panel-actions">
-	            <label className="batch-factory-image-upload"><input type="file" accept="image/png,image/jpeg,image/webp" onChange={event => uploadImage(editing, event)} disabled={panelBusy} />上传图片</label>
+	            <label className="batch-factory-image-upload"><input type="file" accept="image/png,image/jpeg,image/webp" onChange={event => uploadImage(editing, event)} disabled={panelBusy} />上传图片版本</label>
 	            <Tooltip title={imageModelId ? '先保存当前提示词，再用引擎配置的图片模型为这个资产出新图。' : '请先在引擎配置选择图片模型。'}><Button type="primary" loading={imageGenerating} disabled={panelBusy || !imageModelId} onClick={generateEditedAssetImage}>AI生成</Button></Tooltip>
 	          </div>
-	          <div className="batch-factory-asset-editor-thumbs">{imageList.map(item => <button type="button" key={item.id} className={`batch-factory-asset-editor-thumb${item.id === mainImage?.id ? ' is-main' : ''}`} title={item.isPrimary ? '当前主图' : '点击设为主图'} disabled={panelBusy} onClick={() => makePrimary(editing, item)}><img src={item.url} alt={`${assetName(editing)} 版本 ${item.revision || ''}`} />{item.isPrimary ? <span className="batch-factory-asset-editor-thumb-tag">主图</span> : null}</button>)}{!imageList.length ? <span className="batch-factory-asset-editor-thumbs-empty">还没有图片版本</span> : null}</div>
+	          <div className="batch-factory-asset-editor-thumbs">{imageList.map(item => <button type="button" key={item.id} className={`batch-factory-asset-editor-thumb${item.id === mainImage?.id ? ' is-main' : ''}`} title={item.isPrimary ? '当前主图' : '切换为主图'} disabled={panelBusy} onClick={() => makePrimary(editing, item)}><img src={item.url} alt={`${assetName(editing)} 版本 ${item.revision || ''}`} />{item.isPrimary ? <span className="batch-factory-asset-editor-thumb-tag">主图</span> : null}</button>)}{!imageList.length ? <span className="batch-factory-asset-editor-thumbs-empty">还没有图片版本</span> : null}</div>
 	        </>;
 	      })() : <div className="batch-factory-asset-editor-main is-empty"><PictureOutlined /><span>先点右下角“保存”建立这个资产，<br />然后才能上传或生成图片</span></div>}
 	    </div>
@@ -676,11 +676,22 @@ function AssetEditor({ book, batchId, onSaved, onGenerate, onRegenerate, onRetry
   </section>;
 }
 
+function storyboardAssetNamesFromPrompt(prompt, assets) {
+  const text = String(prompt || '').trim();
+  if (!text) return [];
+  return (assets || []).map(asset => String(asset?.name || '').trim()).filter(name => name && text.includes(name));
+}
+
 function storyboardAssetDefaults(book, videoId) {
   const videos = book?.videos || [];
   const ordinal = videos.findIndex(video => video.id === videoId);
   const draft = book?.directorRevision?.output?.storyboard?.[ordinal] || {};
-  const wanted = new Set([...(draft.characters || []), ...(draft.scene ? [draft.scene] : []), ...(draft.props || [])].map(value => String(value || '').trim()).filter(Boolean));
+  const structuredReferences = [...(draft.characters || []), ...(draft.scene ? [draft.scene] : []), ...(draft.props || [])].map(value => String(value || '').trim()).filter(Boolean);
+  // Older SD cards retained a complete final_prompt but no structured asset
+  // references. Match their durable asset names against that prompt so their
+  // current cards remain readable without regenerating the book.
+  const promptReferences = structuredReferences.length ? [] : storyboardAssetNamesFromPrompt(draft.final_prompt || draft.finalPrompt, book?.assetRecords);
+  const wanted = new Set([...structuredReferences, ...promptReferences]);
   return (book?.assetRecords || []).filter(asset => wanted.has(String(asset?.name || '').trim())).map(asset => String(asset.id || '')).filter(Boolean);
 }
 

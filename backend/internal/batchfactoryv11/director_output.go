@@ -98,10 +98,40 @@ func storyboardVideoPrompt(video DirectorVideo) string {
 }
 
 var (
-	fencedDirectorJSON    = regexp.MustCompile("(?is)```(?:json)?\\s*([\\s\\S]*?)```")
-	sdVideoSectionPattern = regexp.MustCompile(`(?m)^===VIDEO\s*(\d+)\s*===\s*$`)
-	sdDurationPattern     = regexp.MustCompile(`^时长[：:]\s*(\d+)\s*秒?$`)
+	fencedDirectorJSON      = regexp.MustCompile("(?is)```(?:json)?\\s*([\\s\\S]*?)```")
+	sdVideoSectionPattern   = regexp.MustCompile(`(?m)^===VIDEO\s*(\d+)\s*===\s*$`)
+	sdDurationPattern       = regexp.MustCompile(`^时长[：:]\s*(\d+)\s*秒?$`)
+	sdAssetReferencePattern = regexp.MustCompile(`^资产引用[：:]\s*人物\s*[=：:]\s*(.*?)\s*[；;]\s*场景\s*[=：:]\s*(.*?)\s*[；;]\s*道具\s*[=：:]\s*(.*?)\s*$`)
 )
+
+func parseSDAssetNames(value string) []string {
+	parts := strings.FieldsFunc(strings.TrimSpace(value), func(r rune) bool {
+		return r == '、' || r == '，' || r == ',' || r == '；' || r == ';'
+	})
+	values := make([]string, 0, len(parts))
+	for _, part := range parts {
+		name := strings.TrimSpace(part)
+		if name == "" || name == "无" || name == "暂无" || name == "—" || name == "-" {
+			continue
+		}
+		values = append(values, name)
+	}
+	return values
+}
+
+func parseSDAssetReference(value string) (characters []string, scene string, props []string, matched bool) {
+	match := sdAssetReferencePattern.FindStringSubmatch(strings.TrimSpace(value))
+	if len(match) != 4 {
+		return nil, "", nil, false
+	}
+	characters = parseSDAssetNames(match[1])
+	sceneValues := parseSDAssetNames(match[2])
+	if len(sceneValues) > 0 {
+		scene = sceneValues[0]
+	}
+	props = parseSDAssetNames(match[3])
+	return characters, scene, props, true
+}
 
 // parseSDDirectorText splits the SD preset's plain-text director output into
 // one DirectorVideo per ===VIDEO NN=== section. Each section keeps its full
@@ -122,7 +152,7 @@ func parseSDDirectorText(raw string, maxVideoDuration int) (DirectorResult, erro
 			end = markers[i+1][0]
 		}
 		body := strings.TrimSpace(text[marker[1]:end])
-		lines := strings.SplitN(body, "\n", 2)
+		lines := strings.Split(body, "\n")
 		durationMatch := sdDurationPattern.FindStringSubmatch(strings.TrimSpace(lines[0]))
 		if durationMatch == nil {
 			return DirectorResult{}, fmt.Errorf("第 %d 个 VIDEO 段缺少“时长：X秒”行", i+1)
@@ -131,14 +161,19 @@ func parseSDDirectorText(raw string, maxVideoDuration int) (DirectorResult, erro
 		if err != nil || duration < 1 || duration > maxVideoDuration {
 			return DirectorResult{}, fmt.Errorf("第 %d 个 VIDEO 时长必须在 1-%d 秒之间", i+1, maxVideoDuration)
 		}
-		prompt := ""
-		if len(lines) > 1 {
-			prompt = strings.TrimSpace(lines[1])
+		characters, scene, props, hasAssetReferences := []string(nil), "", []string(nil), false
+		promptLines := lines[1:]
+		if len(promptLines) > 0 {
+			characters, scene, props, hasAssetReferences = parseSDAssetReference(promptLines[0])
+			if hasAssetReferences {
+				promptLines = promptLines[1:]
+			}
 		}
+		prompt := strings.TrimSpace(strings.Join(promptLines, "\n"))
 		if prompt == "" {
 			return DirectorResult{}, fmt.Errorf("第 %d 个 VIDEO 段缺少提示词正文", i+1)
 		}
-		result.Storyboard = append(result.Storyboard, DirectorVideo{DurationSec: duration, FinalPrompt: prompt})
+		result.Storyboard = append(result.Storyboard, DirectorVideo{DurationSec: duration, Characters: characters, Scene: scene, Props: props, FinalPrompt: prompt})
 	}
 	return result, nil
 }
