@@ -520,7 +520,7 @@ test('retry regenerates only a failed VIDEO and then completes', async () => {
   assert.deepEqual(modes[0], { stage: 'video', mode: 'force', videoId: 'video-1' });
 });
 
-test('giant placeholder without an executor task is blocked instead of waiting forever', async () => {
+test('giant placeholder without an executor task fails that book and lets the next book run', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-test-'));
   const { batch, adapter } = fixture();
   batch.books.push({ id: 'book-2', bookId: '102', title: '巨量占位', sourceText: '', sourceMetadata: { sourceMode: 'giant_material', contentPending: true }, settingsState: { patch: {} }, assetRecords: [], videos: [] });
@@ -528,10 +528,12 @@ test('giant placeholder without an executor task is blocked instead of waiting f
   await controller.start({ owner: 'user', batchId: 'batch-1', concurrency: 2 });
   for (let i = 0; i < 6; i += 1) { await controller.tick(); await wait(); }
   let status = controller.status({ owner: 'user', batchId: 'batch-1' });
-  assert.equal(status.books[1].status, 'blocked');
+  assert.equal(status.books[0].status, 'ready');
+  assert.equal(status.books[1].status, 'failed');
   assert.equal(status.books[1].stage, 'source');
   assert.match(status.books[1].message, /未启动.*执行器/);
   assert.match(status.books[1].error, /执行器任务/);
+  assert.equal(status.counts.failed, 1);
   assert.equal(status.state, 'needs_attention');
 });
 
@@ -554,7 +556,7 @@ test('a giant OCR task that no executor claims within five minutes is blocked', 
 
   const status = controller.status({ owner: 'user', batchId: batch.id });
   assert.equal(status.state, 'needs_attention');
-  assert.equal(status.books[0].status, 'blocked');
+  assert.equal(status.books[0].status, 'failed');
   assert.match(status.books[0].message, /未被执行器领取/);
   assert.match(status.books[0].error, /5 分钟/);
 });
