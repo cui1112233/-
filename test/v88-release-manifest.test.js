@@ -25,3 +25,10 @@ test('release manifest rejects a mismatched image SHA', () => {
   assert.equal(manifest.node_image.split(':').at(-1), manifest.release_sha);
   assert.equal(manifest.go_image.split(':').at(-1), manifest.release_sha);
 });
+
+test('public Compose derives Node runtime identity from the unified release SHA', () => {
+  const compose = fs.readFileSync(path.join(releaseDir, 'docker-compose.yml'), 'utf8');
+  const nodeService = compose.split(/\r?\n  v88-node:\r?\n/)[1].split(/\r?\n  nginx:\r?\n/)[0];
+  assert.match(nodeService, /QIANTIE_RELEASE_SHA:\s*\$\{QIANTIE_RELEASE_SHA\}/);
+  assert.doesNotMatch(nodeService, /QIANTIE_RELEASE_SHA:\s*\$\{QIANTIE_NODE_RELEASE_SHA\}/);
+});
