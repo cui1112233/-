@@ -644,6 +644,31 @@ func V11OpeningVariantStatements() []string {
 	}
 }
 
+// V11LocalArtifactPurgeStatements keeps a deletion receipt after the parent
+// Batch Factory rows have gone. It is intentionally not foreign-keyed: the
+// whole point is to retain the exact local file reference until its delayed
+// physical cleanup has completed.
+func V11LocalArtifactPurgeStatements() []string {
+	return []string{
+		`CREATE TABLE IF NOT EXISTS batch_factory_v11_local_artifact_purges (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  owner_username VARCHAR(191) NOT NULL,
+  batch_id VARCHAR(64) NOT NULL,
+  book_id VARCHAR(64) NOT NULL DEFAULT '',
+  storage_ref VARCHAR(128) NOT NULL,
+  purge_after DATETIME(6) NOT NULL,
+  state VARCHAR(16) NOT NULL,
+  attempt_count INT NOT NULL DEFAULT 0,
+  last_error VARCHAR(512) NULL,
+  created_at DATETIME(6) NOT NULL,
+  updated_at DATETIME(6) NOT NULL,
+  deleted_at DATETIME(6) NULL,
+  UNIQUE KEY uq_bfv11_local_artifact_purge (owner_username,batch_id,storage_ref),
+  KEY idx_bfv11_local_artifact_purge_due (state,purge_after,id)
+) ENGINE=InnoDB`,
+	}
+}
+
 func V11Migrations() []Migration {
 	return []Migration{
 		{Version: 1100001, SQL: V11FoundationStatements(), CallbackChecksum: "batch-factory-v11-foundation-v1"},
@@ -675,6 +700,7 @@ func V11Migrations() []Migration {
 		{Version: 1100019, SQL: V11ProductionLibraryStatements(), CallbackChecksum: "batch-factory-v11-production-library-v1"},
 		{Version: 1100020, SQL: V11MergeProgressStatements(), CallbackChecksum: "batch-factory-v11-merge-progress-v1", Adopt: adoptV11MergeProgressLedger},
 		{Version: 1100021, SQL: V11OpeningVariantStatements(), CallbackChecksum: "batch-factory-v11-opening-variant-v1", Adopt: adoptV11OpeningVariantLedger},
+		{Version: 1100022, SQL: V11LocalArtifactPurgeStatements(), CallbackChecksum: "batch-factory-v11-local-artifact-purge-v1"},
 	}
 }
 

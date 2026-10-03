@@ -12,6 +12,8 @@ const {
 const { createMySQLWorkshopStore } = require('../lib/novel-fetch-workshop/mysql-store');
 const { createAutomationPresetStore } = require('../lib/batch-factory-v11/automation-presets');
 const { cleanBatchFactorySourceText, refillMissingBatchFactoryBookSource } = require('../lib/batch-factory-v11/source-refill');
+const { normalizeProductionRetentionDays } = require('../lib/production-retention');
+const { readConfig } = require('../lib/shared');
 
 const V12_BASE = '/api/batch-factory/v12';
 const V11_BASE = '/api/batch-factory/v11';
@@ -38,6 +40,12 @@ function routeV12UpstreamPath(value) {
 
 function plainObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function deletionRetentionDays(options, username) {
+  const configReader = typeof options?.configReader === 'function' ? options.configReader : readConfig;
+  try { return normalizeProductionRetentionDays(configReader(username)?.productionRetentionDays); }
+  catch (_) { return normalizeProductionRetentionDays(undefined); }
 }
 
 // The browser sends only the selected preset identity. Resolving its initial
@@ -384,7 +392,8 @@ function createBatchFactoryV12Router(options = {}) {
 	router.delete('/batches/:batchId/books/:bookId', async (req, res) => {
 		try {
 		const account = { username: req.username, isOwner: req.auth?.account?.isOwner === true };
-			await v11JSONRequest({ ...account, method: 'DELETE', pathname: `${V11_BASE}/batches/${encodeURIComponent(req.params.batchId)}/books/${encodeURIComponent(req.params.bookId)}`, goBaseUrl: options.goBaseUrl, bridgeSecret: options.bridgeSecret, fetchImpl: options.fetchImpl });
+			const retentionDays = deletionRetentionDays(options, account.username);
+			await v11JSONRequest({ ...account, method: 'DELETE', pathname: `${V11_BASE}/batches/${encodeURIComponent(req.params.batchId)}/books/${encodeURIComponent(req.params.bookId)}?retentionDays=${retentionDays}`, goBaseUrl: options.goBaseUrl, bridgeSecret: options.bridgeSecret, fetchImpl: options.fetchImpl });
 			await legacy.automationController?.removeBook({ owner: account.username, batchId: String(req.params.batchId), bookId: String(req.params.bookId) });
 			return res.status(204).end();
 		} catch (error) { return res.status(Number(error?.status) || 400).json({ error: error?.message || '删除小说失败' }); }
@@ -392,7 +401,8 @@ function createBatchFactoryV12Router(options = {}) {
 	router.delete('/batches/:batchId', async (req, res) => {
 		try {
 			const account = { username: req.username, isOwner: req.auth?.account?.isOwner === true };
-			await v11JSONRequest({ ...account, method: 'DELETE', pathname: `${V11_BASE}/batches/${encodeURIComponent(req.params.batchId)}`, goBaseUrl: options.goBaseUrl, bridgeSecret: options.bridgeSecret, fetchImpl: options.fetchImpl });
+			const retentionDays = deletionRetentionDays(options, account.username);
+			await v11JSONRequest({ ...account, method: 'DELETE', pathname: `${V11_BASE}/batches/${encodeURIComponent(req.params.batchId)}?retentionDays=${retentionDays}`, goBaseUrl: options.goBaseUrl, bridgeSecret: options.bridgeSecret, fetchImpl: options.fetchImpl });
 			await legacy.automationController?.removeBatch({ owner: account.username, batchId: String(req.params.batchId) });
 			return res.status(204).end();
 		} catch (error) { return res.status(Number(error?.status) || 400).json({ error: error?.message || '删除批量项目失败' }); }

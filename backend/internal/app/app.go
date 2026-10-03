@@ -16,6 +16,7 @@ import (
 	"qiantie/backend/internal/novelfetchworkshop"
 	"qiantie/backend/internal/storage"
 	"strings"
+	"time"
 )
 
 func Build(ctx context.Context, cfg config.Config, db *sql.DB, register func(*http.ServeMux)) (http.Handler, error) {
@@ -51,6 +52,12 @@ func Build(ctx context.Context, cfg config.Config, db *sql.DB, register func(*ht
 	}
 	giantMaterialResolver := giantmaterialresolver.NewClient(nil, cfg.QingyuMaterialSelectURL, cfg.QingyuN8AdminToken)
 	artifactStore := localartifact.NewStore(cfg.LocalExecutorArtifactDir, cfg.LocalExecutorArtifactMaxBytes)
+	// A deleted Batch Factory project is removed from its UI immediately, while
+	// only its ledgered local merge MP4s are released after their retention
+	// deadline. This worker deliberately has no TOS authority.
+	if cfg.Slice >= 5 && cfg.LocalMergeEnabled {
+		batchfactoryv11.LocalArtifactPurger{Repository: store, Artifacts: artifactStore}.Start(time.Hour)
+	}
 	var production *batchfactoryv11.ProductionService
 	if cfg.Slice >= 4 {
 		var fallbackAdapter batchfactoryv11.ProductionAdapter

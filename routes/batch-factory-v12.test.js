@@ -429,3 +429,27 @@ test('keeps the public V11 namespace read-only after V12 becomes the production 
   rejectLegacyV11Mutations({ method: 'GET' }, result, () => { continued = true; });
   assert.equal(continued, true);
 });
+
+test('V12 deletion forwards the signed-in retention period to the Go deletion boundary', async t => {
+  const calls = [];
+  const app = express();
+  app.use((req, _res, next) => { req.username = 'alice'; req.auth = { account: { isOwner: true } }; next(); });
+  app.use('/api/batch-factory/v12', createBatchFactoryV12Router({
+    goBaseUrl: 'http://go.local', bridgeSecret: 'secret', automationController: { removeBatch: async () => {} },
+    configReader: () => ({ productionRetentionDays: 3 }),
+    fetchImpl: async (url, init) => {
+      calls.push({ url: String(url), method: init.method });
+      return new Response(null, { status: 204 });
+    }
+  }));
+  const server = app.listen(0, '127.0.0.1');
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  await new Promise(resolve => server.once('listening', resolve));
+  const response = await fetch(`http://127.0.0.1:${server.address().port}/api/batch-factory/v12/batches/batch-1`, { method: 'DELETE' });
+  assert.equal(response.status, 204);
+  assert.equal(calls.length, 1);
+  const target = new URL(calls[0].url);
+  assert.equal(calls[0].method, 'DELETE');
+  assert.equal(target.pathname, '/api/batch-factory/v11/batches/batch-1');
+  assert.equal(target.searchParams.get('retentionDays'), '3');
+});

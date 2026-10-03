@@ -34,8 +34,11 @@ func TestV11BookStageRunsMigrationIsAdditiveAndDurable(t *testing.T) {
 		t.Fatalf("stage migration=%+v", migrations)
 	}
 	last := migrations[len(migrations)-1]
-	if last.Version != 1100021 || last.CallbackChecksum != "batch-factory-v11-opening-variant-v1" {
+	if last.Version != 1100022 || last.CallbackChecksum != "batch-factory-v11-local-artifact-purge-v1" {
 		t.Fatalf("last migration=%+v", last)
+	}
+	if joined := strings.ToLower(strings.Join(V11LocalArtifactPurgeStatements(), "\n")); !strings.Contains(joined, "batch_factory_v11_local_artifact_purges") || !strings.Contains(joined, "purge_after") || !strings.Contains(joined, "storage_ref") {
+		t.Fatalf("local artifact purge migration=%s", joined)
 	}
 	if joined := strings.ToLower(strings.Join(V11ProductionDurationStatements(), "\n")); !strings.Contains(joined, "target_duration_seconds") || !strings.Contains(joined, "requested_duration_seconds") || !strings.Contains(joined, "actual_duration_seconds") {
 		t.Fatalf("duration migration=%s", joined)

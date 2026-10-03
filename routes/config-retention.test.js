@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const express = require('express');
 const { createConfigRouter } = require('./config');
 
-test('global production retention is saved per authenticated user and invalid values fall back to 7', async () => {
+test('global production retention is saved per authenticated user and invalid values fall back to 3', async () => {
   const aliceModelCatalog = [{
     id: 'text-production', kind: 'text', enabled: true,
     baseUrl: 'https://text.example/v1', modelId: 'text-runtime', credential: 'secret-key'
@@ -35,13 +35,13 @@ test('global production retention is saved per authenticated user and invalid va
       method: 'POST', headers: { 'content-type': 'application/json', 'x-user': 'bob' }, body: JSON.stringify({ productionRetentionDays: 99 })
     });
     assert.equal(invalid.status, 200);
-    assert.equal(configs.get('bob').productionRetentionDays, 7);
+	assert.equal(configs.get('bob').productionRetentionDays, 3);
     assert.equal((await (await fetch(`http://127.0.0.1:${server.address().port}/api/config`, { headers: { 'x-user': 'alice' } })).json()).productionRetentionDays, 30);
     const invalidExisting = await fetch(`http://127.0.0.1:${server.address().port}/api/config`, {
       method: 'POST', headers: { 'content-type': 'application/json', 'x-user': 'alice' }, body: JSON.stringify({ productionRetentionDays: 99 })
     });
     assert.equal(invalidExisting.status, 200);
-    assert.equal(configs.get('alice').productionRetentionDays, 7);
+	assert.equal(configs.get('alice').productionRetentionDays, 3);
   } finally {
     await new Promise(resolve => server.close(resolve));
   }

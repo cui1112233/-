@@ -685,6 +685,10 @@ func (s *MySQLStore) ListBatchRecoveryIndex(ctx context.Context, owner string) (
 }
 
 func (s *MySQLStore) DeleteBook(ctx context.Context, owner, batchID, bookID string) error {
+	return s.DeleteBookWithRetention(ctx, owner, batchID, bookID, DefaultLocalMergedArtifactRetentionDays)
+}
+
+func (s *MySQLStore) DeleteBookWithRetention(ctx context.Context, owner, batchID, bookID string, retentionDays int) error {
 	if strings.TrimSpace(owner) == "" || strings.TrimSpace(batchID) == "" || strings.TrimSpace(bookID) == "" {
 		return ErrInvalid
 	}
@@ -699,6 +703,10 @@ func (s *MySQLStore) DeleteBook(ctx context.Context, owner, batchID, bookID stri
 	} else if err != nil {
 		return err
 	}
+	purgeAfter := time.Now().UTC().AddDate(0, 0, normalizeLocalMergedArtifactRetentionDays(retentionDays))
+	if err = queueLocalMergedArtifactPurges(ctx, tx, owner, batchID, bookID, purgeAfter); err != nil {
+		return err
+	}
 	if err = deleteBookTx(ctx, tx, owner, batchID, bookID); err != nil {
 		return err
 	}
@@ -710,6 +718,10 @@ func (s *MySQLStore) DeleteBook(ctx context.Context, owner, batchID, bookID stri
 }
 
 func (s *MySQLStore) DeleteBatch(ctx context.Context, owner, batchID string) error {
+	return s.DeleteBatchWithRetention(ctx, owner, batchID, DefaultLocalMergedArtifactRetentionDays)
+}
+
+func (s *MySQLStore) DeleteBatchWithRetention(ctx context.Context, owner, batchID string, retentionDays int) error {
 	if strings.TrimSpace(owner) == "" || strings.TrimSpace(batchID) == "" {
 		return ErrInvalid
 	}
@@ -722,6 +734,10 @@ func (s *MySQLStore) DeleteBatch(ctx context.Context, owner, batchID string) err
 	if err = tx.QueryRowContext(ctx, `SELECT 1 FROM batch_factory_v11_batches WHERE id=? AND owner_username=? FOR UPDATE`, batchID, owner).Scan(&one); errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
 	} else if err != nil {
+		return err
+	}
+	purgeAfter := time.Now().UTC().AddDate(0, 0, normalizeLocalMergedArtifactRetentionDays(retentionDays))
+	if err = queueLocalMergedArtifactPurges(ctx, tx, owner, batchID, "", purgeAfter); err != nil {
 		return err
 	}
 	rows, err := tx.QueryContext(ctx, `SELECT id FROM batch_factory_v11_books WHERE batch_id=? AND owner_username=? FOR UPDATE`, batchID, owner)

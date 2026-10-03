@@ -341,3 +341,11 @@ type Store interface {
 	LatestHookRevision(context.Context, string, string, string) (HookRevision, error)
 	PersistDirectorRevision(context.Context, string, Book, DirectorSnapshot, string, string, DirectorResult) (DirectorRevision, error)
 }
+
+// RetentionDeletingStore is optional so existing in-memory stores retain the
+// simple deletion contract while the MySQL implementation can durably queue
+// physical local-merge cleanup.
+type RetentionDeletingStore interface {
+	DeleteBookWithRetention(context.Context, string, string, string, int) error
+	DeleteBatchWithRetention(context.Context, string, string, int) error
+}

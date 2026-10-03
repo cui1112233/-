@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,6 +22,33 @@ type batchRecoveryIndexLister interface {
 
 type batchSummaryIndexLister interface {
 	ListBatchSummaryIndex(context.Context, string) ([]batchfactoryv11.Batch, error)
+}
+
+func deleteRetentionDays(r *http.Request) int {
+	value, err := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("retentionDays")))
+	if err != nil {
+		return batchfactoryv11.DefaultLocalMergedArtifactRetentionDays
+	}
+	switch value {
+	case 3, 7, 14, 30:
+		return value
+	default:
+		return batchfactoryv11.DefaultLocalMergedArtifactRetentionDays
+	}
+}
+
+func deleteBookWithRetention(ctx context.Context, store batchfactoryv11.Store, owner, batchID, bookID string, days int) error {
+	if retentionStore, ok := store.(batchfactoryv11.RetentionDeletingStore); ok {
+		return retentionStore.DeleteBookWithRetention(ctx, owner, batchID, bookID, days)
+	}
+	return store.DeleteBook(ctx, owner, batchID, bookID)
+}
+
+func deleteBatchWithRetention(ctx context.Context, store batchfactoryv11.Store, owner, batchID string, days int) error {
+	if retentionStore, ok := store.(batchfactoryv11.RetentionDeletingStore); ok {
+		return retentionStore.DeleteBatchWithRetention(ctx, owner, batchID, days)
+	}
+	return store.DeleteBatch(ctx, owner, batchID)
 }
 
 func registerSliceOneRoutes(mux *http.ServeMux, store batchfactoryv11.Store) {
@@ -276,7 +304,7 @@ func registerSliceOneRoutes(mux *http.ServeMux, store batchfactoryv11.Store) {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 			return
 		}
-		if err := store.DeleteBook(r.Context(), owner, r.PathValue("batchId"), r.PathValue("bookId")); err != nil {
+		if err := deleteBookWithRetention(r.Context(), store, owner, r.PathValue("batchId"), r.PathValue("bookId"), deleteRetentionDays(r)); err != nil {
 			writeStoreError(w, err)
 			return
 		}
@@ -288,7 +316,7 @@ func registerSliceOneRoutes(mux *http.ServeMux, store batchfactoryv11.Store) {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 			return
 		}
-		if err := store.DeleteBatch(r.Context(), owner, r.PathValue("batchId")); err != nil {
+		if err := deleteBatchWithRetention(r.Context(), store, owner, r.PathValue("batchId"), deleteRetentionDays(r)); err != nil {
 			writeStoreError(w, err)
 			return
 		}
