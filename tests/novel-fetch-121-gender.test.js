@@ -75,7 +75,7 @@ test('workshop fetches 121 metadata before AI classifies remaining missing field
     async listTasks() { return stored ? [{ ...stored }] : []; }
   };
   const configStore = {
-    async getConfig() {
+    getConfig() {
       return {
         workflow: { auto_classify_missing: true, auto_fetch_original: true, auto_rewrite_after_fetch: false },
         fetch: { default_max_txt: 4000, concurrency: 1 },
