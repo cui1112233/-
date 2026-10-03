@@ -257,10 +257,11 @@ func createBatchTx(ctx context.Context, tx *sql.Tx, owner string, input CreateBa
 		}
 		metadata := any(nil)
 		if len(bi.SourceMetadata) > 0 {
-			metadata, err = json.Marshal(bi.SourceMetadata)
-			if err != nil {
+			encodedMetadata, marshalErr := json.Marshal(bi.SourceMetadata)
+			if marshalErr != nil {
 				return Batch{}, ErrInvalid
 			}
+			metadata = string(encodedMetadata)
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO batch_factory_v11_book_records(book_id,source_book_id,source_task_id,platform,title,source_text,txt_text,txt_file_name,source_metadata_json) VALUES(?,?,?,?,?,?,?,?,?)`, bookID, nullableString(sourceID), nullableString(bi.SourceTaskID), nullableString(bi.Platform), bi.Title, nullableString(bi.SourceText), nullableString(bi.TxtText), nullableString(bi.TxtFileName), metadata); err != nil {
 			return Batch{}, err
@@ -290,7 +291,7 @@ func createBatchTx(ctx context.Context, tx *sql.Tx, owner string, input CreateBa
 		if _, err := tx.ExecContext(ctx, `UPDATE batch_factory_v11_batches SET revision=?,updated_at=? WHERE id=? AND owner_username=?`, initialRevision, now, batchID, owner); err != nil {
 			return Batch{}, err
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO batch_factory_v11_settings_patches(scope_type,scope_id,owner_username,batch_id,book_id,video_id,patch_json,revision,updated_at) VALUES(?,?,?,?,?,?,?,?,?)`, string(ScopeBatch), batchID, owner, batchID, nil, nil, encoded, initialRevision, now); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO batch_factory_v11_settings_patches(scope_type,scope_id,owner_username,batch_id,book_id,video_id,patch_json,revision,updated_at) VALUES(?,?,?,?,?,?,?,?,?)`, string(ScopeBatch), batchID, owner, batchID, nil, nil, string(encoded), initialRevision, now); err != nil {
 			return Batch{}, err
 		}
 		batch.Revision = initialRevision

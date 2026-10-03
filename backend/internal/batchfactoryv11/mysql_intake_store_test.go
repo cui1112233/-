@@ -2,11 +2,21 @@ package batchfactoryv11
 
 import (
 	"context"
+	"database/sql/driver"
 	"encoding/json"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
 )
+
+// jsonTextArg deliberately accepts only text. go-sql-driver/mysql maps []byte
+// to _binary, which MySQL JSON columns reject.
+type jsonTextArg struct{}
+
+func (jsonTextArg) Match(value driver.Value) bool {
+	_, ok := value.(string)
+	return ok
+}
 
 func TestMySQLCreateIntakeKeepsSameBookIDAcrossPlatforms(t *testing.T) {
 	db, mock, err := sqlmock.New()
@@ -85,6 +95,58 @@ func TestMySQLCreateIntakeBindsJSONPayloadAsText(t *testing.T) {
 
 	store := NewMySQLStore(db)
 	if _, err := store.CreateIntake(context.Background(), "alice", NovelFetchIntakeInput{Books: []CreateBookInput{}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCreateBatchTxBindsGiantMetadataAndSettingsAsText(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	mock.ExpectBegin()
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mock.ExpectExec("INSERT INTO batch_factory_v11_batches").
+		WithArgs(sqlmock.AnyArg(), "alice", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO batch_factory_v11_batch_records").
+		WithArgs(sqlmock.AnyArg(), "giant", nil).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO batch_factory_v11_books").
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "alice", 0, sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO batch_factory_v11_book_records").
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), nil, nil, "book", nil, nil, nil, jsonTextArg{}).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE batch_factory_v11_batches").
+		WithArgs(int64(2), sqlmock.AnyArg(), sqlmock.AnyArg(), "alice").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO batch_factory_v11_settings_patches").
+		WithArgs(string(ScopeBatch), sqlmock.AnyArg(), "alice", sqlmock.AnyArg(), nil, nil, jsonTextArg{}, int64(2), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	_, err = createBatchTx(context.Background(), tx, "alice", CreateBatchInput{
+		Title: "giant",
+		Books: []CreateBookInput{{
+			Title:          "book",
+			SourceMetadata: map[string]any{"sourceMode": "giant_material"},
+		}},
+		GiantAutomationPlan:  map[string]any{"presetId": "preset"},
+		InitialBatchSettings: SettingsPatch{"automationMode": json.RawMessage(`"full_auto"`)},
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
