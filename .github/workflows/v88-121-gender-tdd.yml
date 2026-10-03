@@ -1,0 +1,22 @@
+name: V88 121 Gender TDD
+
+on:
+  push:
+    branches:
+      - feat/v88-121-gender-source-20261003
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.19.0'
+          cache: npm
+      - run: npm ci --omit=dev
+      - name: Run 121 gender and Batch Factory source tests
+        run: node --test tests/novel-fetch-121-gender.test.js test/batch-factory-v11-source-refill.test.js
