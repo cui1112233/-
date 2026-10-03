@@ -42,6 +42,16 @@ services:
       QIANTIE_121_HEADED_ENABLED: "1"
       QIANTIE_121_VERIFY_TIMEOUT_MS: ${QIANTIE_121_VERIFY_TIMEOUT_MS:-30000}
       QIANTIE_121_LOGIN_TIMEOUT_MS: ${QIANTIE_121_LOGIN_TIMEOUT_MS:-55000}
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "require('http').get({host:'127.0.0.1',port:8787,path:'/healthz',headers:{'x-qiantie-internal-secret':process.env.QIANTIE_121_WORKER_SECRET}},r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
     volumes:
       - browser_sessions:/data/sessions
       - novel-fetch-121-data:/data/legacy-sessions:ro
@@ -82,6 +92,7 @@ services:
       QIANTIE_121_BROWSER_WORKER_URL: http://browser-worker:8787
       QIANTIE_121_WORKER_SECRET: ${QIANTIE_121_WORKER_SECRET}
       QIANTIE_121_CREDENTIAL_SECRET: ${QIANTIE_121_CREDENTIAL_SECRET}
+      QIANTIE_121_CLIENT_TIMEOUT_MS: ${QIANTIE_121_CLIENT_TIMEOUT_MS:-40000}
       QIANTIE_121_CLIENT_LOGIN_TIMEOUT_MS: ${QIANTIE_121_CLIENT_LOGIN_TIMEOUT_MS:-60000}
       QIANTIE_REFERENCE_ASSET_PUBLIC_BASE_URL: ${QIANTIE_REFERENCE_ASSET_PUBLIC_BASE_URL:?required}
       QIANTIE_REFERENCE_ASSET_ALLOW_HTTP: ${QIANTIE_REFERENCE_ASSET_ALLOW_HTTP:-false}
@@ -98,9 +109,12 @@ services:
       - v88_data:/app/data
       - v88_outputs:/app/outputs
     depends_on:
-      - go-api
-      - browser-worker
-      - shuihuo-compat
+      go-api:
+        condition: service_started
+      browser-worker:
+        condition: service_healthy
+      shuihuo-compat:
+        condition: service_started
     expose:
       - "3000"
     networks:

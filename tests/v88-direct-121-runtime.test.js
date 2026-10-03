@@ -15,14 +15,16 @@ const { resolveBrowserClientFactory } = require('../lib/novel-fetch-workshop/v2-
 test('V88 keeps the private Worker available for durable account sessions', () => {
   assert.match(compose, /^  browser-worker:/m);
   assert.match(compose, /QIANTIE_121_BROWSER_WORKER_URL: http:\/\/browser-worker:8787/);
-  assert.match(compose, /^      - browser-worker$/m);
+  assert.match(compose, /browser-worker:\n        condition: service_healthy/);
+  assert.match(compose, /QIANTIE_121_CLIENT_TIMEOUT_MS: \$\{QIANTIE_121_CLIENT_TIMEOUT_MS:-40000\}/);
+  assert.match(compose, /healthcheck:/);
   assert.match(compose, /^  browser_sessions:/m);
   assert.match(compose, /QIANTIE_121_LEGACY_SESSION_DIR: \/data\/legacy-sessions/);
   assert.match(compose, /novel-fetch-121-data:\/data\/legacy-sessions:ro/);
   assert.match(compose, /^  novel-fetch-121-data:/m);
   assert.match(reviewCompose, /novel-fetch-121-worker|QIANTIE_121_BROWSER_WORKER_URL|QIANTIE_121_WORKER_SECRET/);
   assert.match(reviewEnv, /QIANTIE_V88_WORKER_DATA_DIR|QIANTIE_V88_WORKER_IMAGE|QIANTIE_V88_121_WORKER_SECRET|QIANTIE_V88_121_STORAGE_STATE_SECRET/);
-  assert.equal(fs.existsSync(path.join(root, 'deploy/v88-public/docker-compose.browser-worker.yml')), true);
+  assert.equal(fs.existsSync(path.join(root, 'deploy/v88-public/docker-compose.browser-worker.yml')), false);
 });
 
 test('121 status checks preserve the direct API compatibility label', () => {
