@@ -1,0 +1,22 @@
+name: V88 121 Gender Baseline
+
+on:
+  push:
+    branches:
+      - verify/v88-121-gender-baseline-20261003
+
+permissions:
+  contents: read
+
+jobs:
+  baseline:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.19.0'
+          cache: npm
+      - run: npm ci --omit=dev
+      - name: Reproduce unrelated V11 baseline failures
+        run: node --test test/batch-factory-v11-prompt-catalog.test.js test/batch-factory-v11-shuihuo-bridge.test.js
