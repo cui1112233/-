@@ -2,13 +2,11 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const express = require('express');
 
-const workshopStore = require('../lib/novel-fetch-workshop/mysql-store');
+const { merge121BookInfoIntoMeta } = require('../lib/novel-fetch-workshop/121-bookinfo');
 const { createNovelFetchWorkshopRouter } = require('../routes/novel-fetch-workshop');
 
 test('121 bookinfo derives gender from an explicit male/female category without using numeric genre', () => {
-  assert.equal(typeof workshopStore.merge121BookInfoIntoMeta, 'function');
-
-  const male = workshopStore.merge121BookInfoIntoMeta(
+  const male = merge121BookInfoIntoMeta(
     { gender: '', genderSource: '' },
     { category: '男生生活', genre: 8 }
   );
@@ -17,14 +15,14 @@ test('121 bookinfo derives gender from an explicit male/female category without 
   assert.equal(male.gender, '男频');
   assert.equal(male.genderSource, '121_category');
 
-  const female = workshopStore.merge121BookInfoIntoMeta(
+  const female = merge121BookInfoIntoMeta(
     { gender: '', genderSource: '' },
     { category: '女生言情', genre: 8 }
   );
   assert.equal(female.gender, '女频');
   assert.equal(female.genderSource, '121_category');
 
-  const ambiguous = workshopStore.merge121BookInfoIntoMeta(
+  const ambiguous = merge121BookInfoIntoMeta(
     { gender: '', genderSource: '' },
     { category: '都市生活', genre: 8 }
   );
@@ -33,8 +31,7 @@ test('121 bookinfo derives gender from an explicit male/female category without 
 });
 
 test('121 bookinfo never overwrites a manually supplied gender', () => {
-  assert.equal(typeof workshopStore.merge121BookInfoIntoMeta, 'function');
-  const merged = workshopStore.merge121BookInfoIntoMeta(
+  const merged = merge121BookInfoIntoMeta(
     { gender: '女频', genderSource: 'input' },
     { category: '男生生活', genre: 8 }
   );
