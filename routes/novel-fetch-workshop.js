@@ -9,6 +9,7 @@ const rulesModule = require('../lib/novel-fetch-workshop/rules');
 const { createKnowledgeStore } = require('../lib/novel-fetch-workshop/knowledge');
 const { createOpeningStore } = require('../lib/novel-fetch-workshop/opening');
 const { createMySQLWorkshopStore } = require('../lib/novel-fetch-workshop/mysql-store');
+const { merge121BookInfoIntoMeta } = require('../lib/novel-fetch-workshop/121-bookinfo');
 
 function mergeConfig(current, patch) {
   const merged = { ...(current || {}) };
@@ -100,9 +101,22 @@ function createNovelFetchWorkshopRouter({
 
   async function fetchOriginal(tasks, username, bookId, maxTxt) {
     const hook = sourceHook || tasks?.sourceHook;
-    if (typeof hook === 'function') return hook(username, bookId, maxTxt);
-    if (hook && typeof hook.fetchOriginal === 'function') return hook.fetchOriginal(username, bookId, maxTxt);
-    return tasks.fetchOriginal(username, bookId, maxTxt);
+    let result;
+    if (typeof hook === 'function') result = await hook(username, bookId, maxTxt);
+    else if (hook && typeof hook.fetchOriginal === 'function') result = await hook.fetchOriginal(username, bookId, maxTxt);
+    else result = await tasks.fetchOriginal(username, bookId, maxTxt);
+
+    // 121 的 bookinfo 是低成本、确定性的分类来源。抓取成功后先把
+    // category/genre/可明确推导的男女频写回任务，AI 只补剩余缺口。
+    if (result && result.status !== 'failed' && typeof tasks?.getTask === 'function' && typeof tasks?.saveTasks === 'function') {
+      const current = await tasks.getTask(username, bookId);
+      if (current?.meta) {
+        const bookinfo = result.bookinfo || current.meta.bookinfo || {};
+        const enriched = merge121BookInfoIntoMeta(current.meta, bookinfo);
+        await tasks.saveTasks(username, [{ ...enriched, bookId: enriched.bookId || bookId }]);
+      }
+    }
+    return result;
   }
 
   function hasSourceFetcher(tasks) {
@@ -115,7 +129,7 @@ function createNovelFetchWorkshopRouter({
     return knowledge.list(kind);
   }
 
-  // POST /process：解析批量清单 →（可选）AI 分类 → 保存任务 →（可选）并发抓原文 →（可选）AI 改文
+  // POST /process：解析批量清单 → 保存任务 →（可选）抓 121 →（可选）AI 补分类 →（可选）AI 改文
   router.post('/process', async (req, res) => {
     try {
       const username = req.username;
@@ -151,17 +165,11 @@ function createNovelFetchWorkshopRouter({
       let tasksToProcess = parsedTasks;
       let classifyErrors = [];
 
-      // 3. 可选：AI 分类回填缺失的男女频/风格（classifyMissingRows 内部用真实 ai.js，不 mock）
-      if (workflow.auto_classify_missing && tasksToProcess.length) {
-        const classifyResult = await classifier.classifyMissingRows({ configStore, tasks: tasksToProcess });
-        classifyErrors = (classifyResult && classifyResult.errors) || [];
-        tasksToProcess = (classifyResult && classifyResult.tasks) || tasksToProcess;
-      }
-
-      // 4. 保存任务
+      // 3. 先保存任务，121 抓取器需要从持久化任务读取平台与参数。
       if (tasksToProcess.length) await tasks.saveTasks(username, tasksToProcess);
 
-      // 5. 可选：按配置并发抓取原文（单任务失败不中断整批，计入 fetchFailed）
+      // 4. 可选：先抓 121。fetchOriginal 会把 bookinfo.category/genre 及可明确
+      //    推导出的男女频写回任务；用户手填的 gender 永远不会被覆盖。
       let fetched = 0;
       let fetchFailed = 0;
       const fetchedDone = new Set();
@@ -179,6 +187,22 @@ function createNovelFetchWorkshopRouter({
             fetchFailed++;
           }
         }
+
+        // 抓取后的持久化 meta 才是 121 分类后的权威输入，回读后再交给 AI。
+        const refreshed = [];
+        for (const task of tasksToProcess) {
+          const current = await tasks.getTask(username, task.bookId);
+          refreshed.push(current?.meta ? { ...task, ...current.meta } : task);
+        }
+        tasksToProcess = refreshed;
+      }
+
+      // 5. AI 只处理 121 之后仍缺失的男女频/风格；风格仍按原固定风格表判断。
+      if (workflow.auto_classify_missing && tasksToProcess.length) {
+        const classifyResult = await classifier.classifyMissingRows({ configStore, tasks: tasksToProcess });
+        classifyErrors = (classifyResult && classifyResult.errors) || [];
+        tasksToProcess = (classifyResult && classifyResult.tasks) || tasksToProcess;
+        await tasks.saveTasks(username, tasksToProcess);
       }
 
       // 6. 可选：对原文成功的任务逐个生成 AI 改文版本（单任务失败不中断整批）
