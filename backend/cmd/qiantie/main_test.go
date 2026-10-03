@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/go-sql-driver/mysql"
 )
 
 func TestHealthURLNormalizesWildcardListenAddresses(t *testing.T) {
@@ -86,5 +87,22 @@ func TestConfigureDatabasePoolReusesBurstConnections(t *testing.T) {
 	}
 	if stats.Idle < workers {
 		t.Fatalf("idle connections = %d, want at least %d reusable burst connections", stats.Idle, workers)
+	}
+}
+
+func TestDatabaseDSNEnablesInterpolationWithoutDroppingExistingOptions(t *testing.T) {
+	got, err := databaseDSN("user:pass@tcp(mysql:3306)/qiantie_v88?parseTime=true")
+	if err != nil {
+		t.Fatalf("databaseDSN() error = %v", err)
+	}
+	cfg, err := mysql.ParseDSN(got)
+	if err != nil {
+		t.Fatalf("ParseDSN(%q) error = %v", got, err)
+	}
+	if !cfg.InterpolateParams {
+		t.Fatal("InterpolateParams must be enabled to avoid per-query server prepares")
+	}
+	if !cfg.ParseTime {
+		t.Fatal("databaseDSN() dropped parseTime")
 	}
 }

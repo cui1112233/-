@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql"
+	"github.com/go-sql-driver/mysql"
 
 	"qiantie/backend/internal/app"
 	"qiantie/backend/internal/config"
@@ -27,7 +27,11 @@ func main() {
 		}
 		return
 	}
-	db, err := sql.Open("mysql", cfg.MySQLDSN)
+	dsn, err := databaseDSN(cfg.MySQLDSN)
+	if err != nil {
+		log.Fatal(err)
+	}
+	db, err := sql.Open("mysql", dsn)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -42,6 +46,19 @@ func main() {
 	server := &http.Server{Addr: cfg.ListenAddr, Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 	log.Printf("qiantie Go V11 listening on %s", cfg.ListenAddr)
 	log.Fatal(server.ListenAndServe())
+}
+
+func databaseDSN(raw string) (string, error) {
+	cfg, err := mysql.ParseDSN(raw)
+	if err != nil {
+		return "", fmt.Errorf("parse MySQL DSN: %w", err)
+	}
+	// database/sql otherwise prepares and closes a server-side statement for
+	// every parameterized read. The public workbench is read-heavy, so inline
+	// parameters to keep MySQL from spending CPU on matching PREPARE/EXECUTE
+	// churn. Existing DSN options (charset, parseTime, timeouts) are preserved.
+	cfg.InterpolateParams = true
+	return cfg.FormatDSN(), nil
 }
 
 func configureDatabasePool(db *sql.DB) {
