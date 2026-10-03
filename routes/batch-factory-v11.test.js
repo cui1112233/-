@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const express = require('express');
+const { createSignedBridgeHeaders } = require('../lib/batch-factory-v11/go-proxy');
 
 const {
   enrichBatchFactorySystemPresetConfig,
@@ -864,6 +865,37 @@ test('uses the runtime fetch when V11 helper receives no injected fetch', async 
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test('preserves a deletion retention query but signs only the Go request path', async () => {
+  const calls = [];
+  const now = Date.parse('2026-10-04T03:04:05.000Z');
+  await v11JSONRequest({
+    username: 'alice',
+    isOwner: true,
+    method: 'DELETE',
+    pathname: '/api/batch-factory/v11/batches/batch-1?retentionDays=3',
+    goBaseUrl: 'http://v11.test',
+    bridgeSecret: 'bridge',
+    now: () => now,
+    fetchImpl: async (url, options) => {
+      calls.push({ url: String(url), headers: options.headers });
+      return new Response(null, { status: 204 });
+    }
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, 'http://v11.test/api/batch-factory/v11/batches/batch-1?retentionDays=3');
+  const expected = createSignedBridgeHeaders({
+    username: 'alice', isOwner: true, method: 'DELETE',
+    pathname: '/api/batch-factory/v11/batches/batch-1', secret: 'bridge', now
+  });
+  const incorrect = createSignedBridgeHeaders({
+    username: 'alice', isOwner: true, method: 'DELETE',
+    pathname: '/api/batch-factory/v11/batches/batch-1?retentionDays=3', secret: 'bridge', now
+  });
+  assert.equal(calls[0].headers['X-Qiantie-Signature'], expected['X-Qiantie-Signature']);
+  assert.notEqual(calls[0].headers['X-Qiantie-Signature'], incorrect['X-Qiantie-Signature']);
 });
 
 test('asset preparation skips style.system when smart-unified is disabled', async () => {

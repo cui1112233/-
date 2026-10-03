@@ -55,6 +55,17 @@ export function batchFactoryCoverFrom(batch, productionStatus, imageURL = '') {
   return image ? { kind: 'image', url: image } : null;
 }
 
+// A historical local merge can be purged after its retention window while its
+// successful provider videos remain reachable. This is deliberately used only
+// after the primary merge-cover request has failed; it is not list-wide cover
+// hydration and therefore cannot turn the project library into an N+1 poller.
+export function batchFactoryFallbackCoverFromProductionStatus(productionStatus) {
+  for (const job of productionStatus?.jobs || []) for (const task of job?.tasks || []) {
+    if (task?.status === 'succeeded' && text(task?.mediaUrl)) return { kind: 'video', url: text(task.mediaUrl) };
+  }
+  return null;
+}
+
 export async function enrichBatchProjectCovers(projects, {
   loadProduction,
   loadMerge,

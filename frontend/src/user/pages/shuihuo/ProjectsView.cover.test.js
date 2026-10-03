@@ -18,6 +18,12 @@ test('private batch merge covers are fetched with the logged-in API client inste
   assert.match(source, /AuthenticatedProjectCover/);
 });
 
+test('a purged legacy merge falls back lazily to its completed production video', () => {
+  assert.match(source, /scheduleLegacyProjectCoverFallback/);
+  assert.match(source, /getProductionStatus\(batchId/);
+  assert.match(source, /历史成片已归档/);
+});
+
 test('temporary project-list failure is shown as an error instead of an empty library', () => {
   assert.match(source, /loadError/);
   assert.match(source, /作品读取暂时失败/);

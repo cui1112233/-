@@ -2,10 +2,12 @@ import { AppstoreOutlined, ClockCircleOutlined, CloseOutlined, DeleteOutlined, D
 import { Alert, Button, Input, Modal, Popconfirm, Select, Switch, Upload, message } from 'antd';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { importProject } from '../../../shared/api/shuihuoProduction';
-import { getBatchFactoryMergeCoverBlob, isBatchFactoryMergeCoverURL } from '../../../shared/api/batchFactoryV11';
+import { getBatchFactoryMergeCoverBlob, getProductionStatus, isBatchFactoryMergeCoverURL } from '../../../shared/api/batchFactoryV11';
 import { ProductionMediaBoundary } from '../batch-factory-v11/ProductionMediaBoundary';
 import { BatchFactoryCreateModal } from './BatchFactoryCreateModal';
-import { isBatchFactoryV11Project } from './batchFactoryProjects';
+import { batchFactoryFallbackCoverFromProductionStatus, createCoverHydrationScheduler, isBatchFactoryV11Project } from './batchFactoryProjects';
+
+const scheduleLegacyProjectCoverFallback = createCoverHydrationScheduler();
 
 function readAsDataURL(file) {
   return new Promise((resolve, reject) => {
@@ -22,16 +24,18 @@ function formatTime(value) {
   return Number.isNaN(date.getTime()) ? '已创建' : date.toLocaleDateString('zh-CN');
 }
 
-function AuthenticatedProjectCover({ src, alt }) {
+function AuthenticatedProjectCover({ src, alt, batchId }) {
   const imageRef = useRef(null);
   const protectedCover = isBatchFactoryMergeCoverURL(src);
   const [visible, setVisible] = useState(!protectedCover);
   const [blobURL, setBlobURL] = useState('');
+  const [fallbackVideoURL, setFallbackVideoURL] = useState('');
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     setVisible(!protectedCover);
     setBlobURL('');
+    setFallbackVideoURL('');
     setFailed(false);
     if (!protectedCover || typeof IntersectionObserver === 'undefined') {
       setVisible(true);
@@ -51,22 +55,33 @@ function AuthenticatedProjectCover({ src, alt }) {
     if (!protectedCover || !visible) return undefined;
     let active = true;
     let objectURL = '';
+    const recoverLegacyCover = () => scheduleLegacyProjectCoverFallback(async () => {
+      if (!active || !batchId) return null;
+      try {
+        return batchFactoryFallbackCoverFromProductionStatus(await getProductionStatus(batchId, { silent: true, suppressGlobalError: true }));
+      } catch (_) {
+        return null;
+      }
+    }).then(media => {
+      if (!active) return;
+      if (media?.kind === 'video' && media.url) setFallbackVideoURL(media.url);
+      else setFailed(true);
+    });
     getBatchFactoryMergeCoverBlob(src)
       .then(blob => {
         objectURL = URL.createObjectURL(blob);
         if (active) setBlobURL(objectURL);
       })
-      .catch(() => {
-        if (active) setFailed(true);
-      });
+      .catch(recoverLegacyCover);
     return () => {
       active = false;
       if (objectURL) URL.revokeObjectURL(objectURL);
     };
   }, [protectedCover, src, visible]);
 
-  if (failed) return <span className="shuihuo-project-card-cover-fallback">封面读取失败</span>;
-  return <img ref={imageRef} className="shuihuo-project-card-cover-media" src={protectedCover ? (blobURL || undefined) : src} alt={alt} loading="lazy" />;
+  if (fallbackVideoURL) return <ProductionMediaBoundary showDownload={false}><video className="shuihuo-project-card-cover-media" src={fallbackVideoURL} muted playsInline preload="metadata" onLoadedMetadata={event => { event.currentTarget.currentTime = 0.001; }} onError={() => { setFallbackVideoURL(''); setFailed(true); }} aria-label={alt} /></ProductionMediaBoundary>;
+  if (failed) return <span className="shuihuo-project-card-cover-fallback"><strong>批量工厂</strong><small>历史成片已归档</small></span>;
+  return <img ref={imageRef} className="shuihuo-project-card-cover-media" src={protectedCover ? (blobURL || undefined) : src} alt={alt} loading="lazy" onError={() => { if (protectedCover) setFailed(true); }} />;
 }
 
 export function ProjectsView({ projects, loadError, health, onCreate, onImported, onCreateBatch, onOpen, onDelete, onRefresh, openCreateOnLoad = false }) {
@@ -151,7 +166,7 @@ export function ProjectsView({ projects, loadError, health, onCreate, onImported
     if (!media?.url) return null;
     return media.kind === 'video'
       ? <ProductionMediaBoundary showDownload={false}><video className="shuihuo-project-card-cover-media" src={media.url} muted playsInline preload="auto" onLoadedMetadata={event => { event.currentTarget.currentTime = 0.001; }} aria-label={`${project.name} 封面视频`} /></ProductionMediaBoundary>
-      : <AuthenticatedProjectCover src={media.url} alt={`${project.name} 封面`} />;
+      : <AuthenticatedProjectCover src={media.url} alt={`${project.name} 封面`} batchId={project.batchId} />;
   }
 
   return <section className="shuihuo-project-library">

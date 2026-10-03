@@ -1217,10 +1217,13 @@ async function v11JSONRequest({ username, isOwner, method, pathname, payload, go
   if (typeof fetchImpl !== 'function') throw requestError('批量工厂服务请求不可用', 503, 'BATCH_FACTORY_V11_UPSTREAM_UNAVAILABLE');
   const base = String(goBaseUrl || resolveV11GoBaseUrl()).replace(/\/$/, '');
   const secret = bridgeSecret || process.env.QIANTIE_BRIDGE_SECRET || '';
+  // Go authenticates req.URL.Path, not its query string. Keep query parameters
+  // in the forwarded request but sign the identical canonical path.
+  const signedPathname = new URL(String(pathname || ''), 'http://qiantie.local').pathname;
   const response = await fetchImpl(`${base}${pathname}`, {
     method,
     headers: {
-      ...createSignedBridgeHeaders({ username, isOwner, method, pathname, secret, now: now() }),
+      ...createSignedBridgeHeaders({ username, isOwner, method, pathname: signedPathname, secret, now: now() }),
       Accept: 'application/json',
       ...(payload === undefined ? {} : { 'Content-Type': 'application/json' })
     },

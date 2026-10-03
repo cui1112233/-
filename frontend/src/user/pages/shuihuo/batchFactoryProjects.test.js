@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   batchFactoryBatchFromResponse,
   batchFactoryCoverFrom,
+  batchFactoryFallbackCoverFromProductionStatus,
   createCoverHydrationScheduler,
   enrichBatchProjectCovers,
   batchFactoryProjectsFrom,
@@ -61,6 +62,14 @@ test('uses the selected first-shot upload video as the project cover', () => {
   ] }] };
 
   assert.deepEqual(batchFactoryCoverFrom(batch, status), { kind: 'video', url: '/selected.mp4' });
+});
+
+test('uses a completed production video only when a legacy merge cover is unavailable', () => {
+  assert.deepEqual(batchFactoryFallbackCoverFromProductionStatus({ jobs: [{ tasks: [
+    { id: 'queued', status: 'queued', mediaUrl: '/queued.mp4' },
+    { id: 'complete', status: 'succeeded', mediaUrl: 'https://media.example/first.mp4' }
+  ] }] }), { kind: 'video', url: 'https://media.example/first.mp4' });
+  assert.equal(batchFactoryFallbackCoverFromProductionStatus({ jobs: [{ tasks: [{ status: 'failed', mediaUrl: '/failed.mp4' }] }] }), null);
 });
 
 test('hydrates project covers with bounded request concurrency and streams each result', async () => {
