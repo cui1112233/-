@@ -24,6 +24,8 @@ test('Batch Factory V11 source refill carries 121 category/genre and derives gen
   assert.equal(captured.sourceMetadata.genre, 8);
   assert.equal(captured.sourceMetadata.gender, '男频');
   assert.equal(captured.sourceMetadata.genderSource, '121_category');
+  assert.equal(captured.sourceTitle, '港岛雨停，再无爱意');
+  assert.equal(captured.sourceMetadata.sourceBookTitle, '港岛雨停，再无爱意');
 });
 
 test('Batch Factory V11 source refill does not overwrite an existing manual gender', async () => {

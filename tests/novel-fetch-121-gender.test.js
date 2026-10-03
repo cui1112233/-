@@ -8,10 +8,11 @@ const { createNovelFetchWorkshopRouter } = require('../routes/novel-fetch-worksh
 test('121 bookinfo derives gender from an explicit male/female category without using numeric genre', () => {
   const male = merge121BookInfoIntoMeta(
     { gender: '', genderSource: '' },
-    { category: '男生生活', genre: 8 }
+    { book_name: '港岛雨停，再无爱意', category: '男生生活', genre: 8 }
   );
   assert.equal(male.category, '男生生活');
   assert.equal(male.genre, 8);
+  assert.equal(male.bookName, '港岛雨停，再无爱意');
   assert.equal(male.gender, '男频');
   assert.equal(male.genderSource, '121_category');
 
@@ -32,11 +33,12 @@ test('121 bookinfo derives gender from an explicit male/female category without 
 
 test('121 bookinfo never overwrites a manually supplied gender', () => {
   const merged = merge121BookInfoIntoMeta(
-    { gender: '女频', genderSource: 'input' },
-    { category: '男生生活', genre: 8 }
+    { bookName: '用户手工书名', gender: '女频', genderSource: 'input' },
+    { book_name: '港岛雨停，再无爱意', category: '男生生活', genre: 8 }
   );
   assert.equal(merged.category, '男生生活');
   assert.equal(merged.genre, 8);
+  assert.equal(merged.bookName, '用户手工书名');
   assert.equal(merged.gender, '女频');
   assert.equal(merged.genderSource, 'input');
 });

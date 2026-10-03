@@ -705,6 +705,9 @@ func (s *MemoryStore) CaptureBookSource(_ context.Context, owner, batchID, bookI
 		}
 		book.SourceText = strings.TrimSpace(input.SourceText)
 		book.TxtText = book.SourceText
+		if shouldReplaceGeneratedBookTitle(book.Title, book.BookID, input.SourceTitle) {
+			book.Title = strings.TrimSpace(input.SourceTitle)
+		}
 		if book.SourceMetadata == nil {
 			book.SourceMetadata = map[string]any{}
 		}

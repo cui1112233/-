@@ -6,6 +6,57 @@ import (
 	"testing"
 )
 
+func TestCaptureBookSourceReplacesOnlyGeneratedTitle(t *testing.T) {
+	ctx := context.Background()
+	s := NewMemoryStore()
+	batch, err := s.CreateBatch(ctx, "alice", CreateBatchInput{Title: "批量", Books: []CreateBookInput{{
+		BookID: "7673480334440139800",
+		Title:  "小说 7673480334440139800",
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	book := batch.Books[0]
+
+	updated, err := s.CaptureBookSource(ctx, "alice", batch.ID, book.ID, CaptureBookSourceInput{
+		SourceText:       "第一章 正文",
+		SourceTitle:      "港岛雨停，再无爱意",
+		SourceMetadata:   map[string]any{"sourceBookTitle": "港岛雨停，再无爱意"},
+		ExpectedRevision: book.Revision,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Title != "港岛雨停，再无爱意" || updated.BookID != "7673480334440139800" {
+		t.Fatalf("updated book=%+v", updated)
+	}
+}
+
+func TestCaptureBookSourcePreservesUserTitle(t *testing.T) {
+	ctx := context.Background()
+	s := NewMemoryStore()
+	batch, err := s.CreateBatch(ctx, "alice", CreateBatchInput{Title: "批量", Books: []CreateBookInput{{
+		BookID: "7673480334440139800",
+		Title:  "用户手工书名",
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	book := batch.Books[0]
+
+	updated, err := s.CaptureBookSource(ctx, "alice", batch.ID, book.ID, CaptureBookSourceInput{
+		SourceText:       "第一章 正文",
+		SourceTitle:      "港岛雨停，再无爱意",
+		ExpectedRevision: book.Revision,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Title != "用户手工书名" {
+		t.Fatalf("user title was overwritten: %+v", updated)
+	}
+}
+
 func TestSavingBatchSettingsDoesNotDeleteBookOrVideoOverride(t *testing.T) {
 	ctx := context.Background()
 	s := NewMemoryStore()

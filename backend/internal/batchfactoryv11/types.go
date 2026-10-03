@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 )
 
@@ -295,8 +296,16 @@ type UpdateBookMetadataInput struct {
 // fetched original; it must never replace an existing source text.
 type CaptureBookSourceInput struct {
 	SourceText       string         `json:"sourceText"`
+	SourceTitle      string         `json:"sourceTitle,omitempty"`
 	SourceMetadata   map[string]any `json:"sourceMetadata,omitempty"`
 	ExpectedRevision int64          `json:"expectedRevision"`
+}
+
+func shouldReplaceGeneratedBookTitle(currentTitle, bookID, sourceTitle string) bool {
+	currentTitle = strings.TrimSpace(currentTitle)
+	bookID = strings.TrimSpace(bookID)
+	sourceTitle = strings.TrimSpace(sourceTitle)
+	return sourceTitle != "" && (currentTitle == "" || currentTitle == bookID || currentTitle == "小说 "+bookID)
 }
 
 type Store interface {

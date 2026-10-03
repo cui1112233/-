@@ -385,9 +385,9 @@ func (s *MySQLStore) CaptureBookSource(ctx context.Context, owner, batchID, book
 	if current != input.ExpectedRevision {
 		return Book{}, ErrConflict
 	}
-	var source sql.NullString
+	var source, currentTitle, sourceBookID sql.NullString
 	var rawMetadata []byte
-	err = tx.QueryRowContext(ctx, `SELECT source_text,source_metadata_json FROM batch_factory_v11_book_records WHERE book_id=? FOR UPDATE`, bookID).Scan(&source, &rawMetadata)
+	err = tx.QueryRowContext(ctx, `SELECT source_text,title,source_book_id,source_metadata_json FROM batch_factory_v11_book_records WHERE book_id=? FOR UPDATE`, bookID).Scan(&source, &currentTitle, &sourceBookID, &rawMetadata)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Book{}, ErrNotFound
 	}
@@ -409,7 +409,11 @@ func (s *MySQLStore) CaptureBookSource(ctx context.Context, owner, batchID, book
 		return Book{}, ErrInvalid
 	}
 	sourceText := strings.TrimSpace(input.SourceText)
-	if _, err = tx.ExecContext(ctx, `UPDATE batch_factory_v11_book_records SET source_text=?,txt_text=?,source_metadata_json=? WHERE book_id=?`, sourceText, sourceText, encodedMetadata, bookID); err != nil {
+	nextTitle := currentTitle.String
+	if shouldReplaceGeneratedBookTitle(nextTitle, sourceBookID.String, input.SourceTitle) {
+		nextTitle = strings.TrimSpace(input.SourceTitle)
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE batch_factory_v11_book_records SET title=?,source_text=?,txt_text=?,source_metadata_json=? WHERE book_id=?`, nextTitle, sourceText, sourceText, encodedMetadata, bookID); err != nil {
 		return Book{}, err
 	}
 	if _, err = tx.ExecContext(ctx, `UPDATE batch_factory_v11_books SET revision=revision+1,updated_at=? WHERE id=? AND batch_id=? AND owner_username=?`, time.Now().UTC(), bookID, batchID, owner); err != nil {
