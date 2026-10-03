@@ -58,3 +58,7 @@
 - 删除无链接匿名卷 `958973b470c987fc45546fad4166fadda2f35944a994046dd320cff9f2972cf7`（0B）和无链接 `v78-public_mysql_data`（约 50.54MB）。未使用 `--volumes`，业务卷保持不变。
 - 清理后生产容器数量为 7；Node、Go、Browser Worker、Novel Fetch Worker、Nginx、Compose Shuihuo 兼容服务和 MySQL 均保持运行。
 - 清理后根盘约 3.2GB 可用（83%）；`v88-public_mysql_data`（约 76.14MB）仍保留，待单独确认历史用途。
+
+## 后续复查
+
+`v88-public_mysql_data` 虽然没有容器链接，但包含旧 `qiantie` MySQL 数据目录、InnoDB 表空间与密钥文件，实际占用约 73MB。它不是空卷或缓存，除非完成可恢复归档并确认历史库无需保留，否则不得删除。
