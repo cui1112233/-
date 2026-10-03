@@ -53,3 +53,25 @@ func TestDeleteBookStmtsPlaceholderCountMatchesArgs(t *testing.T) {
 		}
 	}
 }
+
+func TestDeleteBookStmtsRemoveV12DependentsBeforeTheirParents(t *testing.T) {
+	position := map[string]int{}
+	for index, stmt := range deleteBookStmts {
+		position[stmt.query] = index
+	}
+	requirePosition := func(query string) int {
+		value, ok := position[query]
+		if !ok {
+			t.Fatalf("missing cleanup statement: %s", query)
+		}
+		return value
+	}
+	compilation := requirePosition(`DELETE FROM batch_factory_v12_video_compilations WHERE owner_username=? AND batch_id=? AND book_id=?`)
+	timeline := requirePosition(`DELETE FROM batch_factory_v12_canonical_timelines WHERE owner_username=? AND batch_id=? AND book_id=?`)
+	audio := requirePosition(`DELETE FROM batch_factory_v12_audio_measurements WHERE owner_username=? AND batch_id=? AND book_id=?`)
+	director := requirePosition(`DELETE FROM batch_factory_v11_director_revisions WHERE owner_username=? AND batch_id=? AND book_id=?`)
+	book := requirePosition(`DELETE FROM batch_factory_v11_books WHERE id=? AND batch_id=? AND owner_username=?`)
+	if !(compilation < timeline && timeline < audio && audio < director && director < book) {
+		t.Fatalf("invalid V12 cleanup order: compilation=%d timeline=%d audio=%d director=%d book=%d", compilation, timeline, audio, director, book)
+	}
+}

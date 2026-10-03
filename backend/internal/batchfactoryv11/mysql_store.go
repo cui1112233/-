@@ -799,6 +799,13 @@ var deleteBookStmts = []deleteBookStmt{
 	{query: `DELETE FROM batch_factory_v11_production_jobs WHERE owner_username=? AND batch_id=? AND book_id=?`, args: deleteBookDefaultArgs},
 	{query: `DELETE FROM batch_factory_v11_book_stage_runs WHERE owner_username=? AND batch_id=? AND book_id=?`, args: deleteBookDefaultArgs},
 	{query: `DELETE FROM batch_factory_v11_settings_patches WHERE owner_username=? AND batch_id=? AND book_id=?`, args: deleteBookDefaultArgs},
+	// V12 H3 records have restrictive foreign keys back to both the book and
+	// its director revision. They must be removed before their V11 parents;
+	// otherwise deleting an H3-enabled batch fails and the transaction rolls
+	// back with a generic internal error.
+	{query: `DELETE FROM batch_factory_v12_video_compilations WHERE owner_username=? AND batch_id=? AND book_id=?`, args: deleteBookDefaultArgs},
+	{query: `DELETE FROM batch_factory_v12_canonical_timelines WHERE owner_username=? AND batch_id=? AND book_id=?`, args: deleteBookDefaultArgs},
+	{query: `DELETE FROM batch_factory_v12_audio_measurements WHERE owner_username=? AND batch_id=? AND book_id=?`, args: deleteBookDefaultArgs},
 	{query: `DELETE o FROM batch_factory_v11_orphaned_overrides o JOIN batch_factory_v11_director_revisions d ON d.id=o.director_revision_id WHERE d.owner_username=? AND d.batch_id=? AND d.book_id=?`, args: deleteBookDefaultArgs},
 	{query: `DELETE l FROM batch_factory_v11_director_video_links l JOIN batch_factory_v11_director_revisions d ON d.id=l.director_revision_id WHERE d.owner_username=? AND d.batch_id=? AND d.book_id=?`, args: deleteBookDefaultArgs},
 	{query: `DELETE FROM batch_factory_v11_director_revisions WHERE owner_username=? AND batch_id=? AND book_id=?`, args: deleteBookDefaultArgs},
