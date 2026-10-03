@@ -68,3 +68,26 @@ func TestMySQLCreateIntakeDeduplicatesSamePlatformBookID(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestMySQLCreateIntakeBindsJSONPayloadAsText(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	// MySQL JSON columns reject a driver-bound []byte value because the driver
+	// labels it as _binary. The persisted value must instead be bound as UTF-8
+	// text so MySQL can parse it as JSON.
+	mock.ExpectExec("INSERT INTO batch_factory_v11_intakes").
+		WithArgs(sqlmock.AnyArg(), "alice", `{"books":[]}`, sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	store := NewMySQLStore(db)
+	if _, err := store.CreateIntake(context.Background(), "alice", NovelFetchIntakeInput{Books: []CreateBookInput{}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -37,7 +37,7 @@ func (s *MySQLStore) CreateIntake(ctx context.Context, owner string, input Novel
 		return Intake{}, ErrInvalid
 	}
 	now := time.Now().UTC()
-	if _, err := s.db.ExecContext(ctx, `INSERT INTO batch_factory_v11_intakes(id,owner_username,payload_json,created_at) VALUES(?,?,?,?)`, id, owner, payload, now); err != nil {
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO batch_factory_v11_intakes(id,owner_username,payload_json,created_at) VALUES(?,?,?,?)`, id, owner, string(payload), now); err != nil {
 		return Intake{}, err
 	}
 	return Intake{ID: id, Owner: owner, Payload: payload, CreatedAt: now}, nil
