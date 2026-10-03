@@ -1,0 +1,27 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const test = require('node:test');
+
+const releaseDir = path.resolve(__dirname, '..', 'deploy', 'v88-public');
+
+test('current release pointer and manifest use one verified immutable SHA', () => {
+  const current = fs.readFileSync(path.join(releaseDir, 'CURRENT_RELEASE'), 'utf8').trim();
+  assert.match(current, /^[0-9a-f]{40}$/);
+
+  const manifest = JSON.parse(fs.readFileSync(path.join(releaseDir, 'releases', `${current}.manifest.json`), 'utf8'));
+  assert.equal(manifest.release_sha, current);
+  assert.equal(manifest.branch, 'v88');
+  assert.equal(manifest.node_image, `ghcr.io/cui1112233/qiantie-v88-node:${current}`);
+  assert.equal(manifest.go_image, `ghcr.io/cui1112233/qiantie-go-api:${current}`);
+  assert.equal(manifest.verification.public_build_info.git_sha, current);
+  assert.equal(manifest.verification.node_go_health.status, 200);
+  assert.equal(manifest.verification.production_page.status, 200);
+});
+
+test('release manifest rejects a mismatched image SHA', () => {
+  const current = fs.readFileSync(path.join(releaseDir, 'CURRENT_RELEASE'), 'utf8').trim();
+  const manifest = JSON.parse(fs.readFileSync(path.join(releaseDir, 'releases', `${current}.manifest.json`), 'utf8'));
+  assert.equal(manifest.node_image.split(':').at(-1), manifest.release_sha);
+  assert.equal(manifest.go_image.split(':').at(-1), manifest.release_sha);
+});
