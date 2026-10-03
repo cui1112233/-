@@ -836,7 +836,7 @@ function InlineStoryboardAssets({ book, batchId, selectedVideoId: controlledSele
   </div>;
 }
 
-function useCompiledVideoPrompt(batchId, book, video, settingsRevision = 0) {
+function useCompiledVideoPrompt(batchId, book, video, settingsRevision = 0, { enabled = true } = {}) {
   const [displayPrompt, setDisplayPrompt] = useState('');
   const [compiledPrompt, setCompiledPrompt] = useState('');
   const [baseSetupPrompt, setBaseSetupPrompt] = useState('');
@@ -846,7 +846,7 @@ function useCompiledVideoPrompt(batchId, book, video, settingsRevision = 0) {
   const videoRevision = Number(video?.revision || 0);
   useEffect(() => {
     let active = true;
-    if (!batchId || !book?.id || !video?.id) {
+    if (!enabled || !batchId || !book?.id || !video?.id) {
       setDisplayPrompt('');
       setCompiledPrompt('');
       setBaseSetupPrompt('');
@@ -874,7 +874,7 @@ function useCompiledVideoPrompt(batchId, book, video, settingsRevision = 0) {
       if (active) setLoading(false);
     });
     return () => { active = false; };
-  }, [batchId, book?.id, bookRevision, video?.id, videoRevision, settingsRevision]);
+  }, [enabled, batchId, book?.id, bookRevision, video?.id, videoRevision, settingsRevision]);
   return { displayPrompt, compiledPrompt, baseSetupPrompt, smartUnifiedPending, loading };
 }
 
@@ -898,7 +898,9 @@ function InlineBookPrompts({ batch, book, batchId, settingsRevision, selectedVid
   const rawVideoPrompt = String(video?.videoPrompt || '');
   const visualPrompt = String(video?.visualPrompt || '');
   const hasVisualPrompt = Boolean(visualPrompt.trim());
-  const { displayPrompt, compiledPrompt, smartUnifiedPending, loading } = useCompiledVideoPrompt(batchId, book, video, settingsRevision);
+  // 首屏按书渲染时只使用随批量返回的提示词。完整最终提示词会在用户
+  // 打开编辑面板后按需读取，避免几十本书同时向 Go/MySQL 发起聚合请求。
+  const { displayPrompt, compiledPrompt, smartUnifiedPending, loading } = useCompiledVideoPrompt(batchId, book, video, settingsRevision, { enabled: false });
   // 智能统一是增强层。视觉基线尚未取得时，仍须展示并允许使用已经
   // 编译的 VIDEO 提示词，不能把一条可执行分镜伪装成“什么都没有”。
   const videoPrompt = compiledPrompt || displayPrompt || rawVideoPrompt;

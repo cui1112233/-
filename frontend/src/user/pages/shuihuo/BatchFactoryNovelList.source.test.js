@@ -364,6 +364,18 @@ test('shows the submitted H3 prompt while keeping its editable director copy sep
 	assert.match(source, /const activeLabel = promptKind === 'visual' \? '画面提示词' : '分镜视频提示词';/);
 });
 
+test('defers compiled prompt reads until the user opens the prompt editor', () => {
+  assert.match(source, /function useCompiledVideoPrompt\(batchId, book, video, settingsRevision = 0, \{ enabled = true \} = \{\}\)/);
+  assert.match(source, /if \(!enabled \|\| !batchId \|\| !book\?\.id \|\| !video\?\.id\)/);
+
+  const inlineStart = source.indexOf('function InlineBookPrompts(');
+  const inlineEnd = source.indexOf('\nfunction StoryboardVideoNavigator(', inlineStart);
+  const inline = inlineStart >= 0 && inlineEnd > inlineStart ? source.slice(inlineStart, inlineEnd) : '';
+  assert.match(inline, /useCompiledVideoPrompt\(batchId, book, video, settingsRevision, \{ enabled: false \}\)/);
+
+  assert.match(source, /useCompiledVideoPrompt\(batchId, book, selectedVideo, settingsRevision\)/);
+});
+
 test('opens a modal from the whole stacked-card prompt entry and edits only the selected storyboard', () => {
   assert.match(source, /className="shuihuo-workbench-cell shuihuo-prompt-cell batch-factory-book-prompt-cell batch-factory-prompt-entry-card"/);
   assert.match(source, /className="batch-factory-prompt-entry-content"/);
