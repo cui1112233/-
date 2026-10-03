@@ -51,3 +51,10 @@
 2. 记录无链接卷的完整 inspect 和大小后再删除。
 3. 清理确认过期的发布临时目录与日志。
 4. 重跑容器、路由、健康检查和卷链接核验。
+
+## 已执行清理与验证
+
+- 停止并移除 `v88-public-shuihuo-compat-legacy-1`。停止后 Node 的 `shuihuo-compat` DNS 解析固定到 Compose 管理的 `172.19.0.8`；兼容服务请求返回 `404`（路由存在但 `/health` 不是该服务的有效端点），Node→Go `/health` 返回 `200`，生产页面返回 `200`。
+- 删除无链接匿名卷 `958973b470c987fc45546fad4166fadda2f35944a994046dd320cff9f2972cf7`（0B）和无链接 `v78-public_mysql_data`（约 50.54MB）。未使用 `--volumes`，业务卷保持不变。
+- 清理后生产容器数量为 7；Node、Go、Browser Worker、Novel Fetch Worker、Nginx、Compose Shuihuo 兼容服务和 MySQL 均保持运行。
+- 清理后根盘约 3.2GB 可用（83%）；`v88-public_mysql_data`（约 76.14MB）仍保留，待单独确认历史用途。
