@@ -74,6 +74,11 @@ jobs:
             if grep -q "^${key}=." .env; then printf '%s=1,' "$key"; else printf '%s=0,' "$key"; fi
           done
           printf '\n'
+          printf 'RUNTIME_DIAGNOSTIC env_key_names='
+          grep -hE '^[A-Za-z_][A-Za-z0-9_]*=' .env .env.pre-* 2>/dev/null | cut -d= -f1 | grep -Ei 'TOS|MERGE|REFERENCE_ASSET' | sort -u | tr '\n' ',' || true
+          printf '\nRUNTIME_DIAGNOSTIC client_error_summary='
+          docker exec "$node_id" node -e "const fs=require('fs'); const p='/app/data/system/error-logs.json'; let rows=[]; try{rows=JSON.parse(fs.readFileSync(p,'utf8'))}catch(_){}; console.log(JSON.stringify(rows.slice(0,30).map(({kind,message,path,method,status,source,context})=>({kind,message,path,method,status,source,context}))))" || true
+          printf '\n'
           redact() { sed -E 's/(api[_-]?key|authorization|password|secret)[=:][^[:space:]]+/\1=[REDACTED]/Ig'; }
           printf 'RUNTIME_DIAGNOSTIC node_recent_errors\n'
           docker logs --tail 180 "$node_id" 2>&1 | grep -Ei 'error|exception|unavailable|timeout|ECONN|unauthor|fatal|failed' | tail -80 | redact || true
