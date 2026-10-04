@@ -11,15 +11,16 @@ test('unified V88 release can be explicitly requested from v88 without using ret
   assert.doesNotMatch(workflow, /(?:curl|proxy_pass)[^\n]*18081/);
 });
 
-test('unified V88 release deploys the paired immutable Node and Go images from the same SHA', () => {
+test('Node-only V88 release keeps the unchanged Go service running', () => {
   assert.match(workflow, /qiantie-v88-node:\$\{\{ github\.sha \}\}/);
-  assert.match(workflow, /qiantie-go-api:\$\{\{ github\.sha \}\}/);
   assert.match(workflow, /deploy:\s*[\s\S]*needs:\s*release/);
   assert.match(workflow, /QIANTIE_NODE_IMAGE/);
-  assert.match(workflow, /QIANTIE_GO_IMAGE/);
   assert.match(workflow, /QIANTIE_RELEASE_SHA/);
   assert.match(workflow, /docker compose[^\n]*config -q/);
-  assert.match(workflow, /up -d[^\n]*go-api browser-worker v88-node/);
+  assert.match(workflow, /go_id="\$\(docker compose[^\n]*ps -q go-api\)"/);
+  assert.match(workflow, /docker inspect[^\n]*\.State\.Running/);
+  assert.match(workflow, /up -d[^\n]*v88-node/);
+  assert.doesNotMatch(workflow, /up -d[^\n]*(?:go-api|browser-worker)/);
 });
 
 test('unified V88 deploy updates the Node-specific build identity used by the public endpoint', () => {
@@ -62,10 +63,9 @@ test('unified V88 deploy lets ECS pull immutable images with a short-lived GHCR 
   // The remote command is embedded in a shell string, so its quotes may be
   // escaped in YAML source; the token must still be consumed by password-stdin.
   assert.match(workflow, /docker login ghcr\.io --username \\?"\$registry_user\\?" --password-stdin/);
-  assert.match(workflow, /docker pull \\?"\$go_image\\?"/);
   assert.match(workflow, /docker pull \\?"\$node_image\\?"/);
   assert.match(workflow, /docker logout ghcr\.io/);
-  assert.doesNotMatch(workflow, /docker save "\$node_image" "\$go_image" \| gzip -1 \| timeout 900 ssh/);
+  assert.doesNotMatch(workflow, /docker pull \\?"\$go_image\\?"/);
   assert.doesNotMatch(workflow, /gzip -d \| docker load/);
 });
 

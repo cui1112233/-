@@ -25,22 +25,20 @@ test('Node runtime identity endpoint reports its injected immutable release SHA'
   });
 });
 
-test('paired image build workflow uses the checked-out SHA and immutable tags', () => {
+test('Node-only release publishes an immutable Node image without rebuilding unchanged Go', () => {
   const nodeDockerfile = fs.readFileSync(path.join(root, 'Dockerfile'), 'utf8');
-  const goDockerfile = fs.readFileSync(path.join(root, 'backend/Dockerfile'), 'utf8');
   const workflow = fs.readFileSync(path.join(root, '.github/workflows/v88-unified-public-image-release.yml'), 'utf8');
 
   assert.match(nodeDockerfile, /ARG QIANTIE_RELEASE_SHA/);
-  assert.match(goDockerfile, /ARG QIANTIE_RELEASE_SHA/);
   assert.match(nodeDockerfile, /org\.opencontainers\.image\.revision/);
-  assert.match(goDockerfile, /org\.opencontainers\.image\.revision/);
   assert.match(workflow, /platforms:\s*linux\/amd64/);
   assert.match(workflow, /npm ci --omit=dev/);
   assert.match(workflow, /npm --prefix frontend ci/);
   assert.match(workflow, /npm --prefix frontend run build/);
   assert.match(workflow, /QIANTIE_RELEASE_SHA=\$\{\{ github\.sha \}\}/);
   assert.match(workflow, /qiantie-v88-node:\$\{\{ github\.sha \}\}/);
-  assert.match(workflow, /qiantie-go-api:\$\{\{ github\.sha \}\}/);
-  assert.match(workflow, /context: backend\s+file: backend\/Dockerfile/);
+  assert.match(workflow, /go=unchanged/);
+  assert.doesNotMatch(workflow, /qiantie-go-api:\$\{\{ github\.sha \}\}/);
+  assert.doesNotMatch(workflow, /context: backend\s+file: backend\/Dockerfile/);
   assert.doesNotMatch(workflow, /latest/);
 });
