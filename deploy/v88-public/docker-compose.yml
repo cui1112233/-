@@ -6,7 +6,9 @@ services:
       QIANTIE_GO_LISTEN_ADDR: :4000
       QIANTIE_MYSQL_DSN: ${MYSQL_USER}:${MYSQL_PASSWORD}@tcp(mysql:3306)/${MYSQL_DATABASE}?parseTime=true&charset=utf8mb4&collation=utf8mb4_0900_ai_ci
       QIANTIE_BRIDGE_SECRET: ${QIANTIE_BRIDGE_SECRET}
-      QIANTIE_RELEASE_SHA: ${QIANTIE_RELEASE_SHA}
+      # The Go API can be repaired independently during an emergency.  Normal
+      # releases still use QIANTIE_RELEASE_SHA for both services.
+      QIANTIE_RELEASE_SHA: ${QIANTIE_GO_RELEASE_SHA:-${QIANTIE_RELEASE_SHA}}
       # Service-side Qingyu credential for giant-material metadata resolution.
       # The value lives only in the protected production .env file.
       QINGYU_N8_ADMIN_TOKEN: ${QINGYU_N8_ADMIN_TOKEN:-}
@@ -111,9 +113,9 @@ services:
       QIANTIE_REFERENCE_ASSET_TOS_BUCKET: ${QIANTIE_REFERENCE_ASSET_TOS_BUCKET:-}
       QIANTIE_REFERENCE_ASSET_TOS_ACCESS_KEY: ${QIANTIE_REFERENCE_ASSET_TOS_ACCESS_KEY:-}
       QIANTIE_REFERENCE_ASSET_TOS_SECRET_KEY: ${QIANTIE_REFERENCE_ASSET_TOS_SECRET_KEY:-}
-      # Node and Go must derive runtime identity from the same release pointer;
-      # a host-level NODE_RELEASE override must not be able to drift build-info.
-      QIANTIE_RELEASE_SHA: ${QIANTIE_RELEASE_SHA}
+      # Component-only emergency repairs retain the counterpart's truthful
+      # runtime identity. Normal paired releases set both pointers together.
+      QIANTIE_RELEASE_SHA: ${QIANTIE_NODE_RELEASE_SHA:-${QIANTIE_RELEASE_SHA}}
     volumes:
       - v88_data:/app/data
       - v88_outputs:/app/outputs

@@ -167,6 +167,7 @@ jobs:
           set_env QIANTIE_GO_IMAGE "$go_image"
           set_env QIANTIE_RELEASE_SHA "$expected_sha"
           set_env QIANTIE_NODE_RELEASE_SHA "$expected_sha"
+          set_env QIANTIE_GO_RELEASE_SHA "$expected_sha"
           set_env QIANTIE_BATCH_FACTORY_V11_SLICE 5
           set_env QIANTIE_BATCH_FACTORY_V11_PRODUCTION_ENABLED 1
           set_env QIANTIE_BATCH_FACTORY_V11_LOCAL_MERGE_ENABLED 1

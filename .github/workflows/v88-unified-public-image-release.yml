@@ -208,7 +208,6 @@ jobs:
             fi
           }
           set_env QIANTIE_NODE_IMAGE "$node_image"
-          set_env QIANTIE_RELEASE_SHA "$expected_sha"
           set_env QIANTIE_NODE_RELEASE_SHA "$expected_sha"
           # The public workbench includes the VIDEO → merge → publish chain.
           # Provider credentials are still resolved per account at request time;

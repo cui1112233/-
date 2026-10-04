@@ -26,18 +26,27 @@ test('release manifest rejects a mismatched image SHA', () => {
   assert.equal(manifest.go_image.split(':').at(-1), manifest.release_sha);
 });
 
-test('public Compose derives Node runtime identity from the unified release SHA', () => {
+test('public Compose keeps component runtime identities explicit during an emergency repair', () => {
   const compose = fs.readFileSync(path.join(releaseDir, 'docker-compose.yml'), 'utf8');
   const nodeService = compose.split(/\r?\n  v88-node:\r?\n/)[1].split(/\r?\n  nginx:\r?\n/)[0];
-  assert.match(nodeService, /QIANTIE_RELEASE_SHA:\s*\$\{QIANTIE_RELEASE_SHA\}/);
-  assert.doesNotMatch(nodeService, /QIANTIE_RELEASE_SHA:\s*\$\{QIANTIE_NODE_RELEASE_SHA\}/);
+  assert.match(nodeService, /QIANTIE_RELEASE_SHA:\s*\$\{QIANTIE_NODE_RELEASE_SHA:-\$\{QIANTIE_RELEASE_SHA\}\}/);
 });
 
 test('public Go runtime can read merged artifacts from the configured TOS client', () => {
   const compose = fs.readFileSync(path.join(releaseDir, 'docker-compose.yml'), 'utf8');
   const goService = compose.split(/\r?\n  go-api:\r?\n/)[1].split(/\r?\n  browser-worker:\r?\n/)[0];
+  assert.match(goService, /QIANTIE_RELEASE_SHA:\s*\$\{QIANTIE_GO_RELEASE_SHA:-\$\{QIANTIE_RELEASE_SHA\}\}/);
   assert.match(goService, /QIANTIE_BATCH_FACTORY_V11_MERGE_TOS_ENDPOINT:/);
   assert.match(goService, /QIANTIE_REFERENCE_ASSET_TOS_ENDPOINT/);
   assert.match(goService, /QIANTIE_BATCH_FACTORY_V11_MERGE_TOS_BUCKET:/);
   assert.match(goService, /QIANTIE_REFERENCE_ASSET_TOS_BUCKET/);
+});
+
+test('release workflows preserve honest component identities', () => {
+  const pairedWorkflow = fs.readFileSync(path.resolve(__dirname, '..', '.github', 'workflows', 'v88-runner-image-transport.yml'), 'utf8');
+  assert.match(pairedWorkflow, /set_env QIANTIE_GO_RELEASE_SHA "\$expected_sha"/);
+
+  const nodeOnlyWorkflow = fs.readFileSync(path.resolve(__dirname, '..', '.github', 'workflows', 'v88-unified-public-image-release.yml'), 'utf8');
+  assert.match(nodeOnlyWorkflow, /set_env QIANTIE_NODE_RELEASE_SHA "\$expected_sha"/);
+  assert.doesNotMatch(nodeOnlyWorkflow, /set_env QIANTIE_RELEASE_SHA "\$expected_sha"/);
 });
