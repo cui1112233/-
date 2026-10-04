@@ -58,7 +58,7 @@ jobs:
           printf '\nRUNTIME_DIAGNOSTIC go_health='
           docker exec "$go_id" sh -lc 'wget -qO- --timeout=10 http://127.0.0.1:4000/health || curl -fsS --max-time 10 http://127.0.0.1:4000/health' || true
           printf '\nRUNTIME_DIAGNOSTIC node_to_go='
-          docker exec "$node_id" node - <<'NODE'
+          docker exec -i "$node_id" node - <<'NODE'
           const base = process.env.QIANTIE_GO_BASE_URL || 'http://go-api:4000';
           (async () => {
             try {
@@ -79,6 +79,16 @@ jobs:
           printf '\nRUNTIME_DIAGNOSTIC client_error_summary='
           docker exec "$node_id" node -e "const fs=require('fs'); const p='/app/data/system/error-logs.json'; let rows=[]; try{rows=JSON.parse(fs.readFileSync(p,'utf8'))}catch(_){}; console.log(JSON.stringify(rows.slice(0,30).map(({kind,message,path,method,status,source,context})=>({kind,message,path,method,status,source,context}))))" || true
           printf '\n'
+          mysql_id="$(docker ps --filter 'name=mysql' --format '{{.ID}}' | head -n 1)"
+          if [ -n "$mysql_id" ]; then
+            printf 'RUNTIME_DIAGNOSTIC settings_schema='
+            docker exec "$mysql_id" sh -lc 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE" -Nse "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN (\"batch_factory_v11_settings_patches\",\"batch_factory_v11_config_snapshots\",\"batch_factory_v11_batches\") ORDER BY TABLE_NAME"' | tr '\n' ',' || true
+            printf '\nRUNTIME_DIAGNOSTIC affected_batch_rows='
+            docker exec "$mysql_id" sh -lc 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE" -Nse "SELECT COUNT(*) FROM batch_factory_v11_batches WHERE id IN (\"batch_92b1609f361efa6ce5f874b3441e1046\",\"batch_76d271ff2c30714e24e7a8f53f9e8440\",\"batch_2863df666cf181eb956245abde639bc0\")"' || true
+            printf '\n'
+          else
+            echo 'RUNTIME_DIAGNOSTIC settings_schema=mysql_container_not_found'
+          fi
           redact() { sed -E 's/(api[_-]?key|authorization|password|secret)[=:][^[:space:]]+/\1=[REDACTED]/Ig'; }
           printf 'RUNTIME_DIAGNOSTIC node_recent_errors\n'
           docker logs --tail 180 "$node_id" 2>&1 | grep -Ei 'error|exception|unavailable|timeout|ECONN|unauthor|fatal|failed' | tail -80 | redact || true
