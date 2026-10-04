@@ -1,4 +1,4 @@
-import { apiRequest } from './client';
+import { apiRequest } from './client.js';
 
 const base = '/api/admin';
 
@@ -71,6 +71,13 @@ export function getAdminPreset(id, version) {
 export function createPresetDraft(input) {
   return apiRequest(`${base}/presets/draft`, {
     method: 'POST',
+    body: JSON.stringify(input)
+  });
+}
+
+export function updatePresetDraft(id, version, input) {
+  return apiRequest(`${base}/presets/${encodeURIComponent(id)}/${encodeURIComponent(version)}/draft`, {
+    method: 'PUT',
     body: JSON.stringify(input)
   });
 }

@@ -1,6 +1,6 @@
 import { Alert, Button, Collapse, Form, Input, Modal, Popconfirm, Segmented, Select, Space, Table, Tag, Typography, message } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
-import { createPresetDraft, listAdminPresetSlots, listAdminPresets, publishPreset, rollbackPreset } from '../../shared/api/admin';
+import { createPresetDraft, listAdminPresetSlots, listAdminPresets, publishPreset, rollbackPreset, updatePresetDraft } from '../../shared/api/admin';
 
 const modules = [
   { label: '剧本生成', value: 'script' },
@@ -183,6 +183,7 @@ export function PresetLibraryPage() {
   const [error, setError] = useState('');
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingExisting, setEditingExisting] = useState(false);
+  const [editingPreset, setEditingPreset] = useState(null);
   const [saving, setSaving] = useState(false);
   const [form] = Form.useForm();
 
@@ -219,6 +220,7 @@ export function PresetLibraryPage() {
   function openCreate() {
     form.setFieldsValue(emptyDraft(module));
     setEditingExisting(false);
+    setEditingPreset(null);
     setEditorOpen(true);
   }
 
@@ -230,6 +232,7 @@ export function PresetLibraryPage() {
       protocolLock: JSON.stringify(preset.protocolLock || {}, null, 2)
     });
     setEditingExisting(true);
+    setEditingPreset(preset);
     setEditorOpen(true);
   }
 
@@ -251,14 +254,24 @@ export function PresetLibraryPage() {
     }
     setSaving(true);
     try {
-      await createPresetDraft({
+      const input = {
         ...values,
         module,
         compatibleBaseIds: [],
         protocolLock: { ...protocolLock, slot: values.slot }
-      });
-      message.success('已保存为草稿，发布后才会影响用户生成。');
+      };
+      if (editingPreset?.status === 'draft') {
+        await updatePresetDraft(editingPreset.id, editingPreset.version, {
+          ...input,
+          expectedRevision: editingPreset.revision || 1
+        });
+        message.success(`草稿 V${editingPreset.version} 已更新，发布后才会影响用户生成。`);
+      } else {
+        await createPresetDraft(input);
+        message.success('已另存为新草稿，发布后才会影响用户生成。');
+      }
       setEditorOpen(false);
+      setEditingPreset(null);
       load();
     } catch (requestError) {
       message.error(errorMessage(requestError));
@@ -333,7 +346,7 @@ export function PresetLibraryPage() {
     {
       title: '操作', key: 'actions', width: 150,
       render: (_, row) => (
-        <Button size="small" onClick={() => openEdit(row.current)}>编辑当前版本</Button>
+        <Button size="small" onClick={() => openEdit(row.current)}>{row.current.status === 'draft' ? '继续编辑草稿' : '新建草稿'}</Button>
       )
     }
   ];
@@ -346,7 +359,7 @@ export function PresetLibraryPage() {
       title: '操作', key: 'actions', width: 260,
       render: (_, preset) => (
         <Space size="small">
-          <Button size="small" onClick={() => openEdit(preset)}>编辑为草稿</Button>
+          <Button size="small" onClick={() => openEdit(preset)}>{preset.status === 'draft' ? '编辑草稿' : '另存为新版本'}</Button>
           {preset.status === 'draft' && <Popconfirm title="发布后将立即影响后续生成请求" onConfirm={() => publish(preset)}><Button size="small" type="primary">发布</Button></Popconfirm>}
           {preset.status === 'archived' && <Popconfirm title="确认将此历史版本设为当前线上版本" onConfirm={() => rollback(preset)}><Button size="small">回滚</Button></Popconfirm>}
         </Space>
@@ -471,11 +484,11 @@ export function PresetLibraryPage() {
           />
         )}
       </Space>
-      <Modal title="系统预设词草稿" open={editorOpen} onCancel={() => setEditorOpen(false)} footer={null} width={760} destroyOnClose>
+      <Modal title={editingPreset?.status === 'draft' ? `编辑草稿 V${editingPreset.version}` : '系统预设词草稿'} open={editorOpen} onCancel={() => setEditorOpen(false)} footer={null} width={760} destroyOnClose>
         <Form form={form} layout="vertical" onFinish={saveDraft} initialValues={emptyDraft(module)}>
           <Space size="middle" style={{ width: '100%' }} align="start">
             <Form.Item label="预设词 ID" name="id" rules={[{ required: true, message: '请输入固定 ID' }, { pattern: /^[\p{L}\p{N}][\p{L}\p{N}._-]{0,63}$/u, message: '只能使用中文、字母、数字、点、下划线或短横线' }]} style={{ flex: 1 }}>
-              <Input placeholder="例如 script-custom" />
+              <Input placeholder="例如 script-custom" disabled={Boolean(editingPreset)} />
             </Form.Item>
             <Form.Item label="名称" name="name" rules={[{ required: true, message: '请输入名称' }]} style={{ flex: 1 }}>
               <Input placeholder="供管理员识别" />
@@ -483,6 +496,8 @@ export function PresetLibraryPage() {
           </Space>
           <Form.Item name="kind" hidden><Input /></Form.Item>
           {!editingExisting && <Alert type="info" showIcon message="选择归属后，发布的提示词会出现在该功能对应的项目下拉选择中。" />}
+          {editingPreset?.status === 'draft' && <Alert type="info" showIcon message={`正在编辑草稿 V${editingPreset.version}：保存会原地更新，不会生成新版本。`} />}
+          {editingPreset && editingPreset.status !== 'draft' && <Alert type="info" showIcon message={`V${editingPreset.version} 已锁定：保存会另存为新的草稿版本。`} />}
           <Form.Item label="归属" name="slot" rules={[{ required: true, message: '请选择归属' }]}>
             <Select
               placeholder="请选择提示词归属"
@@ -505,7 +520,7 @@ export function PresetLibraryPage() {
           </Form.Item>
           <Space>
             <Button onClick={() => setEditorOpen(false)}>取消</Button>
-            <Button type="primary" htmlType="submit" loading={saving}>保存草稿</Button>
+            <Button type="primary" htmlType="submit" loading={saving}>{editingPreset?.status === 'draft' ? `保存草稿（V${editingPreset.version}）` : '另存为新版本'}</Button>
           </Space>
         </Form>
       </Modal>

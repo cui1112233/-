@@ -17,7 +17,7 @@
 ## 接口
 
 - 保留 `POST /api/admin/presets/draft`：仅创建下一个草稿版本。
-- 新增 `PUT /api/admin/presets/:id/:version/draft`：仅更新 `draft`；请求体带 `expectedVersion`，必须等于路径版本，防止陈旧表单覆盖。
+- 新增 `PUT /api/admin/presets/:id/:version/draft`：仅更新 `draft`；请求体带 `expectedRevision`，必须等于当前草稿修订号，防止陈旧表单覆盖。
 - 新增审计动作 `preset.draft_updated`，记录更新前后不含正文和协议锁的摘要。
 
 ## 管理台

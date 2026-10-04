@@ -23,10 +23,10 @@ function createAdminRouter(accountStore, presetStore, agentSkillStore, errorLogS
     }
   }
 
-  function requirePresetVersionCapability(capability) {
+  function requirePresetVersionCapability(capability, getVersion = req => req.body?.version) {
     return (req, res, next) => {
       try {
-        const preset = presetStore.getVersion(req.params.id, req.body?.version);
+        const preset = presetStore.getVersion(req.params.id, Number(getVersion(req)));
         if (!preset) return res.status(404).json({ error: 'Not found' });
         if (!accountStore.can(req.username, capability, preset.module)) {
           return res.status(403).json({ error: 'Forbidden' });
@@ -170,6 +170,16 @@ function createAdminRouter(accountStore, presetStore, agentSkillStore, errorLogS
       const preset = presetStore.createDraft(req.username, req.body);
       notifyDevelopers(req, '管理后台发生变更', `@${req.username} 创建了「${preset.name || preset.id}」预设词草稿。`, { action: 'preset.draft', presetId: preset.id });
       res.status(201).json({ preset });
+    } catch (error) {
+      sendStoreError(res, error);
+    }
+  });
+
+  router.put('/presets/:id/:version/draft', requirePresetVersionCapability('preset:draft', req => req.params.version), (req, res) => {
+    try {
+      const preset = presetStore.updateDraft(req.username, req.params.id, Number(req.params.version), req.body);
+      notifyDevelopers(req, '管理后台发生变更', `@${req.username} 更新了「${preset.name || preset.id}」预设词草稿 V${preset.version}。`, { action: 'preset.draft_updated', presetId: preset.id, version: preset.version });
+      res.json({ preset });
     } catch (error) {
       sendStoreError(res, error);
     }
