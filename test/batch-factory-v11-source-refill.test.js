@@ -51,3 +51,27 @@ test('Batch Factory V11 source refill does not overwrite an existing manual gend
   assert.equal(captured.sourceMetadata.gender, '女频');
   assert.equal(captured.sourceMetadata.genderSource, 'input');
 });
+
+test('Batch Factory V11 maps Yangguang YG to 121 Dianzhong and persists the resolved platform', async () => {
+  let captured;
+  let requestedPlatformId;
+  await refillMissingBatchFactoryBookSource({
+    book: {
+      bookId: '11010508364',
+      platform: 'YG',
+      revision: 1,
+      sourceText: '',
+      sourceMetadata: { platformCode: 'YG' }
+    },
+    platforms: [{ id: '4', name: '点众付费' }],
+    fetchDirectOriginal: async ({ platformId }) => {
+      requestedPlatformId = platformId;
+      return { text: '原文正文', attempts: 1, bookinfo: { book_name: '阳光来源测试书' } };
+    },
+    captureSource: async payload => { captured = payload; return { book: payload }; }
+  });
+
+  assert.equal(requestedPlatformId, '4');
+  assert.equal(captured.sourceMetadata.platformCode, 'YG');
+  assert.equal(captured.sourceMetadata.platformId, '4');
+});
