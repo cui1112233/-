@@ -207,3 +207,100 @@ func TestLocalMergeAdapterStoresCompletedOutputInTOS(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 	}
 }
+
+func TestLocalMergeAdapterSerializesActiveMergeAndUploadWorkspaces(t *testing.T) {
+	// The book scheduler's concurrency does not constrain this adapter: it can
+	// submit many completed books together. A single host must not begin every
+	// merge/upload at once, otherwise the shared TOS egress is saturated.
+	adapter := NewLocalMergeAdapter(localartifact.NewStore(t.TempDir(), 1<<20))
+	started := make(chan struct{}, 2)
+	release := make(chan struct{})
+	adapter.Downloader = localMergeDownloadFunc(func(_ context.Context, _ []MergeMedia, dir string, _ func(int, int)) ([]string, error) {
+		input := filepath.Join(dir, "input.mp4")
+		return []string{input}, os.WriteFile(input, []byte("input"), 0o600)
+	})
+	adapter.Merger = localMergeRunFunc(func(_ context.Context, _ []string, output string, _ float64) error {
+		started <- struct{}{}
+		<-release
+		return os.WriteFile(output, []byte("0000ftypisom-local-merged-video"), 0o600)
+	})
+
+	source := []MergeMedia{{ProductionJobID: "job-1", VideoID: "video-1", MediaURL: "https://media.example/one.mp4", Order: 0}}
+	first, err := adapter.Submit(context.Background(), "batch-1", source, MergeOptions{Speed: 1})
+	if err != nil {
+		t.Fatalf("submit first: %v", err)
+	}
+	second, err := adapter.Submit(context.Background(), "batch-1", source, MergeOptions{Speed: 1})
+	if err != nil {
+		t.Fatalf("submit second: %v", err)
+	}
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("first merge did not start")
+	}
+	select {
+	case <-started:
+		t.Fatal("second merge started while the first still owned the merge/upload lane")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(release)
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("queued merge did not start after the lane was released")
+	}
+	deadline := time.Now().Add(time.Second)
+	for {
+		one, oneErr := adapter.Poll(context.Background(), "batch-1", first)
+		two, twoErr := adapter.Poll(context.Background(), "batch-1", second)
+		if oneErr != nil || twoErr != nil {
+			t.Fatalf("poll errors: first=%v second=%v", oneErr, twoErr)
+		}
+		if one.Status == MergeSucceeded && two.Status == MergeSucceeded {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("merges did not finish: first=%+v second=%+v", one, two)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+func TestLocalMergeAdapterResumesPersistedRunningJobAfterProcessRestart(t *testing.T) {
+	// MergeJob and its source selection are persisted. Losing the adapter's
+	// in-memory task map during a deploy must resume that job, not report a
+	// fabricated permanent failure that requires another manual retry.
+	adapter := NewLocalMergeAdapter(localartifact.NewStore(t.TempDir(), 1<<20))
+	adapter.Downloader = localMergeDownloadFunc(func(_ context.Context, _ []MergeMedia, dir string, _ func(int, int)) ([]string, error) {
+		input := filepath.Join(dir, "input.mp4")
+		return []string{input}, os.WriteFile(input, []byte("input"), 0o600)
+	})
+	adapter.Merger = localMergeRunFunc(func(_ context.Context, _ []string, output string, _ float64) error {
+		return os.WriteFile(output, []byte("0000ftypisom-local-merged-video"), 0o600)
+	})
+	persisted := MergeJob{
+		ProviderTaskID: "local-merge-persisted",
+		Status:         MergeRunning,
+		Speed:          1,
+		Sources:        []MergeMedia{{ProductionJobID: "job-1", VideoID: "video-1", MediaURL: "https://media.example/one.mp4", Order: 0}},
+	}
+
+	deadline := time.Now().Add(time.Second)
+	for {
+		result, err := adapter.Poll(context.Background(), "batch-1", persisted)
+		if err != nil {
+			t.Fatalf("poll: %v", err)
+		}
+		if result.Status == MergeFailed {
+			t.Fatalf("persisted active merge must resume, got failure: %+v", result)
+		}
+		if result.Status == MergeSucceeded {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("persisted active merge did not resume: %+v", result)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}

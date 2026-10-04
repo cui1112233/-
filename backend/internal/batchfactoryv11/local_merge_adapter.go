@@ -30,6 +30,10 @@ type LocalMergeAdapter struct {
 
 	mu    sync.RWMutex
 	tasks map[string]MergeJob
+	// mergeLane bounds the full local merge lifecycle, including the final
+	// object-store write. Book production may finish concurrently, but the
+	// host's disk and outbound TOS path are shared resources.
+	mergeLane chan struct{}
 }
 
 // localMergeWorkspaceRecoveryAge exceeds the bounded merge context by a wide
@@ -85,6 +89,7 @@ func NewLocalMergeAdapter(artifacts *localartifact.Store) *LocalMergeAdapter {
 		Merger:     &mergeworker.FFmpegRunner{},
 		WorkRoot:   workRoot,
 		tasks:      map[string]MergeJob{},
+		mergeLane:  make(chan struct{}, 1),
 	}
 }
 
@@ -135,20 +140,47 @@ func (a *LocalMergeAdapter) Submit(_ context.Context, batchID string, sources []
 	return job, nil
 }
 
-func (a *LocalMergeAdapter) Poll(_ context.Context, _ string, job MergeJob) (MergeJob, error) {
+func (a *LocalMergeAdapter) Poll(_ context.Context, batchID string, job MergeJob) (MergeJob, error) {
 	if a == nil {
 		return MergeJob{}, ErrUnavailable
 	}
 	a.mu.RLock()
 	result, ok := a.tasks[job.ProviderTaskID]
 	a.mu.RUnlock()
-	if !ok {
-		return MergeJob{ProviderTaskID: job.ProviderTaskID, Status: MergeFailed, ErrorMessage: "本地合成执行器已重启，请重新合成"}, nil
+	if ok {
+		return result, nil
 	}
-	return result, nil
+	if job.ProviderTaskID == "" || (job.Status != MergeQueued && job.Status != MergeRunning) || len(job.Sources) == 0 {
+		return MergeJob{ProviderTaskID: job.ProviderTaskID, Status: MergeFailed, ErrorMessage: "本地合成任务缺少可恢复的分镜源，请重新合成"}, nil
+	}
+	// The durable job owns its source selection; only transient execution state
+	// was lost. Rehydrate it once so a direct deployment or process restart does
+	// not turn a recoverable upload into a manual-retry failure.
+	resumed := job
+	resumed.Status = MergeQueued
+	resumed.ProgressPhase = "queued"
+	resumed.ProgressCurrent = 0
+	resumed.ProgressTotal = len(resumed.Sources)
+	resumed.OutputURL = ""
+	resumed.ErrorMessage = ""
+	a.mu.Lock()
+	if result, ok = a.tasks[job.ProviderTaskID]; !ok {
+		a.tasks[job.ProviderTaskID] = resumed
+		resumeBatchID := strings.TrimSpace(job.BatchID)
+		if resumeBatchID == "" {
+			resumeBatchID = strings.TrimSpace(batchID)
+		}
+		go a.run(job.ProviderTaskID, resumeBatchID, append([]MergeMedia(nil), job.Sources...), MergeOptions{TimingMode: job.TimingMode, Speed: job.Speed})
+	} else {
+		resumed = result
+	}
+	a.mu.Unlock()
+	return resumed, nil
 }
 
 func (a *LocalMergeAdapter) run(taskID, batchID string, sources []MergeMedia, options MergeOptions) {
+	a.acquireMergeLane()
+	defer a.releaseMergeLane()
 	a.update(taskID, func(job *MergeJob) { job.Status, job.ProgressPhase, job.ErrorMessage = MergeRunning, "downloading", "" })
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
@@ -235,6 +267,25 @@ func (a *LocalMergeAdapter) run(taskID, batchID string, sources []MergeMedia, op
 		job.OutputURL = outputURL
 		job.ErrorMessage = ""
 	})
+}
+
+func (a *LocalMergeAdapter) acquireMergeLane() {
+	a.mu.Lock()
+	if a.mergeLane == nil {
+		a.mergeLane = make(chan struct{}, 1)
+	}
+	lane := a.mergeLane
+	a.mu.Unlock()
+	lane <- struct{}{}
+}
+
+func (a *LocalMergeAdapter) releaseMergeLane() {
+	a.mu.RLock()
+	lane := a.mergeLane
+	a.mu.RUnlock()
+	if lane != nil {
+		<-lane
+	}
 }
 
 func (a *LocalMergeAdapter) update(taskID string, update func(*MergeJob)) {
