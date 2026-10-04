@@ -364,6 +364,7 @@ test('an explicit single-book retry resets a failed book and resumes from its mi
   const resumed = await controller.retry({ owner: 'user', batchId: 'batch-1', bookIds: ['book-1'] });
   assert.equal(resumed.state, 'running');
   assert.equal(resumed.books[0].status, 'pending');
+  assert.equal(resumed.books[0].retryRequested, true);
 
   await controller.tick();
   await wait();
