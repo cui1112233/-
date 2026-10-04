@@ -32,3 +32,12 @@ test('public Compose derives Node runtime identity from the unified release SHA'
   assert.match(nodeService, /QIANTIE_RELEASE_SHA:\s*\$\{QIANTIE_RELEASE_SHA\}/);
   assert.doesNotMatch(nodeService, /QIANTIE_RELEASE_SHA:\s*\$\{QIANTIE_NODE_RELEASE_SHA\}/);
 });
+
+test('public Go runtime can read merged artifacts from the configured TOS client', () => {
+  const compose = fs.readFileSync(path.join(releaseDir, 'docker-compose.yml'), 'utf8');
+  const goService = compose.split(/\r?\n  go-api:\r?\n/)[1].split(/\r?\n  browser-worker:\r?\n/)[0];
+  assert.match(goService, /QIANTIE_BATCH_FACTORY_V11_MERGE_TOS_ENDPOINT:/);
+  assert.match(goService, /QIANTIE_REFERENCE_ASSET_TOS_ENDPOINT/);
+  assert.match(goService, /QIANTIE_BATCH_FACTORY_V11_MERGE_TOS_BUCKET:/);
+  assert.match(goService, /QIANTIE_REFERENCE_ASSET_TOS_BUCKET/);
+});
