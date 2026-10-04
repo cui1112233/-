@@ -75,3 +75,45 @@ test('Batch Factory V11 maps Yangguang YG to 121 Dianzhong and persists the reso
   assert.equal(captured.sourceMetadata.platformCode, 'YG');
   assert.equal(captured.sourceMetadata.platformId, '4');
 });
+
+test('Batch Factory V11 prefers the imported platform ID over the giant-material display name', async () => {
+  let requestedPlatformId;
+  let captured;
+  await refillMissingBatchFactoryBookSource({
+    book: {
+      bookId: '7680846321393224766',
+      platform: '常读',
+      revision: 1,
+      sourceText: '',
+      sourceMetadata: { sourceMode: 'giant_material', platformCode: 'CD', platformId: '2' }
+    },
+    fetchDirectOriginal: async ({ platformId }) => {
+      requestedPlatformId = platformId;
+      return { text: '书城正文', attempts: 1, bookinfo: { work_title: '测试书' } };
+    },
+    captureSource: async payload => { captured = payload; return { ok: true }; }
+  });
+
+  assert.equal(requestedPlatformId, '2');
+  assert.equal(captured.sourceMetadata.platformId, '2');
+});
+
+test('Batch Factory V11 maps 常读/CD to 121 platform 2 when imported numeric ID is absent', async () => {
+  let requestedPlatformId;
+  await refillMissingBatchFactoryBookSource({
+    book: {
+      bookId: '7687803827877071897',
+      platform: '常读',
+      revision: 1,
+      sourceText: '',
+      sourceMetadata: { sourceMode: 'giant_material', platformCode: 'CD' }
+    },
+    fetchDirectOriginal: async ({ platformId }) => {
+      requestedPlatformId = platformId;
+      return { text: '书城正文', attempts: 1 };
+    },
+    captureSource: async () => ({ ok: true })
+  });
+
+  assert.equal(requestedPlatformId, '2');
+});
