@@ -1,0 +1,73 @@
+name: V88 Runtime Readonly Diagnostic
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_sha:
+        description: Exact 40-character V88 SHA being diagnosed
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  ECS_HOST: 115.190.156.223
+  ECS_USER: root
+
+jobs:
+  inspect:
+    if: github.ref == 'refs/heads/v88'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Validate diagnostic target
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          release_sha='${{ inputs.release_sha }}'
+          [[ "$release_sha" =~ ^[0-9a-f]{40}$ ]]
+
+      - name: Read runtime health and recent errors without changing ECS
+        shell: bash
+        env:
+          V88_ECS_SSH_PRIVATE_KEY: ${{ secrets.V88_ECS_SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          test -n "${V88_ECS_SSH_PRIVATE_KEY:-}"
+          install -d -m 700 "$HOME/.ssh"
+          trap 'rm -f "$HOME/.ssh/v88_ecs" "$HOME/.ssh/known_hosts"' EXIT
+          printf '%s\n' "$V88_ECS_SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/v88_ecs"
+          printf '%s\n' '115.190.156.223 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFdxABss1Y5GY5LXYWo48tsRIjPEeBMfKS74DDMNWFZz' > "$HOME/.ssh/known_hosts"
+          ssh_opts=(-i "$HOME/.ssh/v88_ecs" -o IdentitiesOnly=yes -o BatchMode=yes -o PasswordAuthentication=no -o ConnectTimeout=20 -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
+          timeout 180 ssh "${ssh_opts[@]}" "$ECS_USER@$ECS_HOST" bash -s <<'REMOTE'
+          set -Eeuo pipefail
+          cd /opt/qiantie/v88/deploy/v88-public
+          compose=(docker compose -f docker-compose.yml)
+          node_id="$("${compose[@]}" ps -q v88-node)"
+          go_id="$("${compose[@]}" ps -q go-api)"
+          worker_id="$("${compose[@]}" ps -q browser-worker)"
+          test -n "$node_id" && test -n "$go_id"
+          printf 'RUNTIME_DIAGNOSTIC node=%s go=%s worker=%s\n' "$node_id" "$go_id" "$worker_id"
+          docker inspect --format 'RUNTIME_DIAGNOSTIC name={{.Name}} running={{.State.Running}} restart={{.RestartCount}} started={{.State.StartedAt}} image={{.Config.Image}}' "$node_id" "$go_id" ${worker_id:+"$worker_id"}
+          printf 'RUNTIME_DIAGNOSTIC public_build='
+          curl -fsS --max-time 15 http://127.0.0.1:3000/api/build-info || true
+          printf '\nRUNTIME_DIAGNOSTIC go_build='
+          docker exec "$go_id" sh -lc 'wget -qO- --timeout=10 http://127.0.0.1:4000/api/runtime-build-info || curl -fsS --max-time 10 http://127.0.0.1:4000/api/runtime-build-info' || true
+          printf '\nRUNTIME_DIAGNOSTIC go_health='
+          docker exec "$go_id" sh -lc 'wget -qO- --timeout=10 http://127.0.0.1:4000/health || curl -fsS --max-time 10 http://127.0.0.1:4000/health' || true
+          printf '\nRUNTIME_DIAGNOSTIC node_to_go='
+          docker exec "$node_id" node - <<'NODE'
+          const base = process.env.QIANTIE_GO_BASE_URL || 'http://go-api:4000';
+          fetch(`${base.replace(/\/$/, '')}/api/runtime-build-info`, { signal: AbortSignal.timeout(10000) })
+            .then(async response => console.log(JSON.stringify({ ok: response.ok, status: response.status, body: await response.text() })))
+            .catch(error => console.log(JSON.stringify({ ok: false, error: error.message })));
+          NODE
+          redact() { sed -E 's/(api[_-]?key|authorization|password|secret)[=:][^[:space:]]+/\1=[REDACTED]/Ig'; }
+          printf 'RUNTIME_DIAGNOSTIC node_recent_errors\n'
+          docker logs --tail 180 "$node_id" 2>&1 | grep -Ei 'error|exception|unavailable|timeout|ECONN|unauthor|fatal|failed' | tail -80 | redact || true
+          printf 'RUNTIME_DIAGNOSTIC go_recent_errors\n'
+          docker logs --tail 180 "$go_id" 2>&1 | grep -Ei 'error|panic|unavailable|timeout|unauthor|fatal|failed' | tail -80 | redact || true
+          echo 'RUNTIME_DIAGNOSTIC_OK read_only_no_restart_no_cleanup_no_data_change'
+          REMOTE
