@@ -345,7 +345,9 @@ func (s *MySQLStore) UpdateBookMetadata(ctx context.Context, owner, batchID, boo
 	if current != input.ExpectedRevision {
 		return Book{}, ErrConflict
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE batch_factory_v11_book_records SET source_metadata_json=? WHERE book_id=?`, metadata, bookID); err != nil {
+	// MySQL JSON rejects driver-bound []byte as _binary. Bind JSON as UTF-8 text
+	// so metadata updates (including direct-read and OCR state) are durable.
+	if _, err = tx.ExecContext(ctx, `UPDATE batch_factory_v11_book_records SET source_metadata_json=? WHERE book_id=?`, string(metadata), bookID); err != nil {
 		return Book{}, err
 	}
 	if _, err = tx.ExecContext(ctx, `UPDATE batch_factory_v11_books SET revision=revision+1,updated_at=? WHERE id=? AND batch_id=? AND owner_username=?`, time.Now().UTC(), bookID, batchID, owner); err != nil {
@@ -414,7 +416,8 @@ func (s *MySQLStore) CaptureBookSource(ctx context.Context, owner, batchID, book
 	if shouldReplaceGeneratedBookTitle(nextTitle, sourceBookID.String, input.SourceTitle) {
 		nextTitle = strings.TrimSpace(input.SourceTitle)
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE batch_factory_v11_book_records SET title=?,source_text=?,txt_text=?,source_metadata_json=? WHERE book_id=?`, nextTitle, sourceText, sourceText, encodedMetadata, bookID); err != nil {
+	// See UpdateBookMetadata: this column is JSON, not a binary blob.
+	if _, err = tx.ExecContext(ctx, `UPDATE batch_factory_v11_book_records SET title=?,source_text=?,txt_text=?,source_metadata_json=? WHERE book_id=?`, nextTitle, sourceText, sourceText, string(encodedMetadata), bookID); err != nil {
 		return Book{}, err
 	}
 	if _, err = tx.ExecContext(ctx, `UPDATE batch_factory_v11_books SET revision=revision+1,updated_at=? WHERE id=? AND batch_id=? AND owner_username=?`, time.Now().UTC(), bookID, batchID, owner); err != nil {

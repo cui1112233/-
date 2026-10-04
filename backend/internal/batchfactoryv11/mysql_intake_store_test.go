@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql/driver"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -148,6 +149,70 @@ func TestCreateBatchTxBindsGiantMetadataAndSettingsAsText(t *testing.T) {
 	}
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMySQLUpdateBookMetadataBindsJSONAsText(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT revision FROM batch_factory_v11_books").
+		WithArgs("book-1", "batch-1", "alice").
+		WillReturnRows(sqlmock.NewRows([]string{"revision"}).AddRow(int64(1)))
+	// The deliberately returned error stops before hydration. It proves the
+	// JSON-column argument matched as text rather than driver-bound _binary.
+	mock.ExpectExec("UPDATE batch_factory_v11_book_records").
+		WithArgs(jsonTextArg{}, "book-1").
+		WillReturnError(errors.New("stop after metadata write"))
+	mock.ExpectRollback()
+
+	store := NewMySQLStore(db)
+	_, err = store.UpdateBookMetadata(context.Background(), "alice", "batch-1", "book-1", UpdateBookMetadataInput{
+		Metadata:         map[string]any{"executorJobId": "giant-job-1"},
+		ExpectedRevision: 1,
+	})
+	if err == nil || err.Error() != "stop after metadata write" {
+		t.Fatalf("UpdateBookMetadata error = %v, want metadata write sentinel", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMySQLCaptureBookSourceBindsJSONAsText(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT revision FROM batch_factory_v11_books").
+		WithArgs("book-1", "batch-1", "alice").
+		WillReturnRows(sqlmock.NewRows([]string{"revision"}).AddRow(int64(1)))
+	mock.ExpectQuery("SELECT source_text,title,source_book_id,source_metadata_json").
+		WithArgs("book-1").
+		WillReturnRows(sqlmock.NewRows([]string{"source_text", "title", "source_book_id", "source_metadata_json"}).AddRow("", "小说 1", "1", []byte(`{}`)))
+	mock.ExpectExec("UPDATE batch_factory_v11_book_records").
+		WithArgs("小说 1", "正文", "正文", jsonTextArg{}, "book-1").
+		WillReturnError(errors.New("stop after source write"))
+	mock.ExpectRollback()
+
+	store := NewMySQLStore(db)
+	_, err = store.CaptureBookSource(context.Background(), "alice", "batch-1", "book-1", CaptureBookSourceInput{
+		SourceText:       "正文",
+		SourceMetadata:   map[string]any{"originalReadVia": "bookstore"},
+		ExpectedRevision: 1,
+	})
+	if err == nil || err.Error() != "stop after source write" {
+		t.Fatalf("CaptureBookSource error = %v, want source write sentinel", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
