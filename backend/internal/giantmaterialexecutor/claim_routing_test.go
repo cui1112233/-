@@ -123,8 +123,8 @@ func TestFailureCooldownFallbackAndTrialRestore(t *testing.T) {
 		FailureInput{Code: "ocr_crash", Message: "also died"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.CreateJob(context.Background(), "alice", testJobInput("m3", "b3")); err != nil {
-		t.Fatal(err)
+	if _, err := service.CreateJob(context.Background(), "alice", testJobInput("m3", "b3")); !errors.Is(err, ErrExecutorOffline) {
+		t.Fatalf("requeue while all executors are cooling down error=%v", err)
 	}
 	// 两台都在冷却：都领不到
 	if _, err := service.Claim(context.Background(), macToken); !errors.Is(err, ErrNoClaimableJob) {
@@ -136,6 +136,9 @@ func TestFailureCooldownFallbackAndTrialRestore(t *testing.T) {
 	clock.now = clock.now.Add(FailureCooldown + time.Second)
 	heartbeatExecutorVersion(t, service, winToken, "windows", "win-box", "0.4.9")
 	heartbeatExecutorVersion(t, service, macToken, "darwin", "mac-box", "0.5.0")
+	if _, err := service.CreateJob(context.Background(), "alice", testJobInput("m3", "b3")); err != nil {
+		t.Fatal(err)
+	}
 	trial, err := service.Claim(context.Background(), macToken)
 	if err != nil || trial.Job.ID != job.ID || trial.LeaseGeneration != 5 {
 		t.Fatalf("trial restore=%+v err=%v", trial, err)
@@ -147,6 +150,7 @@ func TestStuckLeaseReclaimedWithoutWaitingForExpiry(t *testing.T) {
 	clock := &testClock{now: start}
 	service := NewService(NewMemoryStore(), clock.Now)
 	winToken := pairExecutorVersion(t, service, "alice", "windows", "win-box", "0.4.9")
+	heartbeatExecutorVersion(t, service, winToken, "windows", "win-box", "0.4.9")
 	job, err := service.CreateJob(context.Background(), "alice", testJobInput("m4", "b4"))
 	if err != nil {
 		t.Fatal(err)
@@ -176,6 +180,7 @@ func TestFreshProgressIsNotReclaimedAsStuck(t *testing.T) {
 	clock := &testClock{now: start}
 	service := NewService(NewMemoryStore(), clock.Now)
 	winToken := pairExecutorVersion(t, service, "alice", "windows", "win-box", "0.4.9")
+	heartbeatExecutorVersion(t, service, winToken, "windows", "win-box", "0.4.9")
 	job, err := service.CreateJob(context.Background(), "alice", testJobInput("m5", "b5"))
 	if err != nil {
 		t.Fatal(err)

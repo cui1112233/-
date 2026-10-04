@@ -11,6 +11,7 @@ var (
 	ErrInvalidInput         = errors.New("invalid giant material executor input")
 	ErrPairingInvalid       = errors.New("giant material pairing code is invalid or expired")
 	ErrExecutorUnauthorized = errors.New("giant material executor is unauthorized")
+	ErrExecutorOffline      = errors.New("巨量素材执行器未启动或当前离线，请先启动一台执行器再试")
 	ErrNoClaimableJob       = errors.New("no claimable giant material job")
 	ErrJobNotFound          = errors.New("giant material job not found")
 	ErrStaleLease           = errors.New("stale giant material job lease")

@@ -20,6 +20,9 @@ func TestDeleteExecutorReleasesActiveJobAndDisappears(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := service.Heartbeat(context.Background(), paired.Token, HeartbeatInput{DeviceName: "win-box", OS: "windows", Version: "0.4.9"}); err != nil {
+		t.Fatal(err)
+	}
 	job, err := service.CreateJob(context.Background(), "alice", testJobInput("m-del", "b-del"))
 	if err != nil {
 		t.Fatal(err)

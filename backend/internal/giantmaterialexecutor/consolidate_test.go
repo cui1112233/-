@@ -73,6 +73,7 @@ func TestListExecutorsExposesRecentFailure(t *testing.T) {
 	now := time.Date(2026, 10, 1, 13, 30, 0, 0, time.UTC)
 	service := NewService(NewMemoryStore(), func() time.Time { return now })
 	token := pairExecutorVersion(t, service, "alice", "windows", "win-box", "0.4.9")
+	heartbeatExecutorVersion(t, service, token, "windows", "win-box", "0.4.9")
 	job, err := service.CreateJob(context.Background(), "alice", testJobInput("m-fail", "b-fail"))
 	if err != nil {
 		t.Fatal(err)

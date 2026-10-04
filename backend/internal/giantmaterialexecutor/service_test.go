@@ -36,11 +36,19 @@ func TestPairingIsOneTimeAndExpiredCodesAreRejected(t *testing.T) {
 
 func TestGiantExecutorRejectsDoubaoJobsAndClaimsOnlyItsPlatform(t *testing.T) {
 	service := NewService(NewMemoryStore(), time.Now)
+	pairTestExecutor(t, service, "alice")
 	if _, err := service.CreateJob(context.Background(), "alice", CreateJobInput{Platform: "doubao", MaterialID: "doubao-1", PlatformBookID: "book-1", Title: "wrong platform", VideoURL: "https://material.hnqingyuwen.top/video.mp4", DurationSeconds: 1, ModelVersion: "v1"}); !errors.Is(err, ErrInvalidPlatform) {
 		t.Fatalf("doubao job error=%v", err)
 	}
 	if _, err := service.CreateJob(context.Background(), "alice", CreateJobInput{Platform: PlatformGiantMaterial, MaterialID: "giant-1", PlatformBookID: "book-1", Title: "giant", VideoURL: "https://material.hnqingyuwen.top/video.mp4", DurationSeconds: 1, ModelVersion: "v1"}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCreateJobRejectsWhenNoExecutorIsOnline(t *testing.T) {
+	service := NewService(NewMemoryStore(), time.Now)
+	if _, err := service.CreateJob(context.Background(), "alice", testJobInput("offline-material", "offline-book")); err == nil {
+		t.Fatal("CreateJob accepted an OCR job with no online executor")
 	}
 }
 
@@ -223,6 +231,9 @@ func pairTestExecutor(t *testing.T, service *Service, owner string) string {
 	}
 	paired, err := service.Pair(context.Background(), PairInput{Code: pairing.Code, Platform: PlatformGiantMaterial, DeviceName: "win-box", OS: "windows", Version: "0.1.0"})
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Heartbeat(context.Background(), paired.Token, HeartbeatInput{DeviceName: "win-box", OS: "windows", Version: "0.1.0"}); err != nil {
 		t.Fatal(err)
 	}
 	return paired.Token

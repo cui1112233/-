@@ -28,6 +28,10 @@ func TestGiantMaterialExecutorRoutesKeepControlPlaneSeparateAndHideVideoURL(t *t
 		t.Fatalf("pair=%d body=%s", pairedRequest.Code, pairedRequest.Body.String())
 	}
 	paired := decodeBody[giantmaterialexecutor.PairResult](t, pairedRequest)
+	heartbeat := bearerJSONRequest(t, api, paired.Token, http.MethodPost, "/api/giant-material-executor/v1/heartbeat", map[string]any{"deviceName": "win-box", "os": "windows", "version": "0.1.0"})
+	if heartbeat.Code != http.StatusOK {
+		t.Fatalf("heartbeat=%d body=%s", heartbeat.Code, heartbeat.Body.String())
+	}
 
 	jobRequest := signedJSONRequest(t, api, now, "alice", http.MethodPost, "/api/shuihuo-production/giant-material-jobs", map[string]any{"platform": giantmaterialexecutor.PlatformGiantMaterial, "materialId": "7689285397448523826", "platformBookId": "book-1", "title": "滚屏测试", "videoUrl": "https://material.hnqingyuwen.top/n8_videos/sample.mp4", "durationSeconds": 1, "modelVersion": "windows-paddleocr-v1"})
 	if jobRequest.Code != http.StatusCreated {
@@ -56,6 +60,17 @@ func TestGiantMaterialExecutorRoutesKeepControlPlaneSeparateAndHideVideoURL(t *t
 	get := signedJSONRequest(t, api, now, "alice", http.MethodGet, "/api/shuihuo-production/giant-material-jobs/"+job.ID, nil)
 	if get.Code != http.StatusOK {
 		t.Fatalf("get=%d body=%s", get.Code, get.Body.String())
+	}
+}
+
+func TestGiantMaterialJobRouteRejectsWhenNoExecutorIsOnline(t *testing.T) {
+	now := time.Date(2026, 10, 4, 13, 0, 0, 0, time.UTC)
+	service := giantmaterialexecutor.NewService(giantmaterialexecutor.NewMemoryStore(), func() time.Time { return now })
+	api := NewRouter(RouterOptions{BridgeSecret: "secret", Now: func() time.Time { return now }, GiantMaterialExecutor: service})
+
+	response := signedJSONRequest(t, api, now, "alice", http.MethodPost, "/api/shuihuo-production/giant-material-jobs", map[string]any{"platform": giantmaterialexecutor.PlatformGiantMaterial, "materialId": "offline-material", "platformBookId": "offline-book", "title": "离线测试", "videoUrl": "https://material.hnqingyuwen.top/n8_videos/sample.mp4", "durationSeconds": 1, "modelVersion": "windows-paddleocr-v1"})
+	if response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), "执行器未启动或当前离线") {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
 }
 

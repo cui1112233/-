@@ -198,15 +198,24 @@ func (s *Service) CreateJob(ctx context.Context, owner string, input CreateJobIn
 	if existing, err := s.store.FindJobByKey(ctx, owner, key); err == nil {
 		// 同 key 的失败/取消任务允许重试：用新的视频地址重置为排队状态。
 		if existing.State == JobFailed || existing.State == JobCancelled {
+			if targetExecutorID == "" {
+				return JobView{}, ErrExecutorOffline
+			}
 			if requeued, retryErr := s.store.RequeueJob(ctx, existing.ID, record, s.now().UTC()); retryErr == nil {
 				return jobView(requeued), nil
 			} else if !errors.Is(retryErr, ErrJobNotFound) {
 				return JobView{}, retryErr
 			}
 		}
+		if existing.State == JobQueued && targetExecutorID == "" {
+			return JobView{}, ErrExecutorOffline
+		}
 		return jobView(existing), nil
 	} else if err != ErrJobNotFound {
 		return JobView{}, err
+	}
+	if targetExecutorID == "" {
+		return JobView{}, ErrExecutorOffline
 	}
 	if err := s.store.CreateJob(ctx, record); err != nil {
 		if err == ErrJobConflict {
@@ -221,8 +230,8 @@ func (s *Service) CreateJob(ctx context.Context, owner string, input CreateJobIn
 
 // pickTargetExecutor 选择新任务的钉选目标。preferredOS 非空时先在该平台
 // 的在线、未冷却设备里选最新；偏好平台没有能干活的设备才兜底其他平台；
-// 全都在冷却时返回空串，任务留在公共池等待冷却结束。preferredOS 为空表示
-// 不按偏好过滤（显式 RetryJob 沿用"选最新在线设备"语义）。
+// 全都不可用时返回空串，由创建/重试入口明确拒绝，避免生成无人领取的排队任务。
+// preferredOS 为空表示不按偏好过滤（显式 RetryJob 沿用"选最新在线设备"语义）。
 func (s *Service) pickTargetExecutor(ctx context.Context, owner, preferredOS string, now time.Time) (string, error) {
 	executors, err := s.store.ListExecutors(ctx, owner)
 	if err != nil {
@@ -238,7 +247,7 @@ func (s *Service) pickTargetExecutor(ctx context.Context, owner, preferredOS str
 			if wantOS != "" && candidate.OS != wantOS {
 				continue
 			}
-		
+
 			if failure, failureErr := s.store.LatestPlatformFailure(ctx, owner, candidate.OS, now.Add(-FailureCooldown)); failureErr != nil || failure != nil {
 				continue
 			}
@@ -296,6 +305,9 @@ func (s *Service) RetryJob(ctx context.Context, owner, id string) (JobView, erro
 	record.TargetExecutorID, err = s.pickTargetExecutor(ctx, owner, "", s.now().UTC())
 	if err != nil {
 		return JobView{}, err
+	}
+	if record.TargetExecutorID == "" {
+		return JobView{}, ErrExecutorOffline
 	}
 	requeued, err := s.store.RequeueJob(ctx, record.ID, record, s.now().UTC())
 	if err != nil {
