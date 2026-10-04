@@ -56,6 +56,8 @@ test('unified V88 deploy synchronizes the Git-managed Compose contract before re
 
 test('unified V88 deploy lets ECS pull immutable images with a short-lived GHCR token', () => {
   assert.match(workflow, /name: Pull immutable release images directly on ECS/);
+  assert.match(workflow, /timeout-minutes: 75/);
+  assert.match(workflow, /timeout 3600 ssh/);
   assert.match(workflow, /GHCR_TOKEN: \$\{\{ secrets\.GITHUB_TOKEN \}\}/);
   // The remote command is embedded in a shell string, so its quotes may be
   // escaped in YAML source; the token must still be consumed by password-stdin.
