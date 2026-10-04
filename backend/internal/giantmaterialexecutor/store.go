@@ -18,6 +18,7 @@ type Store interface {
 	FindJobByKey(context.Context, string, string) (JobRecord, error)
 	CreateJob(context.Context, JobRecord) error
 	JobForOwner(context.Context, string, string) (JobRecord, error)
+	FailQueuedJob(context.Context, string, string, FailureInput, time.Time) (JobRecord, error)
 	CancelJob(context.Context, string, string, time.Time) (JobRecord, error)
 	RequeueJob(context.Context, string, JobRecord, time.Time) (JobRecord, error)
 	ClaimJob(context.Context, ExecutorRecord, SecretHash, time.Time, time.Time, bool) (JobRecord, error)

@@ -351,6 +351,37 @@ func (s *MySQLStore) JobForOwner(ctx context.Context, owner, id string) (JobReco
 	return s.queryJob(ctx, jobSelect+` WHERE j.owner_username = ? AND j.id = ?`, owner, id)
 }
 
+func (s *MySQLStore) FailQueuedJob(ctx context.Context, owner, id string, failure FailureInput, now time.Time) (JobRecord, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return JobRecord{}, err
+	}
+	defer tx.Rollback()
+	record, err := queryJobTx(ctx, tx, jobSelect+` WHERE j.owner_username = ? AND j.id = ? FOR UPDATE`, owner, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return JobRecord{}, ErrJobNotFound
+	}
+	if err != nil {
+		return JobRecord{}, err
+	}
+	if record.State == JobQueued {
+		record.State = JobFailed
+		record.ErrorCode = bounded(failure.Code, 96)
+		record.ErrorMessage = bounded(failure.Message, 512)
+		record.UpdatedAt = now
+		if _, err := tx.ExecContext(ctx, `UPDATE giant_executor_jobs SET state = ?, error_code = ?, error_message = ?, updated_at = ? WHERE id = ? AND state = ?`, JobFailed, record.ErrorCode, record.ErrorMessage, now, id, JobQueued); err != nil {
+			return JobRecord{}, err
+		}
+		if err := appendEvent(ctx, tx, id, "", "failed", JobFailed, record.ErrorMessage, now); err != nil {
+			return JobRecord{}, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return JobRecord{}, err
+	}
+	return record, nil
+}
+
 func (s *MySQLStore) CancelJob(ctx context.Context, owner, id string, now time.Time) (JobRecord, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {

@@ -52,6 +52,28 @@ func TestCreateJobRejectsWhenNoExecutorIsOnline(t *testing.T) {
 	}
 }
 
+func TestGetJobFailsQueuedJobWhenItsExecutorGoesOffline(t *testing.T) {
+	clock := &testClock{now: time.Date(2026, 10, 4, 10, 0, 0, 0, time.UTC)}
+	service := NewService(NewMemoryStore(), clock.Now)
+	pairTestExecutor(t, service, "alice")
+	job, err := service.CreateJob(context.Background(), "alice", testJobInput("offline-after-queue", "offline-book"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	clock.now = clock.now.Add(OnlineThreshold + time.Second)
+	updated, err := service.GetJob(context.Background(), "alice", job.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.State != JobFailed {
+		t.Fatalf("queued job state=%q, want %q when no executor is online", updated.State, JobFailed)
+	}
+	if updated.ErrorCode != "executor_offline" {
+		t.Fatalf("queued job error code=%q, want executor_offline", updated.ErrorCode)
+	}
+}
+
 func TestOneActiveLeaseAndStaleLeaseRejection(t *testing.T) {
 	clock := &testClock{now: time.Date(2026, 9, 29, 11, 0, 0, 0, time.UTC)}
 	service := NewService(NewMemoryStore(), clock.Now)

@@ -246,6 +246,23 @@ func (s *MemoryStore) JobForOwner(_ context.Context, owner, id string) (JobRecor
 	return record, nil
 }
 
+func (s *MemoryStore) FailQueuedJob(_ context.Context, owner, id string, failure FailureInput, now time.Time) (JobRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	record, ok := s.jobs[id]
+	if !ok || record.OwnerUsername != owner {
+		return JobRecord{}, ErrJobNotFound
+	}
+	if record.State == JobQueued {
+		record.State = JobFailed
+		record.ErrorCode = bounded(failure.Code, 96)
+		record.ErrorMessage = bounded(failure.Message, 512)
+		record.UpdatedAt = now
+		s.jobs[id] = record
+	}
+	return record, nil
+}
+
 func (s *MemoryStore) CancelJob(_ context.Context, owner, id string, now time.Time) (JobRecord, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

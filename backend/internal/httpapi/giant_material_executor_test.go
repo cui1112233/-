@@ -74,6 +74,41 @@ func TestGiantMaterialJobRouteRejectsWhenNoExecutorIsOnline(t *testing.T) {
 	}
 }
 
+func TestGiantMaterialJobReadFailsStaleQueuedJobAfterExecutorGoesOffline(t *testing.T) {
+	now := time.Date(2026, 10, 4, 13, 0, 0, 0, time.UTC)
+	service := giantmaterialexecutor.NewService(giantmaterialexecutor.NewMemoryStore(), func() time.Time { return now })
+	api := NewRouter(RouterOptions{BridgeSecret: "secret", Now: func() time.Time { return now }, GiantMaterialExecutor: service})
+	pairingResponse := signedJSONRequest(t, api, now, "alice", http.MethodPost, "/api/shuihuo-production/giant-material-executor/pairings", map[string]any{"platform": giantmaterialexecutor.PlatformGiantMaterial})
+	if pairingResponse.Code != http.StatusCreated {
+		t.Fatalf("pairing=%d body=%s", pairingResponse.Code, pairingResponse.Body.String())
+	}
+	pairing := decodeBody[giantmaterialexecutor.PairingSecret](t, pairingResponse)
+	pairedResponse := signedJSONRequest(t, api, now, "alice", http.MethodPost, "/api/giant-material-executor/v1/pair", map[string]any{"code": pairing.Code, "platform": giantmaterialexecutor.PlatformGiantMaterial, "deviceName": "win-box", "os": "windows", "version": "0.1.0"})
+	if pairedResponse.Code != http.StatusOK {
+		t.Fatalf("pair=%d body=%s", pairedResponse.Code, pairedResponse.Body.String())
+	}
+	paired := decodeBody[giantmaterialexecutor.PairResult](t, pairedResponse)
+	heartbeat := bearerJSONRequest(t, api, paired.Token, http.MethodPost, "/api/giant-material-executor/v1/heartbeat", map[string]any{"deviceName": "win-box", "os": "windows", "version": "0.1.0"})
+	if heartbeat.Code != http.StatusOK {
+		t.Fatalf("heartbeat=%d body=%s", heartbeat.Code, heartbeat.Body.String())
+	}
+	jobResponse := signedJSONRequest(t, api, now, "alice", http.MethodPost, "/api/shuihuo-production/giant-material-jobs", map[string]any{"platform": giantmaterialexecutor.PlatformGiantMaterial, "materialId": "stale-material", "platformBookId": "stale-book", "title": "离线后状态读取", "videoUrl": "https://material.hnqingyuwen.top/n8_videos/sample.mp4", "durationSeconds": 1, "modelVersion": "windows-paddleocr-v1"})
+	if jobResponse.Code != http.StatusCreated {
+		t.Fatalf("job=%d body=%s", jobResponse.Code, jobResponse.Body.String())
+	}
+	job := decodeBody[map[string]giantmaterialexecutor.JobView](t, jobResponse)["job"]
+
+	now = now.Add(giantmaterialexecutor.OnlineThreshold + time.Second)
+	get := signedJSONRequest(t, api, now, "alice", http.MethodGet, "/api/shuihuo-production/giant-material-jobs/"+job.ID, nil)
+	if get.Code != http.StatusOK {
+		t.Fatalf("get=%d body=%s", get.Code, get.Body.String())
+	}
+	updated := decodeBody[map[string]giantmaterialexecutor.JobView](t, get)["job"]
+	if updated.State != giantmaterialexecutor.JobFailed || updated.ErrorCode != "executor_offline" {
+		t.Fatalf("stale queued job=%+v", updated)
+	}
+}
+
 func TestGiantMaterialExecutorClaimLongPollsAndReturns204WhenIdle(t *testing.T) {
 	original := giantClaimLongPollWait
 	giantClaimLongPollWait = 30 * time.Millisecond

@@ -269,9 +269,25 @@ func (s *Service) pickTargetExecutor(ctx context.Context, owner, preferredOS str
 }
 
 func (s *Service) GetJob(ctx context.Context, owner, id string) (JobView, error) {
-	record, err := s.store.JobForOwner(ctx, strings.TrimSpace(owner), strings.TrimSpace(id))
+	owner = strings.TrimSpace(owner)
+	record, err := s.store.JobForOwner(ctx, owner, strings.TrimSpace(id))
 	if err != nil {
 		return JobView{}, err
+	}
+	if record.State == JobQueued {
+		availableExecutorID, availabilityErr := s.pickTargetExecutor(ctx, owner, "", s.now().UTC())
+		if availabilityErr != nil {
+			return JobView{}, availabilityErr
+		}
+		if availableExecutorID == "" {
+			record, err = s.store.FailQueuedJob(ctx, owner, record.ID, FailureInput{
+				Code:    "executor_offline",
+				Message: ErrExecutorOffline.Error(),
+			}, s.now().UTC())
+			if err != nil {
+				return JobView{}, err
+			}
+		}
 	}
 	return jobView(record), nil
 }
