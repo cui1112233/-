@@ -79,6 +79,33 @@ func TestLocalMergeAdapterCreatesProtectedArtifactForCompletedMerge(t *testing.T
 	}
 }
 
+func TestLocalMergeAdapterReclaimsOnlyStaleInterruptedMergeWorkspaces(t *testing.T) {
+	root := t.TempDir()
+	stale := filepath.Join(root, "qiantie-local-merge-stale")
+	recent := filepath.Join(root, "qiantie-local-merge-recent")
+	unrelated := filepath.Join(root, "merge_retained_output")
+	for _, dir := range []string{stale, recent, unrelated} {
+		if err := os.Mkdir(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	old := time.Now().Add(-2 * localMergeWorkspaceRecoveryAge)
+	if err := os.Chtimes(stale, old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	_ = NewLocalMergeAdapter(localartifact.NewStore(root, 1<<20))
+
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Fatalf("stale interrupted workspace should be removed, stat err=%v", err)
+	}
+	for _, dir := range []string{recent, unrelated} {
+		if _, err := os.Stat(dir); err != nil {
+			t.Fatalf("workspace %q should be retained: %v", dir, err)
+		}
+	}
+}
+
 func TestLocalMergeAdapterCreatesMissingWorkspaceBeforeMerge(t *testing.T) {
 	// 容器重建后挂载的工作目录还没被创建时，合成必须自动建目录并成功，
 	// 而不是 MkdirTemp 直接报 "no such file or directory" 让所有合成失败。

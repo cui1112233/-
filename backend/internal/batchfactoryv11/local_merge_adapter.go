@@ -32,6 +32,11 @@ type LocalMergeAdapter struct {
 	tasks map[string]MergeJob
 }
 
+// localMergeWorkspaceRecoveryAge exceeds the bounded merge context by a wide
+// margin. A workspace older than this at adapter construction can only belong
+// to an interrupted process; current workspaces are created after construction.
+const localMergeWorkspaceRecoveryAge = 30 * time.Minute
+
 type localMergeDownloader interface {
 	Download(context.Context, []MergeMedia, string, func(int, int)) ([]string, error)
 }
@@ -69,6 +74,11 @@ func NewLocalMergeAdapter(artifacts *localartifact.Store) *LocalMergeAdapter {
 	if artifacts != nil && strings.TrimSpace(artifacts.Root()) != "" {
 		workRoot = artifacts.Root()
 	}
+	// A container restart bypasses run's deferred RemoveAll and used to leave
+	// downloaded source clips in the artifact volume indefinitely. Recover only
+	// old, specifically named workspaces; finished merge_*.mp4 artifacts remain
+	// owned by the retention ledger and are never touched here.
+	_ = reclaimStaleLocalMergeWorkspaces(workRoot, time.Now())
 	return &LocalMergeAdapter{
 		Artifacts:  artifacts,
 		Downloader: safeLocalMergeDownloader{delegate: &mergeworker.Downloader{}},
@@ -76,6 +86,34 @@ func NewLocalMergeAdapter(artifacts *localartifact.Store) *LocalMergeAdapter {
 		WorkRoot:   workRoot,
 		tasks:      map[string]MergeJob{},
 	}
+}
+
+func reclaimStaleLocalMergeWorkspaces(root string, now time.Time) error {
+	root = strings.TrimSpace(root)
+	if root == "" {
+		return nil
+	}
+	entries, err := os.ReadDir(root)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	cutoff := now.Add(-localMergeWorkspaceRecoveryAge)
+	for _, entry := range entries {
+		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), "qiantie-local-merge-") {
+			continue
+		}
+		info, infoErr := entry.Info()
+		if infoErr != nil || info.ModTime().After(cutoff) {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(root, entry.Name())); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (a *LocalMergeAdapter) Submit(_ context.Context, batchID string, sources []MergeMedia, options MergeOptions) (MergeJob, error) {
