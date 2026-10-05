@@ -42,6 +42,26 @@ func TestParseManualBookListRetainsFullMetadataPreset(t *testing.T) {
 	}
 }
 
+func TestParseManualBookListPersists121MetadataWithoutOverwritingManualGender(t *testing.T) {
+	books, err := ParseManualBookList(ManualIntakeInput{
+		PlatformID: "2", PlatformName: "番茄付费", ParseMode: "smart", ColumnPresetID: "full_metadata",
+		InputText: "7673480334440139800\t手工女频书\t女频",
+		SourceMetadataByBookID: map[string]map[string]any{
+			"7673480334440139800": {"category": "男频-都市", "genre": "都市", "gender": "男频", "genderSource": "121_category"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata := books[0].SourceMetadata
+	if metadata["category"] != "男频-都市" || metadata["genre"] != "都市" {
+		t.Fatalf("121 metadata was not persisted: %#v", metadata)
+	}
+	if metadata["gender"] != "女频" || metadata["genderSource"] != "manual" {
+		t.Fatalf("manual gender must win over 121 metadata: %#v", metadata)
+	}
+}
+
 func TestParseManualBookListSeparatesBookIDAndTitleWithSingleSpace(t *testing.T) {
 	books, err := ParseManualBookList(ManualIntakeInput{
 		PlatformID:     "15",
@@ -81,12 +101,12 @@ func TestParseManualBookListSeparatesPastedBookIDAndTitleAndKeepsFetchedOriginal
 	const bookID = "7655922169695718462"
 	const title = "未婚妻拿我当踏板，我加入剧组她却哭了"
 	books, err := ParseManualBookList(ManualIntakeInput{
-		PlatformID:           "2",
-		PlatformName:         "番茄付费",
-		ParseMode:            "smart",
-		ColumnPresetID:       "full_metadata",
-		InputText:            bookID + title,
-		SourceTextByBookID:   map[string]string{bookID: "已抓取的小说正文"},
+		PlatformID:         "2",
+		PlatformName:       "番茄付费",
+		ParseMode:          "smart",
+		ColumnPresetID:     "full_metadata",
+		InputText:          bookID + title,
+		SourceTextByBookID: map[string]string{bookID: "已抓取的小说正文"},
 	})
 	if err != nil {
 		t.Fatal(err)

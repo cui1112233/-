@@ -1,6 +1,7 @@
 package batchfactoryv11
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 	"unicode"
@@ -22,6 +23,9 @@ type ManualIntakeInput struct {
 	ContentCaptureCharacters int               `json:"contentCaptureCharacters,omitempty"`
 	ScheduledAt              string            `json:"scheduledAt,omitempty"`
 	SourceTextByBookID       map[string]string `json:"sourceTextByBookId,omitempty"`
+	// SourceMetadataByBookID carries authoritative fetch facts (for example 121
+	// category/genre). Manual columns keep precedence when the book is created.
+	SourceMetadataByBookID map[string]map[string]any `json:"sourceMetadataByBookId,omitempty"`
 	// Groups 可选：多书城分组录入。非空时每组按各自平台解析，忽略顶层 PlatformID/InputText。
 	Groups []ManualIntakeGroup `json:"groups,omitempty"`
 }
@@ -33,7 +37,8 @@ type ManualIntakeGroup struct {
 	InputText    string `json:"inputText"`
 	// SourceTextByBookID 可选：该组已抓到的正文，键为书 ID。非空时分组解析
 	// 用它替代顶层同名 map，使跨书城撞 ID 的两本书各取各的正文。
-	SourceTextByBookID map[string]string `json:"sourceTextByBookId,omitempty"`
+	SourceTextByBookID     map[string]string         `json:"sourceTextByBookId,omitempty"`
+	SourceMetadataByBookID map[string]map[string]any `json:"sourceMetadataByBookId,omitempty"`
 }
 type manualRow struct {
 	bookID, paidID, freeID, title, gender, style, tags, reason, rating, sourceLine, mode string
@@ -434,11 +439,31 @@ func ParseManualBookList(input ManualIntakeInput) ([]CreateBookInput, error) {
 	out := make([]CreateBookInput, 0, len(order))
 	for _, id := range order {
 		row := merged[id]
+		fetchedMeta := input.SourceMetadataByBookID[id]
 		title := row.title
 		if title == "" {
 			title = "小说 " + id
 		}
+		if title == "小说 "+id {
+			if fetchedTitle, ok := fetchedMeta["bookName"].(string); ok && strings.TrimSpace(fetchedTitle) != "" {
+				title = strings.TrimSpace(fetchedTitle)
+			}
+		}
 		meta := map[string]any{"platformName": input.PlatformName, "gender": row.gender, "style": row.style, "tags": row.tags, "reason": row.reason, "rating": row.rating, "paidBookId": row.paidID, "freeBookId": row.freeID, "sourceLine": row.sourceLine, "parseMode": row.mode, "parseColumns": row.columns, "sourceMode": "manual_original"}
+		if category, ok := fetchedMeta["category"].(string); ok && strings.TrimSpace(category) != "" {
+			meta["category"] = strings.TrimSpace(category)
+		}
+		if genre, ok := fetchedMeta["genre"]; ok && genre != nil && strings.TrimSpace(fmt.Sprint(genre)) != "" {
+			meta["genre"] = genre
+		}
+		if row.gender != "" {
+			meta["genderSource"] = "manual"
+		} else if fetchedGender, ok := fetchedMeta["gender"].(string); ok && manualGender(fetchedGender) != "" {
+			meta["gender"] = manualGender(fetchedGender)
+			if source, ok := fetchedMeta["genderSource"].(string); ok && strings.TrimSpace(source) != "" {
+				meta["genderSource"] = strings.TrimSpace(source)
+			}
+		}
 		sourceText := strings.TrimSpace(input.SourceTextByBookID[id])
 		out = append(out, CreateBookInput{ID: id, BookID: id, Title: title, Platform: input.PlatformID, SourceText: sourceText, TxtText: sourceText, SourceMetadata: meta})
 	}
@@ -460,6 +485,9 @@ func ParseGroupedManualBookLists(base ManualIntakeInput) ([]CreateBookInput, err
 		groupInput.InputText = group.InputText
 		if len(group.SourceTextByBookID) > 0 {
 			groupInput.SourceTextByBookID = group.SourceTextByBookID
+		}
+		if len(group.SourceMetadataByBookID) > 0 {
+			groupInput.SourceMetadataByBookID = group.SourceMetadataByBookID
 		}
 		books, err := ParseManualBookList(groupInput)
 		if err != nil {

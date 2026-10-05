@@ -831,6 +831,29 @@ test('classifies missing per-book publish metadata and persists it before any 12
   assert.equal(calls.filter(call => call.url === 'http://text.local/v1/chat/completions').length, 1);
 });
 
+test('uses AI only for missing style and never overwrites 121-derived gender', async () => {
+  const calls = [];
+  const book = {
+    id: 'book-121', title: '都市男频书', platform: '2', sourceText: '男主在都市创业。', revision: 3,
+    sourceMetadata: { category: '男频-都市', genre: '都市', gender: '男频', genderSource: '121_category' }
+  };
+  await classifyBatchFactoryBookFor121({
+    username: 'alice', batchId: 'batch-1', bookId: 'book-121', goBaseUrl: 'http://go.local', bridgeSecret: 'bridge',
+    textProvider: { endpoint: 'http://text.local/v1/chat/completions', apiKey: 'key', model: 'gpt-5.4' },
+    fetchImpl: async (url, init = {}) => {
+      calls.push({ url, init });
+      if (init.method === 'GET') return new Response(JSON.stringify({ batch: { id: 'batch-1', books: [book] } }), { status: 200 });
+      if (url === 'http://text.local/v1/chat/completions') return new Response(JSON.stringify({ choices: [{ message: { content: '{"gender":"女频","style":"男频都市","tags":["创业"],"reason":"都市创业"}' } }] }), { status: 200 });
+      if (init.method === 'PUT') return new Response(JSON.stringify({ book }), { status: 200 });
+      throw new Error(`unexpected request: ${init.method} ${url}`);
+    }
+  });
+  const saved = JSON.parse(calls.find(call => call.init.method === 'PUT').init.body).metadata;
+  assert.equal(saved.gender, '男频');
+  assert.equal(saved.genderSource, '121_category');
+  assert.equal(saved.style, '男频都市');
+});
+
 test('rejects a model classification that is not a valid 121 gender and style', () => {
   assert.throws(() => parseBatchBookClassification('{"gender":"未知","style":"仙侠"}'), /必须返回男女频/);
 });

@@ -10,8 +10,9 @@ const {
   v11JSONRequest
 } = require('./batch-factory-v11');
 const { createMySQLWorkshopStore } = require('../lib/novel-fetch-workshop/mysql-store');
+const { merge121BookInfoIntoMeta } = require('../lib/novel-fetch-workshop/121-bookinfo');
 const { createAutomationPresetStore } = require('../lib/batch-factory-v11/automation-presets');
-const { cleanBatchFactorySourceText, refillMissingBatchFactoryBookSource } = require('../lib/batch-factory-v11/source-refill');
+const { cleanBatchFactorySourceText, refillMissingBatchFactoryBookSource, backfillBatchFactoryBook121Metadata } = require('../lib/batch-factory-v11/source-refill');
 const { normalizeProductionRetentionDays } = require('../lib/production-retention');
 const { readConfig } = require('../lib/shared');
 
@@ -137,7 +138,11 @@ async function fetchBatchFactoryOriginals(payload, fetchDirectOriginal) {
         error: null,
         length: data.length,
         attempts: fetched.attempts,
-        bookinfo: fetched.bookinfo || {}
+        bookinfo: fetched.bookinfo || {},
+        // This object crosses the browser intake boundary with the source
+        // text.  Do not wait for the optional AI classifier to persist facts
+        // already returned by 121.
+        sourceMetadata: merge121BookInfoIntoMeta({}, fetched.bookinfo || {})
       };
     } catch (error) {
       return { bookId, platform: numericPlatform, status: 'error', data: null, error: error?.message || '获取失败', length: 0 };
@@ -328,6 +333,39 @@ function createBatchFactoryV12Router(options = {}) {
       return res.json({ results });
     } catch (error) {
       return res.status(Number(error?.status) || 400).json({ error: error?.message || '识别男女频和风格失败' });
+    }
+  });
+  router.post('/batches/:batchId/backfill-121-metadata', async (req, res) => {
+    try {
+      const account = { username: req.username, isOwner: req.auth?.account?.isOwner === true };
+      const batchId = String(req.params.batchId || '').trim();
+      const goOptions = { goBaseUrl: options.goBaseUrl, bridgeSecret: options.bridgeSecret, fetchImpl: options.fetchImpl, now: options.now };
+      const loaded = await v11JSONRequest({ ...account, method: 'GET', pathname: `${V11_BASE}/batches/${encodeURIComponent(batchId)}`, ...goOptions });
+      const batch = loaded?.batch || loaded;
+      if (!batch?.id) return res.status(404).json({ error: '批量工程不存在' });
+      const createStore = options.workshopStoreFactory || createMySQLWorkshopStore;
+      const store = createStore({ targetBaseUrl: options.targetBaseUrl, bridgeSecret: options.bridgeSecret, account });
+      const results = [];
+      for (const book of Array.isArray(batch.books) ? batch.books : []) {
+        const bookId = String(book?.id || '').trim();
+        if (!bookId) continue;
+        try {
+          const result = await backfillBatchFactoryBook121Metadata({
+            book,
+            platforms: store.getPlatforms?.() || [],
+            fetchDirectOriginal: input => store.fetchDirectOriginal(input),
+            saveMetadata: payload => v11JSONRequest({
+              ...account, method: 'PUT', pathname: `${V11_BASE}/batches/${encodeURIComponent(batchId)}/books/${encodeURIComponent(bookId)}/metadata`, payload, ...goOptions
+            })
+          });
+          results.push({ bookId, status: result.status });
+        } catch (error) {
+          results.push({ bookId, status: 'failed', error: String(error?.message || '121 元数据回填失败') });
+        }
+      }
+      return res.json({ results });
+    } catch (error) {
+      return res.status(Number(error?.status) || 400).json({ error: error?.message || '121 元数据回填失败' });
     }
   });
   router.get('/batches/:batchId/runtime-summary', async (req, res) => {

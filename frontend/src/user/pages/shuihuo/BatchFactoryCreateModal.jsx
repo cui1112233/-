@@ -564,6 +564,7 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated, onBatchUpda
       // 编辑中点了定时入口也会先校验；此时 groups 是唯一事实源。
       // 正文按组隔离：不同书城即便撞 Book ID 也各自抓各自的，互不覆盖。
       const sourcesByGroup = {};
+      const sourceMetadataByGroup = {};
       const failedPlatforms = [];
       let fetchedCount = 0;
       for (const group of groups) {
@@ -579,11 +580,19 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated, onBatchUpda
             maxTxt: contentCaptureCharacters
           });
           const groupSources = {};
+          const groupMetadata = {};
           for (const item of Array.isArray(result?.results) ? result.results : []) {
             const text = String(item?.data || '').trim();
-            if (item?.status === 'ok' && text) groupSources[String(item.bookId)] = text;
+            if (item?.status === 'ok' && text) {
+              const bookId = String(item.bookId);
+              groupSources[bookId] = text;
+              if (item?.sourceMetadata && typeof item.sourceMetadata === 'object' && !Array.isArray(item.sourceMetadata)) {
+                groupMetadata[bookId] = item.sourceMetadata;
+              }
+            }
           }
           sourcesByGroup[groupKey] = { ...have, ...groupSources };
+          sourceMetadataByGroup[groupKey] = { ...(sourceMetadataByGroup[groupKey] || {}), ...groupMetadata };
           // 只按本组请求的 pending id 计数，防止接口回传意外 ID 高估成功数
           for (const bookId of pending) {
             if (String(groupSources[bookId] || '').trim()) fetchedCount += 1;
@@ -604,7 +613,8 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated, onBatchUpda
           platformId: group.platformId,
           platformName: group.platformName,
           inputText: group.inputText,
-          sourceTextByBookId: sourcesByGroup[String(group.platformId)] || {}
+          sourceTextByBookId: sourcesByGroup[String(group.platformId)] || {},
+          sourceMetadataByBookId: sourceMetadataByGroup[String(group.platformId)] || {}
         })),
         parseMode,
         columnPresetId,

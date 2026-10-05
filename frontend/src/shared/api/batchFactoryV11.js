@@ -171,6 +171,12 @@ export function classifyFetchedBatchMetadata(batchId) {
   return apiRequest(bf11Path(`batches/${id(batchId)}/classify-fetched-metadata`), { method: 'POST', body: body({}) });
 }
 
+// Repairs only 121 category/genre-derived metadata for books that were
+// imported before direct fetch carried bookinfo through intake creation.
+export function backfillBatch121Metadata(batchId) {
+  return apiRequest(bf11Path(`batches/${id(batchId)}/backfill-121-metadata`), { method: 'POST', body: body({}) });
+}
+
 export function getBatch(batchId) {
   return apiRequest(bf11Path(`batches/${id(batchId)}`));
 }
@@ -568,6 +574,7 @@ export default {
   createBatch,
   fetchDirectOriginals,
   fetchBookOriginal,
+  backfillBatch121Metadata,
   getBatch,
   updateBookSource,
   saveBatchSettings,

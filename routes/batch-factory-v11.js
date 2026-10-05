@@ -792,7 +792,9 @@ async function classifyBatchFactoryBookFor121({ username, isOwner = false, batch
   }
   const nextMetadata = {
     ...metadata,
-    gender: classification.gender,
+    // A user-entered or 121 category-derived gender is authoritative. The
+    // model may fill the missing style/tags, but it must not replace it.
+    gender: existingGender || classification.gender,
     style: classification.style,
     tags: classification.tags || String(metadata.tags || '').trim(),
     classifyStatus: 'classified',
