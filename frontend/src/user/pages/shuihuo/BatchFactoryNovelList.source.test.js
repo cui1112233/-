@@ -44,6 +44,10 @@ test('book content exposes production-content edit and TXT download actions', ()
   assert.match(source, /openContentEditor\(book\)/);
 });
 
+test('TXT download uses the complete captured source instead of the production line preview', () => {
+  assert.match(source, /const productionText = batchFactoryCleanSourceText\(book\.sourceText\);/);
+});
+
 test('keeps people and scene presets inside each book row instead of the global toolbar', () => {
   const toolbar = source.match(/<div className="shuihuo-workbench-toolbar"[\s\S]*?<\/div>\n      <div className="shuihuo-workbench-export">/)?.[0] || '';
   assert.equal(toolbar.includes('人物场景预设'), false);

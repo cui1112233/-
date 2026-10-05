@@ -3192,7 +3192,9 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
         // “小说正文”只展示从书城/巨量回填的原文摘录；改文草稿仍只用于生产，
         // 不能遮住已成功抓到的正文，避免误判为“没有获取内容”。
         const previewText = batchFactoryPreviewText(book.sourceText, book);
-        const productionText = runtimeResolveBookProductionText(book);
+        // 下载必须使用抓取后保存的完整正文（当前最多 4000 字）；
+        // “生产前 N 行”只用于分镜生产，不得截断用户下载的原文。
+        const productionText = batchFactoryCleanSourceText(book.sourceText);
         const videos = book.videos || [];
         return <article className="shuihuo-workbench-row batch-factory-book-row" key={book.id} role="row" style={columnWidths ? { gridTemplateColumns: columnWidths.map(width => `${width}px`).join(' ') } : undefined}>
           <div className="shuihuo-workbench-cell shuihuo-order-cell"><Checkbox checked={selectedBookIds.includes(book.id)} onChange={event => setSelectedBookIds(current => event.target.checked ? [...new Set([...current, book.id])] : current.filter(id => id !== book.id))} aria-label={`选择 ${book.title || `小说 ${index + 1}`}`} /><strong>{index + 1}</strong></div>
