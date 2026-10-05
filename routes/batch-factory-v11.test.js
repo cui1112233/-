@@ -1330,6 +1330,20 @@ test('retrying a non-video stage never requires a video provider sync', () => {
   assert.equal(needsH3ConfigSync(request, retryPath), false);
 });
 
+test('retrying an asynchronously failed Seedance storyboard synchronizes its provider', () => {
+  const request = { method: 'POST', body: { provider: 'yfai_seedance', videoModelId: 'seedance-2-0-official' } };
+  const retryPath = '/api/batch-factory/v11/batches/batch-1/books/book-1/stages/retry';
+  assert.equal(needsPersonalConfigSync(request, retryPath), true);
+  assert.equal(needsH3ConfigSync(request, retryPath), false);
+});
+
+test('retrying an asynchronously failed H3 storyboard synchronizes its provider', () => {
+  const request = { method: 'POST', body: { provider: 'autodl_comfyui', videoModelId: 'minimax-h3-video' } };
+  const retryPath = '/api/batch-factory/v11/batches/batch-1/books/book-1/stages/retry';
+  assert.equal(needsPersonalConfigSync(request, retryPath), false);
+  assert.equal(needsH3ConfigSync(request, retryPath), true);
+});
+
 test('automatic video retry uses the VIDEO synchronization path', () => {
   const request = { method: 'POST' };
   const videoPath = '/api/batch-factory/v11/batches/batch-1/books/book-1/stages/video';

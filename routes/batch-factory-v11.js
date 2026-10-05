@@ -1325,6 +1325,16 @@ function needsPersonalConfigSync(req, pathname) {
   // inability to open the production page.
   if (req.method === 'POST' && /\/batches\/[^/]+(?:\/books\/[^/]+)?\/production$/.test(pathname)) return true;
   if (req.method === 'POST' && /\/batches\/[^/]+\/books\/[^/]+\/stages\/video$/.test(pathname)) return true;
+  // A provider can fail asynchronously after the VIDEO stage itself has
+  // completed. Retrying that persisted VIDEO task comes through the generic
+  // retry endpoint, so only synchronize when the browser explicitly carries
+  // a personal/YFAI video provider; non-video retries remain side-effect free.
+  if (req.method === 'POST' && /\/batches\/[^/]+\/books\/[^/]+\/stages\/retry$/.test(pathname)) {
+    const rawProvider = String(req.body?.provider || '').trim();
+    if (!rawProvider) return false;
+    const provider = normalizedProvider(rawProvider);
+    return provider === PERSONAL_PROVIDER || provider === YFAI_PROVIDER;
+  }
   return false;
 }
 
@@ -1333,6 +1343,10 @@ function needsH3ConfigSync(req, pathname) {
   if (req.method === 'GET' && pathname === STATUS_PATH) return true;
   if (req.method === 'POST' && /\/batches\/[^/]+(?:\/books\/[^/]+)?\/production$/.test(pathname)) return true;
   if (req.method === 'POST' && /\/batches\/[^/]+\/books\/[^/]+\/stages\/video$/.test(pathname)) return true;
+  if (req.method === 'POST' && /\/batches\/[^/]+\/books\/[^/]+\/stages\/retry$/.test(pathname)) {
+    const rawProvider = String(req.body?.provider || '').trim();
+    return rawProvider !== '' && normalizedProvider(rawProvider) === H3_PROVIDER;
+  }
   return false;
 }
 
