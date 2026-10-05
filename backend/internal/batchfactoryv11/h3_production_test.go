@@ -106,3 +106,53 @@ func TestH3VideoRetryReusesFailedTaskFrozenCompilation(t *testing.T) {
 		t.Fatalf("retry did not preserve failed compilation: %#v", adapter.prompts)
 	}
 }
+
+func TestH3VideoRetryFindsAnAsyncProviderFailureWithoutFailedStageRun(t *testing.T) {
+	ctx := context.Background()
+	store, batch, book := seedH3DirectorRevision(t)
+	document := *book.DirectorRevision.Output.H3Director
+	if _, err := store.SaveSettings(ctx, "alice", ScopeRef{Kind: ScopeBatch, BatchID: batch.ID}, SettingsUpdate{Patch: SettingsPatch{"videoModelId": rawSetting(t, "yd2.0-mini")}, ExpectedRevision: batch.Revision}); err != nil {
+		t.Fatal(err)
+	}
+	seedH3AudioMeasurement(t, store, batch, book, document)
+	compiled, err := (&H3KernelService{Store: store}).Compile(ctx, "alice", batch.ID, book.ID, H3KernelCompileRequest{
+		DirectorRevisionID: book.DirectorRevision.ID,
+		AudioAssetID:       "audio-1",
+		Preset:             completeH3CompileInput(document, H3CanonicalTimeline{}).Preset,
+		Switches:           H3PromptSwitches{SmartUnified: true, BaseSetup: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter := &recordingProductionAdapter{ref: ProviderTaskRef{State: ProductionQueued, ProviderTaskID: "provider-async-1"}}
+	production := &ProductionService{Store: store, Compiler: &PromptCompilerService{Store: store}, Adapter: adapter, Enabled: true, Model: FrozenVideoModel{ID: "yd2.0-mini", MaxDuration: 10}}
+	stages := &BookStageService{Store: store, Production: production}
+	latest, err := store.GetBatch(ctx, "alice", batch.ID)
+	if err != nil || len(latest.Books[0].Videos) != 1 {
+		t.Fatalf("compiled video cards=%#v err=%v", latest.Books, err)
+	}
+	videoID := latest.Books[0].Videos[0].ID
+	if _, err := stages.Run(ctx, "alice", batch.ID, book.ID, BookStageVideo, StageModeForce, "h3-async-1", videoID); err != nil {
+		t.Fatalf("initial submit=%v", err)
+	}
+	jobs, err := store.ListProductionJobs(ctx, "alice", batch.ID)
+	if err != nil || len(jobs) != 1 || len(jobs[0].Tasks) != 1 {
+		t.Fatalf("initial jobs=%#v err=%v", jobs, err)
+	}
+	failed := jobs[0].Tasks[0]
+	failed.Status = ProductionFailed
+	failed.ErrorMessage = "provider rejected after submit"
+	if _, err := store.UpdateProductionTask(ctx, "alice", jobs[0].ID, failed.ID, failed); err != nil {
+		t.Fatal(err)
+	}
+	if summary, err := stages.Summary(ctx, "alice", batch.ID, book.ID); err != nil || summary.LastFailed != nil {
+		t.Fatalf("async failure must not require a failed stage run: summary=%#v err=%v", summary, err)
+	}
+	adapter.ref = ProviderTaskRef{State: ProductionSucceeded, MediaURL: "https://media.example/retry.mp4"}
+	if _, err := stages.RetryLastFailed(ctx, "alice", batch.ID, book.ID, "h3-async-retry", videoID); err != nil {
+		t.Fatalf("retry async provider failure=%v", err)
+	}
+	if len(adapter.prompts) != 2 || adapter.prompts[1].CompilationID != compiled.Compilation.ID || adapter.prompts[1].CompiledPrompt != compiled.Compilation.Compilation.Segments[0].CompiledPrompt {
+		t.Fatalf("retry did not preserve async failed compilation: %#v", adapter.prompts)
+	}
+}

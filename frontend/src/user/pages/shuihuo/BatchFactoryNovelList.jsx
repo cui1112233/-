@@ -2885,11 +2885,16 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
       // a retry click into a browser-visible 404.
       const runtime = await loadRuntimeStatus({ quiet: true });
       const summary = runtime?.stageSummaries?.[book.id] || stageSummaries[book.id];
-      if (summary?.unavailable) {
+      const failedVideo = videoId ? batchFactoryVideoProgress(book, runtime?.production || productionStatus).byVideo.get(videoId) : null;
+      // A video can fail only after its initial stage submission has succeeded.
+      // In that case there is no failed stage-run row, but the persisted task is
+      // still an explicit retry target for this storyboard.
+      const retryAsVideo = failedVideo?.status === 'failed';
+      if (summary?.unavailable && !retryAsVideo) {
         message.info('当前书没有可读取的阶段记录，暂不能自动重试。');
         return;
       }
-      if (!summary?.lastFailed) {
+      if (!summary?.lastFailed && !retryAsVideo) {
         message.info('当前小说没有可重试的失败步骤。');
         return;
       }
@@ -2899,7 +2904,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
         ...(usesSelectedH3VideoPreset(settings) ? { h3: true } : {}),
         videoId,
         textModelId: textModelId || settings.textModelId,
-        ...(summary.lastFailed?.stage === 'video' ? {
+        ...(summary.lastFailed?.stage === 'video' || retryAsVideo ? {
           provider: videoProviderForModel(settings.videoModelId, settings.videoProvider),
           videoModelId: settings.videoModelId
         } : {}),

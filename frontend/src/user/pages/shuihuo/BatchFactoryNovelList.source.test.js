@@ -482,6 +482,14 @@ test('retries failed stages from the batch runtime snapshot instead of querying 
   assert.doesNotMatch(source, /async function loadStageSummaries/);
 });
 
+test('retries an explicitly failed storyboard even when its asynchronous provider failure has no failed stage run', () => {
+  const retry = source.match(/async function retryLastFailedStage\([\s\S]*?\n  }\n  async function/)?.[0] || '';
+  assert.match(retry, /batchFactoryVideoProgress\(book, runtime\?\.production \|\| productionStatus\)/);
+  assert.match(retry, /failedVideo\?\.status === 'failed'/);
+  assert.match(retry, /await retryBookStage\(batch\.id, book\.id/);
+  assert.match(retry, /retryAsVideo/);
+});
+
 test('persists named AI reasoning presets through the V11 backend and lets users rename and load them', () => {
   assert.match(reasoningSource, /AI 推理预设/);
   assert.match(reasoningSource, /createConfigVersion/);

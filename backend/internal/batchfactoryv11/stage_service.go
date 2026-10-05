@@ -260,7 +260,11 @@ func (s *BookStageService) RetryLastFailed(ctx context.Context, owner, batchID, 
 		return BookStageSummary{}, err
 	}
 	if summary.LastFailed == nil {
-		return BookStageSummary{}, fmt.Errorf("%w: 当前小说没有失败步骤", ErrConflict)
+		failedTask, found := s.latestFailedProductionTask(ctx, owner, batchID, bookID, videoID)
+		if !found {
+			return BookStageSummary{}, fmt.Errorf("%w: 当前小说没有失败步骤", ErrConflict)
+		}
+		return s.run(ctx, owner, batchID, bookID, BookStageVideo, StageModeForce, requestID, failedTask.VideoID, failedTask.CompilationID)
 	}
 	if strings.TrimSpace(videoID) == "" && summary.LastFailed.Stage == BookStageVideo {
 		videoID = summary.LastFailed.InputRevision
@@ -273,28 +277,39 @@ func (s *BookStageService) RetryLastFailed(ctx context.Context, owner, batchID, 
 }
 
 func (s *BookStageService) latestFailedH3CompilationID(ctx context.Context, owner, batchID, bookID, videoID string) string {
+	failedTask, found := s.latestFailedProductionTask(ctx, owner, batchID, bookID, videoID)
+	if !found {
+		return ""
+	}
+	return failedTask.CompilationID
+}
+
+// latestFailedProductionTask covers provider failures that arrive after the
+// video submission stage completed. Those failures are real retry targets even
+// though there is no failed stage-run row to report them.
+func (s *BookStageService) latestFailedProductionTask(ctx context.Context, owner, batchID, bookID, videoID string) (ProductionTask, bool) {
 	repository, ok := s.Store.(ProductionRepository)
 	if !ok {
-		return ""
+		return ProductionTask{}, false
 	}
 	jobs, err := repository.ListProductionJobs(ctx, owner, batchID)
 	if err != nil {
-		return ""
+		return ProductionTask{}, false
 	}
-	latestID := ""
-	var latestJob ProductionJob
+	var latest ProductionTask
+	found := false
 	for _, job := range jobs {
 		if job.BookID != bookID {
 			continue
 		}
 		for _, task := range job.Tasks {
-			if task.VideoID != videoID || task.Status != ProductionFailed || strings.TrimSpace(task.CompilationID) == "" {
+			if task.Status != ProductionFailed || (strings.TrimSpace(videoID) != "" && task.VideoID != videoID) {
 				continue
 			}
-			if latestID == "" || job.CreatedAt.After(latestJob.CreatedAt) || (job.CreatedAt.Equal(latestJob.CreatedAt) && job.ID > latestJob.ID) {
-				latestJob, latestID = job, task.CompilationID
+			if !found || task.UpdatedAt.After(latest.UpdatedAt) || (task.UpdatedAt.Equal(latest.UpdatedAt) && task.ID > latest.ID) {
+				latest, found = task, true
 			}
 		}
 	}
-	return latestID
+	return latest, found
 }
