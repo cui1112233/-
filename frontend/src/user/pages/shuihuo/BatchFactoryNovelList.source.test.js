@@ -490,6 +490,12 @@ test('retries an explicitly failed storyboard even when its asynchronous provide
   assert.match(retry, /retryAsVideo/);
 });
 
+test('does not offer a manual retry while server automation owns the book', () => {
+  const retry = source.match(/async function retryLastFailedStage\([\s\S]*?\n  }\n  async function/)?.[0] || '';
+  assert.match(retry, /if \(automationActive\) \{[\s\S]*?服务端自动生产正在处理该小说；会自动重试，无需手动操作。/);
+  assert.match(retry, /return;[\s\S]*?setActionBusy\(stageActionKey\('retry', book\.id\)\);/);
+});
+
 test('persists named AI reasoning presets through the V11 backend and lets users rename and load them', () => {
   assert.match(reasoningSource, /AI 推理预设/);
   assert.match(reasoningSource, /createConfigVersion/);

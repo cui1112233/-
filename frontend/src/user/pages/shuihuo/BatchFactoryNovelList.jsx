@@ -2885,6 +2885,13 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
   }
   async function retryLastFailedStage(book, videoId = '', textModelId = '') {
     if (!batch?.id || !book?.id || actionBusy) return;
+    // A running server job is the single retry owner.  Letting this modal
+    // create a second request races that job and, worse, makes a provider
+    // failure look like the client simply found no retryable stage.
+    if (automationActive) {
+      message.info('服务端自动生产正在处理该小说；会自动重试，无需手动操作。');
+      return;
+    }
     setActionBusy(stageActionKey('retry', book.id));
     try {
       // Historical rows can outlive a per-book stage document.  The batch
