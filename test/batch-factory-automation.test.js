@@ -168,6 +168,32 @@ test('audio-planned automation measures duration when an existing director is re
   assert.equal(controller.status({ owner: 'user', batchId: batch.id }).books[0].stage, 'ready_for_video');
 });
 
+test('retrying a failed VIDEO measures newly missing audio before retrying the failed stage', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-retry-audio-'));
+  const { batch, adapter } = fixture();
+  const book = batch.books[0];
+  batch.settingsState.patch.audioPlanningEnabled = true;
+  batch.settingsState.patch.audioDurationSeconds = 12.34;
+  book.assetRecords = [{ id: 'a1', kind: 'character' }];
+  book.directorRevision = { id: 'd-existing' };
+  book.videos = [{ id: 'video-1', label: 'VIDEO01', visualPrompt: '最终 Prompt' }];
+  adapter.runStage = async ({ stage }) => { if (stage === 'video') throw new Error('invalid API key'); };
+  const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} } });
+  await controller.start({ owner: 'user', batchId: batch.id, runMode: 'video_no_submit' });
+  for (let i = 0; i < 12; i += 1) { await controller.tick(); await wait(); }
+  assert.equal(controller.status({ owner: 'user', batchId: batch.id }).books[0].status, 'failed');
+
+  const order = [];
+  batch.settingsState.patch.audioDurationSeconds = 0;
+  adapter.getStageSummary = async () => ({ bookId: book.id, lastFailed: { stage: 'video' }, runs: [{ stage: 'video', status: 'failed' }] });
+  adapter.prepareAudioPlanning = async ({ book: target }) => { order.push('audio'); target.settingsState.patch.audioDurationSeconds = 12.34; };
+  adapter.retryStage = async () => { order.push('retry'); };
+  await controller.retry({ owner: 'user', batchId: batch.id, bookIds: [book.id] });
+  for (let i = 0; i < 3; i += 1) { await controller.tick(); await wait(); }
+
+  assert.deepEqual(order, ['audio']);
+});
+
 test('automation skips visual prompt generation when that AI option is not enabled', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-no-visual-'));
   const { batch, adapter } = fixture();
