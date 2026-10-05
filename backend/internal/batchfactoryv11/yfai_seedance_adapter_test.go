@@ -37,3 +37,27 @@ func TestYFAISeedanceAdapterUsesOfficialPayloadAndCredential(t *testing.T) {
 		t.Fatalf("payload=%#v", got)
 	}
 }
+
+func TestYFAISeedanceAdapterPreservesTerminalProviderFailureReason(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v1/tasks/seedance-task-1" {
+			t.Fatalf("request=%s %s", r.Method, r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "Bearer seedance-key" {
+			t.Fatalf("authorization=%q", r.Header.Get("Authorization"))
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": map[string]any{"status": "failed", "error": "insufficient balance"},
+		})
+	}))
+	defer server.Close()
+
+	adapter := &YFAISeedanceAdapter{BaseURL: server.URL, APIKey: "seedance-key", Model: "seedance-2-0-official", Client: server.Client(), ValidateURL: func(raw string) (*url.URL, error) { return url.Parse(raw) }}
+	ref, err := adapter.Poll(context.Background(), FrozenVideoModel{ID: "seedance-2-0-official"}, ProviderTaskRef{ProviderTaskID: "seedance-task-1", State: ProductionRunning})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ref.State != ProductionFailed || ref.ErrorMessage != "insufficient balance" {
+		t.Fatalf("ref=%+v", ref)
+	}
+}

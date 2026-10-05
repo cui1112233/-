@@ -30,6 +30,7 @@ type ProviderTaskRef struct {
 	ProviderTaskID           string          `json:"providerTaskId,omitempty"`
 	State                    ProductionState `json:"state"`
 	MediaURL                 string          `json:"mediaUrl,omitempty"`
+	ErrorMessage             string          `json:"errorMessage,omitempty"`
 	RequestedDurationSeconds float64         `json:"requestedDurationSeconds,omitempty"`
 	ActualDurationSeconds    float64         `json:"actualDurationSeconds,omitempty"`
 }
@@ -799,6 +800,9 @@ func (s *ProductionService) reconcileBatch(ctx context.Context, repository Produ
 				updated.Status = normalizeProductionState(ref.State)
 				updated.ProviderTaskID = strings.TrimSpace(ref.ProviderTaskID)
 				updated.MediaURL = strings.TrimSpace(ref.MediaURL)
+				if updated.Status == ProductionFailed {
+					updated.ErrorMessage = productionError(errors.New(strings.TrimSpace(ref.ErrorMessage)))
+				}
 				if ref.ActualDurationSeconds > 0 {
 					updated.ActualDurationSeconds = ref.ActualDurationSeconds
 				}

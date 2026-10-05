@@ -97,6 +97,7 @@ func (a *YFAISeedanceAdapter) Poll(ctx context.Context, _ FrozenVideoModel, task
 	result := ProviderTaskRef{ProviderTaskID: task.ProviderTaskID, State: ProductionRunning}
 	if state == "failed" || state == "error" || state == "cancelled" || state == "canceled" {
 		result.State = ProductionFailed
+		result.ErrorMessage = firstVideoValue(reply, "error", "errorMessage", "error_message", "message", "msg")
 		return result, nil
 	}
 	if state == "completed" || state == "succeeded" || state == "success" || state == "done" {

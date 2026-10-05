@@ -148,6 +148,27 @@ func TestProductionStatusReconcilesRunningProviderTask(t *testing.T) {
 	}
 }
 
+func TestProductionStatusPersistsTerminalProviderFailureReason(t *testing.T) {
+	store, batch, book, _ := seedCompiledVideo(t)
+	adapter := &recordingProductionAdapter{ref: ProviderTaskRef{ProviderTaskID: "provider-failed", State: ProductionRunning}}
+	poller := &recordingProductionPoller{ref: ProviderTaskRef{ProviderTaskID: "provider-failed", State: ProductionFailed, ErrorMessage: "insufficient balance"}}
+	service := &ProductionService{Store: store, Compiler: &PromptCompilerService{Store: store}, Adapter: adapter, Poller: poller, Enabled: true, Model: FrozenVideoModel{ID: "video-model-a", MaxDuration: 15}}
+	if _, err := service.SubmitBookProduction(context.Background(), "alice", batch.ID, book.ID, "request-provider-failure"); err != nil {
+		t.Fatal(err)
+	}
+	status, err := service.GetBatchStatus(context.Background(), "alice", batch.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(status.Jobs) != 1 || len(status.Jobs[0].Tasks) != 1 {
+		t.Fatalf("status=%+v", status)
+	}
+	task := status.Jobs[0].Tasks[0]
+	if task.Status != ProductionFailed || task.ErrorMessage != "insufficient balance" {
+		t.Fatalf("task=%+v", task)
+	}
+}
+
 func TestCancelBatchCancelsOnlyOwnedLocalExecutorTasks(t *testing.T) {
 	store, batch, book, video := seedCompiledVideo(t)
 	job, err := store.CreateProductionJob(context.Background(), ProductionJob{
