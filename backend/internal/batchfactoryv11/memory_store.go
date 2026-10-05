@@ -700,7 +700,7 @@ func (s *MemoryStore) CaptureBookSource(_ context.Context, owner, batchID, bookI
 		if book.ID != bookID {
 			continue
 		}
-		if book.Revision != input.ExpectedRevision || strings.TrimSpace(book.SourceText) != "" {
+		if book.Revision != input.ExpectedRevision || (strings.TrimSpace(book.SourceText) != "" && !input.ReplaceSource) {
 			return Book{}, ErrConflict
 		}
 		book.SourceText = strings.TrimSpace(input.SourceText)

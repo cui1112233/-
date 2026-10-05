@@ -296,6 +296,7 @@ type UpdateBookMetadataInput struct {
 // fetched original; it must never replace an existing source text.
 type CaptureBookSourceInput struct {
 	SourceText       string         `json:"sourceText"`
+	ReplaceSource     bool           `json:"replaceSource,omitempty"`
 	SourceTitle      string         `json:"sourceTitle,omitempty"`
 	SourceMetadata   map[string]any `json:"sourceMetadata,omitempty"`
 	ExpectedRevision int64          `json:"expectedRevision"`

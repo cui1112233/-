@@ -2740,7 +2740,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
     if (!sourceText) { message.error('完整原文不能为空'); return; }
     setSourceSaving(true);
     try {
-      const save = revision => updateBookSource(batch.id, sourceEditorBook.id, { sourceText, expectedRevision: Number(revision || 0) });
+      const save = revision => updateBookSource(batch.id, sourceEditorBook.id, { sourceText, replaceSource: true, expectedRevision: Number(revision || 0) });
       try {
         await save(sourceEditorBook.revision);
       } catch (error) {

@@ -397,7 +397,7 @@ func (s *MySQLStore) CaptureBookSource(ctx context.Context, owner, batchID, book
 	if err != nil {
 		return Book{}, err
 	}
-	if strings.TrimSpace(source.String) != "" {
+	if strings.TrimSpace(source.String) != "" && !input.ReplaceSource {
 		return Book{}, ErrConflict
 	}
 	metadata := decodeSourceMetadata(rawMetadata)
