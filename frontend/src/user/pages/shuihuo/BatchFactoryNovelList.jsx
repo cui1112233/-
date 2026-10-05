@@ -2740,7 +2740,17 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
     if (!sourceText) { message.error('完整原文不能为空'); return; }
     setSourceSaving(true);
     try {
-      await updateBookSource(batch.id, sourceEditorBook.id, { sourceText, expectedRevision: Number(sourceEditorBook.revision || 0) });
+      const save = revision => updateBookSource(batch.id, sourceEditorBook.id, { sourceText, expectedRevision: Number(revision || 0) });
+      try {
+        await save(sourceEditorBook.revision);
+      } catch (error) {
+        if (Number(error?.status) !== 409) throw error;
+        const latestResult = await getBatch(batch.id);
+        const latestBatch = resultData(latestResult, 'batch');
+        const latestBook = (latestBatch?.books || []).find(book => book?.id === sourceEditorBook.id);
+        if (!latestBook) throw error;
+        await save(latestBook.revision);
+      }
       await refreshBatch();
       setViewingBook({ ...sourceEditorBook, sourceText });
       setSourceEditorBook(null);
