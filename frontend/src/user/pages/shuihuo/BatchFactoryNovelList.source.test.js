@@ -53,6 +53,12 @@ test('book detail renders captured source instead of the short production draft'
   assert.match(source, /setViewingBookRaw\(book \? \{ \.\.\.book, workingFrontContent: '' \} : null\);/);
 });
 
+test('keeps the workbench editor on the selected lines while reserving full source editing for the detail view', () => {
+  assert.match(source, /setEditingContentValue\(runtimeResolveBookProductionText\(currentBook\)\);/);
+  assert.match(source, /function openSourceEditor\(book\)/);
+  assert.match(source, /openSourceEditor\(viewingBook\)/);
+});
+
 test('keeps people and scene presets inside each book row instead of the global toolbar', () => {
   const toolbar = source.match(/<div className="shuihuo-workbench-toolbar"[\s\S]*?<\/div>\n      <div className="shuihuo-workbench-export">/)?.[0] || '';
   assert.equal(toolbar.includes('人物场景预设'), false);
