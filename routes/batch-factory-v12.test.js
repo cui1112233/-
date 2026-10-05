@@ -315,9 +315,9 @@ test('refills a legacy empty book from its stored platform and book ID without o
   assert.deepEqual(calls, [
     { bookId: '2084012035524801698', platformId: '15', maxTxt: 4000 },
     {
-      sourceText: '抓回来的正文', expectedRevision: 7,
+      sourceText: '抓回来的正文', sourceTitle: '白月光回港', expectedRevision: 7,
       sourceMetadata: {
-        contentCaptureCharacters: 4000,
+        bookName: '白月光回港', contentCaptureCharacters: 4000, platformId: '15',
         sourceMode: 'manual_refetched', sourceFetchedAt: '2026-09-22T00:00:00.000Z',
         sourceFetchAttempts: 2, sourceCaptureCharacters: 4000, sourceBookId: '2084012035524801698', sourceBookTitle: '白月光回港',
         sourceOriginalRaw: '修改中&nbsp;\n。\n抓回来的正文'
