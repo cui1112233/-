@@ -494,6 +494,40 @@ test('a transient provider VIDEO failure is retried only for that VIDEO after it
   assert.deepEqual(retried, [{ stage: 'video', mode: 'force', videoId: 'video-1' }]);
 });
 
+test('a provider content-moderation VIDEO failure stops without blind automatic retries', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-content-moderation-'));
+  const { batch, adapter } = fixture();
+  const book = batch.books[0];
+  book.assetRecords = [{ id: 'a1', kind: 'character' }];
+  book.directorRevision = { id: 'd1' };
+  book.videos = [{ id: 'video-1', label: 'VIDEO01', visualPrompt: '提示词' }];
+  adapter.getProductionStatus = async () => ({
+    batchId: batch.id,
+    jobs: [{
+      id: 'p-moderated',
+      bookId: book.id,
+      tasks: [{ id: 't-moderated', videoId: 'video-1', status: 'failed', errorMessage: '内容违规或不符合平台要求，请调整后重试' }]
+    }]
+  });
+  let submissions = 0;
+  adapter.runStage = async ({ stage }) => {
+    if (stage === 'video') submissions += 1;
+  };
+  const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} } });
+
+  await controller.start({ owner: 'user', batchId: batch.id, concurrency: 1, runMode: 'video_no_submit' });
+  await controller.tick();
+  await wait();
+
+  const status = controller.status({ owner: 'user', batchId: batch.id });
+  assert.equal(status.books[0].status, 'failed');
+  assert.equal(status.books[0].stage, 'video');
+  assert.equal(status.books[0].retryAt, '');
+  assert.equal(status.books[0].retryCount, 0);
+  assert.match(status.books[0].error, /内容违规或不符合平台要求/);
+  assert.equal(submissions, 0);
+});
+
 test('a transient merge failure retries only that book after its backoff', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-test-'));
   const { batch, adapter } = fixture();
