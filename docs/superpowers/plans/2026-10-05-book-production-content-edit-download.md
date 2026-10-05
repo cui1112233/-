@@ -20,7 +20,7 @@
 
 **Files:**
 - Create: `frontend/src/user/pages/shuihuo/batchFactoryContentDownload.js`
-- Test: `frontend/src/user/pages/BatchFactoryNovelList.layout.test.js`
+- Test: `frontend/src/user/pages/shuihuo/BatchFactoryNovelList.source.test.js`
 
 **Interfaces:**
 - Produces: `downloadProductionContent({ title, content, documentRef, urlApi }) => boolean`。
@@ -39,7 +39,7 @@ test('downloads the current production content as a UTF-8 TXT file', async () =>
 
 - [ ] **Step 2: Verify RED**
 
-Run: `npm --prefix frontend run test -- --test-name-pattern='downloads the current production content'`
+Run: `node --test src/user/pages/shuihuo/BatchFactoryNovelList.source.test.js --test-name-pattern='downloads the current production content'` from `frontend/`
 
 Expected: FAIL because the helper does not exist.
 
@@ -57,17 +57,17 @@ export function downloadProductionContent({ title, content, documentRef = docume
 
 - [ ] **Step 4: Verify GREEN and commit**
 
-Run: `npm --prefix frontend run test -- --test-name-pattern='downloads the current production content'`
+Run: `node --test src/user/pages/shuihuo/BatchFactoryNovelList.source.test.js --test-name-pattern='downloads the current production content'` from `frontend/`
 
 Expected: PASS.
 
-Commit: `git add frontend/src/user/pages/shuihuo/batchFactoryContentDownload.js frontend/src/user/pages/BatchFactoryNovelList.layout.test.js && git commit -m "feat(shuihuo): add production-content TXT download"`
+Commit: `git add frontend/src/user/pages/shuihuo/batchFactoryContentDownload.js frontend/src/user/pages/shuihuo/BatchFactoryNovelList.source.test.js && git commit -m "feat(shuihuo): add production-content TXT download"`
 
 ### Task 2: 小说详情正文操作区
 
 **Files:**
 - Modify: `frontend/src/user/pages/shuihuo/BatchFactoryNovelList.jsx`
-- Modify: `frontend/src/user/pages/BatchFactoryNovelList.layout.test.js`
+- Modify: `frontend/src/user/pages/shuihuo/BatchFactoryNovelList.source.test.js`
 
 **Interfaces:**
 - Consumes: Task 1 `downloadProductionContent` 和现有 `openContentEditor(book)`。
@@ -85,7 +85,7 @@ test('book detail exposes production-content edit and TXT download actions', () 
 
 - [ ] **Step 2: Verify RED**
 
-Run: `npm --prefix frontend run test -- --test-name-pattern='book detail exposes production-content'`
+Run: `node --test src/user/pages/shuihuo/BatchFactoryNovelList.source.test.js --test-name-pattern='book detail exposes production-content'` from `frontend/`
 
 Expected: FAIL because the body section lacks those controls.
 
@@ -95,7 +95,7 @@ Import the helper and render both buttons beside “小说正文”. The edit bu
 
 - [ ] **Step 4: Verify and commit**
 
-Run: `npm --prefix frontend run test`
+Run: `node --test src/user/pages/shuihuo/BatchFactoryNovelList.source.test.js` from `frontend/`, then `npm --prefix frontend run test`.
 
 Expected: PASS.
 
@@ -103,4 +103,4 @@ Run: `npm --prefix frontend run build`
 
 Expected: Vite build succeeds.
 
-Commit: `git add frontend/src/user/pages/shuihuo/BatchFactoryNovelList.jsx frontend/src/user/pages/BatchFactoryNovelList.layout.test.js && git commit -m "feat(shuihuo): expose production content actions"`
+Commit: `git add frontend/src/user/pages/shuihuo/BatchFactoryNovelList.jsx frontend/src/user/pages/shuihuo/BatchFactoryNovelList.source.test.js && git commit -m "feat(shuihuo): expose production content actions"`

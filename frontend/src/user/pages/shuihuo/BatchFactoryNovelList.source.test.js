@@ -5,6 +5,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { measureH3VideoLines } from './h3LineAudio.js';
+import { downloadProductionContent } from './batchFactoryContentDownload.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
@@ -16,6 +17,32 @@ const bookSettingsSource = fs.readFileSync(path.join(here, 'BatchFactoryBookSett
 const reasoningSource = fs.readFileSync(path.join(here, 'BatchFactoryAiReasoningModal.jsx'), 'utf8');
 const presetLibrarySource = fs.readFileSync(path.join(here, '../../../admin/pages/PresetLibraryPage.jsx'), 'utf8');
 const configRegionSource = fs.readFileSync(path.join(here, 'batchFactoryBookConfigRegions.js'), 'utf8');
+
+test('downloads the current production content as a UTF-8 TXT file', async () => {
+  const clicks = [];
+  const urls = [];
+  const link = { click: () => clicks.push(link), remove: () => {} };
+  const ok = downloadProductionContent({
+    title: '野藤盛开', content: '可下载的生产正文',
+    documentRef: { createElement: () => link, body: { appendChild: () => {} } },
+    urlApi: {
+      createObjectURL: blob => { urls.push(blob); return 'blob:book'; },
+      revokeObjectURL: url => urls.push(url)
+    }
+  });
+  assert.equal(ok, true);
+  assert.equal(link.download, '野藤盛开-生产正文.txt');
+  assert.equal(await urls[0].text(), '可下载的生产正文');
+  assert.equal(clicks.length, 1);
+  assert.equal(urls[1], 'blob:book');
+});
+
+test('book content exposes production-content edit and TXT download actions', () => {
+  assert.match(source, /编辑正文/);
+  assert.match(source, /下载 TXT/);
+  assert.match(source, /downloadProductionContent\(/);
+  assert.match(source, /openContentEditor\(book\)/);
+});
 
 test('keeps people and scene presets inside each book row instead of the global toolbar', () => {
   const toolbar = source.match(/<div className="shuihuo-workbench-toolbar"[\s\S]*?<\/div>\n      <div className="shuihuo-workbench-export">/)?.[0] || '';
