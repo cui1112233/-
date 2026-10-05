@@ -982,6 +982,34 @@ function recoveryFixture({ savedPlan = null, batchId = 'giant-batch-1' } = {}) {
 
 const silentLogger = () => ({ error() {}, warn() {}, info() {}, debug() {} });
 
+test('recovery sweep bounds cross-account batch reads to two concurrent requests', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-recovery-concurrency-'));
+  let inFlight = 0;
+  let peak = 0;
+  const adapter = {
+    ...fixture().adapter,
+    async listOwners() {
+      return ['owner-1', 'owner-2', 'owner-3', 'owner-4'];
+    },
+    async listBatches() {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await wait(15);
+      inFlight -= 1;
+      return [];
+    },
+    async startRecovery() {}
+  };
+  const controller = createBatchFactoryAutomationController({
+    adapter, statePath: path.join(directory, 'state.json'),
+    pollMs: 60_000, recoveryEnabled: false, logger: silentLogger()
+  });
+
+  await controller.runRecovery();
+
+  assert.equal(peak, 2);
+});
+
 test('recovery sweep leaves a giant batch without a saved plan idle instead of guessing full automation', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-recovery-'));
   const setup = recoveryFixture();
