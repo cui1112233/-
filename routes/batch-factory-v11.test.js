@@ -37,6 +37,7 @@ const {
   repairLegacyExecutionOverrides,
   validateBatchFactoryModelPatch,
   resolveBatchFactoryRuntimeSettings,
+  syncPersonalProviderConfig,
   batchFactoryProductionText,
   splitVideoPresetBody,
   singleBookDirectorStageTarget,
@@ -596,6 +597,37 @@ test('resolves the selected Seedance model instead of reusing the YD credential'
     ] })
   });
   assert.deepEqual(config, { provider: 'yfai_seedance', model: 'seedance-2-0-official', apiKey: 'seedance-key', baseUrl: 'https://yf.token6688.com' });
+});
+
+test('synchronizes the selected Seedance provider when a video-stage request only carries its provider', async () => {
+  const writes = [];
+  await syncPersonalProviderConfig({
+    username: 'owner',
+    auth: { account: { isOwner: true } },
+    body: { provider: 'yfai_seedance' }
+  }, {
+    goBaseUrl: 'http://go.local',
+    bridgeSecret: 'test-secret',
+    now: () => 0,
+    accountStore: { getInternalAccount: () => ({ isOwner: true }) },
+    configReader: () => ({ modelCatalog: [
+      { id: 'seedance-2-0-official', kind: 'video', enabled: true, adapterKind: 'yfai_seedance', baseUrl: 'https://yf.token6688.com', modelId: 'seedance-2-0-official', credential: 'seedance-key' }
+    ] }),
+    fetchImpl: async (url, init) => {
+      writes.push({ url, payload: JSON.parse(init.body) });
+      return new Response('{}', { status: 200 });
+    }
+  });
+
+  assert.deepEqual(writes, [{
+    url: 'http://go.local/api/batch-factory/v11/video-provider/config',
+    payload: {
+      provider: 'yfai_seedance',
+      model: 'seedance-2-0-official',
+      apiKey: 'seedance-key',
+      createUrl: 'https://yf.token6688.com'
+    }
+  }]);
 });
 
 test('uses the bound manager video credential for an authorized member on the legacy personal provider', () => {

@@ -1646,7 +1646,15 @@ async function syncPersonalProviderConfig(req, options, { allowMissing = false }
   if (!fetchImpl) throw new Error('fetch implementation is required');
   const base = String(options.goBaseUrl || resolveV11GoBaseUrl()).replace(/\/$/, '');
   const secret = options.bridgeSecret || process.env.QIANTIE_BRIDGE_SECRET || '';
-  const selectedModel = String(req.body?.modelId || req.body?.videoModelId || '').trim();
+  // Older Shuihuo stage/retry requests carry the resolved provider but not the
+  // catalogue ID.  Seedance has a distinct credential and must never fall
+  // back to the legacy YD default merely because that optional field is absent.
+  const requestedProvider = providerFromRequest(req);
+  const selectedModel = String(
+    req.body?.modelId
+    || req.body?.videoModelId
+    || (requestedProvider === YFAI_PROVIDER ? 'seedance-2-0-official' : '')
+  ).trim();
   const providerConfig = resolveBatchVideoProviderConfig(req.username, selectedModel, options);
   if (!providerConfig) {
     if (allowMissing) return false;
@@ -2573,6 +2581,7 @@ module.exports = {
   LOCAL_PROVIDER,
   YFAI_PROVIDER,
   resolveBatchVideoProviderConfig,
+  syncPersonalProviderConfig,
   h3ApiKeyForRequest,
   normalizedProvider,
   needsH3ConfigSync,

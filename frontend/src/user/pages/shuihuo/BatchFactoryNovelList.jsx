@@ -2789,7 +2789,10 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
         ...(usesSelectedH3VideoPreset(settings) ? { h3: true } : {}),
         videoId,
         textModelId: textModelId || settings.textModelId,
-        ...(stage === 'video' ? { provider: videoProviderForModel(settings.videoModelId, settings.videoProvider) } : {}),
+        ...(stage === 'video' ? {
+          provider: videoProviderForModel(settings.videoModelId, settings.videoProvider),
+          videoModelId: settings.videoModelId
+        } : {}),
         requestId: requestID(`bf11-${stage}-${mode}`)
       });
       if (stage === 'director' && usesSelectedH3VideoPreset(settings)) await compileBookH3Videos(book);
@@ -2837,7 +2840,10 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
         ...(usesSelectedH3VideoPreset(settings) ? { h3: true } : {}),
         videoId,
         textModelId: textModelId || settings.textModelId,
-        ...(summary.lastFailed?.stage === 'video' ? { provider: videoProviderForModel(settings.videoModelId, settings.videoProvider) } : {}),
+        ...(summary.lastFailed?.stage === 'video' ? {
+          provider: videoProviderForModel(settings.videoModelId, settings.videoProvider),
+          videoModelId: settings.videoModelId
+        } : {}),
         requestId: requestID('bf11-book-retry')
       });
 		if (summary.lastFailed?.stage === 'director' && usesSelectedH3VideoPreset(settings)) await compileBookH3Videos(book);
@@ -2906,8 +2912,8 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
       const operationRequestID = requestID(book ? 'bf11-book-production' : 'bf11-batch-production');
       const settings = book ? effectiveBookSettings(batch, book) : (batch?.settingsState?.patch || {});
       const provider = videoProviderForModel(settings.videoModelId, settings.videoProvider);
-      if (book) await runBookStage(batch.id, book.id, 'video', { mode: 'missing', provider, requestId: operationRequestID });
-      else await submitBatchProduction(batch.id, operationRequestID, provider);
+      if (book) await runBookStage(batch.id, book.id, 'video', { mode: 'missing', provider, videoModelId: settings.videoModelId, requestId: operationRequestID });
+      else await submitBatchProduction(batch.id, operationRequestID, provider, settings.videoModelId);
       setActiveProductionRequestID(operationRequestID);
       await Promise.all([refreshBatch(), loadRuntimeStatus({ quiet: true })]);
       message.success(book ? '当前小说的视频任务已提交。' : '批量视频任务已提交。');
