@@ -145,6 +145,29 @@ test('audio-planned automation measures and saves duration before running direct
   assert.deepEqual(order.slice(0, 3), ['assets', 'audio', 'director']);
 });
 
+test('audio-planned automation measures duration when an existing director is reused', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-existing-director-audio-'));
+  const { batch, adapter } = fixture();
+  const book = batch.books[0];
+  batch.settingsState.patch.audioPlanningEnabled = true;
+  book.assetRecords = [{ id: 'a1', kind: 'character' }];
+  book.directorRevision = { id: 'd-existing' };
+  book.videos = [{ id: 'video-1', label: 'VIDEO01', visualPrompt: '最终 Prompt' }];
+  let measurements = 0;
+  adapter.prepareAudioPlanning = async ({ book: target }) => {
+    measurements += 1;
+    target.settingsState.patch.audioDurationSeconds = 12.34;
+  };
+  const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} } });
+
+  await controller.start({ owner: 'user', batchId: batch.id, runMode: 'storyboard_only' });
+  for (let i = 0; i < 3; i += 1) { await controller.tick(); await wait(); }
+
+  assert.equal(measurements, 1);
+  assert.equal(book.settingsState.patch.audioDurationSeconds, 12.34);
+  assert.equal(controller.status({ owner: 'user', batchId: batch.id }).books[0].stage, 'ready_for_video');
+});
+
 test('automation skips visual prompt generation when that AI option is not enabled', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-no-visual-'));
   const { batch, adapter } = fixture();
