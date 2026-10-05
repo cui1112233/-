@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { batchFactoryCleanSourceText, batchFactoryPreviewText, batchFactoryProductionText, contentCaptureCharactersForBook, contentRangeLinesForBook, publishContentWithWorkingFront } from './batchFactoryContentRange.js';
+import { batchFactoryCleanSourceText, batchFactoryPreviewText, batchFactoryProductionText, contentCaptureCharactersForBook, contentRangeLinesForBook, publishContentWithWorkingFront, sourceTextAfterViralAdoption } from './batchFactoryContentRange.js';
 
 test('uses the saved per-book content range as the work-text boundary', () => {
   const book = { sourceMetadata: { contentRangeLines: 5 } };
@@ -46,4 +46,11 @@ test('defaults to a 4000-character fetch and upload body limit', () => {
 test('only replaces the configured preview lines when publishing an approved rewrite', () => {
   const book = { sourceMetadata: { contentRangeLines: 2 } };
   assert.equal(publishContentWithWorkingFront('一\n二\n三\n四', '甲\n乙', book), '甲\n乙\n三\n四');
+});
+
+test('adopting a viral candidate replaces the complete source while the workbench preview keeps the selected line count', () => {
+  const adopted = sourceTextAfterViralAdoption('爆款第一行\n爆款第二行\n爆款第三行\n爆款第四行\n爆款第五行\n爆款第六行');
+
+  assert.equal(adopted, '爆款第一行\n爆款第二行\n爆款第三行\n爆款第四行\n爆款第五行\n爆款第六行');
+  assert.equal(batchFactoryPreviewText(adopted, { sourceMetadata: { contentRangeLines: 5 } }), '爆款第一行\n爆款第二行\n爆款第三行\n爆款第四行\n爆款第五行');
 });

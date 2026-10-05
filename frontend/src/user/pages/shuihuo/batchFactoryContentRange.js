@@ -47,6 +47,13 @@ export function batchFactoryProductionText(sourceText, workingFrontContent, book
   return working || batchFactoryPreviewText(sourceText, book);
 }
 
+// A user-approved viral rewrite becomes the book's new complete source. The
+// workbench still decides what to show from the saved source through
+// batchFactoryPreviewText and the book's selected contentRangeLines.
+export function sourceTextAfterViralAdoption(viralCandidate) {
+  return String(viralCandidate || '').trim();
+}
+
 
 export function publishContentWithWorkingFront(sourceText, workingFrontContent, book) {
   const sourceLines = String(sourceText || '').split(/\r?\n/);
