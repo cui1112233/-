@@ -2370,6 +2370,26 @@ function createBatchFactoryV11Router(options = {}) {
     isOwner: req.auth?.account?.isOwner === true,
     batchId: req.params.batchId
   });
+  const classifyBatchForAutomation = async req => {
+    const { owner: username, isOwner, batchId } = automationContext(req);
+    const loaded = await v11JSONRequest({
+      ...upstreamOptions, username, isOwner, method: 'GET',
+      pathname: `/api/batch-factory/v11/batches/${encodeURIComponent(batchId)}`
+    });
+    const books = Array.isArray(loaded?.batch?.books) ? loaded.batch.books : [];
+    for (const book of books) {
+      // No source means there is nothing for the classifier to infer yet. The
+      // automation pipeline will retry classification before 121 submission.
+      if (!String(book?.workingFrontContent || book?.sourceText || '').trim()) continue;
+      try {
+        await prepareBatchFactoryBookClassification(req, { batchId, bookId: book.id }, upstreamOptions);
+      } catch (error) {
+        upstreamOptions.logger?.warn?.('[batch-factory-automation] background book classification failed', {
+          batchId, bookId: book.id, error: error?.message || String(error)
+        });
+      }
+    }
+  };
   const sendAutomationError = (res, error) => {
     const status = Number.isInteger(error?.status) ? error.status : 422;
     return res.status(status).json({ error: String(error?.message || '批量工厂自动化操作失败'), code: error?.code || 'BATCH_FACTORY_AUTOMATION_FAILED' });
@@ -2440,6 +2460,12 @@ function createBatchFactoryV11Router(options = {}) {
         runMode: req.body?.runMode, concurrency: req.body?.concurrency,
         preset: preset ? { id: preset.id, name: preset.name, version: preset.version } : {}
       });
+      // The durable automation job is created before this sidecar.  The
+      // browser may close as soon as it receives 201; classification continues
+      // in this Node process and never controls whether video production runs.
+      void classifyBatchForAutomation(req).catch(error => upstreamOptions.logger?.warn?.('[batch-factory-automation] background classification setup failed', {
+        batchId: req.params.batchId, error: error?.message || String(error)
+      }));
       return res.status(201).json({ automation: result });
     } catch (error) { return sendAutomationError(res, error); }
   });

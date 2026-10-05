@@ -175,7 +175,21 @@ export function ShuihuoProductionPage({ openBatchOnLoad = false }) {
     setActiveBatchProject(batch);
     setView('batch-novels');
     await refreshProjects();
-    if (batch?.id) {
+    if (input?.automationEnabled === true && batch?.id) {
+      try {
+        await startBatchAutomation(batch.id, {
+          scheduledAt: input.scheduledAt || '',
+          presetId: input.presetId || '',
+          runMode: input.runMode || (input.autoPublishEnabled === true ? 'full_submit' : 'video_no_submit'),
+          autoPublish: input.autoPublishEnabled === true,
+          concurrency: input.automationConcurrency
+        });
+        message.success(input.scheduledAt ? `批量工程已创建，服务端自动生产将在设定时间启动${input.autoPublishEnabled ? '，并自动上传视频管理系统' : ''}。` : `批量工程已创建，服务端自动生产已启动；关闭页面不影响执行${input.autoPublishEnabled ? '，完成后将自动上传视频管理系统' : ''}。`);
+      } catch (error) {
+        message.warning(`批量工程已创建，但自动生产启动失败：${error?.message || '请进入工程后手动启动'}`);
+      }
+    }
+    if (batch?.id && input?.automationEnabled !== true) {
       try {
         const result = await classifyFetchedBatchMetadata(batch.id);
         const rows = Array.isArray(result?.results) ? result.results : [];
@@ -188,20 +202,6 @@ export function ShuihuoProductionPage({ openBatchOnLoad = false }) {
         await refreshProjects();
       } catch (error) {
         if (mountedRef.current) message.warning(`男女频与风格暂未识别：${error?.message || '可在单书中重试；不影响生产。'}`);
-      }
-    }
-    if (input?.automationEnabled === true && batch?.id) {
-      try {
-        await startBatchAutomation(batch.id, {
-          scheduledAt: input.scheduledAt || '',
-          presetId: input.presetId || '',
-          runMode: input.runMode || (input.autoPublishEnabled === true ? 'full_submit' : 'video_no_submit'),
-          autoPublish: input.autoPublishEnabled === true,
-          concurrency: input.automationConcurrency
-        });
-        message.success(input.scheduledAt ? `批量工程已创建，自动生产将在设定时间启动${input.autoPublishEnabled ? '，并自动上传视频管理系统' : ''}。` : `批量工程已创建并启动自动生产${input.autoPublishEnabled ? '，完成后将自动上传视频管理系统' : ''}。`);
-      } catch (error) {
-        message.warning(`批量工程已创建，但自动生产启动失败：${error?.message || '请进入工程后手动启动'}`);
       }
     }
     if (input?.intakeId && batch?.id) {

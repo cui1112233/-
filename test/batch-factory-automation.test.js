@@ -107,6 +107,27 @@ test('storyboard-only automation stops after director compilation and never subm
   assert.equal(status.books[0].stage, 'ready_for_video');
 });
 
+test('upgrading a completed storyboard job to full submission continues from ready_for_video', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-upgrade-mode-'));
+  const { adapter } = fixture();
+  let publishCalls = 0;
+  adapter.publishBook = async () => {
+    publishCalls += 1;
+    return { status: 'confirmed', receipt: { remoteRecord: { found: true, headVideo: true } } };
+  };
+  const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} } });
+  await controller.start({ owner: 'user', batchId: 'batch-1', runMode: 'storyboard_only', concurrency: 1 });
+  for (let i = 0; i < 9; i += 1) { await controller.tick(); await wait(); }
+  assert.equal(controller.status({ owner: 'user', batchId: 'batch-1' }).books[0].stage, 'ready_for_video');
+
+  await controller.start({ owner: 'user', batchId: 'batch-1', runMode: 'full_submit', concurrency: 1 });
+  for (let i = 0; i < 12; i += 1) { await controller.tick(); await wait(); }
+  const status = controller.status({ owner: 'user', batchId: 'batch-1' });
+  assert.equal(status.state, 'completed');
+  assert.equal(status.books[0].stage, 'uploaded');
+  assert.equal(publishCalls, 1);
+});
+
 test('audio-planned automation measures and saves duration before running director', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-audio-'));
   const { batch, adapter } = fixture();
@@ -267,7 +288,7 @@ test('a transient stage gets at most three automatic attempts before it yields t
   assert.match(status.books[0].message, /已停止并让位/);
 });
 
-test('starting automation again does not reset a hard failure without an explicit book retry', async () => {
+test('a batch with no runnable peer remains actionable instead of looping a hard failure', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-restart-cap-'));
   const { batch, adapter } = fixture();
   let attempts = 0;
@@ -275,11 +296,36 @@ test('starting automation again does not reset a hard failure without an explici
   const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} } });
   await controller.start({ owner: 'user', batchId: batch.id, runMode: 'video_no_submit', concurrency: 1 });
   await wait();
-  assert.equal(controller.status({ owner: 'user', batchId: batch.id }).books[0].status, 'failed');
-  await controller.start({ owner: 'user', batchId: batch.id, concurrency: 1 });
-  await controller.tick(); await wait();
+  for (let i = 0; i < 5; i += 1) { await controller.tick(); await wait(); }
   assert.equal(attempts, 1);
-  assert.equal(controller.status({ owner: 'user', batchId: batch.id }).books[0].status, 'failed');
+  const status = controller.status({ owner: 'user', batchId: batch.id });
+  assert.equal(status.state, 'needs_attention');
+  assert.equal(status.books[0].status, 'failed');
+  assert.match(status.lastError, /没有可完成的同批书籍/);
+});
+
+test('a failed book yields its slot, then is retried only after the other book reaches its stop point', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-final-sweep-'));
+  const { batch, adapter } = fixture();
+  batch.books.push({ id: 'book-2', bookId: '102', title: '第二本', sourceText: '正文', settingsState: { patch: {} }, assetRecords: [], videos: [] });
+  const actions = [];
+  adapter.runStage = async ({ book, stage }) => {
+    actions.push(`${book.id}:${stage}`);
+    if (book.id === 'book-1' && stage === 'assets') throw new Error('invalid API key');
+    if (book.id === 'book-2' && stage === 'assets') book.assetRecords = [{ id: 'a2', kind: 'character' }];
+    if (book.id === 'book-2' && stage === 'director') {
+      book.directorRevision = { id: 'd2' };
+      book.videos = [{ id: 'v2', label: 'VIDEO02', visualPrompt: '最终提示词' }];
+    }
+  };
+  const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} }, dispatcherConcurrency: 1 });
+  await controller.start({ owner: 'user', batchId: batch.id, runMode: 'storyboard_only', concurrency: 1 });
+  for (let i = 0; i < 12; i += 1) { await controller.tick(); await wait(); }
+  const status = controller.status({ owner: 'user', batchId: batch.id });
+  assert.equal(status.state, 'paused');
+  assert.equal(status.books.find(book => book.bookId === 'book-2').stage, 'ready_for_video');
+  assert.deepEqual(actions.filter(value => value === 'book-1:assets').length, 2);
+  assert.ok(actions.indexOf('book-1:assets', 1) > actions.indexOf('book-2:director'));
 });
 
 test('an explicit retry gives the failed stage a fresh three-attempt budget', async () => {
@@ -559,7 +605,7 @@ test('one blocked book does not erase another completed book', async () => {
   await controller.start({ owner: 'user', batchId: 'batch-1', concurrency: 2, runMode: 'video_no_submit' });
   for (let i = 0; i < 10; i += 1) { await controller.tick(); await wait(); }
   const status = controller.status({ owner: 'user', batchId: 'batch-1' });
-  assert.equal(status.state, 'needs_attention');
+  assert.equal(status.state, 'paused');
   assert.equal(status.counts.ready, 1);
   assert.equal(status.counts.blocked, 1);
 });
@@ -594,7 +640,7 @@ test('retry regenerates only a failed VIDEO and then completes', async () => {
   assert.equal(waiting.books[0].status, 'waiting');
   assert.ok(waiting.books[0].retryAt);
   await controller.retry({ owner: 'user', batchId: batch.id });
-  for (let i = 0; i < 6; i += 1) { await controller.tick(); await wait(); }
+  for (let i = 0; i < 12; i += 1) { await controller.tick(); await wait(); }
   const status = controller.status({ owner: 'user', batchId: batch.id });
   assert.equal(status.state, 'completed');
   assert.deepEqual(modes[0], { stage: 'video', mode: 'force', videoId: 'video-1' });
@@ -606,7 +652,7 @@ test('giant placeholder without an executor task fails that book and lets the ne
   batch.books.push({ id: 'book-2', bookId: '102', title: '巨量占位', sourceText: '', sourceMetadata: { sourceMode: 'giant_material', contentPending: true }, settingsState: { patch: {} }, assetRecords: [], videos: [] });
   const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} } });
   await controller.start({ owner: 'user', batchId: 'batch-1', runMode: 'video_no_submit', concurrency: 2 });
-  for (let i = 0; i < 6; i += 1) { await controller.tick(); await wait(); }
+  for (let i = 0; i < 12; i += 1) { await controller.tick(); await wait(); }
   let status = controller.status({ owner: 'user', batchId: 'batch-1' });
   assert.equal(status.books[0].status, 'ready');
   assert.equal(status.books[1].status, 'failed');
@@ -614,7 +660,7 @@ test('giant placeholder without an executor task fails that book and lets the ne
   assert.match(status.books[1].message, /未启动.*执行器/);
   assert.match(status.books[1].error, /执行器任务/);
   assert.equal(status.counts.failed, 1);
-  assert.equal(status.state, 'needs_attention');
+  assert.equal(status.state, 'paused');
 });
 
 test('automation fetches a giant placeholder directly before requiring an executor', async () => {
@@ -661,12 +707,13 @@ test('a direct-source failure stops only that giant book and releases the next b
   const status = controller.status({ owner: 'user', batchId: batch.id });
   const failed = status.books.find(item => item.bookId === 'book-1');
   const next = status.books.find(item => item.bookId === 'book-2');
-  assert.equal(directFetches, 1);
+  assert.equal(directFetches, 2);
   assert.equal(failed.status, 'failed');
   assert.equal(failed.stage, 'source');
   assert.match(failed.message, /书城正文直取失败/);
   assert.match(failed.error, /书城无正文/);
   assert.equal(next.status, 'ready');
+  assert.equal(status.state, 'paused');
 });
 
 test('a queued giant OCR task fails immediately and frees its automation slot', async () => {
