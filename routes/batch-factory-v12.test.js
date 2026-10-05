@@ -364,6 +364,7 @@ test('V12 bulk metadata backfill persists 121 category without replacing existin
       getPlatforms: () => [{ id: '2', name: '番茄付费' }],
       fetchDirectOriginal: async input => { calls.push({ type: 'fetch', input }); return { bookinfo: { category: '男频-都市', genre: '都市' } }; }
     }),
+    prepareBatchFactoryBookClassification: async () => ({ reused: false, classification: { gender: '男频', style: '都市' } }),
     fetchImpl: async (url, init) => {
       const pathname = new URL(url).pathname;
       calls.push({ type: 'go', method: init.method, pathname, payload: init.body ? JSON.parse(init.body) : undefined });
@@ -377,8 +378,50 @@ test('V12 bulk metadata backfill persists 121 category without replacing existin
   await new Promise(resolve => server.once('listening', resolve));
   const response = await fetch(`http://127.0.0.1:${server.address().port}/api/batch-factory/v12/batches/batch-1/backfill-121-metadata`, { method: 'POST' });
   assert.equal(response.status, 200);
-  assert.deepEqual((await response.json()).results, [{ bookId: 'book-1', status: 'backfilled' }]);
+  assert.deepEqual((await response.json()).results, [{
+    bookId: 'book-1',
+    status: 'backfilled',
+    classification: { status: 'classified', classification: { gender: '男频', style: '都市' }, reused: false }
+  }]);
   assert.equal(calls.some(call => call.type === 'go' && call.method === 'PUT' && call.payload.metadata.gender === '男频'), true);
+});
+
+test('V12 bulk metadata backfill runs the existing AI fallback after 121 cannot decide gender', async t => {
+  const calls = [];
+  const book = { id: 'book-1', bookId: '7673480334440139800', platform: '2', sourceText: '已保存正文', revision: 5, sourceMetadata: { sourceMode: 'manual_original' } };
+  const app = express();
+  app.use(express.json());
+  app.use((req, res, next) => { req.username = 'alice'; req.auth = { account: { isOwner: false } }; next(); });
+  app.use('/api/batch-factory/v12', createBatchFactoryV12Router({
+    goBaseUrl: 'http://go.local', bridgeSecret: 'secret', automationController: {},
+    workshopStoreFactory: () => ({
+      getPlatforms: () => [{ id: '2', name: '番茄付费' }],
+      fetchDirectOriginal: async input => { calls.push({ type: 'fetch', input }); return { bookinfo: { category: '短篇', genre: '言情' } }; }
+    }),
+    prepareBatchFactoryBookClassification: async (_req, route) => {
+      calls.push({ type: 'classify', route });
+      return { reused: false, classification: { gender: '女频', style: '短篇言情' } };
+    },
+    fetchImpl: async (url, init) => {
+      const pathname = new URL(url).pathname;
+      calls.push({ type: 'go', method: init.method, pathname, payload: init.body ? JSON.parse(init.body) : undefined });
+      if (init.method === 'GET') return new Response(JSON.stringify({ batch: { id: 'batch-1', books: [book] } }), { status: 200 });
+      if (init.method === 'PUT') return new Response(JSON.stringify({ book: { ...book, sourceMetadata: JSON.parse(init.body).metadata } }), { status: 200 });
+      throw new Error(`unexpected ${init.method} ${pathname}`);
+    }
+  }));
+  const server = app.listen(0, '127.0.0.1');
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  await new Promise(resolve => server.once('listening', resolve));
+
+  const response = await fetch(`http://127.0.0.1:${server.address().port}/api/batch-factory/v12/batches/batch-1/backfill-121-metadata`, { method: 'POST' });
+  assert.equal(response.status, 200);
+  assert.deepEqual((await response.json()).results, [{
+    bookId: 'book-1',
+    status: 'backfilled',
+    classification: { status: 'classified', classification: { gender: '女频', style: '短篇言情' }, reused: false }
+  }]);
+  assert.deepEqual(calls.filter(call => call.type === 'classify'), [{ type: 'classify', route: { batchId: 'batch-1', bookId: 'book-1' } }]);
 });
 
 test('shared source refill keeps a giant placeholder on the bookstore path', async () => {

@@ -3111,10 +3111,12 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
 			const result = await backfillBatch121Metadata(batch.id);
 			const rows = Array.isArray(resultData(result, 'results')) ? resultData(result, 'results') : [];
 			const backfilled = rows.filter(row => row?.status === 'backfilled').length;
-			const failed = rows.filter(row => row?.status === 'failed').length;
+			const aiFallback = rows.filter(row => row?.classification?.status === 'classified').length;
+			const failed = rows.filter(row => row?.status === 'failed' || row?.classification?.status === 'failed').length;
 			await refreshBatch();
-			if (failed) message.warning(`已补全 ${backfilled} 本；${failed} 本未能从 121 回填，详情可在书籍资料中查看。`);
-			else message.success(backfilled ? `已从 121 补全 ${backfilled} 本书的分类信息。` : '没有需要补全的 121 分类信息。');
+			if (failed) message.warning(`121 已补全 ${backfilled} 本，AI 已兜底 ${aiFallback} 本；${failed} 本未完成，请在书籍资料中查看原因。`);
+			else if (backfilled || aiFallback) message.success(`121 已补全 ${backfilled} 本，AI 已兜底 ${aiFallback} 本。`);
+			else message.info('没有需要补全的 121 分类信息，也没有需要 AI 判断的书籍。');
 		} catch (error) {
 			message.error(error?.message || '121 分类信息回填失败');
 		} finally { setActionBusy(''); }

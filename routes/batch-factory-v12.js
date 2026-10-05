@@ -191,6 +191,13 @@ async function classifyBatchFactoryBooks({ books, classifyBook } = {}) {
   return results;
 }
 
+function prepareBatchFactoryBookClassificationForRequest(req, route, options = {}) {
+  const prepare = typeof options.prepareBatchFactoryBookClassification === 'function'
+    ? options.prepareBatchFactoryBookClassification
+    : prepareBatchFactoryBookClassification;
+  return prepare(req, route, options);
+}
+
 // The workbench used to refresh production, merge, automation and every book
 // stage independently from the browser.  A large batch therefore turned one
 // visible refresh into dozens of authenticated requests.  Keep that fan-out
@@ -303,7 +310,7 @@ function createBatchFactoryV12Router(options = {}) {
       });
       let classification;
       try {
-        const classified = await prepareBatchFactoryBookClassification(req, { batchId: String(req.params.batchId), bookId: String(req.params.bookId) }, options);
+        const classified = await prepareBatchFactoryBookClassificationForRequest(req, { batchId: String(req.params.batchId), bookId: String(req.params.bookId) }, options);
         classification = { status: classified?.reused ? 'reused' : 'classified', classification: classified?.classification || {} };
       } catch (classificationError) {
         classification = { status: 'failed', error: String(classificationError?.message || '男女频和风格识别失败') };
@@ -328,7 +335,7 @@ function createBatchFactoryV12Router(options = {}) {
       if (!batch?.id) return res.status(404).json({ error: '批量工程不存在' });
       const results = await classifyBatchFactoryBooks({
         books: batch.books,
-        classifyBook: book => prepareBatchFactoryBookClassification(req, { batchId, bookId: String(book.id) }, options)
+        classifyBook: book => prepareBatchFactoryBookClassificationForRequest(req, { batchId, bookId: String(book.id) }, options)
       });
       return res.json({ results });
     } catch (error) {
@@ -362,6 +369,21 @@ function createBatchFactoryV12Router(options = {}) {
         } catch (error) {
           results.push({ bookId, status: 'failed', error: String(error?.message || '121 元数据回填失败') });
         }
+      }
+      // Historical imports predate the original-fetch route's automatic AI
+      // fallback. After 121 has supplied any deterministic category facts,
+      // run that exact fallback for books whose gender/style remains missing.
+      // The classifier re-reads each saved book, so a 121-derived gender is
+      // authoritative while AI fills only the unresolved fields.
+      const classifications = await classifyBatchFactoryBooks({
+        books: batch.books,
+        classifyBook: book => prepareBatchFactoryBookClassificationForRequest(req, { batchId, bookId: String(book.id) }, options)
+      });
+      const classificationByBookId = new Map(classifications.map(item => [String(item.bookId), item]));
+      for (const result of results) {
+        const classification = classificationByBookId.get(String(result.bookId));
+        const { bookId: _bookId, ...classificationDetail } = classification || { status: 'skipped', reason: 'BOOK_NOT_FOUND' };
+        result.classification = classificationDetail;
       }
       return res.json({ results });
     } catch (error) {
