@@ -48,6 +48,11 @@ test('TXT download uses the complete captured source instead of the production l
   assert.match(source, /const productionText = batchFactoryCleanSourceText\(book\.sourceText\);/);
 });
 
+test('book detail renders captured source instead of the short production draft', () => {
+  assert.match(source, /const \[viewingBook, setViewingBookRaw\] = useState\(null\);/);
+  assert.match(source, /setViewingBookRaw\(book \? \{ \.\.\.book, workingFrontContent: '' \} : null\);/);
+});
+
 test('keeps people and scene presets inside each book row instead of the global toolbar', () => {
   const toolbar = source.match(/<div className="shuihuo-workbench-toolbar"[\s\S]*?<\/div>\n      <div className="shuihuo-workbench-export">/)?.[0] || '';
   assert.equal(toolbar.includes('人物场景预设'), false);

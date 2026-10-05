@@ -2294,7 +2294,9 @@ function UploadNetwork({ batch, books, selectedBookIds, productionStatus, mergeS
 
 export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
   const [novelListOpen, setNovelListOpen] = useState(false);
-  const [viewingBook, setViewingBook] = useState(null);
+  const [viewingBook, setViewingBookRaw] = useState(null);
+  // 小说详情只展示抓取后保存的完整原文；生产草稿只能在“编辑生产内容”中查看和修改。
+  const setViewingBook = book => setViewingBookRaw(book ? { ...book, workingFrontContent: '' } : null);
   const [stageSummaries, setStageSummaries] = useState({});
   const [metadataBook, setMetadataBook] = useState(null);
   const [metadataValue, setMetadataValue] = useState({});
@@ -2696,14 +2698,15 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
   }, [batch?.id, viewingBook?.id, mediaBook?.id, promptBook?.id, hasActiveProduction]);
 
   async function openContentEditor(book) {
-    setEditingContentBook(book);
-    setEditingContentValue(runtimeResolveBookProductionText(book));
-    setEditingContentMode(batchFactoryContentMode(book));
+    const currentBook = books.find(item => item?.id === book?.id) || book;
+    setEditingContentBook(currentBook);
+    setEditingContentValue(runtimeResolveBookProductionText(currentBook));
+    setEditingContentMode(batchFactoryContentMode(currentBook));
     setViralCandidate('');
     setDerivedOpeningOptions([]);
     setDerivedOpeningPresetId('');
     const [draftRequest, catalogRequest] = await Promise.allSettled([
-      getDraft({ key: `working-front-candidate:${book.id}`, kind: 'working-front-viral-candidate', scope: batch.id }, { suppressGlobalError: true }),
+      getDraft({ key: `working-front-candidate:${currentBook.id}`, kind: 'working-front-viral-candidate', scope: batch.id }, { suppressGlobalError: true }),
       listSystemPresetCatalog('batch-factory')
     ]);
     if (draftRequest.status === 'fulfilled') {
