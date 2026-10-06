@@ -12,13 +12,14 @@ test('global header status expires instead of permanently retaining API polling 
   assert.match(source, /setGlobalStatus\(current => current\.expiresAt === expiresAt \? \{ text: '', tone: 'idle'/);
 });
 
-test('avatar opens the account-center menu without competing with a profile redirect', () => {
+test('avatar enters profile through the client route without opening the menu first', () => {
   const avatarButton = source.slice(
     source.indexOf('className="legacy-sidebar-avatar"'),
     source.indexOf('</button>', source.indexOf('className="legacy-sidebar-avatar"'))
   );
 
-  assert.match(avatarButton, /setAccountCenterOpen\(true\)/);
+  assert.match(avatarButton, /window\.history\.pushState\(\{\}, '', '\/profile'\)/);
+  assert.match(avatarButton, /window\.dispatchEvent\(new PopStateEvent\('popstate'\)\)/);
+  assert.doesNotMatch(avatarButton, /setAccountCenterOpen\(true\)/);
   assert.doesNotMatch(avatarButton, /window\.location\.assign\('\/profile'\)/);
-  assert.match(source, /<Link href="\/profile" className=\{pathname === '\/profile'/);
 });

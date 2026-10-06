@@ -507,14 +507,15 @@ export function UserLayout({ children }) {
               title="打开个人中心"
               aria-label="进入个人中心"
               onClick={() => {
-                // 头像只负责打开入口菜单；进入具体账号页面由菜单链接负责，
-                // 避免菜单展开和路由跳转在同一次点击中竞争。
+                // 头像是个人中心的直达入口。使用应用内路由，避免先展开
+                // 抽屉再触发整页跳转，导致业务页被遮住而看起来卡住。
                 if (!isAccountCenterRoute) {
                   const currentPath = `${window.location.pathname}${window.location.search}`;
                   accountCenterReturnPathRef.current = currentPath;
                   sessionStorage.setItem('qiantie:account-center-return-path', currentPath);
                 }
-                setAccountCenterOpen(true);
+                window.history.pushState({}, '', '/profile');
+                window.dispatchEvent(new PopStateEvent('popstate'));
               }}
             >
               <Avatar size={28} src={account?.avatarUrl} style={{ backgroundColor: displayAvatar.background }}>{displayAvatar.emoji}</Avatar>
