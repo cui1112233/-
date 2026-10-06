@@ -1,3 +1,11 @@
+# Browser Worker source contract (no deployment is performed by config):
+# docker compose -f deploy/v88-public/docker-compose.yml \
+#   -f deploy/v88-public/docker-compose.browser-worker.yml config --quiet
+# Use the same file pair for a separately approved runtime operation. Supply
+# the immutable QIANTIE_BROWSER_WORKER_IMAGE and worker environment in the
+# protected deployment environment; never commit credentials or session data.
+# The overlay requires QIANTIE_* inputs only; generic operator environment
+# variables must not replace Browser Worker image/runtime defaults.
 services:
   go-api:
     image: ${QIANTIE_GO_IMAGE:?set an immutable Go image reference}
