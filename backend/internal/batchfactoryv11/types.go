@@ -13,6 +13,10 @@ var (
 	ErrConflict    = errors.New("revision conflict")
 	ErrInvalid     = errors.New("invalid input")
 	ErrUnavailable = errors.New("capability unavailable")
+	// ErrUpstream marks a temporary provider, CDN, or object-store failure.
+	// It is deliberately distinct from ErrConflict so callers can retry it
+	// without telling users that their saved batch revision is stale.
+	ErrUpstream = errors.New("temporary upstream failure")
 )
 
 type SettingsPatch map[string]json.RawMessage
@@ -296,7 +300,7 @@ type UpdateBookMetadataInput struct {
 // fetched original; it must never replace an existing source text.
 type CaptureBookSourceInput struct {
 	SourceText       string         `json:"sourceText"`
-	ReplaceSource     bool           `json:"replaceSource,omitempty"`
+	ReplaceSource    bool           `json:"replaceSource,omitempty"`
 	SourceTitle      string         `json:"sourceTitle,omitempty"`
 	SourceMetadata   map[string]any `json:"sourceMetadata,omitempty"`
 	ExpectedRevision int64          `json:"expectedRevision"`

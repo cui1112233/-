@@ -546,6 +546,12 @@ func writeStoreError(w http.ResponseWriter, err error) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid input"})
 	case errors.Is(err, batchfactoryv11.ErrUnavailable):
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "capability unavailable"})
+	case errors.Is(err, batchfactoryv11.ErrUpstream):
+		message := strings.TrimSpace(err.Error())
+		if message == "" || message == batchfactoryv11.ErrUpstream.Error() {
+			message = "temporary upstream failure"
+		}
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": message})
 	default:
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
 	}

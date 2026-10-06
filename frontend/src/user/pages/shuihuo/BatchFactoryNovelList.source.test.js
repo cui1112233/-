@@ -449,6 +449,13 @@ test('shows terminal merge failures and per-video merge progress in the clip lib
   assert.match(source, /合成已结束，等待重试/);
 });
 
+test('shows actual merge queue position and active worker phase in task logs', () => {
+  const logs = source.match(/function BatchLogs\([\s\S]*?\n}\n\nfunction /)?.[0] || '';
+  assert.match(logs, /合成队列 · 前方/);
+  assert.match(logs, /当前工位 · \$\{merge\.progressPhase/);
+	assert.match(logs, /\+ \(activeMerge \? 1 : 0\)/);
+});
+
 test('renders saved book-city and novel-fetch metadata without exposing internal platform IDs', () => {
   assert.match(source, /function bookPlatformName\(book/);
   assert.match(source, /metadata\.platformName/);

@@ -21,3 +21,15 @@ func TestWriteStoreErrorKeepsSpecificConflictReason(t *testing.T) {
 		t.Fatalf("body must retain the actionable conflict reason, got %s", rec.Body.String())
 	}
 }
+
+func TestWriteStoreErrorKeepsTransientUpstreamReasonAndUsesServiceUnavailable(t *testing.T) {
+	rec := httptest.NewRecorder()
+	writeStoreError(rec, fmt.Errorf("%w: media duration probe failed: stream error", batchfactoryv11.ErrUpstream))
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "media duration probe failed") {
+		t.Fatalf("body must retain the actionable upstream reason, got %s", rec.Body.String())
+	}
+}

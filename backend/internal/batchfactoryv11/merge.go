@@ -403,7 +403,7 @@ func (s *MergeService) submitMerge(ctx context.Context, owner, batchID, onlyBook
 					if probeErr == nil {
 						probeErr = errors.New("duration probe returned zero")
 					}
-					return MergeJob{}, fmt.Errorf("%w: book %s VIDEO %s media duration probe failed: %v", ErrConflict, book.ID, video.ID, probeErr)
+					return MergeJob{}, fmt.Errorf("%w: book %s VIDEO %s media duration probe failed: %v", ErrUpstream, book.ID, video.ID, probeErr)
 				}
 				selection.Task.ActualDurationSeconds = actualDuration
 				if _, updateErr := productionRepository.UpdateProductionTask(ctx, owner, selection.JobID, selection.Task.ID, selection.Task); updateErr != nil {

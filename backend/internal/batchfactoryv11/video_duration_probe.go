@@ -11,14 +11,43 @@ import (
 )
 
 const maxVideoDurationProbeBytes = 512 << 20
+const videoDurationProbeAttempts = 3
 
 // HTTPVideoDurationProbe downloads a completed HTTPS video to a bounded
 // stream, then uses ffprobe to inspect the real container duration.
 type HTTPVideoDurationProbe struct {
-	Client *http.Client
+	Client     *http.Client
+	RetryDelay func(attempt int) time.Duration
 }
 
 func (p HTTPVideoDurationProbe) DurationSeconds(ctx context.Context, rawURL string) (float64, error) {
+	var lastErr error
+	for attempt := 0; attempt < videoDurationProbeAttempts; attempt++ {
+		seconds, err := p.durationSecondsOnce(ctx, rawURL)
+		if err == nil {
+			return seconds, nil
+		}
+		lastErr = err
+		if attempt+1 == videoDurationProbeAttempts || !retryableVideoDurationProbeError(ctx, err) {
+			break
+		}
+		delay := 250 * time.Millisecond * time.Duration(attempt+1)
+		if p.RetryDelay != nil {
+			delay = p.RetryDelay(attempt + 1)
+		}
+		if delay <= 0 {
+			continue
+		}
+		select {
+		case <-ctx.Done():
+			return 0, ctx.Err()
+		case <-time.After(delay):
+		}
+	}
+	return 0, fmt.Errorf("media duration probe failed after %d attempts: %w", videoDurationProbeAttempts, lastErr)
+}
+
+func (p HTTPVideoDurationProbe) durationSecondsOnce(ctx context.Context, rawURL string) (float64, error) {
 	endpoint, err := validateProductionURL(strings.TrimSpace(rawURL))
 	if err != nil {
 		return 0, fmt.Errorf("invalid completed media URL: %w", err)
@@ -55,4 +84,18 @@ func (p HTTPVideoDurationProbe) DurationSeconds(ctx context.Context, rawURL stri
 		return 0, fmt.Errorf("media duration probe returned invalid duration")
 	}
 	return seconds, nil
+}
+
+func retryableVideoDurationProbeError(ctx context.Context, err error) bool {
+	if err == nil || ctx.Err() != nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	// Bad source URLs and a permanent client-side rejection cannot recover by
+	// reading the exact same object again. Transport failures, stream resets,
+	// and 5xx/429 CDN responses can.
+	if strings.Contains(message, "invalid completed media url") || strings.Contains(message, "media duration probe requires") || strings.Contains(message, "returned invalid duration") || strings.Contains(message, "media download returned http 4") {
+		return false
+	}
+	return true
 }

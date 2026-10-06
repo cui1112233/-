@@ -27,11 +27,12 @@ func (a *scriptedMergeAdapter) Submit(_ context.Context, _ string, _ []MergeMedi
 type recordingVideoDurationProbe struct {
 	seconds float64
 	calls   int
+	err     error
 }
 
 func (p *recordingVideoDurationProbe) DurationSeconds(_ context.Context, _ string) (float64, error) {
 	p.calls++
-	return p.seconds, nil
+	return p.seconds, p.err
 }
 
 type failingMergePoller struct{}
@@ -187,5 +188,18 @@ func TestAudioMergeProbesAndPersistsCompletedMediaDurationWhenProviderOmitsIt(t 
 	productionJobs, err := store.ListProductionJobs(context.Background(), "alice", batch.ID)
 	if err != nil || productionJobs[0].Tasks[0].ActualDurationSeconds != 10.125 {
 		t.Fatalf("duration must be persisted: jobs=%+v err=%v", productionJobs, err)
+	}
+}
+
+func TestAudioMergeClassifiesTransientDurationProbeFailureAsUpstream(t *testing.T) {
+	store, batch, book, _ := seedCompiledVideo(t)
+	production := &ProductionService{Store: store, Compiler: &PromptCompilerService{Store: store}, Adapter: &recordingProductionAdapter{ref: ProviderTaskRef{ProviderTaskID: "provider-stream-error", State: ProductionSucceeded, MediaURL: "https://media.example/stream.mp4"}}, Enabled: true, Model: FrozenVideoModel{ID: "video-model-a", MaxDuration: 15}}
+	if _, err := production.SubmitBookProduction(context.Background(), "alice", batch.ID, book.ID, "production-stream-error"); err != nil {
+		t.Fatal(err)
+	}
+	probe := &recordingVideoDurationProbe{err: errors.New("stream error: INTERNAL_ERROR")}
+	_, err := (&MergeService{Store: store, Adapter: &recordingMergeAdapter{}, DurationProbe: probe, Enabled: true}).SubmitBookMerge(context.Background(), "alice", batch.ID, book.ID, "merge-stream-error", MergeOptions{TimingMode: "audio", AudioDurationSeconds: 5})
+	if !errors.Is(err, ErrUpstream) || errors.Is(err, ErrConflict) {
+		t.Fatalf("duration stream failure must be retryable upstream error, got %v", err)
 	}
 }
