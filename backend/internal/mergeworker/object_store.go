@@ -60,7 +60,7 @@ func (s *TOSObjectStore) PutUploadedMP4(ctx context.Context, uploadID, filePath 
 		return "", fmt.Errorf("TOS public base URL must be HTTPS for uploaded video")
 	}
 	if err := s.PutFile(ctx, strings.TrimSpace(s.Bucket), key, filePath, "video/mp4"); err != nil {
-		return "", fmt.Errorf("upload video failed")
+		return "", fmt.Errorf("upload video failed: %w", err)
 	}
 	base.Path = strings.TrimSuffix(base.Path, "/") + "/" + path.Clean(key)
 	base.RawQuery = ""
@@ -77,7 +77,7 @@ func (s *TOSObjectStore) PutMerged(ctx context.Context, taskID, filePath string)
 		return "", err
 	}
 	if err := s.PutFile(ctx, strings.TrimSpace(s.Bucket), key, filePath, "video/mp4"); err != nil {
-		return "", fmt.Errorf("upload merged video failed")
+		return "", fmt.Errorf("upload merged video failed: %w", err)
 	}
 	if s.OpenFile != nil {
 		reader, err := s.OpenFile(ctx, key)

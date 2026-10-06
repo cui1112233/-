@@ -2,6 +2,7 @@ package mergeworker
 
 import (
 	"context"
+	"errors"
 	"io"
 	"path/filepath"
 	"strings"
@@ -62,6 +63,19 @@ func TestTOSObjectStoreReturnsPublicURL(t *testing.T) {
 	}
 	if url != "https://cdn.example.com/media/batch-merged/merge-task-123.mp4" {
 		t.Fatalf("url=%q", url)
+	}
+}
+
+func TestTOSObjectStorePreservesUploadCause(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "merged.mp4")
+	cause := errors.New("write tcp: i/o timeout")
+	store := &TOSObjectStore{
+		Bucket:  "bucket-a",
+		PutFile: func(context.Context, string, string, string, string) error { return cause },
+	}
+	_, err := store.PutMerged(context.Background(), "merge-task-123", file)
+	if !errors.Is(err, cause) {
+		t.Fatalf("upload failure must retain its cause, got %v", err)
 	}
 }
 

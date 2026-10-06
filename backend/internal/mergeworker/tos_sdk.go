@@ -5,8 +5,20 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/volcengine/ve-tos-golang-sdk/v2/tos"
+)
+
+// These bounds are intentionally longer than the SDK defaults (30s socket,
+// 60s response headers). Video output has repeatedly taken several minutes on
+// the ECS-to-TOS path; a progressing transfer must not be treated as failed.
+// The local merge lifecycle still has its separate one-hour ceiling.
+const (
+	tosUploadRequestTimeout = 5 * time.Minute
+	tosUploadSocketTimeout  = 5 * time.Minute
+	tosUploadConnectTimeout = 30 * time.Second
+	tosUploadRetryCount     = 3
 )
 
 type TOSConfig struct {
@@ -32,6 +44,10 @@ func NewTOSObjectStore(config TOSConfig) (*TOSObjectStore, error) {
 		config.Endpoint,
 		tos.WithRegion(config.Region),
 		tos.WithCredentials(tos.NewStaticCredentials(config.AccessKey, config.SecretKey)),
+		tos.WithConnectionTimeout(tosUploadConnectTimeout),
+		tos.WithRequestTimeout(tosUploadRequestTimeout),
+		tos.WithSocketTimeout(tosUploadSocketTimeout, tosUploadSocketTimeout),
+		tos.WithMaxRetryCount(tosUploadRetryCount),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create TOS merge output client: %w", err)

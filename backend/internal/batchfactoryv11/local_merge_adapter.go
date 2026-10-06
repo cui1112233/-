@@ -41,6 +41,11 @@ type LocalMergeAdapter struct {
 // to an interrupted process; current workspaces are created after construction.
 const localMergeWorkspaceRecoveryAge = 30 * time.Minute
 
+// localMergeExecutionTimeout deliberately covers a complete local lifecycle,
+// including a slow but progressing TOS write. The TOS client has its own
+// bounded per-I/O deadlines; this is the end-to-end ceiling, not a retry loop.
+const localMergeExecutionTimeout = time.Hour
+
 type localMergeDownloader interface {
 	Download(context.Context, []MergeMedia, string, func(int, int)) ([]string, error)
 }
@@ -182,7 +187,7 @@ func (a *LocalMergeAdapter) run(taskID, batchID string, sources []MergeMedia, op
 	a.acquireMergeLane()
 	defer a.releaseMergeLane()
 	a.update(taskID, func(job *MergeJob) { job.Status, job.ProgressPhase, job.ErrorMessage = MergeRunning, "downloading", "" })
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), localMergeExecutionTimeout)
 	defer cancel()
 	root := strings.TrimSpace(a.WorkRoot)
 	if root == "" {
@@ -229,6 +234,9 @@ func (a *LocalMergeAdapter) run(taskID, batchID string, sources []MergeMedia, op
 	}
 	outputURL := ""
 	if a.Output != nil {
+		a.update(taskID, func(job *MergeJob) {
+			job.Status, job.ProgressPhase, job.ProgressCurrent, job.ProgressTotal = MergeRunning, "uploading", len(sources), len(sources)
+		})
 		outputURL, err = a.Output.PutMerged(ctx, taskID, outputPath)
 		if err != nil {
 			a.fail(taskID, err)
