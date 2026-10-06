@@ -997,7 +997,7 @@ function createBatchRewriteRouter({
     const web = object(current.web_submit);
     const local = normalizeUploadProfiles(web.upload_profiles).filter(profile => profile.source !== '121');
     const nextWeb = { ...web, upload_profiles: [...local, ...profiles] };
-    await tasks.saveConfig({ ...current, web_submit: nextWeb });
+    if (req.body?.persist !== false) await tasks.saveConfig({ ...current, web_submit: nextWeb });
     return { ok: true, settings: publicWebSubmit(nextWeb), groups: profiles, output: [`已从 121 同步 ${profiles.length} 个配置档`] };
   }
 
@@ -1011,7 +1011,7 @@ function createBatchRewriteRouter({
     const added = styles.filter(name => !old.includes(name));
     const removed = old.filter(name => !styles.includes(name));
     const nextWeb = { ...object(current.web_submit), style_catalog: catalog };
-    await tasks.saveConfig({ ...current, styles, web_submit: nextWeb });
+    if (req.body?.persist !== false) await tasks.saveConfig({ ...current, styles, web_submit: nextWeb });
     return { ok: true, settings: publicWebSubmit(nextWeb), styles, style_sync: { old_count: old.length, new_count: styles.length, added, removed }, output: [`已从 121 同步 ${styles.length} 个风格类型`] };
   }
 
