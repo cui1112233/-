@@ -1,0 +1,127 @@
+{
+  "schemaVersion": 1,
+  "sourceAuthority": {
+    "branch": "v88",
+    "inspectedOriginV88Sha": "d1b4754a4db56f66392c9405ff066f7212ddf853"
+  },
+  "evidence": {
+    "status": "source-contract-only; no live runtime inspection in this task",
+    "configurationFiles": ["deploy/v88-public/docker-compose.yml", "deploy/v88-public/nginx.conf"],
+    "historicalInventory": "deploy/v88-public/cleanup/2026-10-03-ecs-inventory.md",
+    "normalizationInputs": ["docker compose config --format json", "docker inspect", "origin/v88 release SHA"],
+    "normalizationRule": "Retain service IDs, image identities, dependency IDs, symbolic mount purposes and listener ownership only; discard environment values, mount locations and session contents."
+  },
+  "services": [
+    {
+      "id": "browser-worker",
+      "source": {
+        "kind": "v88-build",
+        "buildFile": "services/121-browser-worker/Dockerfile",
+        "configurationFiles": ["deploy/v88-public/docker-compose.yml"],
+        "composeService": "browser-worker"
+      },
+      "runtimeImageOrBinary": {
+        "kind": "deploy-time-image-reference",
+        "selector": "QIANTIE_BROWSER_WORKER_IMAGE",
+        "baseImage": "mcr.microsoft.com/playwright:v1.55.0-noble"
+      },
+      "dependsOn": [],
+      "persistentDataPurpose": ["browser-session-storage", "legacy-session-read-only-storage"],
+      "publicExposure": {"internalPorts": [8787], "publishedPorts": [], "owner": "internal-only"},
+      "retirementGate": "Prove authenticated 视频管理系统 login, session reuse and upload/readback through a source-owned replacement before retiring this worker or its session storage."
+    },
+    {
+      "id": "go-api",
+      "source": {
+        "kind": "v88-build",
+        "buildFile": "backend/Dockerfile",
+        "entrypoint": "backend/cmd/qiantie",
+        "configurationFiles": ["deploy/v88-public/docker-compose.yml"],
+        "composeService": "go-api"
+      },
+      "runtimeImageOrBinary": {
+        "kind": "deploy-time-immutable-image-reference",
+        "selector": "QIANTIE_GO_IMAGE",
+        "binaryName": "qiantie",
+        "releaseIdentitySelector": "QIANTIE_GO_RELEASE_SHA"
+      },
+      "dependsOn": ["mysql"],
+      "persistentDataPurpose": ["local-executor-artifacts"],
+      "publicExposure": {"internalPorts": [4000], "publishedPorts": [], "owner": "internal-only"},
+      "retirementGate": "Verify replacement API contracts, real persisted batch stages, artifact readback and rollback with matching Go runtime identity before retiring this service."
+    },
+    {
+      "id": "mysql",
+      "source": {
+        "kind": "retained-external-runtime",
+        "configurationFiles": [],
+        "ownershipGap": "Public MySQL startup configuration is not yet declared in the tracked base Compose; dependent DSNs require the mysql service alias."
+      },
+      "runtimeImageOrBinary": {
+        "kind": "retained-image-needs-normalized-inspection",
+        "image": null,
+        "reason": "The tracked inventory confirms retained MySQL but does not record an exact image identity."
+      },
+      "dependsOn": [],
+      "persistentDataPurpose": ["mysql-data", "isolated-shuihuo-compat-database"],
+      "publicExposure": {"internalPorts": [3306], "publishedPorts": [], "owner": "internal-only-required; live bindings unverified"},
+      "retirementGate": "First capture non-secret image/startup/network ownership in Git, verify restorable database backups and account-scoped business read/write on the replacement; never retire data storage on topology evidence alone."
+    },
+    {
+      "id": "nginx",
+      "source": {
+        "kind": "upstream-image-with-v88-configuration",
+        "configurationFiles": ["deploy/v88-public/docker-compose.yml", "deploy/v88-public/nginx.conf"],
+        "composeService": "nginx"
+      },
+      "runtimeImageOrBinary": {"kind": "image", "image": "nginx:1.27-alpine"},
+      "dependsOn": ["node"],
+      "persistentDataPurpose": ["certificate-storage-outside-git", "acme-challenge-storage-outside-git"],
+      "publicExposure": {
+        "internalPorts": [80],
+        "publishedPorts": [{"host": 80, "target": 80}, {"host": 443, "target": 443}, {"host": 3000, "target": 80}],
+        "owner": "public-ingress",
+        "upstream": "node",
+        "listenerGap": "Compose reserves 443, but the tracked Nginx configuration only listens on 80; HTTPS termination is not verified."
+      },
+      "retirementGate": "Verify replacement listener ownership, application proxy routes, certificate renewal, external exact-SHA identity and rollback before changing public ingress."
+    },
+    {
+      "id": "node",
+      "source": {
+        "kind": "v88-build",
+        "buildFile": "Dockerfile",
+        "entrypoint": "server.js",
+        "configurationFiles": ["deploy/v88-public/docker-compose.yml"],
+        "composeService": "v88-node"
+      },
+      "runtimeImageOrBinary": {
+        "kind": "deploy-time-immutable-image-reference",
+        "selector": "QIANTIE_NODE_IMAGE",
+        "releaseIdentitySelector": "QIANTIE_NODE_RELEASE_SHA"
+      },
+      "dependsOn": ["go-api", "browser-worker", "shuihuo-compat"],
+      "persistentDataPurpose": ["batch-book-data", "business-output-media"],
+      "publicExposure": {"internalPorts": [3000], "publishedPorts": [], "owner": "internal-only; public requests arrive through nginx"},
+      "retirementGate": "Verify replacement authenticated UI/API, source text persistence, batch ledger and media readback with exact release identity and a tested rollback before retiring Node or its persistent stores."
+    },
+    {
+      "id": "shuihuo-compat",
+      "source": {
+        "kind": "retained-compatibility-image",
+        "configurationFiles": ["deploy/v88-public/docker-compose.yml"],
+        "composeService": "shuihuo-compat",
+        "ownershipGap": "The retained legacy image is selected at deployment; its exact source/build provenance must be captured before retirement."
+      },
+      "runtimeImageOrBinary": {
+        "kind": "retained-deploy-time-image-reference",
+        "selector": "QIANTIE_SHUIHUO_COMPAT_IMAGE",
+        "pullPolicy": "never"
+      },
+      "dependsOn": ["mysql"],
+      "persistentDataPurpose": ["shuihuo-compat-object-storage"],
+      "publicExposure": {"internalPorts": [4100], "publishedPorts": [], "owner": "internal-only; requests arrive through node"},
+      "retirementGate": "Prove every active compatibility route and its object/database readback is replaced in v88; verify isolated database migration, rollback and absence of callers before retirement."
+    }
+  ]
+}
