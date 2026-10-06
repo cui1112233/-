@@ -21,10 +21,6 @@ const fixture = {
   HOST: 'operator-host', PORT: '9090', LANG: 'operator-language', LC_ALL: 'operator-locale',
   PLAYWRIGHT_BROWSERS_PATH: '/fixture/browsers',
   QIANTIE_121_WORKER_SECRET: 'fixture-worker',
-  QIANTIE_121_SESSION_DIR: '/data/sessions',
-  QIANTIE_121_LEGACY_SESSION_DIR: '/data/legacy-sessions',
-  QIANTIE_121_HEADED_ENABLED: '1',
-  QIANTIE_121_VERIFY_TIMEOUT_MS: '30000', QIANTIE_121_LOGIN_TIMEOUT_MS: '55000',
 };
 
 function compose(extraEnv = {}) {
@@ -40,14 +36,13 @@ function workerConfig() {
   return JSON.parse(result.stdout);
 }
 
-test('Browser Worker overlay retains image selection and its internal-only network alias', () => {
+test('Browser Worker keeps its image selection and internal-only Compose network', () => {
   const config = workerConfig();
   const worker = config.services['browser-worker'];
   assert.equal(worker.image, 'example/browser:test-pin');
   assert.equal(worker.restart, 'unless-stopped');
   assert.equal(worker.ports, undefined);
   assert.deepEqual(Object.keys(worker.networks), ['qiantie_internal']);
-  assert.ok(worker.networks.qiantie_internal.aliases.includes('browser-worker'));
   assert.equal(config.networks.qiantie_internal.name, 'v88-public_qiantie_internal');
   assert.equal(config.networks.qiantie_internal.external, true);
 });
@@ -67,7 +62,7 @@ test('Browser Worker preserves writable sessions and read-only legacy named stor
   assert.equal(config.volumes['novel-fetch-121-data'].external, true);
 });
 
-test('Browser Worker requires application inputs and leaves generic environment to image/runtime defaults', () => {
+test('Browser Worker overlay only requires its secret and preserves base runtime defaults', () => {
   const env = workerConfig().services['browser-worker'].environment;
   assert.deepEqual(Object.keys(env).sort(), [
     'HOST', 'PORT',
@@ -75,9 +70,12 @@ test('Browser Worker requires application inputs and leaves generic environment 
     'QIANTIE_121_LOGIN_TIMEOUT_MS', 'QIANTIE_121_SESSION_DIR',
     'QIANTIE_121_VERIFY_TIMEOUT_MS', 'QIANTIE_121_WORKER_SECRET',
   ].sort());
-  for (const name of Object.keys(env).filter((name) => name.startsWith('QIANTIE_'))) {
-    assert.equal(env[name], fixture[name], name);
-  }
+  assert.equal(env.QIANTIE_121_WORKER_SECRET, fixture.QIANTIE_121_WORKER_SECRET);
+  assert.equal(env.QIANTIE_121_HEADED_ENABLED, '1');
+  assert.equal(env.QIANTIE_121_LEGACY_SESSION_DIR, '/data/legacy-sessions');
+  assert.equal(env.QIANTIE_121_LOGIN_TIMEOUT_MS, '55000');
+  assert.equal(env.QIANTIE_121_SESSION_DIR, '/data/sessions');
+  assert.equal(env.QIANTIE_121_VERIFY_TIMEOUT_MS, '30000');
   assert.equal(env.HOST, '0.0.0.0', 'base listener default must not inherit operator HOST');
   assert.equal(env.PORT, '8787', 'base listener default must not inherit operator PORT');
   for (const name of ['PATH', 'LANG', 'LC_ALL', 'PLAYWRIGHT_BROWSERS_PATH']) {
