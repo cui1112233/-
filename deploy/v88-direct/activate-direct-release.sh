@@ -67,6 +67,8 @@ try:
         legacy_identity = release / "node" / "RELEASE-SHA"
         if legacy_identity.exists():
             sha = legacy_identity.read_text(encoding="utf-8").strip()
+            if re.fullmatch(r"[0-9a-f]{40}", fallback_sha) and sha != fallback_sha:
+                raise ValueError("previous release identity conflicts with DIRECT_RELEASE_SHA")
         elif re.fullmatch(r"[0-9a-f]{40}", fallback_sha):
             sha = fallback_sha
         else:

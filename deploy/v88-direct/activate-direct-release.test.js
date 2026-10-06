@@ -182,6 +182,12 @@ test('activation accepts an unmanifested legacy previous release when .env has i
   assert.equal(fs.readlinkSync(path.join(f.direct, 'previous')), f.previousRelease);
 });
 
+test('activation rejects a legacy previous identity that conflicts with the active .env identity', (t) => {
+  const f = fixture(t);
+  fs.writeFileSync(path.join(f.previousRelease, 'node', 'RELEASE-SHA'), `${'b'.repeat(40)}\n`);
+  assertNoCutover(f, f.activate());
+});
+
 test('first activation explicitly records no previous direct release', (t) => {
   const f = fixture(t, { previous: false });
   const result = f.activate();
