@@ -539,6 +539,16 @@ test('keeps the public V11 namespace read-only after V12 becomes the production 
   assert.equal(continued, true);
 });
 
+test('V12 reuses the supplied V11 automation controller instead of starting a second scheduler', () => {
+  const legacy = express.Router();
+  const automationController = { status: () => ({ state: 'idle' }) };
+  legacy.automationController = automationController;
+
+  const router = createBatchFactoryV12Router({ legacyRouter: legacy });
+
+  assert.equal(router.automationController, automationController);
+});
+
 test('V12 deletion forwards the signed-in retention period to the Go deletion boundary', async t => {
   const calls = [];
   const app = express();

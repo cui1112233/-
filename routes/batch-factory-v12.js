@@ -229,7 +229,7 @@ function batchFactoryRuntimeIndexPath(batchId) {
 
 function createBatchFactoryV12Router(options = {}) {
   const automationPresetStore = options.automationPresetStore || createAutomationPresetStore({ statePath: options.automationPresetStatePath });
-  const legacy = createBatchFactoryV11Router({ ...options, automationPresetStore });
+  const legacy = options.legacyRouter || createBatchFactoryV11Router({ ...options, automationPresetStore });
   const router = express.Router();
   const runtimeSummaryCache = new Map();
   // 浏览器运行摘要每 5 秒轮询一次；将相同账号/批量的昂贵聚合读取限为 15 秒一次，
@@ -478,6 +478,7 @@ function createBatchFactoryV12Router(options = {}) {
       next(error);
     });
   });
+  router.automationController = legacy.automationController;
   return router;
 }
 

@@ -478,13 +478,14 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
     novelFetchStore: resolvedNovelFetchStore,
     resolveRuntimeModel: app.locals.resolveRuntimeModel
   }));
-  app.use('/api/batch-factory/v11', apiAuth, createBatchFactoryV11Router({
+  const batchFactoryV11Router = createBatchFactoryV11Router({
     memberStore: resolvedMemberStore,
     accountStore: authRuntime.accountStore,
     presetStore: resolvedPresetStore,
     configReader: readConfig,
     novelFetchStore: resolvedNovelFetchStore
-  }));
+  });
+  app.use('/api/batch-factory/v11', apiAuth, batchFactoryV11Router);
   app.use('/api/batch-factory/v11', createBatchFactoryV11ScheduleRouter(resolvedBatchFactoryV11Scheduler));
   const resolvedConfigReader = configReader || readConfig;
   app.use('/api/batch-factory/v12', apiAuth, createBatchFactoryV12Router({
@@ -495,7 +496,8 @@ function createApp({ accountStore, tokenMap, sessionsPath, presetStore, scriptCo
     configReader: resolvedConfigReader,
     novelFetchStore: resolvedNovelFetchStore,
     goBaseUrl: process.env.QIANTIE_GO_BASE_URL,
-    bridgeSecret: process.env.QIANTIE_BRIDGE_SECRET
+    bridgeSecret: process.env.QIANTIE_BRIDGE_SECRET,
+    legacyRouter: batchFactoryV11Router
   }));
   app.use('/api/batch-factory', createBatchFactoryIntakeRouter({ store: resolvedBatchFactoryStore }));
   app.use('/api/batch-factory', createBatchFactoryRouter({ store: resolvedBatchFactoryStore, presetStore: resolvedPresetStore, shuihuoGateway, configReader: teamConfigReader, upstreamRequest: createTeamUpstreamRequest({ usageStore: resolvedUsageStore, feature: 'batch-factory' }) }));
