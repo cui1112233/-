@@ -26,6 +26,10 @@ type ManualIntakeInput struct {
 	// SourceMetadataByBookID carries authoritative fetch facts (for example 121
 	// category/genre). Manual columns keep precedence when the book is created.
 	SourceMetadataByBookID map[string]map[string]any `json:"sourceMetadataByBookId,omitempty"`
+	// InitialBatchSettings lets a first-time user configure the batch before
+	// there is a workbench to open. The route persists it atomically with the
+	// intake-derived batch instead of creating an unconfigured intermediary.
+	InitialBatchSettings SettingsPatch `json:"initialBatchSettings,omitempty"`
 	// Groups 可选：多书城分组录入。非空时每组按各自平台解析，忽略顶层 PlatformID/InputText。
 	Groups []ManualIntakeGroup `json:"groups,omitempty"`
 }

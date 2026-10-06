@@ -216,6 +216,7 @@ func TestManualIntakeCreatesOneBatchAndKeepsManualSourceMetadata(t *testing.T) {
 		"title": "晚间批量", "platformId": "15", "platformName": "番茄小说", "parseMode": "smart", "columnPresetId": "sample_input",
 		"inputText":                "100000000001\t书A\t精彩理由\t女频\t都市爽文\tS\n100000000002\t书B\t精彩理由\t男频\t都市爽文\tA",
 		"sourceTextByBookId":       map[string]string{"100000000001": "第一本完整原文", "100000000002": "第二本完整原文"},
+		"initialBatchSettings":     map[string]any{"textModelId": "text-default", "openingEnabled": false},
 		"contentCaptureCharacters": 4000,
 		"contentRangeLines":        5, "scheduledAt": "2026-09-14T02:00:00Z",
 	})
@@ -225,6 +226,9 @@ func TestManualIntakeCreatesOneBatchAndKeepsManualSourceMetadata(t *testing.T) {
 	got := decodeBody[map[string]batchfactoryv11.Batch](t, rec)["batch"]
 	if got.Title != "晚间批量" || len(got.Books) != 2 {
 		t.Fatalf("batch=%+v", got)
+	}
+	if string(got.SettingsState.Patch["textModelId"]) != `"text-default"` || string(got.SettingsState.Patch["openingEnabled"]) != "false" {
+		t.Fatalf("first-time unified settings were not persisted: %+v", got.SettingsState)
 	}
 	if got.Books[0].SourceMetadata["sourceMode"] != "manual_original" || got.Books[0].SourceMetadata["queueStatus"] != "scheduled_waiting" || got.Books[0].SourceMetadata["platformName"] != "番茄小说" || got.Books[0].SourceMetadata["gender"] != "女频" || got.Books[0].SourceMetadata["tags"] != "都市爽文" || got.Books[0].SourceMetadata["reason"] != "精彩理由" || got.Books[0].SourceMetadata["rating"] != "S" {
 		t.Fatalf("metadata=%#v", got.Books[0].SourceMetadata)

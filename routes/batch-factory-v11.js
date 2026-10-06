@@ -1357,6 +1357,13 @@ function isPromptConfigPath(req, pathname) {
   return /^\/api\/batch-factory\/v11\/batches\/[^/]+(?:\/settings|\/books\/[^/]+\/override|\/books\/[^/]+\/videos\/[^/]+\/override)$/.test(pathname);
 }
 
+function isInitialBatchSettingsPath(req, pathname) {
+  return req.method === 'POST' && (
+    pathname === '/api/batch-factory/v11/intakes/manual' ||
+    /^\/api\/batch-factory\/v11\/intakes\/[^/]+\/batches$/.test(pathname)
+  );
+}
+
 function promptConfigError(message) {
   const error = new Error(message);
   error.status = 422;
@@ -2490,10 +2497,14 @@ function createBatchFactoryV11Router(options = {}) {
     try {
       const parsed = new URL(req.originalUrl || req.url, 'http://qiantie.local');
       const modelExecution = batchFactoryModelExecutionPath(req, parsed.pathname);
-      if (isPromptConfigPath(req, parsed.pathname) || modelExecution) {
+      if (isPromptConfigPath(req, parsed.pathname) || isInitialBatchSettingsPath(req, parsed.pathname) || modelExecution) {
         validateBatchFactoryModelPatch({
           ...upstreamOptions, username: req.username, account: req.auth?.account,
-          patch: isPromptConfigPath(req, parsed.pathname) ? req.body?.patch : req.body
+          patch: isPromptConfigPath(req, parsed.pathname)
+            ? req.body?.patch
+            : isInitialBatchSettingsPath(req, parsed.pathname)
+              ? req.body?.initialBatchSettings
+              : req.body
         });
       }
       const effectiveModels = modelExecution ? await validateBatchFactoryExecutionModels(req, modelExecution, upstreamOptions) : null;

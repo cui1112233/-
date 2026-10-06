@@ -53,6 +53,16 @@ test('immediate execution defaults to the end-to-end upload automation mode', ()
 	assert.match(source, /if \(!scheduled\) setAutomationRunMode\('full_submit'\);/);
 });
 
+test('lets a first-time batch owner save unified settings before creating the batch', () => {
+  assert.match(source, /BatchFactoryEngineSettingsForm/);
+  assert.match(source, /BatchFactoryAiReasoningForm/);
+  assert.match(source, /BatchFactoryPublishSettingsForm/);
+  assert.match(source, /const \[initialBatchSettings, setInitialBatchSettings\] = useState\(\{\}\)/);
+  assert.match(source, />统一配置<\/Button>/);
+  assert.match(source, /title="新建批量 · 统一配置"/);
+  assert.match(source, /initialBatchSettings: clone\(initialBatchSettings\)/);
+});
+
 test('grouped submit surfaces failed book cities and counts only fetched pending books', () => {
   // I3：失败书城可见——catch 里记录书城名并 console.warn，最终 warning 带出具体书城
   assert.match(source, /const failedPlatforms = \[\]/);

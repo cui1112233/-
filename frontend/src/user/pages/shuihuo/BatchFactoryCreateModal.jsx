@@ -1,4 +1,4 @@
-import { Alert, Button, Input, InputNumber, Modal, Select, Space, Switch, Tag, message } from 'antd';
+import { Alert, Button, Input, InputNumber, Modal, Select, Space, Switch, Tabs, Tag, message } from 'antd';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getWorkshopPlatforms } from '../../../shared/api/novelFetchWorkshop';
 import { createNovelFetchIntake, fetchBookOriginal, fetchDirectOriginals, getBatch, getBatchAutomationStatus, listAutomationPresets, listBatches, startBatchAutomation, updateBookMetadata } from '../../../shared/api/batchFactoryV11';
@@ -9,6 +9,7 @@ import { resolveGiantMaterialForBatch } from '../giantMaterialExtractionClient.j
 import { parseGiantMaterialIds } from './batchFactoryGiantMaterialQueue.js';
 import { createGiantMaterialJob } from '../../../shared/api/giantMaterialExecutorPublic.js';
 import { BatchFactoryGiantMaterialExecutorStatus } from './BatchFactoryGiantMaterialExecutorStatus.jsx';
+import { BatchFactoryAiReasoningForm, BatchFactoryEngineSettingsForm, BatchFactoryPublishSettingsForm } from './BatchFactoryUnifiedSettingsModal.jsx';
 import {
   availableGiantMaterialBooks,
   buildGiantMaterialPlaceholderIntakes,
@@ -21,6 +22,7 @@ import {
 const DEFAULT_PARSE_MODE = 'smart';
 const DEFAULT_COLUMN_PRESET_ID = 'full_metadata';
 const DEFAULT_COLUMN_ORDER = '书籍ID,书名,男女频,风格,标签,推荐理由,评级';
+const clone = value => JSON.parse(JSON.stringify(value || {}));
 
 function normalizedError(error, fallback) {
   const code = String(error?.message || '').trim();
@@ -90,6 +92,8 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated, onBatchUpda
   const [giantError, setGiantError] = useState('');
   const [executorHealth, setExecutorHealth] = useState(null);
   const [giantOriginalReadStrategy, setGiantOriginalReadStrategy] = useState('ocr_first');
+  const [initialBatchSettings, setInitialBatchSettings] = useState({});
+  const [initialSettingsOpen, setInitialSettingsOpen] = useState(false);
   const giantControllerRef = useRef(null);
 
   async function loadPlatforms() {
@@ -159,6 +163,8 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated, onBatchUpda
     setContentCaptureCharacters(4000);
     setGroups([]);
     setEditingPlatformId(null);
+    setInitialBatchSettings({});
+    setInitialSettingsOpen(false);
   }
 
   function clearGiantMaterialDraft() {
@@ -371,6 +377,7 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated, onBatchUpda
         presetId: automationPresetID,
         runMode: automationRunMode,
         automationConcurrency: normalizeAutomationConcurrency(automationConcurrency),
+        initialBatchSettings: clone(initialBatchSettings),
         giantAutomation: selectedPreset ? {
           presetId: selectedPreset.id,
           expectedPresetVersion: selectedPreset.version,
@@ -626,7 +633,8 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated, onBatchUpda
         autoPublishEnabled: automationEnabled && automationRunMode === 'full_submit',
         presetId: automationPresetID,
         runMode: automationRunMode,
-        automationConcurrency: normalizeAutomationConcurrency(automationConcurrency)
+        automationConcurrency: normalizeAutomationConcurrency(automationConcurrency),
+        initialBatchSettings: clone(initialBatchSettings)
       }));
       reset();
       if (failedPlatforms.length > 0) {
@@ -718,6 +726,7 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated, onBatchUpda
         : <><Button type="primary" onClick={handleAddPlatformGroup}>{editingPlatformId ? '保存书城修改' : '添加书城'}</Button><Button type="primary" disabled={createDisabled} loading={busy} onClick={() => openAutomationDialog('immediate')}>立即执行</Button></>}
       <Button onClick={() => openAutomationDialog('scheduled')}>开始定时</Button>
       <Button onClick={openScheduleTasks}>定时任务</Button>
+      <Button onClick={() => setInitialSettingsOpen(true)}>统一配置</Button>
     </div>
     {!isGiantMaterial && groups.length ? (
       <div className="batch-factory-platform-groups" data-testid="platform-groups">
@@ -740,6 +749,23 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated, onBatchUpda
       <label className="shuihuo-form-label">内容范围<InputNumber min={1} max={500} value={contentRangeLines} onChange={value => setContentRangeLines(value || 5)} addonAfter="行" /></label>
       <label className="shuihuo-form-label">内容截取<Select value={contentCaptureCharacters} onChange={setContentCaptureCharacters} options={[1000, 2000, 4000, 8000, 12000, 20000, 50000, 100000].map(value => ({ value, label: `${value} 字` }))} /></label>
     </div>
+  </Modal>
+  <Modal
+    title="新建批量 · 统一配置"
+    open={initialSettingsOpen}
+    onCancel={() => setInitialSettingsOpen(false)}
+    onOk={() => setInitialSettingsOpen(false)}
+    okText="确认配置"
+    cancelText="取消"
+    width={980}
+    destroyOnClose={false}
+  >
+    <Alert type="info" showIcon message="首次批量统一配置" description="配置会在创建批量时一次性保存为该批量默认值；后续仍可在工作台的“统一配置”继续修改，单书覆盖不会被清空。" />
+    <Tabs items={[
+      { key: 'models', label: '模型配置', children: <BatchFactoryEngineSettingsForm value={initialBatchSettings} onChange={setInitialBatchSettings} sections={['models', 'audio']} active={initialSettingsOpen} /> },
+      { key: 'reasoning', label: 'AI 推理', children: <BatchFactoryAiReasoningForm value={initialBatchSettings.aiPromptConfig} onChange={aiPromptConfig => setInitialBatchSettings(current => ({ ...current, aiPromptConfig }))} /> },
+      { key: 'publish', label: '发布统一', children: <BatchFactoryPublishSettingsForm value={initialBatchSettings} onChange={setInitialBatchSettings} active={initialSettingsOpen} /> }
+    ]} />
   </Modal>
   <Modal
     title={automationDialogMode === 'scheduled' ? '开始定时' : '立即执行自动生产'}

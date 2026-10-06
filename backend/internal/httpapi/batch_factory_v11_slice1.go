@@ -125,7 +125,7 @@ func registerSliceOneRoutes(mux *http.ServeMux, store batchfactoryv11.Store) {
 			writeStoreError(w, err)
 			return
 		}
-		batch, err := store.CreateBatchFromIntake(r.Context(), owner, intake.ID, batchfactoryv11.CreateBatchInput{Title: input.Title})
+		batch, err := store.CreateBatchFromIntake(r.Context(), owner, intake.ID, batchfactoryv11.CreateBatchInput{Title: input.Title, InitialBatchSettings: input.InitialBatchSettings})
 		if err != nil {
 			writeStoreError(w, err)
 			return

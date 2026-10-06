@@ -102,7 +102,7 @@ export function BatchFactoryEngineSettingsForm({ value, onChange, sections = ['m
   </Space>;
 }
 
-function BatchFactoryPublishSettingsForm({ value, onChange, active }) {
+export function BatchFactoryPublishSettingsForm({ value, onChange, active }) {
   const [checking, setChecking] = useState(false);
   const [syncing, setSyncing] = useState('');
   const [account, setAccount] = useState(null);

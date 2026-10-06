@@ -313,6 +313,29 @@ for (const target of ['settings', 'books/book-1/override']) {
   });
 }
 
+for (const target of ['intakes/manual', 'intakes/intake-1/batches']) {
+  test(`V11 ${target} rejects an invalid initial unified model before batch creation`, async t => {
+    const writes = [];
+    const app = express();
+    app.use(express.json());
+    app.use((req, res, next) => { req.username = 'alice'; next(); });
+    app.use('/api/batch-factory/v11', createBatchFactoryV11Router({
+      ...modelValidationOptions(), goBaseUrl: 'http://go.local', bridgeSecret: 'secret', automationController: {}, presetStore: presetStore(),
+      fetchImpl: async (url, init) => { writes.push({ url, init }); return new Response('{}', { status: 201 }); }
+    }));
+    const server = app.listen(0, '127.0.0.1');
+    t.after(() => new Promise(resolve => server.close(resolve)));
+    await new Promise(resolve => server.once('listening', resolve));
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/batch-factory/v11/${target}`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ title: '首次配置', initialBatchSettings: { textModelId: 'old-text' } })
+    });
+    assert.equal(response.status, 422);
+    assert.match((await response.json()).error, /文本模型不可用/);
+    assert.deepEqual(writes, []);
+  });
+}
+
 for (const invalidTarget of ['preset', 'book']) {
   test(`automation start rejects an unavailable ${invalidTarget} model before batch persistence or queueing`, async t => {
     const calls = [];
