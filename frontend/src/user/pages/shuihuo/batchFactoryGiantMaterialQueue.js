@@ -40,6 +40,23 @@ export function createGiantMaterialQueue(input) {
   }));
 }
 
+export function createGiantMaterialPlatformBookClaims() {
+  const ownerByBookID = new Map();
+  return {
+    claim(book = {}) {
+      const platformBookId = text(book.platformBookId || book.bookId);
+      const giantMaterialId = text(book.giantMaterialId);
+      const duplicateOfMaterialId = platformBookId ? (ownerByBookID.get(platformBookId) || '') : '';
+      if (platformBookId && !duplicateOfMaterialId) ownerByBookID.set(platformBookId, giantMaterialId);
+      return {
+        accepted: Boolean(platformBookId) && !duplicateOfMaterialId,
+        platformBookId,
+        duplicateOfMaterialId
+      };
+    }
+  };
+}
+
 export function queueSummary(items = []) {
   const summary = { total: items.length, pending: 0, running: 0, success: 0, skipped: 0, error: 0 };
   for (const item of items) {

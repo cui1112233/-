@@ -1,11 +1,22 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  createGiantMaterialPlatformBookClaims,
   createGiantMaterialQueue,
   parseGiantMaterialIds,
   queueSummary,
   runSequentialGiantMaterialQueue
 } from './batchFactoryGiantMaterialQueue.js';
+
+test('claims a resolved platform book only once per submission regardless of title', () => {
+  const claims = createGiantMaterialPlatformBookClaims();
+  assert.deepEqual(claims.claim({ platformBookId: '748725', title: '旧标题', giantMaterialId: '7689285397448523826' }), {
+    accepted: true, platformBookId: '748725', duplicateOfMaterialId: ''
+  });
+  assert.deepEqual(claims.claim({ bookId: '748725', title: '新标题', giantMaterialId: '7613606077155459091' }), {
+    accepted: false, platformBookId: '748725', duplicateOfMaterialId: '7689285397448523826'
+  });
+});
 
 test('parses newline, comma and Chinese punctuation while deduplicating IDs', () => {
   const parsed = parseGiantMaterialIds(' 7689285397448523826\n7613606077155459091, 7689285397448523826；bad ');
