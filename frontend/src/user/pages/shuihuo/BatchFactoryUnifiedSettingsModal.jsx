@@ -278,18 +278,13 @@ export function BatchFactoryAiReasoningForm({ value, onChange }) {
   </Space>;
 }
 
-export function BatchFactoryUnifiedSettingsModal({ open, batch, onClose, onSaved }) {
-  const [draftPatch, setDraftPatch] = useState({});
-  const [saving, setSaving] = useState(false);
+export function BatchFactoryAutomationPresetManager({ value, onLoad }) {
   const [presetOpen, setPresetOpen] = useState(false);
   const [presets, setPresets] = useState([]);
   const [selectedPresetId, setSelectedPresetId] = useState('');
   const [presetName, setPresetName] = useState('');
   const [presetBusy, setPresetBusy] = useState(false);
   const selectedPreset = presets.find(item => item.id === selectedPresetId);
-  useEffect(() => {
-    if (open) setDraftPatch(normalizeLegacyPatch(batch?.settingsState?.patch));
-  }, [open, batch?.id]);
   const loadPresets = async () => {
     const result = await listAutomationPresets();
     const values = Array.isArray(result?.presets) ? result.presets : [];
@@ -303,13 +298,13 @@ export function BatchFactoryUnifiedSettingsModal({ open, batch, onClose, onSaved
   const clonePresetConfig = clone(selectedPreset?.config);
   const loadPreset = () => {
     if (!selectedPreset) return message.warning('请先选择自动化预设');
-    Modal.confirm({ title: '确认载入此预设', content: '它只替换当前统一配置草稿；点击主弹窗的“保存统一配置”后才会写入批量。', okText: '载入草稿', onOk: () => setDraftPatch(clonePresetConfig) });
+    Modal.confirm({ title: '确认载入此预设', content: '它只替换当前统一配置草稿；确认当前批量配置后才会应用。', okText: '载入草稿', onOk: () => onLoad(clonePresetConfig) });
   };
   const savePreset = async () => {
     const name = presetName.trim();
     if (!name) return message.warning('请填写预设名称');
     setPresetBusy(true);
-    try { const result = await createAutomationPreset({ name, config: draftPatch }); const saved = result?.preset || result; await loadPresets(); setSelectedPresetId(saved?.id || ''); setPresetName(''); message.success('已保存自动化预设。'); }
+    try { const result = await createAutomationPreset({ name, config: value }); const saved = result?.preset || result; await loadPresets(); setSelectedPresetId(saved?.id || ''); setPresetName(''); message.success('已保存自动化预设。'); }
     catch (error) { message.error(error?.message || '保存自动化预设失败'); }
     finally { setPresetBusy(false); }
   };
@@ -326,24 +321,33 @@ export function BatchFactoryUnifiedSettingsModal({ open, batch, onClose, onSaved
     if (!selectedPreset) return message.warning('请先选择自动化预设');
     Modal.confirm({ title: '删除所选预设', content: `删除“${selectedPreset.name}”不会影响已经排期或执行中的任务。`, okText: '删除', okButtonProps: { danger: true }, onOk: async () => { await deleteAutomationPreset(selectedPreset.id); setSelectedPresetId(''); await loadPresets(); } });
   };
-  const save = async () => {
-    setSaving(true);
-    try { const result = await onSaved(draftPatch); if (result !== false) onClose(); }
-    finally { setSaving(false); }
-  };
-  return <><Modal title={<Space><Tooltip title="自动化预设"><Button type="text" icon={<SettingOutlined />} aria-label="自动化预设" onClick={openPresetManager} /></Tooltip><span>统一配置</span></Space>} open={open} onCancel={onClose} width={980} destroyOnClose={false} className="batch-factory-unified-settings-modal" footer={<Space><Button onClick={onClose}>取消</Button><Button type="primary" loading={saving} onClick={save}>保存统一配置</Button></Space>}>
-    <Tabs items={[
-      { key: 'models', label: '模型配置', children: <BatchFactoryEngineSettingsForm value={draftPatch} onChange={setDraftPatch} sections={['models', 'audio']} active={open} /> },
-      { key: 'reasoning', label: 'AI 推理', children: <BatchFactoryAiReasoningForm value={draftPatch.aiPromptConfig} onChange={aiPromptConfig => setDraftPatch(current => ({ ...current, aiPromptConfig }))} /> },
-      { key: 'publish', label: '发布统一', children: <BatchFactoryPublishSettingsForm value={draftPatch} onChange={setDraftPatch} active={open} /> }
-    ]} />
-  </Modal>
+  return <><Tooltip title="自动化预设"><Button type="text" icon={<SettingOutlined />} aria-label="自动化预设" onClick={openPresetManager} /></Tooltip>
   <Modal title="自动化预设" open={presetOpen} onCancel={() => setPresetOpen(false)} footer={null} width={620} destroyOnClose><Space direction="vertical" size={14} style={{ width: '100%' }}>
-    <Alert type="info" showIcon message="预设只保存统一配置" description="不保存正文、资产、导演结果或视频结果；载入后仍须保存统一配置才会应用到当前批量。" />
+    <Alert type="info" showIcon message="预设只保存统一配置" description="不保存正文、资产、导演结果或视频结果；载入后仍须确认当前统一配置才会应用到批量。" />
     <label className="batch-factory-engine-field"><span><b>已保存预设</b></span><Select allowClear value={selectedPresetId || undefined} onChange={setSelectedPresetId} placeholder="选择自动化预设" options={presets.map(item => ({ value: item.id, label: `${item.name} · v${item.version}` }))} /></label>
     <Space wrap><Button disabled={!selectedPreset} onClick={loadPreset}>载入预设</Button></Space>
     <Divider />
     <label className="batch-factory-engine-field"><span><b>{selectedPreset ? '预设新名称' : '新预设名称'}</b></span><Input value={presetName} maxLength={255} placeholder={selectedPreset?.name || '例如：女频 H3 全自动'} onChange={event => setPresetName(event.target.value)} /></label>
     <Space wrap><Button type="primary" loading={presetBusy} onClick={savePreset}>保存为新预设</Button><Button disabled={!selectedPreset} loading={presetBusy} onClick={renamePreset}>重命名所选预设</Button><Button danger disabled={!selectedPreset} onClick={removePreset}>删除所选预设</Button></Space>
   </Space></Modal></>;
+}
+
+export function BatchFactoryUnifiedSettingsModal({ open, batch, onClose, onSaved }) {
+  const [draftPatch, setDraftPatch] = useState({});
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    if (open) setDraftPatch(normalizeLegacyPatch(batch?.settingsState?.patch));
+  }, [open, batch?.id]);
+  const save = async () => {
+    setSaving(true);
+    try { const result = await onSaved(draftPatch); if (result !== false) onClose(); }
+    finally { setSaving(false); }
+  };
+  return <Modal title={<Space><BatchFactoryAutomationPresetManager value={draftPatch} onLoad={setDraftPatch} /><span>统一配置</span></Space>} open={open} onCancel={onClose} width={980} destroyOnClose={false} className="batch-factory-unified-settings-modal" footer={<Space><Button onClick={onClose}>取消</Button><Button type="primary" loading={saving} onClick={save}>保存统一配置</Button></Space>}>
+    <Tabs items={[
+      { key: 'models', label: '模型配置', children: <BatchFactoryEngineSettingsForm value={draftPatch} onChange={setDraftPatch} sections={['models', 'audio']} active={open} /> },
+      { key: 'reasoning', label: 'AI 推理', children: <BatchFactoryAiReasoningForm value={draftPatch.aiPromptConfig} onChange={aiPromptConfig => setDraftPatch(current => ({ ...current, aiPromptConfig }))} /> },
+      { key: 'publish', label: '发布统一', children: <BatchFactoryPublishSettingsForm value={draftPatch} onChange={setDraftPatch} active={open} /> }
+    ]} />
+  </Modal>;
 }

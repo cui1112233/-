@@ -9,7 +9,7 @@ import { resolveGiantMaterialForBatch } from '../giantMaterialExtractionClient.j
 import { parseGiantMaterialIds } from './batchFactoryGiantMaterialQueue.js';
 import { createGiantMaterialJob } from '../../../shared/api/giantMaterialExecutorPublic.js';
 import { BatchFactoryGiantMaterialExecutorStatus } from './BatchFactoryGiantMaterialExecutorStatus.jsx';
-import { BatchFactoryAiReasoningForm, BatchFactoryEngineSettingsForm, BatchFactoryPublishSettingsForm } from './BatchFactoryUnifiedSettingsModal.jsx';
+import { BatchFactoryAiReasoningForm, BatchFactoryAutomationPresetManager, BatchFactoryEngineSettingsForm, BatchFactoryPublishSettingsForm } from './BatchFactoryUnifiedSettingsModal.jsx';
 import {
   availableGiantMaterialBooks,
   buildGiantMaterialPlaceholderIntakes,
@@ -751,7 +751,7 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated, onBatchUpda
     </div>
   </Modal>
   <Modal
-    title="新建批量 · 统一配置"
+    title={<Space><BatchFactoryAutomationPresetManager value={initialBatchSettings} onLoad={setInitialBatchSettings} /><span>新建批量 · 统一配置</span></Space>}
     open={initialSettingsOpen}
     onCancel={() => setInitialSettingsOpen(false)}
     onOk={() => setInitialSettingsOpen(false)}

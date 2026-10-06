@@ -57,9 +57,11 @@ test('lets a first-time batch owner save unified settings before creating the ba
   assert.match(source, /BatchFactoryEngineSettingsForm/);
   assert.match(source, /BatchFactoryAiReasoningForm/);
   assert.match(source, /BatchFactoryPublishSettingsForm/);
+  assert.match(source, /BatchFactoryAutomationPresetManager/);
   assert.match(source, /const \[initialBatchSettings, setInitialBatchSettings\] = useState\(\{\}\)/);
   assert.match(source, />统一配置<\/Button>/);
-  assert.match(source, /title="新建批量 · 统一配置"/);
+  assert.match(source, /新建批量 · 统一配置/);
+  assert.match(source, /<BatchFactoryAutomationPresetManager value=\{initialBatchSettings\} onLoad=\{setInitialBatchSettings\} \/>/);
   assert.match(source, /initialBatchSettings: clone\(initialBatchSettings\)/);
 });
 
