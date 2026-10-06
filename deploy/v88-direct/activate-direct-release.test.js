@@ -12,7 +12,7 @@ const PREVIOUS_SHA = 'c'.repeat(40);
 // Independently checked with shasum -a 256 for the executable fixture below.
 const GO_HASH = '306c6ca7407560340797866e077e053627ad409277d1b9da58106fce4cf717cb';
 
-function fixture(t, { sha = SHA, previous = true, relative = false } = {}) {
+function fixture(t, { sha = SHA, previous = true, relative = false, legacyPrevious = false } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'qiantie-direct-release-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const direct = path.join(root, 'direct');
@@ -40,7 +40,7 @@ function fixture(t, { sha = SHA, previous = true, relative = false } = {}) {
   }
   if (previous) {
     fs.mkdirSync(path.join(previousRelease, 'node'), { recursive: true });
-    fs.writeFileSync(path.join(previousRelease, 'node', 'RELEASE-SHA'), `${PREVIOUS_SHA}\n`);
+    if (!legacyPrevious) fs.writeFileSync(path.join(previousRelease, 'node', 'RELEASE-SHA'), `${PREVIOUS_SHA}\n`);
     fs.symlinkSync(relative ? `releases/${PREVIOUS_SHA}` : previousRelease, path.join(direct, 'current'));
     fs.symlinkSync(previousRelease, path.join(direct, 'previous'));
   }
@@ -166,6 +166,15 @@ test('a malformed previous runtime identity fails before cutover', (t) => {
 
 test('activation resolves the previous identity from a relative current symlink', (t) => {
   const f = fixture(t, { relative: true });
+  const result = f.activate();
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  const manifest = JSON.parse(fs.readFileSync(path.join(f.release, 'runtime-release.json'), 'utf8'));
+  assert.equal(manifest.previousReleaseGitSha, PREVIOUS_SHA);
+  assert.equal(fs.readlinkSync(path.join(f.direct, 'previous')), f.previousRelease);
+});
+
+test('activation accepts an unmanifested legacy previous release when .env has its exact identity', (t) => {
+  const f = fixture(t, { legacyPrevious: true });
   const result = f.activate();
   assert.equal(result.status, 0, result.stdout + result.stderr);
   const manifest = JSON.parse(fs.readFileSync(path.join(f.release, 'runtime-release.json'), 'utf8'));

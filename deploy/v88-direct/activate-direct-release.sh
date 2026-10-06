@@ -44,7 +44,7 @@ fi
 # rollback trap: a preflight error must not recreate containers or touch current.
 PREV_GIT_SHA=""
 if [ -n "$PREV_DIR" ]; then
-  PREV_GIT_SHA="$(python3 - "$PREV_DIR" <<'PY'
+  PREV_GIT_SHA="$(python3 - "$PREV_DIR" "$PREV_SHA" <<'PY'
 import json
 from pathlib import Path
 import re
@@ -52,6 +52,7 @@ import sys
 
 try:
     release = Path(sys.argv[1])
+    fallback_sha = sys.argv[2]
     manifest = release / "runtime-release.json"
     if manifest.exists():
         identity = json.loads(manifest.read_text(encoding="utf-8"))
@@ -59,8 +60,17 @@ try:
         if identity.get("nodeSourceSha") != sha:
             raise ValueError("previous Node identity is inconsistent")
     else:
-        # Existing direct releases predate manifests but carry this packager file.
-        sha = (release / "node" / "RELEASE-SHA").read_text(encoding="utf-8").strip()
+        # Legacy direct releases may predate both manifests and RELEASE-SHA.
+        # Only the already-active exact .env identity may bridge that gap; a
+        # malformed existing identity remains a hard failure rather than being
+        # silently hidden by the fallback.
+        legacy_identity = release / "node" / "RELEASE-SHA"
+        if legacy_identity.exists():
+            sha = legacy_identity.read_text(encoding="utf-8").strip()
+        elif re.fullmatch(r"[0-9a-f]{40}", fallback_sha):
+            sha = fallback_sha
+        else:
+            raise ValueError("previous release has no identity and DIRECT_RELEASE_SHA is not exact")
     if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{40}", sha):
         raise ValueError("previous Git identity is not an exact SHA")
     print(sha)
