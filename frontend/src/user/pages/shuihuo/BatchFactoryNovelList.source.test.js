@@ -454,6 +454,9 @@ test('shows actual merge queue position and active worker phase in task logs', (
   assert.match(logs, /合成队列 · 前方/);
   assert.match(logs, /当前工位 · \$\{merge\.progressPhase/);
 	assert.match(logs, /\+ \(activeMerge \? 1 : 0\)/);
+	assert.match(logs, /const automationBookDetail = book =>/);
+	assert.match(logs, /String\(book\?\.stage \|\| ''\)\.toLowerCase\(\) !== 'merge'/);
+	assert.match(logs, /automationBookDetail\(book\) \|\| batchFactoryVisibleError\(book\.message\)/);
 });
 
 test('renders saved book-city and novel-fetch metadata without exposing internal platform IDs', () => {
