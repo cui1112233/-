@@ -107,6 +107,7 @@
     },
     {
       "id": "shuihuo-compat",
+      "classification": "required",
       "source": {
         "kind": "retained-compatibility-image",
         "configurationFiles": ["deploy/v88-public/docker-compose.yml"],
@@ -121,7 +122,36 @@
       "dependsOn": ["mysql"],
       "persistentDataPurpose": ["shuihuo-compat-object-storage"],
       "publicExposure": {"internalPorts": [4100], "publishedPorts": [], "owner": "internal-only; requests arrive through node"},
-      "retirementGate": "Prove every active compatibility route and its object/database readback is replaced in v88; verify isolated database migration, rollback and absence of callers before retirement."
+      "observedRuntimeExposure": {"internalPorts": [4000, 4100], "publishedPorts": [], "evidenceScope": "Read-only ECS inspection supplied by the coordinating task; exposed ports do not prove listening sockets."},
+      "publicContracts": [
+        {
+          "id": "shuihuo-production-signed-bridge",
+          "publicRoute": "/api/shuihuo-production/*",
+          "owner": "node authentication and transformations; shuihuo-compat remaining production API",
+          "upstreamRoute": "/api/shuihuo-production/* after earlier Node handlers",
+          "nodeOwnedExceptions": ["/models", "/preset-slots", "/local-executor-artifacts/*", "giant-material executor bridge routes"],
+          "internalDependency": "AI requests may first PUT /api/shuihuo-production/account-ai-config to the same compatibility target.",
+          "retirementGate": "Enumerate every forwarded method/path including config sync; prove equivalent Node behavior, account isolation, presets, persistence and object readback for each before removing this dependency.",
+          "rollbackTest": "Restore the previous exact Node SHA and retained compatibility image/database/objects; run the signed production forwarding test in tests/v88-shuihuo-compat-boundary.test.js and authenticated project/write/object-readback checks. Live rollback checks remain pending."
+        },
+        {
+          "id": "platform-shuihuo-project-aggregation",
+          "publicRoute": "GET /api/platform-projects",
+          "owner": "node aggregation; shuihuo-compat Shuihuo project records",
+          "upstreamRoute": "GET /api/shuihuo-production/projects",
+          "retirementGate": "Prove equivalent Node behavior for account-scoped project listing, IDs, navigation, timestamps and unavailable-source handling before removing this caller.",
+          "rollbackTest": "Restore the previous exact Node SHA and compatibility target; run the platform aggregation test in tests/v88-shuihuo-compat-boundary.test.js and verify authenticated existing-project listing. Live rollback checks remain pending."
+        }
+      ],
+      "trafficObservation": {
+        "status": "unavailable",
+        "requiredWindowHours": 24,
+        "observedWindowHours": null,
+        "routeCounts": null,
+        "reason": "No accessible Nginx access log was found in supplied read-only inspection; no 24-hour observation occurred and no zero-traffic claim is supported.",
+        "requiredEvidence": "Record UTC window bounds, normalized method/route/upstream counts and internal Node callers; omit IPs, authorization headers, cookies, query text and bodies. Ingress counts alone cannot prove absence of internal config-sync calls."
+      },
+      "retirementGate": "Retain required classification until equivalent Node behavior replaces every forwarded route and internal caller, isolated database/object migration and exact-SHA rollback pass, and a complete 24-hour sanitized traffic observation proves no remaining compatibility dependency. Missing logs never count as zero traffic."
     }
   ]
 }
