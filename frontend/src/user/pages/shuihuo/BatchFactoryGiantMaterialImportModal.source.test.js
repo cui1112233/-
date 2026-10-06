@@ -21,3 +21,9 @@ test('giant material import preserves the selected content range in the executor
   assert.match(source, /durationSeconds/);
   assert.match(source, /modelVersion/);
 });
+
+test('giant import claims a resolved book before it dispatches OCR', () => {
+  assert.match(source, /createGiantMaterialPlatformBookClaims/);
+  assert.match(source, /duplicateReason:\s*'same_submission_platform_book'/);
+  assert.match(source, /claims\.claim\(/);
+});

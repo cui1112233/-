@@ -14,7 +14,7 @@ import {
   giantMaterialSourceLabel,
   selectGiantMaterialBook
 } from './batchFactoryGiantMaterialImport.js';
-import { createGiantMaterialQueue, parseGiantMaterialIds, queueSummary, runSequentialGiantMaterialQueue } from './batchFactoryGiantMaterialQueue.js';
+import { createGiantMaterialPlatformBookClaims, createGiantMaterialQueue, parseGiantMaterialIds, queueSummary, runSequentialGiantMaterialQueue } from './batchFactoryGiantMaterialQueue.js';
 
 const ERROR_MESSAGES = {
   QINGYU_AUTH_NOT_CONFIGURED: '本机尚未配置青语服务令牌。',
@@ -67,6 +67,9 @@ function queueDetail(item) {
     return `已写入《${title}》，AI 判断待处理。`;
   }
   if (item.status === 'skipped') {
+    if (item.duplicateReason === 'same_submission_platform_book') {
+      return `本次提交中已有素材解析为书籍 ID ${item.platformBookId || '未知'}，未重复读取。`;
+    }
     if (classificationStatus === 'classified') return '已存在相同巨量素材，未重复登记；AI 判断已完成。';
     if (classificationStatus === 'failed') return `已存在相同巨量素材，未重复登记；AI 判断失败：${item.classificationError || '可在小说详情中重试。'}`;
     return '当前批量已有相同巨量素材 ID，未重复登记。';
@@ -216,7 +219,7 @@ export function BatchFactoryGiantMaterialImportModal({ open, batch, onCancel, on
     return registeredBook;
   }
 
-  async function processItem(item, { signal, update }) {
+  async function processItem(item, { signal, update }, claims) {
     const existing = findRegisteredGiantMaterialBook(latestBatchRef.current?.books, item.id);
     // 已登记且正文已回填的素材才算重复；上次中断留下的空占位书会继续走读取回填流程。
     if (existing && String(existing.sourceText || '').trim()) {
@@ -237,6 +240,17 @@ export function BatchFactoryGiantMaterialImportModal({ open, batch, onCancel, on
     if (executorHealth?.online !== true) throw new Error('GIANT_EXECUTOR_OFFLINE');
     const selectedBook = selectGiantMaterialBook(resolvedMaterial, selectedBookKey);
     if (!selectedBook) throw new Error('QINGYU_BOOK_SELECTION_REQUIRED');
+    const claim = claims.claim({ ...selectedBook, giantMaterialId: item.id });
+    if (!claim.accepted) {
+      return {
+        status: 'skipped',
+        duplicateReason: 'same_submission_platform_book',
+        duplicateOfMaterialId: claim.duplicateOfMaterialId,
+        platformBookId: claim.platformBookId,
+        material: resolvedMaterial,
+        selectedBookKey
+      };
+    }
     const durationSeconds = Number(resolvedMaterial.durationSeconds || resolvedMaterial.duration || 0);
     if (!(durationSeconds > 0)) throw new Error('QINGYU_VIDEO_DURATION_MISSING');
 
@@ -377,10 +391,11 @@ export function BatchFactoryGiantMaterialImportModal({ open, batch, onCancel, on
     if (busy || !items.length) return;
     setBusy(true);
     const controller = new AbortController();
+    const claims = createGiantMaterialPlatformBookClaims();
     controllerRef.current = controller;
     let completed = [];
     try {
-      completed = await runSequentialGiantMaterialQueue(items, processItem, {
+      completed = await runSequentialGiantMaterialQueue(items, (item, context) => processItem(item, context, claims), {
         signal: controller.signal,
         onState: (item, patch) => updateItem(item.id, patch)
       });
