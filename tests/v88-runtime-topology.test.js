@@ -35,7 +35,9 @@ test('runtime topology declares every public V88 service and excludes host-local
     if (service.id !== 'nginx') assert.deepEqual(service.publicExposure.publishedPorts, []);
   }
   assert.deepEqual(manifest.services.find(({ id }) => id === 'nginx').publicExposure.publishedPorts,
-    [{ host: 80, target: 80 }, { host: 443, target: 443 }, { host: 3000, target: 80 }]);
+    [{ host: 80, target: 80 }, { host: 3000, target: 80 }]);
+  const compose = fs.readFileSync(path.join(root, 'deploy/v88-public/docker-compose.yml'), 'utf8');
+  assert.doesNotMatch(compose, /-\s*["']443:443["']/);
   assert.deepEqual(manifest.services.find(({ id }) => id === 'node').dependsOn,
     ['go-api', 'browser-worker', 'shuihuo-compat']);
   for (const id of ['go-api', 'shuihuo-compat']) {

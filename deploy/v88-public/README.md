@@ -23,7 +23,7 @@ The only permitted secret material is deploy-time environment values and certifi
 
 The manifest includes runtime dependencies even when Compose does not declare startup ordering: both Go and Shuihuo compatibility use the internal MySQL alias. The current base Compose declares five services; MySQL remains external. Its exact image, startup inputs, network ownership and live listener bindings require sanitized evidence before adding a source-owned definition. Do not infer a public MySQL image from a local preview configuration.
 
-Nginx owns the declared public port mappings: 80 to 80, 443 to 443, and 3000 to 80. Application services expose only internal ports. The tracked Nginx configuration listens on 80; publishing port 443 does not establish a functioning HTTPS listener. The manifest flags this unresolved boundary explicitly.
+Nginx owns the declared public port mappings: 80 to 80 and 3000 to 80. Application services expose only internal ports. HTTPS is intentionally not published: a tracked TLS listener, certificate renewal contract and external verification are required before adding port 443.
 
 The dated inventory also mentions a separate legacy Novel Fetch worker outside the six-service target contract. Its callers and replacement relationship still require verification before any retirement. This manifest does not prove that all runtime containers have already been consolidated.
 

@@ -76,13 +76,13 @@
       },
       "runtimeImageOrBinary": {"kind": "image", "image": "nginx:1.27-alpine"},
       "dependsOn": ["node"],
-      "persistentDataPurpose": ["certificate-storage-outside-git", "acme-challenge-storage-outside-git"],
+      "persistentDataPurpose": ["acme-challenge-storage-outside-git"],
       "publicExposure": {
         "internalPorts": [80],
-        "publishedPorts": [{"host": 80, "target": 80}, {"host": 443, "target": 443}, {"host": 3000, "target": 80}],
+        "publishedPorts": [{"host": 80, "target": 80}, {"host": 3000, "target": 80}],
         "owner": "public-ingress",
         "upstream": "node",
-        "listenerGap": "Compose reserves 443, but the tracked Nginx configuration only listens on 80; HTTPS termination is not verified."
+        "https": "not declared; do not publish 443 until a tracked TLS listener and certificate renewal contract are verified."
       },
       "retirementGate": "Verify replacement listener ownership, application proxy routes, certificate renewal, external exact-SHA identity and rollback before changing public ingress."
     },
