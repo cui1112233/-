@@ -39,3 +39,11 @@ test('manual batch creation in the public Shuihuo page starts detached publish-m
   assert.match(page, /classifyFetchedBatchMetadata/);
   assert.match(page, /await classifyFetchedBatchMetadata\(batch\.id\)/);
 });
+
+test('Novel Fetch handoff never offers a same-batch duplicate override', () => {
+  const page = fs.readFileSync(pagePath, 'utf8');
+
+  assert.doesNotMatch(page, /允许加入/);
+  assert.doesNotMatch(page, /allowDuplicate/);
+  assert.match(page, /同书城同 Book ID 的 \$\{duplicates\.length\} 本内容已跳过/);
+});

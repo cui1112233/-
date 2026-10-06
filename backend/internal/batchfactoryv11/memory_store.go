@@ -552,10 +552,9 @@ func (s *MemoryStore) CreateBatchFromIntake(ctx context.Context, owner, intakeID
 	return batch, nil
 }
 
-// AppendBooksFromIntake adds a frozen Novel Fetch content snapshot to the
-// currently selected batch. An intake is single-use: a caller must explicitly
-// allow duplicate source Book IDs before an alternate content version is added.
-func (s *MemoryStore) AppendBooksFromIntake(_ context.Context, owner, batchID, intakeID string, allowDuplicate bool) (Batch, error) {
+// AppendBooksFromIntake adds only new source books to the selected batch. The
+// intake remains single-use even when every incoming book was already present.
+func (s *MemoryStore) AppendBooksFromIntake(_ context.Context, owner, batchID, intakeID string, _ bool) (Batch, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ownedIntake, ok := s.intakes[intakeID]
@@ -576,20 +575,13 @@ func (s *MemoryStore) AppendBooksFromIntake(_ context.Context, owner, batchID, i
 	batch := ownedBatch.Value
 	existing := map[string]bool{}
 	for _, book := range batch.Books {
-		if book.BookID != "" {
-			existing[book.BookID] = true
+		if key := batchBookKey(CreateBookInput{BookID: book.BookID, Platform: book.Platform}); key != "" {
+			existing[key] = true
 		}
 	}
-	if !allowDuplicate {
-		for _, raw := range intake.Books {
-			if source := sourceBookID(raw); source != "" && existing[source] {
-				return Batch{}, ErrConflict
-			}
-		}
-	}
+	books := uniqueBatchBooks(intake.Books, existing)
 	now := time.Now().UTC()
-	for _, raw := range intake.Books {
-		bookInput := normalizeNovelFetchBook(raw)
+	for _, bookInput := range books {
 		bookID := s.id("book")
 		sourceID := sourceBookID(bookInput)
 		if sourceID == "" {
@@ -597,8 +589,10 @@ func (s *MemoryStore) AppendBooksFromIntake(_ context.Context, owner, batchID, i
 		}
 		batch.Books = append(batch.Books, Book{ID: bookID, BatchID: batch.ID, BookID: sourceID, Title: bookInput.Title, SourceText: bookInput.SourceText, SourceTaskID: bookInput.SourceTaskID, Platform: bookInput.Platform, TxtText: bookInput.TxtText, TxtFileName: bookInput.TxtFileName, SourceMetadata: bookInput.SourceMetadata, Revision: 1, Videos: []Video{}})
 	}
-	batch.Revision++
-	batch.UpdatedAt = now
+	if len(books) > 0 {
+		batch.Revision++
+		batch.UpdatedAt = now
+	}
 	s.batches[batchID] = memoryOwned[Batch]{Owner: owner, Value: batch}
 	intakeRecord := ownedIntake.Value
 	intakeRecord.ConsumedAt = &now
@@ -613,8 +607,7 @@ func (s *MemoryStore) CreateBatch(_ context.Context, owner string, input CreateB
 	if b.Title == "" {
 		b.Title = "Untitled Batch"
 	}
-	for _, rawBook := range input.Books {
-		bi := normalizeNovelFetchBook(rawBook)
+	for _, bi := range uniqueBatchBooks(input.Books, map[string]bool{}) {
 		if len(input.GiantAutomationPlan) > 0 {
 			bi.SourceMetadata = copySourceMetadataWithGiantPlan(bi.SourceMetadata, input.GiantAutomationPlan)
 		}

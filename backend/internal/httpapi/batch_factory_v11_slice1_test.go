@@ -143,7 +143,7 @@ func TestCreateBatchFromOtherOwnersIntakeReturnsNotFound(t *testing.T) {
 	}
 }
 
-func TestNovelFetchIntakeCanJoinTheCurrentBatchOnlyAfterDuplicateConfirmation(t *testing.T) {
+func TestNovelFetchIntakeSkipsExistingSourceBookInCurrentBatch(t *testing.T) {
 	now := time.Unix(1700000000, 0)
 	store := batchfactoryv11.NewMemoryStore()
 	batch, err := store.CreateBatch(context.Background(), "alice", batchfactoryv11.CreateBatchInput{Title: "当前批量", Books: []batchfactoryv11.CreateBookInput{{BookID: "source-1", Title: "原书"}}})
@@ -156,17 +156,13 @@ func TestNovelFetchIntakeCanJoinTheCurrentBatchOnlyAfterDuplicateConfirmation(t 
 	}
 	api := NewRouter(RouterOptions{BridgeSecret: "secret", Now: func() time.Time { return now }, Slice: 1, Store: store})
 	path := "/api/batch-factory/v11/batches/" + batch.ID + "/intakes/" + intake.ID + "/books"
-	blocked := signedJSONRequest(t, api, now, "alice", http.MethodPost, path, map[string]any{"allowDuplicate": false})
-	if blocked.Code != http.StatusConflict {
-		t.Fatalf("unconfirmed status=%d body=%s", blocked.Code, blocked.Body.String())
-	}
 	joined := signedJSONRequest(t, api, now, "alice", http.MethodPost, path, map[string]any{"allowDuplicate": true})
 	if joined.Code != http.StatusOK {
-		t.Fatalf("confirmed status=%d body=%s", joined.Code, joined.Body.String())
+		t.Fatalf("skip status=%d body=%s", joined.Code, joined.Body.String())
 	}
 	got := decodeBody[map[string]batchfactoryv11.Batch](t, joined)["batch"]
-	if len(got.Books) != 2 || got.Books[1].BookID != "source-1" || got.Books[1].Title != "AI1·原书" || got.Books[1].SourceText != "AI 正文" {
-		t.Fatalf("batch=%+v", got)
+	if len(got.Books) != 1 || got.Books[0].BookID != "source-1" || got.Books[0].Title != "原书" {
+		t.Fatalf("same-source book must not create a second current-batch record: %+v", got)
 	}
 }
 

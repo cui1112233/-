@@ -107,7 +107,7 @@ func (s *MySQLStore) CreateBatchFromIntake(ctx context.Context, owner, intakeID 
 // new book record in an existing batch. It never replaces previously produced
 // book data, and it consumes the one-time intake only after the whole append
 // transaction succeeds.
-func (s *MySQLStore) AppendBooksFromIntake(ctx context.Context, owner, batchID, intakeID string, allowDuplicate bool) (Batch, error) {
+func (s *MySQLStore) AppendBooksFromIntake(ctx context.Context, owner, batchID, intakeID string, _ bool) (Batch, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Batch{}, err
@@ -134,18 +134,18 @@ func (s *MySQLStore) AppendBooksFromIntake(ctx context.Context, owner, batchID, 
 		return Batch{}, ErrInvalid
 	}
 	existing := map[string]bool{}
-	rows, err := tx.QueryContext(ctx, `SELECT COALESCE(source_book_id,'') FROM batch_factory_v11_book_records r JOIN batch_factory_v11_books b ON b.id=r.book_id WHERE b.batch_id=? AND b.owner_username=? FOR UPDATE`, batchID, owner)
+	rows, err := tx.QueryContext(ctx, `SELECT COALESCE(source_book_id,''),COALESCE(platform,'') FROM batch_factory_v11_book_records r JOIN batch_factory_v11_books b ON b.id=r.book_id WHERE b.batch_id=? AND b.owner_username=? FOR UPDATE`, batchID, owner)
 	if err != nil {
 		return Batch{}, err
 	}
 	for rows.Next() {
-		var sourceID string
-		if err := rows.Scan(&sourceID); err != nil {
+		var sourceID, platform string
+		if err := rows.Scan(&sourceID, &platform); err != nil {
 			rows.Close()
 			return Batch{}, err
 		}
-		if sourceID != "" {
-			existing[sourceID] = true
+		if key := batchBookKey(CreateBookInput{BookID: sourceID, Platform: platform}); key != "" {
+			existing[key] = true
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -153,20 +153,13 @@ func (s *MySQLStore) AppendBooksFromIntake(ctx context.Context, owner, batchID, 
 		return Batch{}, err
 	}
 	rows.Close()
-	if !allowDuplicate {
-		for _, raw := range intake.Books {
-			if sourceID := sourceBookID(raw); sourceID != "" && existing[sourceID] {
-				return Batch{}, ErrConflict
-			}
-		}
-	}
+	books := uniqueBatchBooks(intake.Books, existing)
 	var nextOrdinal int
 	if err = tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(ordinal)+1,0) FROM batch_factory_v11_books WHERE batch_id=? AND owner_username=?`, batchID, owner).Scan(&nextOrdinal); err != nil {
 		return Batch{}, err
 	}
 	now := time.Now().UTC()
-	for _, raw := range intake.Books {
-		bookInput := normalizeNovelFetchBook(raw)
+	for _, bookInput := range books {
 		bookID, err := newID("book")
 		if err != nil {
 			return Batch{}, err
@@ -190,8 +183,10 @@ func (s *MySQLStore) AppendBooksFromIntake(ctx context.Context, owner, batchID, 
 			return Batch{}, err
 		}
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE batch_factory_v11_batches SET revision=?,updated_at=? WHERE id=? AND owner_username=?`, batchRevision+1, now, batchID, owner); err != nil {
-		return Batch{}, err
+	if len(books) > 0 {
+		if _, err = tx.ExecContext(ctx, `UPDATE batch_factory_v11_batches SET revision=?,updated_at=? WHERE id=? AND owner_username=?`, batchRevision+1, now, batchID, owner); err != nil {
+			return Batch{}, err
+		}
 	}
 	if _, err = tx.ExecContext(ctx, `UPDATE batch_factory_v11_intakes SET consumed_at=? WHERE id=? AND owner_username=?`, now, intakeID, owner); err != nil {
 		return Batch{}, err
@@ -239,8 +234,7 @@ func createBatchTx(ctx context.Context, tx *sql.Tx, owner string, input CreateBa
 		return Batch{}, err
 	}
 	batch := Batch{ID: batchID, Title: title, SourceIntakeID: sourceIntakeID, Revision: 1, Books: []Book{}, CreatedAt: now, UpdatedAt: now}
-	for bookOrdinal, rawBook := range input.Books {
-		bi := normalizeNovelFetchBook(rawBook)
+	for bookOrdinal, bi := range uniqueBatchBooks(input.Books, map[string]bool{}) {
 		if len(input.GiantAutomationPlan) > 0 {
 			bi.SourceMetadata = copySourceMetadataWithGiantPlan(bi.SourceMetadata, input.GiantAutomationPlan)
 		}

@@ -250,25 +250,15 @@ export function ShuihuoProductionPage({ openBatchOnLoad = false }) {
         const current = await getBatch(currentBatchId);
         if (cancelled) return;
         const batch = current?.batch || current;
-        const existingSourceIDs = new Set((batch?.books || []).map(book => String(book?.bookId || '').trim()).filter(Boolean));
-        const duplicates = incoming.filter(book => existingSourceIDs.has(String(book?.bookId || book?.id || '').trim()));
-        const append = async allowDuplicate => {
-          const updated = await appendNovelFetchIntake(batch.id, intakeId, { allowDuplicate });
+        const sourceKey = book => `${String(book?.platform || '').trim()}\u0000${String(book?.bookId || book?.id || '').trim()}`;
+        const existingSourceKeys = new Set((batch?.books || []).map(sourceKey).filter(key => !key.endsWith('\u0000')));
+        const duplicates = incoming.filter(book => existingSourceKeys.has(sourceKey(book)));
+        const append = async () => {
+          const updated = await appendNovelFetchIntake(batch.id, intakeId);
           await openImportedBatch(updated?.batch || updated);
-          message.success('小说获取内容已登记到当前批量');
+          message.success(duplicates.length ? `小说获取内容已登记；同书城同 Book ID 的 ${duplicates.length} 本内容已跳过` : '小说获取内容已登记到当前批量');
         };
-        if (!duplicates.length) {
-          await append(false);
-          return;
-        }
-        Modal.confirm({
-          title: '当前批量已有同源小说',
-          content: `发现 ${duplicates.length} 本同一 Book ID 的内容。允许后会作为 AI1·原书名等新版本加入；上传视频管理系统仍使用原 Book ID。`,
-          okText: '允许加入',
-          cancelText: '暂不加入',
-          onOk: () => append(true),
-          onCancel: () => { novelFetchHandoffRef.current = ''; }
-        });
+        await append();
       } catch (error) {
         if (!cancelled) {
           novelFetchHandoffRef.current = '';

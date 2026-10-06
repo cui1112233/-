@@ -34,6 +34,34 @@ func sourceBookID(book CreateBookInput) string {
 	return book.BookID
 }
 
+// batchBookKey is the stable identity of a source book inside one batch.
+// Book IDs are scoped by book city: a collision across platforms is not a
+// duplicate, but the same platform and Book ID must never create a second
+// production row in the same batch.
+func batchBookKey(book CreateBookInput) string {
+	book = normalizeNovelFetchBook(book)
+	if book.BookID == "" {
+		return ""
+	}
+	return book.Platform + "\x00" + book.BookID
+}
+
+func uniqueBatchBooks(books []CreateBookInput, existing map[string]bool) []CreateBookInput {
+	out := make([]CreateBookInput, 0, len(books))
+	for _, raw := range books {
+		book := normalizeNovelFetchBook(raw)
+		key := batchBookKey(book)
+		if key != "" {
+			if existing[key] {
+				continue
+			}
+			existing[key] = true
+		}
+		out = append(out, book)
+	}
+	return out
+}
+
 func sourceContentVersion(book CreateBookInput) string {
 	if book.SourceMetadata == nil {
 		return ""

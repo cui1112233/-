@@ -198,26 +198,26 @@ func TestNovelFetchIntakeAppendsToCurrentBatchAndRetainsSourceBookID(t *testing.
 	}
 }
 
-func TestNovelFetchIntakeRequiresConfirmationBeforeAddingSameSourceBookAgain(t *testing.T) {
+func TestNovelFetchIntakeSkipsExistingSamePlatformSourceBookID(t *testing.T) {
 	ctx := context.Background()
 	s := NewMemoryStore()
-	batch, err := s.CreateBatch(ctx, "alice", CreateBatchInput{Title: "当前批量", Books: []CreateBookInput{{BookID: "origin-1", Title: "原书"}}})
+	batch, err := s.CreateBatch(ctx, "alice", CreateBatchInput{Title: "当前批量", Books: []CreateBookInput{{BookID: "origin-1", Platform: "3", Title: "原书"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	intake, err := s.CreateIntake(ctx, "alice", NovelFetchIntakeInput{Books: []CreateBookInput{{BookID: "origin-1", Title: "AI1·原书", SourceText: "AI 正文"}}})
+	intake, err := s.CreateIntake(ctx, "alice", NovelFetchIntakeInput{Books: []CreateBookInput{
+		{BookID: "origin-1", Platform: "3", Title: "不应重复导入", SourceText: "AI 正文"},
+		{BookID: "origin-2", Platform: "3", Title: "应当导入的新书", SourceText: "新正文"},
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.AppendBooksFromIntake(ctx, "alice", batch.ID, intake.ID, false); err != ErrConflict {
-		t.Fatalf("unconfirmed duplicate err=%v", err)
-	}
-	updated, err := s.AppendBooksFromIntake(ctx, "alice", batch.ID, intake.ID, true)
+	updated, err := s.AppendBooksFromIntake(ctx, "alice", batch.ID, intake.ID, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(updated.Books) != 2 || updated.Books[1].BookID != "origin-1" || updated.Books[1].Title != "AI1·原书" {
-		t.Fatalf("confirmed duplicate=%+v", updated.Books)
+	if len(updated.Books) != 2 || updated.Books[0].BookID != "origin-1" || updated.Books[1].BookID != "origin-2" || updated.Books[1].Title != "应当导入的新书" {
+		t.Fatalf("same-platform duplicate must be skipped while new books append, got %+v", updated.Books)
 	}
 }
 

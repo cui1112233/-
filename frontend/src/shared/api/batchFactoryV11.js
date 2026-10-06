@@ -132,14 +132,12 @@ export function createBatchFromIntake(intakeId, payload = {}) {
   return apiRequest(bf11Path(`intakes/${id(intakeId)}/batches`), { method: 'POST', body: body(payload) });
 }
 
-// The novel-fetch source is already frozen in the intake. This appends that
-// snapshot to the currently selected batch without requesting the source site
-// again. `allowDuplicate` is set only after the user confirms a same-Book-ID
-// alternate content version.
-export function appendNovelFetchIntake(batchId, intakeId, { allowDuplicate = false } = {}) {
+// The novel-fetch source is already frozen in the intake. The service appends
+// only source books not already present in the selected batch.
+export function appendNovelFetchIntake(batchId, intakeId) {
   return apiRequest(bf11Path(`batches/${id(batchId)}/intakes/${id(intakeId)}/books`), {
     method: 'POST',
-    body: body({ allowDuplicate: allowDuplicate === true })
+    body: body({})
   });
 }
 

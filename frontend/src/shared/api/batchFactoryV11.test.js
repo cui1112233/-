@@ -121,7 +121,7 @@ test('a legacy empty book can fetch and persist its own original through V12', a
   assert.equal(calls[0].options.method, 'POST');
 });
 
-test('a frozen Novel Fetch intake joins the selected V12 batch only with the caller confirmation flag', async t => {
+test('a frozen Novel Fetch intake joins the selected V12 batch without a duplicate override', async t => {
   const originalLocalStorage = globalThis.localStorage;
   const originalFetch = globalThis.fetch;
   const calls = [];
@@ -132,10 +132,10 @@ test('a frozen Novel Fetch intake joins the selected V12 batch only with the cal
   };
   t.after(() => { globalThis.localStorage = originalLocalStorage; globalThis.fetch = originalFetch; });
 
-  await batchFactoryV11.appendNovelFetchIntake('batch 1', 'intake/1', { allowDuplicate: true });
+  await batchFactoryV11.appendNovelFetchIntake('batch 1', 'intake/1');
   assert.equal(calls[0].path, '/api/batch-factory/v12/batches/batch%201/intakes/intake%2F1/books');
   assert.equal(calls[0].options.method, 'POST');
-  assert.deepEqual(JSON.parse(calls[0].options.body), { allowDuplicate: true });
+  assert.deepEqual(JSON.parse(calls[0].options.body), {});
 });
 
 test('protected local executor media is fetched as an authenticated blob', async t => {
