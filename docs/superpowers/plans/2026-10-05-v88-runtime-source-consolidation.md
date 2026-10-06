@@ -139,8 +139,8 @@ git commit -m "fix(v88): track browser worker deployment contract"
 **Files:**
 - Modify: `deploy/v88-direct/activate-direct-release.sh`
 - Modify: `deploy/v88-direct/activate-direct-release.test.js`
-- Modify: `deploy/v88-public/CURRENT_RELEASE`
 - Create: `deploy/v88-direct/runtime-release-manifest.sh`
+- Modify: `deploy/v88-direct/send-direct-release.ps1`
 
 **Interfaces:**
 - Consumes: an exact Git SHA, the staged Node release tree, and the compiled Go binary SHA-256.
@@ -168,9 +168,9 @@ Expected: FAIL because no runtime manifest is written.
 
 Have `runtime-release-manifest.sh` validate SHA formats, calculate the Go binary SHA-256, and write JSON to the staged release directory atomically. Make `activate-direct-release.sh` fail before switching `current` if the manifest cannot be generated or if its Git SHA differs from the requested release SHA.
 
-- [ ] **Step 4: Make `CURRENT_RELEASE` a pointer, not a hand-edited backup**
+- [ ] **Step 4: Keep live release identity out of Git-tracked state**
 
-Store only the active exact Git SHA and manifest relative path. The file must not contain environment values, image credentials, or historical `.env` copies.
+Do not use `deploy/v88-public/CURRENT_RELEASE` as a mutable declaration of the live ECS SHA: it becomes stale without a source commit. The generated `${releaseDir}/runtime-release.json` is the runtime authority. Have `send-direct-release.ps1` upload `runtime-release-manifest.sh` with `activate-direct-release.sh`; do not upload or persist any `.env`, credential, certificate, session, or historical backup.
 
 - [ ] **Step 5: Run release-script tests**
 
@@ -181,7 +181,7 @@ Expected: PASS, including malformed SHA rejection and failed-manifest no-cutover
 - [ ] **Step 6: Commit**
 
 ```bash
-git add deploy/v88-direct/activate-direct-release.sh deploy/v88-direct/runtime-release-manifest.sh deploy/v88-direct/activate-direct-release.test.js deploy/v88-public/CURRENT_RELEASE
+git add deploy/v88-direct/activate-direct-release.sh deploy/v88-direct/runtime-release-manifest.sh deploy/v88-direct/send-direct-release.ps1 deploy/v88-direct/activate-direct-release.test.js
 git commit -m "fix(v88): record exact runtime release identity"
 ```
 
