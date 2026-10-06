@@ -61,6 +61,8 @@ mkdir -p $directRoot/releases
         -Path (Join-Path $RepoRoot 'deploy\v88-direct\docker-compose.direct.yml') -Destination $directRoot -Force
     Set-SCPItem -ComputerName $ComputerName -Credential $cred -AcceptKey `
         -Path (Join-Path $RepoRoot 'deploy\v88-direct\activate-direct-release.sh') -Destination $directRoot -Force
+    Set-SCPItem -ComputerName $ComputerName -Credential $cred -AcceptKey `
+        -Path (Join-Path $RepoRoot 'deploy\v88-direct\runtime-release-manifest.sh') -Destination $directRoot -Force
 
     # 3) 上传成品包 -----------------------------------------------------------
     Write-Host "==> 上传成品包（$sizeMB MB，走你本机到服务器的直连，不经过国外镜像站）" -ForegroundColor Cyan

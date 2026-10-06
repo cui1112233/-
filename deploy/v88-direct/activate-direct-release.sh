@@ -10,7 +10,7 @@
 set -Eeuo pipefail
 
 SHA="${1:-}"
-[[ "$SHA" =~ ^[0-9a-f]{7,40}$ ]] || { echo "usage: activate-direct-release.sh <git-sha>" >&2; exit 2; }
+[[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "usage: activate-direct-release.sh <exact-40-character-git-sha>" >&2; exit 2; }
 
 DIRECT_ROOT="${DIRECT_ROOT:-/opt/qiantie/v88/direct}"
 DEPLOY_DIR="${DEPLOY_DIR:-/opt/qiantie/v88/deploy/v88-public}"
@@ -39,6 +39,70 @@ if [ -n "$PREV_TARGET" ]; then
 else
   PREV_DIR=""
 fi
+
+# Validate provenance and atomically write runtime identity before installing the
+# rollback trap: a preflight error must not recreate containers or touch current.
+PREV_GIT_SHA=""
+if [ -n "$PREV_DIR" ]; then
+  PREV_GIT_SHA="$(python3 - "$PREV_DIR" <<'PY'
+import json
+from pathlib import Path
+import re
+import sys
+
+try:
+    release = Path(sys.argv[1])
+    manifest = release / "runtime-release.json"
+    if manifest.exists():
+        identity = json.loads(manifest.read_text(encoding="utf-8"))
+        sha = identity["gitSha"]
+        if identity.get("nodeSourceSha") != sha:
+            raise ValueError("previous Node identity is inconsistent")
+    else:
+        # Existing direct releases predate manifests but carry this packager file.
+        sha = (release / "node" / "RELEASE-SHA").read_text(encoding="utf-8").strip()
+    if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{40}", sha):
+        raise ValueError("previous Git identity is not an exact SHA")
+    print(sha)
+except (OSError, ValueError, KeyError, TypeError) as error:
+    print(f"STATUS=FAILED previous release identity: {error}", file=sys.stderr)
+    sys.exit(9)
+PY
+  )" || exit 9
+fi
+MANIFEST_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/runtime-release-manifest.sh"
+[ -f "$MANIFEST_SCRIPT" ] || { echo "STATUS=FAILED missing runtime manifest generator" >&2; exit 9; }
+bash "$MANIFEST_SCRIPT" "$SHA" "$RELEASE_DIR" "$PREV_GIT_SHA" || exit 9
+python3 - "$RELEASE_DIR" "$SHA" "$PREV_GIT_SHA" <<'PY' || exit 9
+import datetime
+import hashlib
+import json
+from pathlib import Path
+import re
+import sys
+try:
+    release = Path(sys.argv[1])
+    with (release / "runtime-release.json").open(encoding="utf-8") as stream:
+        manifest = json.load(stream)
+    if manifest.get("gitSha") != sys.argv[2] or manifest.get("nodeSourceSha") != sys.argv[2]:
+        raise ValueError("generated manifest does not match requested Git SHA")
+    if manifest.get("previousReleaseGitSha") != (sys.argv[3] or None):
+        raise ValueError("generated manifest does not match previous Git SHA")
+    timestamp = manifest.get("activatedAtUtc", "")
+    datetime.datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%SZ")
+    go_hash = manifest.get("goBinarySha256", "")
+    if not isinstance(go_hash, str) or not re.fullmatch(r"[0-9a-f]{64}", go_hash):
+        raise ValueError("generated manifest lacks an exact Go binary SHA-256")
+    digest = hashlib.sha256()
+    with (release / "go" / "qiantie").open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    if digest.hexdigest() != go_hash:
+        raise ValueError("generated manifest does not match staged Go binary")
+except (OSError, ValueError, AttributeError, TypeError) as error:
+    print(f"STATUS=FAILED runtime manifest validation: {error}", file=sys.stderr)
+    sys.exit(9)
+PY
 
 set_env() {
   local key="$1" value="$2" next_env
