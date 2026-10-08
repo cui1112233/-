@@ -15,12 +15,13 @@ type productionSubmitInput struct {
 }
 
 type videoProviderConfigInput struct {
-	Provider  string `json:"provider"`
-	APIKey    string `json:"apiKey,omitempty"`
-	Model     string `json:"model,omitempty"`
-	CreateURL string `json:"createUrl,omitempty"`
-	TasksURL  string `json:"tasksUrl,omitempty"`
-	ResultURL string `json:"resultUrl,omitempty"`
+	Provider   string `json:"provider"`
+	APIKey     string `json:"apiKey,omitempty"`
+	Model      string `json:"model,omitempty"`
+	CreateURL  string `json:"createUrl,omitempty"`
+	TasksURL   string `json:"tasksUrl,omitempty"`
+	ResultURL  string `json:"resultUrl,omitempty"`
+	WorkflowID string `json:"workflowId,omitempty"`
 }
 
 func registerProductionRoutes(mux *http.ServeMux, service *batchfactoryv11.ProductionService) {
@@ -40,7 +41,7 @@ func registerProductionRoutes(mux *http.ServeMux, service *batchfactoryv11.Produ
 		}
 		err := service.ProviderRegistry.Put(r.Context(), owner, batchfactoryv11.VideoProviderConfig{
 			Provider: input.Provider, APIKey: input.APIKey, Model: input.Model,
-			CreateURL: input.CreateURL, TasksURL: input.TasksURL, ResultURL: input.ResultURL,
+			CreateURL: input.CreateURL, TasksURL: input.TasksURL, ResultURL: input.ResultURL, WorkflowID: input.WorkflowID,
 		})
 		if err != nil {
 			writeStoreError(w, err)

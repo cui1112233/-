@@ -29,6 +29,7 @@ type AutoDLH3VideoAdapter struct {
 	TasksURL    string
 	APIKey      string
 	Model       string
+	WorkflowID  string
 	Client      *http.Client
 	ValidateURL func(string) (*url.URL, error)
 }
@@ -121,9 +122,15 @@ func (a *AutoDLH3VideoAdapter) Submit(ctx context.Context, model FrozenVideoMode
 		}
 		images[index] = parsed.String()
 	}
-	workflow := AutoDLH3NoImageWorkflow
-	if len(images) > 0 {
-		workflow = AutoDLH3ReferenceWorkflow
+	workflow := strings.TrimSpace(a.WorkflowID)
+	if workflow == "" {
+		workflow = AutoDLH3NoImageWorkflow
+		if len(images) > 0 {
+			workflow = AutoDLH3ReferenceWorkflow
+		}
+	}
+	if !validAutoDLH3WorkflowID(workflow) {
+		return ProviderTaskRef{}, fmt.Errorf("AutoDL H3 workflow id is invalid")
 	}
 	payload := map[string]any{
 		"prompt":     prompt.CompiledPrompt,
@@ -157,6 +164,19 @@ func (a *AutoDLH3VideoAdapter) Submit(ctx context.Context, model FrozenVideoMode
 		return ProviderTaskRef{}, fmt.Errorf("AutoDL H3 response did not contain a task id")
 	}
 	return ProviderTaskRef{ProviderTaskID: taskID, State: autoDLH3State(firstVideoValue(reply, "status", "state")), RequestedDurationSeconds: float64(duration)}, nil
+}
+
+func validAutoDLH3WorkflowID(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" || len(value) > 120 {
+		return false
+	}
+	for _, character := range value {
+		if !((character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') || (character >= '0' && character <= '9') || character == '_' || character == '-') {
+			return false
+		}
+	}
+	return true
 }
 
 func (a *AutoDLH3VideoAdapter) Poll(ctx context.Context, _ FrozenVideoModel, task ProviderTaskRef) (ProviderTaskRef, error) {

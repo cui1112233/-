@@ -184,7 +184,7 @@ func (s *ProductionService) resolveProvider(ctx context.Context, owner, provider
 		}
 		adapter := &AutoDLH3VideoAdapter{
 			CreateURL: cfg.CreateURL, TasksURL: cfg.TasksURL,
-			APIKey: cfg.APIKey, Model: model.ID,
+			APIKey: cfg.APIKey, Model: model.ID, WorkflowID: cfg.WorkflowID,
 		}
 		if err := adapter.Validate(); err != nil {
 			return nil, FrozenVideoModel{}, err

@@ -19,12 +19,13 @@ const (
 )
 
 type VideoProviderConfig struct {
-	Provider  string
-	APIKey    string
-	Model     string
-	CreateURL string
-	TasksURL  string
-	ResultURL string
+	Provider   string
+	APIKey     string
+	Model      string
+	CreateURL  string
+	TasksURL   string
+	ResultURL  string
+	WorkflowID string
 }
 
 type VideoProviderRegistry interface {
@@ -96,6 +97,10 @@ func (r *MemoryVideoProviderRegistry) Put(_ context.Context, owner string, cfg V
 		}
 		if strings.TrimSpace(cfg.TasksURL) == "" {
 			cfg.TasksURL = DefaultAutoDLH3TasksURL
+		}
+		cfg.WorkflowID = strings.TrimSpace(cfg.WorkflowID)
+		if cfg.WorkflowID != "" && !validAutoDLH3WorkflowID(cfg.WorkflowID) {
+			return fmt.Errorf("%w: AutoDL H3 workflow id is invalid", ErrInvalid)
 		}
 	case VideoProviderYFAISeedance:
 		cfg.APIKey = strings.TrimSpace(cfg.APIKey)

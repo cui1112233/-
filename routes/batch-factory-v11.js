@@ -16,6 +16,7 @@ const { createBatchFactoryAutomationController } = require('../lib/batch-factory
 const { createAutomationPresetStore } = require('../lib/batch-factory-v11/automation-presets');
 const { createMySQLWorkshopStore } = require('../lib/novel-fetch-workshop/mysql-store');
 const { refillMissingBatchFactoryBookSource } = require('../lib/batch-factory-v11/source-refill');
+const { H3_DEFAULT_WORKFLOW } = require('../lib/video-model-catalog');
 
 const PERSONAL_PROVIDER = 'personal_api';
 const LOCAL_PROVIDER = 'doubao_local_executor';
@@ -1722,6 +1723,25 @@ function h3ApiKeyForRequest(req, configReader = readConfig) {
   return personalKey || String(process.env.QIANTIE_AUTODL_H3_API_KEY || process.env.QIANTIE_H3_API_KEY || '').trim();
 }
 
+function h3WorkflowForRequest(req, options = {}) {
+  try {
+    const model = resolveRuntimeModel({
+      username: req.username,
+      account: req.auth?.account,
+      kind: 'video',
+      modelId: String(req.body?.videoModelId || req.body?.modelId || H3_MODEL).trim() || H3_MODEL,
+      memberStore: options.memberStore,
+      accountStore: options.accountStore,
+      configReader: options.configReader || readConfig
+    });
+    if (String(model?.workflowId || '').trim()) return String(model.workflowId).trim();
+  } catch (_) {
+    // Older batch records may predate the model catalog. They retain the
+    // declared H3 default, while a configured catalog workflow always wins.
+  }
+  return H3_DEFAULT_WORKFLOW;
+}
+
 async function syncH3ProviderConfig(req, options, { allowMissing = false } = {}) {
   const fetchImpl = options.fetchImpl || globalThis.fetch;
   if (!fetchImpl) throw new Error('fetch implementation is required');
@@ -1749,7 +1769,14 @@ async function syncH3ProviderConfig(req, options, { allowMissing = false } = {})
   const response = await fetchImpl(base + CONFIG_PATH, {
     method: 'PUT',
     headers,
-    body: JSON.stringify({ provider: H3_PROVIDER, model: H3_MODEL, apiKey, createUrl: H3_CREATE_URL, tasksUrl: H3_TASKS_URL }),
+    body: JSON.stringify({
+      provider: H3_PROVIDER,
+      model: H3_MODEL,
+      apiKey,
+      createUrl: H3_CREATE_URL,
+      tasksUrl: H3_TASKS_URL,
+      workflowId: h3WorkflowForRequest(req, options)
+    }),
     redirect: 'manual'
   });
   if (!response || response.status < 200 || response.status >= 300) {
@@ -2636,6 +2663,8 @@ module.exports = {
   resolveBatchVideoProviderConfig,
   syncPersonalProviderConfig,
   h3ApiKeyForRequest,
+  h3WorkflowForRequest,
+  syncH3ProviderConfig,
   normalizedProvider,
   needsH3ConfigSync,
   needsPersonalConfigSync,
