@@ -2912,9 +2912,9 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
     }
     setActionBusy(stageActionKey('retry', book.id));
     try {
-      // Historical rows can outlive a per-book stage document.  The batch
-      // snapshot deliberately marks those rows unavailable instead of turning
-      // a retry click into a browser-visible 404.
+      // The runtime summary is a display cache. Historical provider failures
+      // can exist before it has indexed the corresponding stage row, so the
+      // retry endpoint remains the source of truth for eligibility.
       const runtime = await loadRuntimeStatus({ quiet: true });
       const summary = runtime?.stageSummaries?.[book.id] || stageSummaries[book.id];
       const videoProgress = batchFactoryVideoProgress(book, runtime?.production || productionStatus);
@@ -2924,27 +2924,19 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
       // In that case there is no failed stage-run row, but the persisted task is
       // still an explicit retry target for this storyboard.
       const retryAsVideo = failedVideo?.status === 'failed';
-      if (summary?.unavailable && !retryAsVideo) {
-        message.info('当前书没有可读取的阶段记录，暂不能自动重试。');
-        return;
-      }
-      if (!summary?.lastFailed && !retryAsVideo) {
-        message.info('当前小说没有可重试的失败步骤。');
-        return;
-      }
       const settings = effectiveBookSettings(batch, book);
-      if (summary.lastFailed?.stage === 'director' && settings.audioPlanningEnabled === true) await ensureBookAudioDuration(book);
+      if (summary?.lastFailed?.stage === 'director' && settings.audioPlanningEnabled === true) await ensureBookAudioDuration(book);
       await retryBookStage(batch.id, book.id, {
         ...(usesSelectedH3VideoPreset(settings) ? { h3: true } : {}),
         videoId: effectiveVideoID,
         textModelId: textModelId || settings.textModelId,
-        ...(summary.lastFailed?.stage === 'video' || retryAsVideo ? {
+        ...(summary?.lastFailed?.stage === 'video' || retryAsVideo || !summary?.lastFailed ? {
           provider: videoProviderForModel(settings.videoModelId, settings.videoProvider),
           videoModelId: settings.videoModelId
         } : {}),
         requestId: requestID('bf11-book-retry')
       });
-		if (summary.lastFailed?.stage === 'director' && usesSelectedH3VideoPreset(settings)) await compileBookH3Videos(book);
+		if (summary?.lastFailed?.stage === 'director' && usesSelectedH3VideoPreset(settings)) await compileBookH3Videos(book);
       await Promise.all([refreshBatch(), loadRuntimeStatus({ quiet: true })]);
       message.success('已识别并重跑该书最后失败的步骤。');
     } catch (error) {

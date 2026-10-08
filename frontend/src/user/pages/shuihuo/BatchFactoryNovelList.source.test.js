@@ -483,11 +483,12 @@ test('keeps persisted production and merge status readable when new work is disa
   assert.match(source, /setMergeStatus\(runtime\?\.merge \|\| \{ jobs: \[\] \}\)/);
 });
 
-test('retries failed stages from the batch runtime snapshot instead of querying every historical book stage directly', () => {
+test('delegates retry eligibility to the persisted backend record when the runtime snapshot is incomplete', () => {
   const retry = source.match(/async function retryLastFailedStage\([\s\S]*?\n  }\n  async function/)?.[0] || '';
   assert.match(retry, /const runtime = await loadRuntimeStatus\(\{ quiet: true \}\);/);
   assert.match(retry, /runtime\?\.stageSummaries\?\.\[book\.id\] \|\| stageSummaries\[book\.id\]/);
-  assert.match(retry, /当前书没有可读取的阶段记录，暂不能自动重试。/);
+  assert.doesNotMatch(retry, /当前书没有可读取的阶段记录，暂不能自动重试。/);
+  assert.doesNotMatch(retry, /if \(!summary\?\.lastFailed && !retryAsVideo\)/);
   assert.doesNotMatch(source, /getBookStageSummary/);
   assert.doesNotMatch(source, /async function loadStageSummaries/);
 });
