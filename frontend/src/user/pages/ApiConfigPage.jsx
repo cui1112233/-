@@ -14,7 +14,7 @@ const MODEL_KINDS = [
   { key: 'image', title: '图片模型', eyebrow: 'IMAGE MODELS' }
 ];
 
-const DEFAULT_H3_WORKFLOW_ID = 'minimax_h3_image_audio_to_video_v2';
+const DEFAULT_H3_WORKFLOW_ID = 'minimax_h3_image_audio_to_video_v2_15s';
 
 const PLATFORM_PRESETS = [
   { id: 'yd2-mini-video', displayName: 'YD2.0 Mini（图生）', description: '平台已维护视频适配器；只需填写 API Key。', credentialMode: 'apiKey' },

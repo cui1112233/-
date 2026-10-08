@@ -27,7 +27,18 @@ test('H3 platform preset falls back to the image-audio workflow when workflow id
     enabled: true,
     credential: 'secret-token'
   }], { modelCatalogVersion: 1 });
-  assert.equal(catalog[0].workflowId, 'minimax_h3_image_audio_to_video_v2');
+  assert.equal(catalog[0].workflowId, 'minimax_h3_image_audio_to_video_v2_15s');
+});
+
+test('H3 normalizes the legacy short image-audio workflow id to AutoDL’s live 15-second workflow', () => {
+  const catalog = normalizeModelCatalog([{
+    id: 'minimax-h3-video',
+    kind: 'video',
+    enabled: true,
+    credential: 'secret-token',
+    workflowId: 'minimax_h3_image_audio_to_video_v2'
+  }], { modelCatalogVersion: 1 });
+  assert.equal(catalog[0].workflowId, 'minimax_h3_image_audio_to_video_v2_15s');
 });
 
 test('script video resolves the saved H3 workflow id from the runtime config', () => {
@@ -40,6 +51,5 @@ test('script video resolves the saved H3 workflow id from the runtime config', (
 
 test('batch factory forwards the saved H3 workflow id to the provider bridge', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'routes/batch-factory-v11.js'), 'utf8');
-  assert.match(source, /runtimeModel\?\.workflowId \|\| options\.runtimeModel\?\.modelId/);
-  assert.match(source, /runtimeModel\.workflowId \|\| runtimeModel\.modelId/);
+  assert.match(source, /workflowId: h3WorkflowForRequest\(req, options\)/);
 });
