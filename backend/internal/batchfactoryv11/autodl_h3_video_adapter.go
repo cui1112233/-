@@ -100,7 +100,7 @@ func (a *AutoDLH3VideoAdapter) Submit(ctx context.Context, model FrozenVideoMode
 	if model.MaxDuration > 0 && duration > model.MaxDuration {
 		return ProviderTaskRef{}, fmt.Errorf("AutoDL H3 duration exceeds model maximum")
 	}
-	resolution := rawString(values, "videoResolution", rawString(values, "resolution", "480p竖"))
+	resolution := autoDLH3Resolution(rawString(values, "videoResolution", rawString(values, "resolution", "768p竖")))
 	images := append([]string(nil), prompt.ReferenceImageURLs...)
 	if len(images) == 0 {
 		images = rawStrings(values, "imageUrls")
@@ -196,6 +196,25 @@ func autoDLH3SafeDetail(value, apiKey string) string {
 		value = value[:maxLength] + "…"
 	}
 	return value
+}
+
+// autoDLH3Resolution translates the editor's generic legacy labels into the
+// exact values accepted by the H3 image/audio workflow.  In particular 720p
+// is not an AutoDL option there; 768p is its supported equivalent.
+func autoDLH3Resolution(value string) string {
+	normalized := strings.ToLower(strings.ReplaceAll(strings.Join(strings.Fields(value), ""), "×", "x"))
+	switch normalized {
+	case "480p横", "480phorizontal", "480plandscape":
+		return "480p横"
+	case "768p横", "720p横", "720phorizontal", "720plandscape", "768phorizontal", "768plandscape":
+		return "768p横"
+	case "480p", "480p竖", "480pvertical", "480pportrait":
+		return "480p竖"
+	case "768p", "720p", "768p竖", "720p竖", "720pvertical", "720pportrait", "768pvertical", "768pportrait", "":
+		return "768p竖"
+	default:
+		return "768p竖"
+	}
 }
 
 func validAutoDLH3WorkflowID(value string) bool {

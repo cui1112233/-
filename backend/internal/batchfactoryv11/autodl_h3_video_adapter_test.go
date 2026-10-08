@@ -52,7 +52,7 @@ func TestAutoDLH3VideoAdapterUsesTextWorkflowWhenNoReferenceImages(t *testing.T)
 	if ref.ProviderTaskID != "h3-task-1" || ref.State != ProductionQueued {
 		t.Fatalf("ref=%+v", ref)
 	}
-	if received["prompt"] != prompt.CompiledPrompt || received["duration"] != float64(15) || received["resolution"] != "480p" {
+	if received["prompt"] != prompt.CompiledPrompt || received["duration"] != float64(15) || received["resolution"] != "480p竖" {
 		t.Fatalf("payload=%+v", received)
 	}
 	for key := range received {
@@ -64,10 +64,14 @@ func TestAutoDLH3VideoAdapterUsesTextWorkflowWhenNoReferenceImages(t *testing.T)
 
 func TestAutoDLH3VideoAdapterUsesConfiguredWorkflowID(t *testing.T) {
 	const workflowID = "minimax_h3_image_audio_to_video_v1"
+	var received map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		wantPath := "/api/v1/comfyui/comfyui_workflow/" + workflowID
 		if r.Method != http.MethodPost || r.URL.Path != wantPath {
 			t.Fatalf("request=%s %s, want POST %s", r.Method, r.URL.Path, wantPath)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&received); err != nil {
+			t.Fatal(err)
 		}
 		_, _ = w.Write([]byte(`{"code":"Success","data":{"task_id":"h3-configured-workflow","status":"QUEUED"}}`))
 	}))
@@ -83,12 +87,20 @@ func TestAutoDLH3VideoAdapterUsesConfiguredWorkflowID(t *testing.T) {
 		ValidateURL: func(raw string) (*url.URL, error) { return url.Parse(raw) },
 	}
 
-	ref, err := adapter.Submit(context.Background(), FrozenVideoModel{ID: AutoDLH3Model, MaxDuration: 15}, FinalPrompt{CompiledPrompt: "镜头推进"})
+	ref, err := adapter.Submit(context.Background(), FrozenVideoModel{ID: AutoDLH3Model, MaxDuration: 15}, FinalPrompt{
+		CompiledPrompt: "镜头推进",
+		EffectiveSettings: EffectiveSettings{Values: SettingsPatch{
+			"videoResolution": json.RawMessage(`"720p"`),
+		}},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if ref.ProviderTaskID != "h3-configured-workflow" {
 		t.Fatalf("ref=%+v", ref)
+	}
+	if received["resolution"] != "768p竖" {
+		t.Fatalf("resolution=%q, want 768p竖", received["resolution"])
 	}
 }
 
