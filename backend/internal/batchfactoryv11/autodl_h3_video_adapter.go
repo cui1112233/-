@@ -161,9 +161,41 @@ func (a *AutoDLH3VideoAdapter) Submit(ctx context.Context, model FrozenVideoMode
 	}
 	taskID := firstVideoValue(reply, "task_id", "taskId", "id")
 	if taskID == "" {
+		if rejection := autoDLH3ProviderRejection(reply, a.APIKey); rejection != "" {
+			return ProviderTaskRef{}, fmt.Errorf("AutoDL H3 rejected submission: %s", rejection)
+		}
 		return ProviderTaskRef{}, fmt.Errorf("AutoDL H3 response did not contain a task id")
 	}
 	return ProviderTaskRef{ProviderTaskID: taskID, State: autoDLH3State(firstVideoValue(reply, "status", "state")), RequestedDurationSeconds: float64(duration)}, nil
+}
+
+// autoDLH3ProviderRejection returns only bounded, explicitly named response
+// fields.  It is intentionally not a raw-body dump: provider replies can be
+// arbitrary and must never leak the configured credential into task history.
+func autoDLH3ProviderRejection(reply []byte, apiKey string) string {
+	parts := make([]string, 0, 3)
+	if code := autoDLH3SafeDetail(firstVideoValue(reply, "code", "error_code"), apiKey); code != "" {
+		parts = append(parts, "code="+code)
+	}
+	if message := autoDLH3SafeDetail(firstVideoValue(reply, "msg", "message", "error", "detail"), apiKey); message != "" {
+		parts = append(parts, "message="+message)
+	}
+	if requestID := autoDLH3SafeDetail(firstVideoValue(reply, "request_id", "requestId", "trace_id", "traceId"), apiKey); requestID != "" {
+		parts = append(parts, "request_id="+requestID)
+	}
+	return strings.Join(parts, " ")
+}
+
+func autoDLH3SafeDetail(value, apiKey string) string {
+	value = strings.Join(strings.Fields(value), " ")
+	if apiKey = strings.TrimSpace(apiKey); apiKey != "" {
+		value = strings.ReplaceAll(value, apiKey, "[redacted]")
+	}
+	const maxLength = 240
+	if len(value) > maxLength {
+		value = value[:maxLength] + "…"
+	}
+	return value
 }
 
 func validAutoDLH3WorkflowID(value string) bool {

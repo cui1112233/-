@@ -92,6 +92,31 @@ func TestAutoDLH3VideoAdapterUsesConfiguredWorkflowID(t *testing.T) {
 	}
 }
 
+func TestAutoDLH3VideoAdapterReportsSafeProviderRejection(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"code":"InvalidWorkflow","msg":"workflow is not available"}`))
+	}))
+	defer server.Close()
+
+	adapter := &AutoDLH3VideoAdapter{
+		CreateURL:   server.URL + "/api/v1/comfyui/comfyui_workflow/{workflow}",
+		TasksURL:    server.URL + "/api/v1/comfyui/comfyui_workflow/result/{id}",
+		APIKey:      "autodl-secret",
+		Model:       AutoDLH3Model,
+		WorkflowID:  "minimax_h3_image_audio_to_video_v2_15s",
+		Client:      server.Client(),
+		ValidateURL: func(raw string) (*url.URL, error) { return url.Parse(raw) },
+	}
+
+	_, err := adapter.Submit(context.Background(), FrozenVideoModel{ID: AutoDLH3Model, MaxDuration: 15}, FinalPrompt{CompiledPrompt: "镜头推进"})
+	if err == nil {
+		t.Fatal("Submit() error = nil")
+	}
+	if got := err.Error(); !strings.Contains(got, "code=InvalidWorkflow") || !strings.Contains(got, "workflow is not available") || strings.Contains(got, "autodl-secret") {
+		t.Fatalf("unexpected error: %q", got)
+	}
+}
+
 func TestAutoDLH3VideoAdapterUsesReferenceWorkflowAndPollsResult(t *testing.T) {
 	var requests []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
