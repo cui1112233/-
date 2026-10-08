@@ -39,6 +39,7 @@ const {
   resolveBatchFactoryRuntimeSettings,
   syncPersonalProviderConfig,
   syncH3ProviderConfig,
+  preflightBatchFactoryAutomationVideo,
   batchFactoryProductionText,
   splitVideoPresetBody,
   singleBookDirectorStageTarget,
@@ -689,6 +690,80 @@ test('synchronizes the configured AutoDL H3 workflow instead of the hard-coded f
       workflowId: 'minimax_h3_image_audio_to_video_v1'
     }
   }]);
+});
+
+test('synchronizes an authorized member H3 request with the bound manager credential', async () => {
+  const writes = [];
+  await syncH3ProviderConfig({
+    username: 'member',
+    auth: { account: { isOwner: false } },
+    body: { provider: 'autodl_comfyui', videoModelId: 'minimax-h3-video' }
+  }, {
+    goBaseUrl: 'http://go.local',
+    bridgeSecret: 'test-secret',
+    now: () => 0,
+    memberStore: {
+      getMember(username) {
+        return username === 'member'
+          ? { username, active: true, role: 'member', boundTo: 'manager' }
+          : { username, active: true, role: 'manager' };
+      },
+      canUseApi: () => true
+    },
+    accountStore: { getInternalAccount: () => ({ isOwner: false }) },
+    configReader: username => username === 'manager'
+      ? { modelCatalog: [{
+        id: 'minimax-h3-video', kind: 'video', enabled: true,
+        adapterKind: 'autodl_comfyui_video', credential: 'manager-h3-key',
+        workflowId: 'manager-h3-workflow'
+      }] }
+      : { modelCatalog: [] },
+    fetchImpl: async (url, init) => {
+      writes.push({ url, payload: JSON.parse(init.body) });
+      return new Response('{}', { status: 200 });
+    }
+  });
+
+  assert.deepEqual(writes, [{
+    url: 'http://go.local/api/batch-factory/v11/video-provider/config',
+    payload: {
+      provider: 'autodl_comfyui',
+      model: 'minimax-h3-video',
+      apiKey: 'manager-h3-key',
+      createUrl: 'https://autodl.art/api/v1/comfyui/comfyui_workflow/{workflow}',
+      tasksUrl: 'https://autodl.art/api/v1/comfyui/comfyui_workflow/result/{id}',
+      workflowId: 'manager-h3-workflow'
+    }
+  }]);
+});
+
+test('automation H3 preflight accepts the authorized manager model without a member key', () => {
+  const result = preflightBatchFactoryAutomationVideo({
+    username: 'member',
+    isOwner: false,
+    batch: {
+      settingsState: { patch: { videoModelId: 'minimax-h3-video' } },
+      books: [{ id: 'book-1', settingsState: { patch: {} } }]
+    },
+    options: {
+      memberStore: {
+        getMember(username) {
+          return username === 'member'
+            ? { username, active: true, role: 'member', boundTo: 'manager' }
+            : { username, active: true, role: 'manager' };
+        },
+        canUseApi: () => true
+      },
+      accountStore: { getInternalAccount: () => ({ isOwner: false }) },
+      configReader: username => username === 'manager'
+        ? { modelCatalog: [{
+          id: 'minimax-h3-video', kind: 'video', enabled: true,
+          adapterKind: 'autodl_comfyui_video', credential: 'manager-h3-key'
+        }] }
+        : { modelCatalog: [] }
+    }
+  });
+  assert.equal(result, true);
 });
 
 test('uses the bound manager video credential for an authorized member on the legacy personal provider', () => {

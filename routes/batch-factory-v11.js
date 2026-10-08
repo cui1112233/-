@@ -1718,14 +1718,9 @@ async function syncPersonalProviderConfig(req, options, { allowMissing = false }
   return true;
 }
 
-function h3ApiKeyForRequest(req, configReader = readConfig) {
-  const personalKey = getVideoApiKey(configReader(req.username), 'h3');
-  return personalKey || String(process.env.QIANTIE_AUTODL_H3_API_KEY || process.env.QIANTIE_H3_API_KEY || '').trim();
-}
-
-function h3WorkflowForRequest(req, options = {}) {
+function h3RuntimeModelForRequest(req, options = {}) {
   try {
-    const model = resolveRuntimeModel({
+    return resolveRuntimeModel({
       username: req.username,
       account: req.auth?.account,
       kind: 'video',
@@ -1734,24 +1729,50 @@ function h3WorkflowForRequest(req, options = {}) {
       accountStore: options.accountStore,
       configReader: options.configReader || readConfig
     });
-    if (String(model?.workflowId || '').trim()) return String(model.workflowId).trim();
   } catch (_) {
-    // Older batch records may predate the model catalog. They retain the
-    // declared H3 default, while a configured catalog workflow always wins.
+    // Older batch records may predate the model catalog. Their legacy key and
+    // workflow fallbacks remain supported below.
   }
-  return H3_DEFAULT_WORKFLOW;
+  return null;
+}
+
+function h3ProviderConfigForRequest(req, options = {}) {
+  const normalizedOptions = typeof options === 'function' ? { configReader: options } : options;
+  const model = h3RuntimeModelForRequest(req, normalizedOptions);
+  const configReader = normalizedOptions.configReader || readConfig;
+  const member = normalizedOptions.memberStore?.getMember?.(req.username);
+  const managedMember = Boolean(member?.active && member.role === 'member' && member.boundTo);
+  const apiKey = String(
+    model?.credential
+      // A team member always executes the manager-authorized catalog model.
+      // Never let a stale personal key override or bypass that authorization.
+      || (managedMember ? '' : getVideoApiKey(configReader(req.username), 'h3'))
+      || process.env.QIANTIE_AUTODL_H3_API_KEY
+      || process.env.QIANTIE_H3_API_KEY
+      || ''
+  ).trim();
+  return {
+    apiKey,
+    workflowId: String(model?.workflowId || H3_DEFAULT_WORKFLOW).trim() || H3_DEFAULT_WORKFLOW
+  };
+}
+
+function h3ApiKeyForRequest(req, options = {}) {
+  return h3ProviderConfigForRequest(req, options).apiKey;
+}
+
+function h3WorkflowForRequest(req, options = {}) {
+  return h3ProviderConfigForRequest(req, options).workflowId;
 }
 
 async function syncH3ProviderConfig(req, options, { allowMissing = false } = {}) {
   const fetchImpl = options.fetchImpl || globalThis.fetch;
   if (!fetchImpl) throw new Error('fetch implementation is required');
-  const apiKey = h3ApiKeyForRequest(req, options.configReader);
+  const providerConfig = h3ProviderConfigForRequest(req, options);
+  const apiKey = providerConfig.apiKey;
   if (!apiKey) {
     if (allowMissing) return false;
-    const error = new Error('服务端尚未配置 AutoDL H3 API Key');
-    error.status = 400;
-    error.code = 'H3_API_KEY_REQUIRED';
-    throw error;
+    assertH3ProviderConfigured(req, options);
   }
   const base = String(options.goBaseUrl || resolveV11GoBaseUrl()).replace(/\/$/, '');
   const secret = options.bridgeSecret || process.env.QIANTIE_BRIDGE_SECRET || '';
@@ -1775,7 +1796,7 @@ async function syncH3ProviderConfig(req, options, { allowMissing = false } = {})
       apiKey,
       createUrl: H3_CREATE_URL,
       tasksUrl: H3_TASKS_URL,
-      workflowId: h3WorkflowForRequest(req, options)
+      workflowId: providerConfig.workflowId
     }),
     redirect: 'manual'
   });
@@ -1795,12 +1816,9 @@ async function prepareProviderRequest(req, options, pathname) {
     if (!needsH3ConfigSync(req, pathname)) return;
     const allowMissing = req.method === 'GET' && pathname !== CONFIG_PATH;
     if (pathname === CONFIG_PATH) {
-      const apiKey = h3ApiKeyForRequest(req, options.configReader);
+      const apiKey = h3ApiKeyForRequest(req, options);
       if (!apiKey) {
-        const error = new Error('服务端尚未配置 AutoDL H3 API Key');
-        error.status = 400;
-        error.code = 'H3_API_KEY_REQUIRED';
-        throw error;
+        assertH3ProviderConfigured(req, options);
       }
       req.body = {
         ...(req.body || {}),
@@ -1843,6 +1861,29 @@ function automationVideoProvider(settings = {}) {
   if (model.includes('doubao') || model.includes('local-executor')) return LOCAL_PROVIDER;
   if (model === 'seedance-2-0-official') return YFAI_PROVIDER;
   return normalizedProvider(settings.videoProvider);
+}
+
+function assertH3ProviderConfigured(req, options = {}) {
+  if (h3ApiKeyForRequest(req, options)) return true;
+  const error = new Error('已授权的视频模型尚未由管理者配置 AutoDL H3 API Key');
+  error.status = 400;
+  error.code = 'H3_API_KEY_REQUIRED';
+  throw error;
+}
+
+function preflightBatchFactoryAutomationVideo({ username, isOwner = false, batch, options = {} } = {}) {
+  const books = Array.isArray(batch?.books) && batch.books.length ? batch.books : [undefined];
+  for (const book of books) {
+    const settings = validateBatchFactoryRuntimeSettings({ ...options, username, isOwner, batch, book });
+    if (automationVideoProvider(settings) !== H3_PROVIDER) continue;
+    assertH3ProviderConfigured({
+      username,
+      auth: { account: { isOwner } },
+      method: 'POST',
+      body: { provider: H3_PROVIDER, videoModelId: settings.videoModelId }
+    }, options);
+  }
+  return true;
 }
 
 function automationEffectiveSettings(batch, book) {
@@ -2486,8 +2527,14 @@ function createBatchFactoryV11Router(options = {}) {
         ...upstreamOptions, username: req.username, isOwner, method: 'GET',
         pathname: `/api/batch-factory/v11/batches/${encodeURIComponent(req.params.batchId)}`
       });
-      await applyAutomationPresetToBatch({
+      const configuredBatch = await applyAutomationPresetToBatch({
         username: req.username, isOwner, batch: loaded?.batch || loaded, preset, bridgeOptions: upstreamOptions
+      });
+      preflightBatchFactoryAutomationVideo({
+        username: req.username,
+        isOwner,
+        batch: configuredBatch,
+        options: upstreamOptions
       });
       const result = await automation.start({
         ...automationContext(req), scheduledAt: req.body?.scheduledAt,
@@ -2664,6 +2711,7 @@ module.exports = {
   syncPersonalProviderConfig,
   h3ApiKeyForRequest,
   h3WorkflowForRequest,
+  preflightBatchFactoryAutomationVideo,
   syncH3ProviderConfig,
   normalizedProvider,
   needsH3ConfigSync,
