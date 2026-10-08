@@ -2917,7 +2917,9 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
       // a retry click into a browser-visible 404.
       const runtime = await loadRuntimeStatus({ quiet: true });
       const summary = runtime?.stageSummaries?.[book.id] || stageSummaries[book.id];
-      const failedVideo = videoId ? batchFactoryVideoProgress(book, runtime?.production || productionStatus).byVideo.get(videoId) : null;
+      const videoProgress = batchFactoryVideoProgress(book, runtime?.production || productionStatus);
+      const effectiveVideoID = String(videoId || [...videoProgress.byVideo.entries()].find(([, item]) => item?.status === 'failed')?.[0] || '');
+      const failedVideo = effectiveVideoID ? videoProgress.byVideo.get(effectiveVideoID) : null;
       // A video can fail only after its initial stage submission has succeeded.
       // In that case there is no failed stage-run row, but the persisted task is
       // still an explicit retry target for this storyboard.
@@ -2934,7 +2936,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
       if (summary.lastFailed?.stage === 'director' && settings.audioPlanningEnabled === true) await ensureBookAudioDuration(book);
       await retryBookStage(batch.id, book.id, {
         ...(usesSelectedH3VideoPreset(settings) ? { h3: true } : {}),
-        videoId,
+        videoId: effectiveVideoID,
         textModelId: textModelId || settings.textModelId,
         ...(summary.lastFailed?.stage === 'video' || retryAsVideo ? {
           provider: videoProviderForModel(settings.videoModelId, settings.videoProvider),

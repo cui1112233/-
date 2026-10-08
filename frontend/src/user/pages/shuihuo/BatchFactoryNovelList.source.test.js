@@ -500,6 +500,13 @@ test('retries an explicitly failed storyboard even when its asynchronous provide
   assert.match(retry, /retryAsVideo/);
 });
 
+test('list-level retry resolves a persisted failed storyboard before it requires a failed stage run', () => {
+  const retry = source.match(/async function retryLastFailedStage\([\s\S]*?\n  }\n  async function/)?.[0] || '';
+  assert.match(retry, /const effectiveVideoID = String\(videoId \|\| \[\.\.\.videoProgress\.byVideo\.entries\(\)\]\.find\(\(\[, item\]\) => item\?\.status === 'failed'\)\?\.\[0\] \|\| ''\);/);
+  assert.match(retry, /const failedVideo = effectiveVideoID \? videoProgress\.byVideo\.get\(effectiveVideoID\) : null;/);
+  assert.match(retry, /videoId: effectiveVideoID,/);
+});
+
 test('does not offer a manual retry while server automation owns the book', () => {
   const retry = source.match(/async function retryLastFailedStage\([\s\S]*?\n  }\n  async function/)?.[0] || '';
   assert.match(retry, /if \(automationActive\) \{[\s\S]*?服务端自动生产正在处理该小说；会自动重试，无需手动操作。/);
