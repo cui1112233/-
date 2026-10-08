@@ -8,6 +8,7 @@ out="${2:-}"
 [ -n "$out" ] || out="release/v88-node-${sha}.tar.gz"
 
 mkdir -p "$(dirname "$out")"
+mkdir -p data outputs
 printf '%s\n' "$sha" > RELEASE-SHA
 
 # Keep this whitelist aligned with the production Node runtime surface in Dockerfile.
@@ -23,6 +24,8 @@ required=(
   prompts
   public
   routes
+  data
+  outputs
   frontend/dist
   node_modules
   RELEASE-SHA
@@ -55,6 +58,6 @@ for path in "${forbidden[@]}"; do
   fi
 done
 
-PAYLOAD_BYTES="$(stat -c '%s' "$out")"
+PAYLOAD_BYTES="$(wc -c < "$out" | tr -d '[:space:]')"
 printf 'PAYLOAD_BYTES=%s\n' "$PAYLOAD_BYTES"
 du -h "$out"
