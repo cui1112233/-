@@ -197,15 +197,15 @@ export function PresetLibraryPage() {
       ];
       // 批量工厂页需要同时展示约束设置预设（module=script）
       if (module === 'batch-factory') {
-        requests.push(listAdminPresets('script'));
+        requests.push(listAdminPresets('script'), listAdminPresetSlots('script'));
       }
-      const [presetResult, slotResult, extraPresetResult] = await Promise.all(requests);
+      const [presetResult, slotResult, extraPresetResult, extraSlotResult] = await Promise.all(requests);
       const allPresets = [...(presetResult.presets || [])];
       if (extraPresetResult) {
         allPresets.push(...(extraPresetResult.presets || []));
       }
       setPresets(sortPresets(allPresets));
-      setSlots(slotResult.slots || []);
+      setSlots([...(slotResult.slots || []), ...(extraSlotResult?.slots || [])]);
     } catch (requestError) {
       setPresets([]);
       setSlots([]);
@@ -237,6 +237,7 @@ export function PresetLibraryPage() {
   }
 
   async function saveDraft(values) {
+    const targetModule = editingPreset?.module || module;
     let protocolLock;
     try {
       protocolLock = JSON.parse(values.protocolLock || '{}');
@@ -246,7 +247,7 @@ export function PresetLibraryPage() {
     }
     if (values.constraintCategory) {
       const prefix = `script-constraint-${values.constraintCategory}-`;
-      if (module !== 'script' || values.kind !== 'addon' || !values.id.startsWith(prefix)) {
+      if (targetModule !== 'script' || values.kind !== 'addon' || !values.id.startsWith(prefix)) {
         form.setFields([{ name: 'id', errors: [`${values.constraintCategory} 类约束预设 ID 必须以 ${prefix} 开头`] }]);
         return;
       }
@@ -256,7 +257,7 @@ export function PresetLibraryPage() {
     try {
       const input = {
         ...values,
-        module,
+        module: targetModule,
         compatibleBaseIds: [],
         protocolLock: { ...protocolLock, slot: values.slot }
       };
