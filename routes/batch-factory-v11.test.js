@@ -5,6 +5,7 @@ const { createSignedBridgeHeaders } = require('../lib/batch-factory-v11/go-proxy
 
 const {
   enrichBatchFactorySystemPresetConfig,
+  enrichInitialBatchSettings,
   resolveDerivedOpeningPrompt,
   refreshBatchFactoryPresetSnapshot,
   presetDrivenExecutionPath,
@@ -1452,12 +1453,12 @@ test('derivative-opening selection accepts only its three published prompt slots
   assert.throws(() => resolveDerivedOpeningPrompt('batch-video-meta', presetStore()), /衍生开篇/);
 });
 
-test('final-prompt previews never refresh or write preset snapshots', () => {
+test('final-prompt previews repair an incomplete selected-preset snapshot before compiling', () => {
   const result = presetDrivenExecutionPath(
     { method: 'GET' },
     '/api/batch-factory/v11/batches/batch-1/books/book-1/videos/video-1/final-prompt'
   );
-  assert.equal(result, null);
+  assert.deepEqual(result, { batchId: 'batch-1', bookId: 'book-1' });
 });
 
 test('native V12 H3 compilation refreshes the selected prompt preset snapshot', () => {
@@ -1606,6 +1607,19 @@ test('enrichment resolves script constraints as typed selections', () => {
     constraintCategory: 'quality',
     body: '4K 约束'
   });
+});
+
+test('initial batch settings freeze selected constraint bodies instead of saving ID-only choices', () => {
+  const settings = enrichInitialBatchSettings({
+    aiPromptConfig: {
+      constraints: {
+        enabled: true,
+        enabledCategories: ['quality'],
+        selections: [{ presetId: 'script-constraint-quality-4k', constraintCategory: 'quality' }]
+      }
+    }
+  }, presetStore());
+  assert.equal(settings.aiPromptConfig.constraints.selections[0].body, '4K 约束');
 });
 
 test('enrichment keeps the selected published video prompt as one option in the Batch Factory video prompt selector', () => {

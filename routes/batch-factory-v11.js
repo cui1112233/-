@@ -1541,6 +1541,14 @@ function enrichBatchFactorySystemPresetConfig(input, presetStore, resolveBody = 
   return next;
 }
 
+// Batch creation bypasses the ordinary PUT /settings path.  Freeze the same
+// trusted system-preset bodies there as well, otherwise a newly created batch
+// can persist only preset IDs and compile empty constraint layers until a
+// later execution happens to repair it.
+function enrichInitialBatchSettings(settings, presetStore, resolveBody = resolveSystemPresetBody) {
+  return enrichBatchFactorySystemPresetConfig({ patch: plainObject(settings) ? settings : {} }, presetStore, resolveBody).patch;
+}
+
 function promptConfigRefreshInput(patch, expectedRevision) {
   const config = plainObject(patch?.aiPromptConfig) ? patch.aiPromptConfig : {};
   return { patch: { aiPromptConfig: config }, expectedRevision: Number(expectedRevision || 0) };
@@ -1586,11 +1594,13 @@ async function refreshBatchFactoryPresetSnapshot({ username, isOwner = false, ba
 
 function presetDrivenExecutionPath(req, pathname) {
   if (!['GET', 'POST'].includes(req.method)) return null;
-  // Final-prompt is a read-only card preview. Refreshing its preset snapshot
-  // would turn parallel card reads into concurrent settings writes and cause
-  // revision conflicts. Executable stages below still refresh immediately
-  // before their own server-side work begins.
-  const match = pathname.match(/^\/api\/batch-factory\/(?:v11\/batches\/([^/]+)(?:\/director|\/books\/([^/]+)\/(?:director|hook|working-front\/viral|production|stages\/(?:assets|director|video|retry)))|v12\/batches\/([^/]+)\/books\/([^/]+)\/h3\/compile)$/);
+  // The workbench only requests final-prompt after its modal is opened, not
+  // while rendering every card.  It is therefore the safe read boundary at
+  // which an older ID-only selection can be hydrated with the published
+  // preset body before the compiler builds (and the provider receives) the
+  // final VIDEO prompt.  This prevents a selected restriction/negative rule
+  // from looking enabled in settings while compiling as an empty layer.
+  const match = pathname.match(/^\/api\/batch-factory\/(?:v11\/batches\/([^/]+)(?:\/director|\/books\/([^/]+)\/(?:director|hook|working-front\/viral|production|stages\/(?:assets|director|video|retry)|videos\/[^/]+\/final-prompt))|v12\/batches\/([^/]+)\/books\/([^/]+)\/h3\/compile)$/);
   return match ? { batchId: decodeURIComponent(match[1] || match[3]), bookId: decodeURIComponent(match[2] || match[4] || '') } : null;
 }
 
@@ -2650,6 +2660,8 @@ function createBatchFactoryV11Router(options = {}) {
       await prepareProviderRequest(req, upstreamOptions, parsed.pathname);
       if (isPromptConfigPath(req, parsed.pathname)) {
         req.body = enrichBatchFactorySystemPresetConfig(req.body, upstreamOptions.presetStore);
+      } else if (isInitialBatchSettingsPath(req, parsed.pathname)) {
+        req.body = { ...(req.body || {}), initialBatchSettings: enrichInitialBatchSettings(req.body?.initialBatchSettings, upstreamOptions.presetStore) };
       }
       const execution = presetDrivenExecutionPath(req, parsed.pathname);
       if (execution) {
@@ -2719,6 +2731,7 @@ module.exports = {
   resolveV11GoBaseUrl,
   isPromptConfigPath,
   enrichBatchFactorySystemPresetConfig,
+  enrichInitialBatchSettings,
   resolveDerivedOpeningPrompt,
   refreshBatchFactoryPresetSnapshot,
   presetDrivenExecutionPath,
