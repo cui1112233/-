@@ -337,12 +337,19 @@ func selectedAssets(kind string, names []string, records map[string]compiledAsse
 		if !ok || (hasSelection && !selectedIDs[asset.ID]) {
 			continue
 		}
+		seenKey := asset.ID
+		if seenKey == "" {
+			seenKey = assetKey(asset.Kind, asset.Name)
+		}
+		if seen[seenKey] {
+			continue
+		}
 		asset.ImageURL = images[asset.ID]
 		if strings.TrimSpace(asset.Prompt) == "" && asset.ImageURL == "" {
 			continue
 		}
 		selected = append(selected, asset)
-		seen[asset.ID] = true
+		seen[seenKey] = true
 	}
 	if !hasSelection {
 		return selected
@@ -501,6 +508,16 @@ func addComponent(out *[]PromptComponent, key, label, content string) {
 	if content != "" {
 		*out = append(*out, PromptComponent{Key: key, Label: label, Content: content})
 	}
+}
+
+func nonEmptyStrings(values []string) []string {
+	filtered := make([]string, 0, len(values))
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			filtered = append(filtered, value)
+		}
+	}
+	return filtered
 }
 
 func (s *PromptCompilerService) Compile(ctx context.Context, owner, batchID, bookID, videoID string) (FinalPrompt, error) {
@@ -679,11 +696,12 @@ func (s *PromptCompilerService) compile(ctx context.Context, owner, batchID, boo
 	// The final VIDEO request has one stable, user-visible sequence. Transport
 	// fields such as duration and subtitle policy are passed separately to the
 	// provider and must not masquerade as prompt content.
-	// 画面前缀统一由约束开关注入，H3 不再特殊跳过。选“智能统一”时
-	// constraintBody("prefix") 返回该书已保存的视觉基线，作为画面前缀内容；
-	// 未选智能统一则注入用户选中的前缀正文。开关关闭时此项为空、不注入。
-	if !sdDirect || smartUnifiedSelectedForRevision(book, config) || rawBool(values, "prefixEnabled", false) {
-		addComponent(&components, "prefix", "画面前缀", constraintBody("prefix", "prefixEnabled", "prefix"))
+	// 画面前缀统一由约束开关注入。SD 的兼容卡片把它和画质规则合并
+	// 成一个“画面质量提示词”段，保留旧卡片的阅读和提交顺序；H3 仍以
+	// 独立前缀组件编译，保持其现有时间轴协议不变。
+	prefixPrompt := constraintBody("prefix", "prefixEnabled", "prefix")
+	if !sdDirect && (smartUnifiedSelectedForRevision(book, config) || rawBool(values, "prefixEnabled", false)) {
+		addComponent(&components, "prefix", "画面前缀", prefixPrompt)
 	}
 	// Base setup is its own user switch. A batch may choose an H3 VIDEO preset
 	// before opening the constraint editor; that must retain the legacy default
@@ -718,8 +736,11 @@ func (s *PromptCompilerService) compile(ctx context.Context, owner, batchID, boo
 		videoPrompt = draft.FinalPrompt
 		displayPrompt = videoPrompt
 		videoLabel = "视频提示词"
-		// SD 直出仍注入外层约束组件（智能统一、基础设定已在上面处理）
-		addComponent(&components, "quality", "画面约束提示词", constraintBody("quality", "qualityEnabled", "quality"))
+		// 旧 SD 卡片始终以“基础设定 → 画面质量提示词 → 视频提示词”
+		// 展示和提交。智能统一/普通前缀与画质约束都属于同一视觉质量段，
+		// 不再在 SD 卡片顶层露出一个“画面前缀”。
+		visualQuality := []string{strings.TrimSpace(prefixPrompt), strings.TrimSpace(constraintBody("quality", "qualityEnabled", "quality"))}
+		addComponent(&components, "quality", "画面质量提示词", strings.Join(nonEmptyStrings(visualQuality), "\n"))
 		addComponent(&components, "video", videoLabel, videoPrompt)
 		addComponent(&components, "restriction", "画面限制", constraintBody("restriction", "restrictionEnabled", "restriction"))
 		addComponent(&components, "negative", "负面提示词", constraintBody("negative", "negativeEnabled", "negative"))

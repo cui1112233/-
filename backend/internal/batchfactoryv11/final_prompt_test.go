@@ -657,6 +657,24 @@ func TestSDDirectorReturnsPlainTextCards(t *testing.T) {
 	batch, _ = store.GetBatch(context.Background(), "alice", batch.ID)
 	book = batch.Books[0]
 	video := book.Videos[0]
+	if _, err := store.SaveSettings(context.Background(), "alice", ScopeRef{Kind: ScopeBatch, BatchID: batch.ID}, SettingsUpdate{
+		Patch: SettingsPatch{"aiPromptConfig": rawSetting(t, map[string]any{"constraints": map[string]any{
+			"enabled":   true,
+			"scope":     "all",
+			"baseSetup": map[string]any{"enabled": true},
+			"selections": []any{
+				map[string]any{"constraintCategory": "prefix", "body": "统一的都市电影质感"},
+				map[string]any{"constraintCategory": "quality", "body": "4K级细节"},
+				map[string]any{"constraintCategory": "restriction", "body": "镜头不得跳轴"},
+				map[string]any{"constraintCategory": "negative", "body": "不要字幕和水印"},
+			},
+		}})}, ExpectedRevision: batch.Revision,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	batch, _ = store.GetBatch(context.Background(), "alice", batch.ID)
+	book = batch.Books[0]
+	video = book.Videos[0]
 	compiled, err := (&PromptCompilerService{Store: store}).Compile(context.Background(), "alice", batch.ID, book.ID, video.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -673,6 +691,27 @@ func TestSDDirectorReturnsPlainTextCards(t *testing.T) {
 	}
 	if !strings.Contains(compiled.CompiledPrompt, "客厅：现代中式客厅") {
 		t.Fatalf("基础设定必须注入已提取场景:\n%s", compiled.CompiledPrompt)
+	}
+	want := []string{"基础设定：", "画面质量提示词：统一的都市电影质感\n4K级细节", "视频提示词：", "画面限制：镜头不得跳轴", "负面提示词：不要字幕和水印"}
+	last := -1
+	for _, part := range want {
+		at := strings.Index(compiled.CompiledPrompt, part)
+		if at < 0 || at <= last {
+			t.Fatalf("SD card must keep the legacy base/quality/video/restriction/negative order; missing or misplaced %q in:\n%s", part, compiled.CompiledPrompt)
+		}
+		last = at
+	}
+	if strings.Contains(compiled.CompiledPrompt, "画面前缀：") {
+		t.Fatalf("SD card must not expose a separate picture-prefix section:\n%s", compiled.CompiledPrompt)
+	}
+}
+
+func TestSelectedAssetsSuppressesRepeatedNames(t *testing.T) {
+	assets := selectedAssets("prop", []string{"茶杯", "茶杯"}, map[string]compiledAsset{
+		assetKey("prop", "茶杯"): {ID: "prop-1", Kind: "prop", Name: "茶杯", Prompt: "白瓷茶杯"},
+	}, map[string]string{}, nil, false)
+	if got := selectResolvedPrompts(assets, map[string]bool{}); got != "茶杯：白瓷茶杯" {
+		t.Fatalf("duplicate asset names must only appear once, got %q", got)
 	}
 }
 
@@ -1009,7 +1048,7 @@ func TestCompileForOpeningVariant(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if !strings.Contains(variant.CompiledPrompt, "画面约束提示词：高质量商业成片") {
+		if !strings.Contains(variant.CompiledPrompt, "画面质量提示词：高质量商业成片") {
 			t.Fatalf("variant missing quality component:\n%s", variant.CompiledPrompt)
 		}
 		if !strings.Contains(variant.CompiledPrompt, "负面提示词：不要水印和畸形手指") {
