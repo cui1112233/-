@@ -177,15 +177,20 @@ Resolve the runtime model, convert project assets with the existing public-refer
 
 Run `node --test test/script-video-fanke.test.js`; expect PASS. Commit with `git add routes/script-video.js test/script-video-fanke.test.js && git commit -m "feat: submit script videos through fanke"`.
 
-### Task 4: Batch Factory V11/V12 provider recognition and manager inheritance
+### Task 4: Batch Factory V11/V12 Go provider, bridge sync and manager inheritance
 
 **Files:**
 - Modify: `routes/batch-factory-v11.js`
 - Modify: `routes/batch-factory-v12.js`
+- Create: `backend/internal/batchfactoryv11/fanke_open_video_adapter.go`
+- Modify: `backend/internal/batchfactoryv11/video_provider.go`
+- Modify: `backend/internal/httpapi/batch_factory_v11_production.go`
+- Test: `backend/internal/batchfactoryv11/fanke_open_video_adapter_test.go`
+- Test: `backend/internal/httpapi/batch_factory_v11_production_test.go`
 - Test: `routes/batch-factory-v11.test.js`
 - Test: `routes/batch-factory-v12.test.js`
 
-**Interfaces:** Maps `fanke-open-video` and `fanke_open_video` to one provider key, validates runtime availability before job creation, and forwards selected provider-model configuration without a credential.
+**Interfaces:** Maps `fanke-open-video` and `fanke_open_video` to one provider key, validates runtime availability before job creation, and synchronizes the manager-resolved Key, selected provider model and safe capability snapshot across the signed Node-to-Go bridge. The Go adapter owns `/video/generate` and `/video/status` calls.
 
 - [ ] **Step 1: Write failing V11 manager-inheritance test**
 
@@ -218,13 +223,40 @@ test('V12 rejects disabled Fanke model before it creates a production job', asyn
 
 Run `node --test routes/batch-factory-v12.test.js --test-name-pattern "disabled Fanke"`; expect failure because Fanke preflight is absent.
 
-- [ ] **Step 5: Implement GREEN**
+- [ ] **Step 5: Write failing Go adapter tests**
 
-Add aliases only where provider types are normalized, reuse `resolveRuntimeModel`, and carry the safe selected provider-model metadata required by the service-side adapter. Do not alter any H3 workflow selection or fallback path.
+```go
+func TestFankeOpenVideoAdapterSubmitsSelectedModelAndPollsJobID(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/open/v1/video/generate" {
+			if got := r.Header.Get("Authorization"); got != "Bearer fanke-private-key" { t.Fatalf("authorization=%q", got) }
+			if got := r.Header.Get("X-Public-Model-Ids"); got != "1" { t.Fatalf("model ids header=%q", got) }
+			_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "jobId": "fanke-job-1", "status": "submitted"})
+			return
+		}
+		if r.URL.Path == "/api/open/v1/video/status" { _ = json.NewEncoder(w).Encode(map[string]any{"success": true, "jobId": "fanke-job-1", "status": "success", "videoUrl": "https://media.example/final.mp4"}); return }
+		t.Fatalf("unexpected path %s", r.URL.Path)
+	}))
+	defer server.Close()
+	adapter := &FankeOpenVideoAdapter{BaseURL: server.URL + "/api/open/v1", APIKey: "fanke-private-key", Model: "ft-video-v1-ready", Client: server.Client(), ValidateURL: func(raw string) (*url.URL, error) { return url.Parse(raw) }}
+	ref, err := adapter.Submit(context.Background(), FrozenVideoModel{ID: "ft-video-v1-ready", MaxDuration: 15}, FinalPrompt{CompiledPrompt: "scene", DurationSeconds: 5})
+	if err != nil || ref.ProviderTaskID != "fanke-job-1" { t.Fatalf("ref=%+v err=%v", ref, err) }
+	ref, err = adapter.Poll(context.Background(), FrozenVideoModel{ID: "ft-video-v1-ready"}, ref)
+	if err != nil || ref.State != ProductionSucceeded || ref.MediaURL != "https://media.example/final.mp4" { t.Fatalf("ref=%+v err=%v", ref, err) }
+}
+```
 
-- [ ] **Step 6: Verify GREEN and commit**
+- [ ] **Step 6: Verify Go RED**
 
-Run `node --test routes/batch-factory-v11.test.js routes/batch-factory-v12.test.js --test-name-pattern "Fanke"`; expect PASS. Commit with `git add routes/batch-factory-v11.js routes/batch-factory-v12.js routes/batch-factory-v11.test.js routes/batch-factory-v12.test.js && git commit -m "feat: support fanke video in batch factory"`.
+Run `cd backend && go test ./internal/batchfactoryv11 -run TestFankeOpenVideoAdapterSubmitsSelectedModelAndPollsJobID -count=1`; expect compile failure because `FankeOpenVideoAdapter` does not exist.
+
+- [ ] **Step 7: Implement GREEN**
+
+Add the Go provider constant and config validation, preserving existing H3 branches. Extend the signed configuration payload with `ProviderModel` capability data. Implement `FankeOpenVideoAdapter` with host validation, one submit POST, `jobId` persistence, and query-only retry semantics. Wire the provider registry/factory so V11/V12 use the Go adapter. In Node, add aliases only where provider types are normalized, reuse `resolveRuntimeModel`, and sync the manager-resolved configuration without exposing it to the browser.
+
+- [ ] **Step 8: Verify GREEN and commit**
+
+Run `node --test routes/batch-factory-v11.test.js routes/batch-factory-v12.test.js --test-name-pattern "Fanke" && (cd backend && go test ./internal/batchfactoryv11 ./internal/httpapi -run Fanke -count=1)`; expect PASS. Commit with `git add routes/batch-factory-v11.js routes/batch-factory-v12.js routes/batch-factory-v11.test.js routes/batch-factory-v12.test.js backend/internal/batchfactoryv11/fanke_open_video_adapter.go backend/internal/batchfactoryv11/video_provider.go backend/internal/httpapi/batch_factory_v11_production.go backend/internal/batchfactoryv11/fanke_open_video_adapter_test.go backend/internal/httpapi/batch_factory_v11_production_test.go && git commit -m "feat: support fanke video in batch factory"`.
 
 ### Task 5: Regression verification and unified-release gate
 
