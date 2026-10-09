@@ -418,6 +418,15 @@ test('defers compiled prompt reads until the user opens the prompt editor', () =
   assert.match(source, /useCompiledVideoPrompt\(batchId, book, selectedVideo, settingsRevision\)/);
 });
 
+test('does not present raw director text as the final prompt while final compilation is loading or unavailable', () => {
+  assert.match(source, /const \[error, setError\] = useState\(''\);/);
+  assert.match(source, /setError\(String\(error\?\.message \|\| '最终视频提示词读取失败'\)\);/);
+  assert.match(source, /const submittedVideoPrompt = compiledPrompt \|\| displayPrompt;/);
+  assert.match(source, /const finalVideoPromptReady = !compilingPrompt && Boolean\(submittedVideoPrompt\.trim\(\)\);/);
+  assert.match(source, /最终视频提示词读取失败/);
+  assert.match(source, /重新读取最终提示词/);
+});
+
 test('opens a modal from the whole stacked-card prompt entry and edits only the selected storyboard', () => {
   assert.match(source, /className="shuihuo-workbench-cell shuihuo-prompt-cell batch-factory-book-prompt-cell batch-factory-prompt-entry-card"/);
   assert.match(source, /className="batch-factory-prompt-entry-content"/);

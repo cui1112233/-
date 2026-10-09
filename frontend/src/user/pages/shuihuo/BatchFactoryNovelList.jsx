@@ -846,6 +846,8 @@ function useCompiledVideoPrompt(batchId, book, video, settingsRevision = 0, { en
   const [baseSetupPrompt, setBaseSetupPrompt] = useState('');
   const [smartUnifiedPending, setSmartUnifiedPending] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [reloadRevision, setReloadRevision] = useState(0);
   const bookRevision = Number(book?.revision || 0);
   const videoRevision = Number(video?.revision || 0);
   useEffect(() => {
@@ -856,12 +858,14 @@ function useCompiledVideoPrompt(batchId, book, video, settingsRevision = 0, { en
       setBaseSetupPrompt('');
       setSmartUnifiedPending(false);
       setLoading(false);
+      setError('');
       return () => { active = false; };
     }
     setDisplayPrompt('');
     setCompiledPrompt('');
     setBaseSetupPrompt('');
     setSmartUnifiedPending(false);
+    setError('');
     setLoading(true);
     getFinalPrompt(batchId, book.id, video.id, { silent: true, suppressGlobalError: true }).then(response => {
       if (!active) return;
@@ -869,17 +873,30 @@ function useCompiledVideoPrompt(batchId, book, video, settingsRevision = 0, { en
 	  setCompiledPrompt(String(response?.finalPrompt?.compiledPrompt || ''));
       setBaseSetupPrompt(String(response?.finalPrompt?.baseSetupPrompt || ''));
       setSmartUnifiedPending(response?.finalPrompt?.smartUnifiedPending === true);
-    }).catch(() => {
-      // The raw director output remains readable when the compiler capability
-      // is temporarily unavailable. API errors are intentionally quiet here:
-      // this read runs once for every visible book row.
-      if (active) { setDisplayPrompt(''); setCompiledPrompt(''); setBaseSetupPrompt(''); }
+    }).catch(error => {
+      // This hook also powers the final-prompt editor.  Do not silently fall
+      // back to raw director text there: it would look like the provider is
+      // receiving an uncompiled prompt without the selected constraints.
+      if (active) {
+        setDisplayPrompt('');
+        setCompiledPrompt('');
+        setBaseSetupPrompt('');
+        setError(String(error?.message || '最终视频提示词读取失败'));
+      }
     }).finally(() => {
       if (active) setLoading(false);
     });
     return () => { active = false; };
-  }, [enabled, batchId, book?.id, bookRevision, video?.id, videoRevision, settingsRevision]);
-  return { displayPrompt, compiledPrompt, baseSetupPrompt, smartUnifiedPending, loading };
+  }, [enabled, batchId, book?.id, bookRevision, video?.id, videoRevision, settingsRevision, reloadRevision]);
+  return {
+    displayPrompt,
+    compiledPrompt,
+    baseSetupPrompt,
+    smartUnifiedPending,
+    loading,
+    error,
+    reload: () => setReloadRevision(value => value + 1)
+  };
 }
 
 function InlineBookPrompts({ batch, book, batchId, settingsRevision, selectedVideoId: controlledSelectedVideoId = '', onSelectedVideoChange, onManage }) {
@@ -1003,7 +1020,7 @@ function PromptPanel({ book, batch, batchId, settingsRevision, initialVideoId = 
   const selectedVideo = videos[selectedIndex] || null;
   const selectedPrecompiledFrame = resolvePrecompiledStoryboardFrame(book, selectedVideoId || initialVideoId);
   const h3Document = h3DirectorDocument(book);
-  const { displayPrompt, compiledPrompt, smartUnifiedPending, loading: compilingPrompt } = useCompiledVideoPrompt(batchId, book, selectedVideo, settingsRevision);
+  const { displayPrompt, compiledPrompt, smartUnifiedPending, loading: compilingPrompt, error: compiledPromptError, reload: reloadCompiledPrompt } = useCompiledVideoPrompt(batchId, book, selectedVideo, settingsRevision);
   const hasVisualPrompt = Boolean(String(visualPrompt || '').trim());
   const hasVideoPrompt = Boolean(String(videoPrompt || '').trim());
   useEffect(() => {
@@ -1059,9 +1076,10 @@ function PromptPanel({ book, batch, batchId, settingsRevision, initialVideoId = 
     if (frame) setSelectedVideoId(frame.key);
   }
 	  const activeLabel = promptKind === 'visual' ? '画面提示词' : '分镜视频提示词';
-  const submittedVideoPrompt = compiledPrompt || displayPrompt || videoPrompt;
+  const submittedVideoPrompt = compiledPrompt || displayPrompt;
+  const finalVideoPromptReady = !compilingPrompt && Boolean(submittedVideoPrompt.trim());
   const activeValue = promptKind === 'visual' ? visualPrompt : editing ? videoPrompt : submittedVideoPrompt;
-  const activeReady = promptKind === 'visual' ? hasVisualPrompt : Boolean(submittedVideoPrompt.trim());
+  const activeReady = promptKind === 'visual' ? hasVisualPrompt : finalVideoPromptReady;
   const regenerateCurrentPrompt = promptKind === 'visual' ? onRegenerateVisual : onRegenerate;
   const h3Segments = h3Trace?.compilation?.compilation?.segments || [];
   const h3Segment = h3Segments[selectedIndex] || null;
@@ -1109,7 +1127,7 @@ function PromptPanel({ book, batch, batchId, settingsRevision, initialVideoId = 
       <span className="batch-factory-prompt-meta-item"><b>文本模型：</b>{textModelLabel}</span>
       <span className="batch-factory-prompt-meta-item"><b>视频模型：</b>{videoModelLabel}</span>
     </div>
-    {!activeReady ? <Alert type="info" showIcon message={smartUnifiedPending && promptKind === 'video' ? '智能统一待分析' : promptKind === 'visual' ? '请生成画面提示词再查看' : '请生成视频提示词再查看'} description={smartUnifiedPending && promptKind === 'video' ? '智能统一会在资产提取时与资产同次获取；未取得基线不会阻断资产、分镜或视频。可在资产区单独刷新。' : '当前分镜尚未有这一类提示词；切换分镜时会保持当前查看类型。'} /> : <>
+    {!activeReady ? (promptKind === 'video' && compilingPrompt ? <Alert type="info" showIcon message="正在读取最终视频提示词" description="正在载入包含已启用资产与约束设置的最终编译文本。" /> : promptKind === 'video' && compiledPromptError ? <Alert type="error" showIcon message="最终视频提示词读取失败" description={compiledPromptError} action={<Button size="small" onClick={reloadCompiledPrompt}>重新读取最终提示词</Button>} /> : <Alert type="info" showIcon message={smartUnifiedPending && promptKind === 'video' ? '智能统一待分析' : promptKind === 'visual' ? '请生成画面提示词再查看' : '请生成视频提示词再查看'} description={smartUnifiedPending && promptKind === 'video' ? '智能统一会在资产提取时与资产同次获取；未取得基线不会阻断资产、分镜或视频。可在资产区单独刷新。' : '当前分镜尚未有这一类提示词；切换分镜时会保持当前查看类型。'} />) : <>
       <label className="shuihuo-form-label batch-factory-prompt-editor-label">{activeLabel}<Input.TextArea rows={14} readOnly={!editing} value={activeValue} onChange={event => promptKind === 'visual' ? setVisualPrompt(event.target.value) : setVideoPrompt(event.target.value)} placeholder={promptKind === 'visual' ? '仅用于生成当前分镜的画面图片' : '会进入当前分镜的最终视频编译'} /></label>
       <div className="batch-factory-prompt-modal-actions">
         <Button type="primary" loading={saving} disabled={!editing || !selectedVideo} onClick={savePrompt}>保存</Button>
