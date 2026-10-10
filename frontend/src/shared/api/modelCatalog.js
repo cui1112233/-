@@ -100,3 +100,7 @@ export function deleteManagedModel(modelId) {
 export function refreshLocalDoubaoPairingStatus() {
   return apiRequest('/api/config/models/local-doubao-executor-video/pairing-status');
 }
+
+export function refreshFankeVideoModels(credential) {
+  return apiRequest('/api/config/models/fanke-open-video/catalog', { method: 'POST', body: JSON.stringify({ credential }), suppressGlobalError: true });
+}

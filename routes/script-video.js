@@ -8,6 +8,14 @@ const { normalizeModelCatalog } = require('../lib/model-catalog');
 const { resolveRuntimeModel } = require('../lib/model-catalog-runtime');
 const { H3_MODEL_KEY } = require('../lib/video-model-catalog');
 const {
+  FANKE_OPEN_VIDEO_MODEL_ID,
+  buildFankeVideoPayload,
+  submitFankeVideo,
+  requestFankeVideoTask,
+  parseFankeVideoSubmission,
+  parseFankeVideoStatus
+} = require('../lib/fanke-open-video-adapter');
+const {
   YFAI_SEEDANCE_MODEL,
   buildYfaiSeedancePayload,
   submitYfaiSeedance,
@@ -36,10 +44,11 @@ const MAX_H3_PROMPT_LENGTH = 10000;
 const REFERENCE_TOS_SYNC_TIMEOUT_MS = 3000;
 const H3_TASK_PREFIX = 'h3:';
 const YFAI_TASK_PREFIX = 'yfai:';
+const FANKE_TASK_PREFIX = 'fanke:';
 const YD_MODEL_KEY = 'yd2-mini-video';
 
 function acceptsScriptImages(modelKey) {
-  return [YD_MODEL_KEY, H3_MODEL_KEY, YFAI_SEEDANCE_MODEL].includes(String(modelKey || '').trim());
+  return [YD_MODEL_KEY, H3_MODEL_KEY, YFAI_SEEDANCE_MODEL, FANKE_OPEN_VIDEO_MODEL_ID].includes(String(modelKey || '').trim());
 }
 
 async function providerAccessibleImageUrls(req, value) {
@@ -119,6 +128,15 @@ function yfaiTaskID(rawTaskID) {
 
 function publicYfaiTaskID(rawTaskID) {
   return `${YFAI_TASK_PREFIX}${String(rawTaskID || '').trim()}`;
+}
+
+function fankeTaskID(rawTaskID) {
+  const value = String(rawTaskID || '').trim();
+  return value.startsWith(FANKE_TASK_PREFIX) ? value.slice(FANKE_TASK_PREFIX.length).trim() : '';
+}
+
+function publicFankeTaskID(rawTaskID) {
+  return `${FANKE_TASK_PREFIX}${String(rawTaskID || '').trim()}`;
 }
 
 function h3Duration(value) {
@@ -238,6 +256,8 @@ function createScriptVideoRouter({
   h3Request = defaultH3Request,
   yfaiSubmit = submitYfaiSeedance,
   yfaiRequest = requestYfaiSeedanceTask,
+  fankeSubmit = submitFankeVideo,
+  fankeRequest = requestFankeVideoTask,
   h3ApiKeyReader = h3ApiKeyFromEnvironment,
   authenticate = apiAuth,
   shuihuoGateway,
@@ -251,6 +271,17 @@ function createScriptVideoRouter({
       username: req.username,
       kind: 'video',
       modelId: YFAI_SEEDANCE_MODEL,
+      memberStore: memberStore || req.app?.locals?.memberStore,
+      accountStore,
+      account: req.auth?.account,
+      configReader
+    });
+  }
+  function resolveFankeModel(req) {
+    return resolveRuntimeModel({
+      username: req.username,
+      kind: 'video',
+      modelId: FANKE_OPEN_VIDEO_MODEL_ID,
       memberStore: memberStore || req.app?.locals?.memberStore,
       accountStore,
       account: req.auth?.account,
@@ -382,6 +413,36 @@ function createScriptVideoRouter({
         return res.status(502).json({ error: error?.message === 'Seedance 视频服务响应超时' ? error.message : (error.message || 'Seedance 视频服务暂不可用，请稍后重试') });
       }
     }
+    if (req.body?.modelKey === FANKE_OPEN_VIDEO_MODEL_ID) {
+      let model;
+      try {
+        model = resolveFankeModel(req);
+      } catch (error) {
+        return res.status(error.status || 400).json({ error: error.message || '梵客视频模型尚未配置或不可用' });
+      }
+      let payload;
+      try {
+        const imageUrls = await providerAccessibleImageUrls(req, req.body?.imageUrls);
+        payload = buildFankeVideoPayload({
+          providerModel: model.providerModel,
+          prompt,
+          duration: req.body?.duration,
+          resolution: req.body?.resolution,
+          aspectRatio: req.body?.aspectRatio || req.body?.aspect_ratio,
+          imageUrls
+        });
+      } catch (error) {
+        return res.status(400).json({ error: error.message || '梵客视频参数不正确' });
+      }
+      try {
+        const upstream = await fankeSubmit({ apiKey: model.credential, payload });
+        if (upstream.statusCode < 200 || upstream.statusCode >= 300) return res.status(502).json({ error: `梵客视频请求失败（HTTP ${upstream.statusCode}）` });
+        const created = parseFankeVideoSubmission(upstream.text);
+        return res.status(202).json({ ok: true, taskId: publicFankeTaskID(created.jobId), provider: 'fanke_open_video' });
+      } catch (error) {
+        return res.status(502).json({ error: error?.message || '梵客视频服务暂不可用，请稍后重试' });
+      }
+    }
     let imageUrls;
     try { imageUrls = validOptionalImageURLs(await providerAccessibleImageUrls(req, req.body?.imageUrls)); } catch (error) { return res.status(400).json({ error: error.message || '可选图片参数不正确' }); }
     const apiKey = getVideoApiKey(configReader(req.username), 'yd');
@@ -443,6 +504,25 @@ function createScriptVideoRouter({
         return res.status(502).json({ error: error?.message === 'Seedance 视频服务响应超时' ? error.message : 'Seedance 任务状态暂不可用，请稍后重试' });
       }
     }
+    const rawFankeTaskID = fankeTaskID(taskId);
+    if (rawFankeTaskID) {
+      let model;
+      try {
+        model = resolveFankeModel(req);
+      } catch (error) {
+        return res.status(error.status || 400).json({ error: error.message || '梵客视频模型尚未配置或不可用' });
+      }
+      try {
+        const statusReply = await fankeRequest({ apiKey: model.credential, taskId: rawFankeTaskID });
+        if (statusReply.statusCode < 200 || statusReply.statusCode >= 300) return res.status(502).json({ error: `梵客视频任务状态查询失败（HTTP ${statusReply.statusCode}）` });
+        const status = parseFankeVideoStatus(statusReply.text);
+        if (status.status === 'processing') return res.json({ ok: true, taskId, status: 'processing' });
+        if (status.status === 'failed') return res.json({ ok: true, taskId, status: 'failed', error: status.error });
+        return res.json({ ok: true, taskId, status: 'succeeded', videoUrl: status.videoUrl, provider: 'fanke_open_video' });
+      } catch (error) {
+        return res.status(502).json({ error: error?.message || '梵客视频任务状态暂不可用，请稍后重试' });
+      }
+    }
     try {
       const local = await bridgeJSON(shuihuoGateway, req.auth.account, 'GET', `/api/shuihuo-production/local-executor-jobs/${encodeURIComponent(taskId)}`);
       const localBody = payloadOf(local);
@@ -501,6 +581,8 @@ module.exports = {
   publicH3TaskID,
   publicYfaiTaskID,
   yfaiTaskID,
+  publicFankeTaskID,
+  fankeTaskID,
   validH3ReferenceImageURLs,
   validOptionalImageURLs,
   readTaskID,

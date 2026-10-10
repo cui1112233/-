@@ -16,6 +16,7 @@ const { createSignedBridgeHeaders } = require('../lib/batch-factory-v11/go-proxy
 const { normalizeModelCatalog } = require('../lib/model-catalog');
 const { createTextVerificationCache } = require('../lib/model-catalog-verification');
 const { readModelQuotas } = require('../lib/model-quota');
+const { fetchFankeVideoModels } = require('../lib/fanke-open-video-adapter');
 
 const LOCAL_DOUBAO_MODEL_ID = 'local-doubao-executor-video';
 
@@ -132,7 +133,8 @@ function createConfigRouter({
   getExecutorPairingStatus = defaultExecutorPairingStatus,
   textVerification = createTextVerificationCache(),
   upstreamRequest = requestUpstream,
-  quotaReader = readModelQuotas
+  quotaReader = readModelQuotas,
+  fetchFankeVideoModels: fetchFankeModels = fetchFankeVideoModels
 } = {}) {
   const router = express.Router();
   router.use(authenticate);
@@ -187,6 +189,20 @@ function createConfigRouter({
       if (!response?.choices?.[0]?.message) throw Object.assign(new Error('文本模型未返回有效答复，请检查模型兼容性'), { status: 502 });
       textVerification.approve(req.username, model);
       return res.json({ ok: true, message: '文本模型连接成功，现在可以保存并启用。' });
+    } catch (error) {
+      return sendModelError(res, error);
+    }
+  });
+
+  router.post('/models/fanke-open-video/catalog', requireApiManager, async (req, res) => {
+    try {
+      const config = configReader(req.username) || {};
+      const catalog = normalizeModelCatalog(config.modelCatalog, config);
+      const saved = catalog.find(model => model.id === 'fanke-open-video');
+      const apiKey = String(req.body?.credential || saved?.credential || '').trim();
+      if (!apiKey) throw Object.assign(new Error('请先填写并保存梵客视频 API Key'), { status: 422 });
+      const models = await fetchFankeModels({ apiKey });
+      return res.json({ models: Array.isArray(models) ? models : [] });
     } catch (error) {
       return sendModelError(res, error);
     }
