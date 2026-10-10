@@ -1,0 +1,103 @@
+.hc-native{color:var(--hc-text);background:var(--hc-bg);border:1px solid var(--hc-line);border-radius:20px;min-height:560px;height:calc(100dvh - 146px);display:flex;flex-direction:column;overflow:hidden;position:relative}
+.hc-native__toolbar{min-height:60px;padding:12px 20px;display:flex;align-items:center;justify-content:space-between;gap:12px;border-bottom:1px solid var(--hc-line);flex-wrap:wrap}
+.hc-native__toolbar>div>span{font-size:12px;color:var(--hc-muted)}
+.hc-native__body{flex:1;min-height:0;display:flex;position:relative}
+.hc-native__conversation{min-width:0;width:100%;display:flex;flex-direction:column;margin:0 auto;flex:1}
+.hc-native--art .hc-native__conversation{flex:0 0 var(--hc-chat-width);width:var(--hc-chat-width);max-width:60%}
+.hc-native__messages{flex:1;min-height:0;overflow:auto;padding:22px max(24px,calc((100% - 820px)/2));scrollbar-gutter:stable}
+.hc-native__welcome{width:min(690px,100%);margin:clamp(18px,7vh,88px) auto 24px;text-align:center}
+.hc-native__eyebrow{font-size:12px;letter-spacing:.14em;color:var(--hc-muted)}
+.hc-native__welcome h1{font-size:clamp(28px,3.4vw,44px);letter-spacing:-.04em;margin:14px 0;font-weight:650;line-height:1.25}
+.hc-native__welcome>p{color:var(--hc-muted);font-size:15px;line-height:1.7}
+.hc-native__starters{display:flex;justify-content:center;gap:8px;flex-wrap:wrap;margin:28px auto 0;max-width:600px}
+.hc-native__starters>button{display:flex;gap:14px;align-items:center;border:1px solid var(--hc-line);background:var(--hc-bg);color:var(--hc-muted);padding:10px 14px;border-radius:12px;cursor:pointer;text-align:left;font:inherit;font-size:12px;transition:transform .15s,border-color .15s}
+.hc-native__starters>button:hover{border-color:var(--hc-accent);color:var(--hc-text)}
+.hc-native__starters>button:active,.hc-native .ant-btn:active{transform:scale(.96)}
+.hc-native__message{margin:0 auto 24px;max-width:820px;line-height:1.9;font-size:14px}
+.hc-native__speaker{display:block;font-weight:600;font-size:12px;color:var(--hc-muted);margin-bottom:8px}
+.hc-native__message--user{background:var(--hc-soft);border-radius:16px;padding:14px 18px}
+.hc-native__content{white-space:pre-wrap;overflow-wrap:anywhere;user-select:text}
+.hc-native__message-actions{display:flex;gap:4px;padding-top:8px}
+.hc-native__muted,.hc-native__note{color:var(--hc-muted);font-size:12px;line-height:1.7}
+.hc-native__bottom{padding:8px 24px 12px;width:min(868px,100%);margin:0 auto}
+.hc-native__bottom>.ant-alert{margin-bottom:12px}
+.hc-native__composer{border:1px solid var(--hc-line);border-radius:22px;background:var(--hc-bg);padding:12px;box-shadow:0 10px 36px rgba(0,0,0,.04)}
+.hc-native__composer:focus-within{border-color:var(--hc-accent)}
+.hc-native__composer textarea{font-size:15px!important;line-height:1.75!important;box-shadow:none!important}
+.hc-native__composer-tools{display:flex;justify-content:space-between;align-items:center;gap:8px;padding-top:8px}
+.hc-native__model-label{max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px!important;color:var(--hc-muted)!important}
+.hc-native__note{text-align:center;font-size:11px;margin:8px 0 0}
+.hc-native__divider{width:12px;flex:0 0 12px;cursor:col-resize;touch-action:none;display:flex;align-items:center;justify-content:center;border-inline:1px solid var(--hc-line);color:var(--hc-muted);font-size:10px}
+.hc-native__divider:hover{background:var(--hc-soft)}
+.hc-native__canvas{flex:1;min-width:0;overflow:hidden;background:var(--hc-soft);position:relative;padding:74px 30px 40px;cursor:grab;touch-action:none}
+.hc-native__canvas-toolbar{position:absolute;top:12px;left:12px;right:12px;z-index:2;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;cursor:default}
+.hc-native__paper{margin:0 auto;width:min(580px,100%);background:var(--hc-bg);border:1px solid var(--hc-line);border-radius:12px;padding:26px;box-shadow:0 16px 44px rgba(0,0,0,.07);transform-origin:top center;cursor:text;max-height:calc(100% - 10px);overflow:auto;touch-action:auto}
+.hc-native__paper h2{margin:14px 0;font-size:22px}
+.hc-native__paper pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:14px;line-height:1.9;user-select:text}
+.hc-native__history{display:flex;flex-direction:column;gap:8px;width:100%;text-align:left;border:1px solid var(--ant-color-border,#8884);border-radius:12px;padding:14px;margin:10px 0;background:transparent;color:inherit;cursor:pointer;font:inherit}
+.hc-native__history span{font-size:12px;opacity:.65}
+.hc-host-entry>[hidden]{display:none!important}
+@media(max-width:1080px){.hc-native__model-label{max-width:180px}.hc-native--art .hc-native__conversation{max-width:45%}.hc-native__bottom{padding:8px 14px 12px}.hc-native__messages{padding:18px}.hc-native__toolbar{padding:10px 12px}}
+@media(max-width:800px){.hc-native{height:calc(100dvh - 122px);border-radius:14px;min-height:500px}.hc-native__toolbar>div>span{display:none}.hc-native__toolbar .ant-btn{padding-inline:7px}.hc-native--art .hc-native__conversation{width:100%;max-width:none;flex:1}.hc-native__divider{display:none}.hc-native__canvas{position:absolute;inset:0;z-index:3;background:var(--hc-bg);padding:80px 14px 20px}.hc-native__starters{margin-top:20px}.hc-native__model-label{max-width:170px}.hc-native__note{text-align:left}}
+@media(prefers-reduced-motion:reduce){.hc-native *{scroll-behavior:auto!important;transition:none!important}}
+
+/* Agent layout fix v1.2: this file styles the Agent only, never the host shell. */
+.hc-native {
+  box-sizing: border-box;
+  flex: 1 1 0%;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  align-self: stretch;
+  grid-column: 1 / -1;
+  border: 0;
+  border-radius: 0;
+  container: hc-workspace / inline-size;
+}
+.hc-native *, .hc-native *::before, .hc-native *::after { box-sizing: border-box; }
+/* The old host grows .agent-page only; the new class must opt in explicitly. */
+.legacy-content--agent > .hc-native { flex: 1 1 0%; width: 100%; min-width: 0; height: 100%; }
+.hc-native__toolbar { flex: 0 0 auto; }
+.hc-native__body { width: 100%; min-width: 0; }
+.hc-native__conversation { max-width: 100%; min-height: 0; }
+.hc-native__bottom { flex: 0 0 auto; }
+.hc-native__composer-tools > .ant-space { min-width: 0; flex-wrap: wrap; }
+.hc-native__composer-tools > .ant-btn { flex: 0 0 auto; }
+.hc-native__model-label { max-width: min(260px, 45cqw); }
+/* The empty state is ONE centered column. There is no reserved canvas. */
+.hc-native--empty { background: transparent; }
+.hc-native--empty .hc-native__conversation { overflow-y: auto; overflow-x: hidden; }
+.hc-native--empty .hc-native__messages {
+  flex: 0 0 auto;
+  overflow: visible;
+  padding: 24px 24px 0;
+  margin-top: auto;
+  scrollbar-gutter: auto;
+}
+.hc-native--empty .hc-native__welcome { width: min(740px, 100%); margin: 0 auto 24px; }
+.hc-native--empty .hc-native__bottom { width: min(820px, 100%); margin-bottom: auto; padding: 0 24px 24px; }
+.hc-native--empty .hc-native__welcome h1 { font-size: clamp(30px, 4cqw, 46px); }
+/* In conversation, text remains readable while the workspace stays full width. */
+.hc-native:not(.hc-native--art) .hc-native__message { max-width: 820px; }
+.hc-native--art .hc-native__conversation {
+  flex: 0 0 min(var(--hc-chat-width, 420px), 48%);
+  width: min(var(--hc-chat-width, 420px), 48%);
+  max-width: 48%;
+}
+/* Respond to the AVAILABLE workspace width, including expanded host navigation. */
+@container hc-workspace (max-width: 800px) {
+  .hc-native__toolbar { padding: 10px 12px; }
+  .hc-native__toolbar > div > span { display: none; }
+  .hc-native__toolbar .ant-btn { padding-inline: 7px; }
+  .hc-native__messages { padding: 18px; }
+  .hc-native__bottom { padding: 8px 14px 12px; }
+  .hc-native__model-label { max-width: min(180px, 45cqw); }
+  .hc-native--empty .hc-native__messages { padding-inline: 16px; }
+  .hc-native--empty .hc-native__bottom { padding-inline: 16px; }
+  .hc-native--empty .hc-native__starters { margin-top: 20px; }
+  .hc-native--art .hc-native__conversation { flex: 1; width: 100%; max-width: 100%; }
+  .hc-native__divider { display: none; }
+  .hc-native__canvas { position: absolute; inset: 0; z-index: 3; background: var(--hc-bg); padding: 80px 14px 20px; }
+}
