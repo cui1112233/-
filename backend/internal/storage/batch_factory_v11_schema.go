@@ -400,6 +400,24 @@ func V11VideoProviderStatements() []string {
 	}
 }
 
+func V11VideoProviderConfigStatements() []string {
+	return []string{`CREATE TABLE IF NOT EXISTS batch_factory_v11_video_provider_configs (
+  owner_username VARCHAR(191) NOT NULL,
+  provider VARCHAR(48) NOT NULL,
+  model VARCHAR(191) NOT NULL,
+  create_url TEXT NOT NULL,
+  tasks_url TEXT NOT NULL,
+  result_url TEXT NOT NULL,
+  workflow_id VARCHAR(191) NOT NULL,
+  key_id CHAR(16) NOT NULL,
+  api_key_nonce VARBINARY(32) NOT NULL,
+  api_key_ciphertext BLOB NOT NULL,
+  created_at DATETIME(6) NOT NULL,
+  updated_at DATETIME(6) NOT NULL,
+  PRIMARY KEY (owner_username, provider)
+) ENGINE=InnoDB`}
+}
+
 func V11SourceLineageStatements() []string {
 	return []string{
 		`ALTER TABLE batch_factory_v11_book_records
@@ -701,6 +719,7 @@ func V11Migrations() []Migration {
 		{Version: 1100020, SQL: V11MergeProgressStatements(), CallbackChecksum: "batch-factory-v11-merge-progress-v1", Adopt: adoptV11MergeProgressLedger},
 		{Version: 1100021, SQL: V11OpeningVariantStatements(), CallbackChecksum: "batch-factory-v11-opening-variant-v1", Adopt: adoptV11OpeningVariantLedger},
 		{Version: 1100022, SQL: V11LocalArtifactPurgeStatements(), CallbackChecksum: "batch-factory-v11-local-artifact-purge-v1"},
+		{Version: 1100023, SQL: V11VideoProviderConfigStatements(), CallbackChecksum: "batch-factory-v11-video-provider-config-v1"},
 	}
 }
 

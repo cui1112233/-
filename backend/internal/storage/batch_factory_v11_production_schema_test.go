@@ -33,9 +33,14 @@ func TestV11BookStageRunsMigrationIsAdditiveAndDurable(t *testing.T) {
 	if len(migrations) < 16 || migrations[14].Version != 1100015 || migrations[14].CallbackChecksum != "batch-factory-v11-book-stage-runs-v1" {
 		t.Fatalf("stage migration=%+v", migrations)
 	}
-	last := migrations[len(migrations)-1]
-	if last.Version != 1100022 || last.CallbackChecksum != "batch-factory-v11-local-artifact-purge-v1" {
-		t.Fatalf("last migration=%+v", last)
+	if migration := migrations[len(migrations)-2]; migration.Version != 1100022 || migration.CallbackChecksum != "batch-factory-v11-local-artifact-purge-v1" {
+		t.Fatalf("local artifact purge migration=%+v", migration)
+	}
+	if migration := migrations[len(migrations)-1]; migration.Version != 1100023 || migration.CallbackChecksum != "batch-factory-v11-video-provider-config-v1" {
+		t.Fatalf("video provider config migration=%+v", migration)
+	}
+	if joined := strings.ToLower(strings.Join(V11VideoProviderConfigStatements(), "\n")); !strings.Contains(joined, "batch_factory_v11_video_provider_configs") || !strings.Contains(joined, "owner_username") || !strings.Contains(joined, "api_key_ciphertext") {
+		t.Fatalf("video provider config migration=%s", joined)
 	}
 	if joined := strings.ToLower(strings.Join(V11LocalArtifactPurgeStatements(), "\n")); !strings.Contains(joined, "batch_factory_v11_local_artifact_purges") || !strings.Contains(joined, "purge_after") || !strings.Contains(joined, "storage_ref") {
 		t.Fatalf("local artifact purge migration=%s", joined)

@@ -528,6 +528,41 @@ test('a provider content-moderation VIDEO failure stops without blind automatic 
   assert.equal(submissions, 0);
 });
 
+test('a running VIDEO task with an unavailable provider error stops instead of waiting forever', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-provider-unavailable-'));
+  const { batch, adapter } = fixture();
+  const book = batch.books[0];
+  book.assetRecords = [{ id: 'a1', kind: 'character' }];
+  book.directorRevision = { id: 'd1' };
+  book.videos = [{ id: 'video-1', label: 'VIDEO01', visualPrompt: '提示词' }];
+  adapter.getProductionStatus = async () => ({
+    batchId: batch.id,
+    jobs: [{
+      id: 'p-unavailable',
+      bookId: book.id,
+      tasks: [{
+        id: 't-unavailable',
+        videoId: 'video-1',
+        status: 'running',
+        errorMessage: 'capability unavailable: video provider is not configured'
+      }]
+    }]
+  });
+  let submissions = 0;
+  adapter.runStage = async ({ stage }) => { if (stage === 'video') submissions += 1; };
+  const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} } });
+
+  await controller.start({ owner: 'user', batchId: batch.id, runMode: 'video_no_submit' });
+  await controller.tick();
+  await wait();
+
+  const status = controller.status({ owner: 'user', batchId: batch.id });
+  assert.equal(status.books[0].status, 'failed');
+  assert.equal(status.books[0].stage, 'video');
+  assert.match(status.books[0].error, /video provider is not configured/);
+  assert.equal(submissions, 0);
+});
+
 test('a transient merge failure retries only that book after its backoff', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-test-'));
   const { batch, adapter } = fixture();
@@ -893,6 +928,40 @@ test('reload migrates historic unclaimed giant OCR blocks into failed books', ()
   assert.equal(status.books[0].status, 'failed');
   assert.match(status.books[0].message, /已停止本书并继续下一本/);
   assert.equal(status.counts.failed, 1);
+});
+
+test('live-source recovery removes a persisted job when its batch no longer exists', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-deleted-batch-'));
+  const statePath = path.join(directory, 'state.json');
+  fs.writeFileSync(statePath, JSON.stringify({
+    jobs: {
+      'user:deleted-batch': {
+        id: 'automation-deleted', owner: 'user', isOwner: false, batchId: 'deleted-batch',
+        state: 'needs_attention', runMode: 'video_no_submit', createdAt: '2026-10-14T00:00:00.000Z',
+        updatedAt: '2026-10-14T00:00:00.000Z', counts: { total: 1, ready: 0, running: 1, pending: 0, failed: 0, blocked: 0 },
+        books: {
+          'book-1': { bookId: 'book-1', title: '已删除批次中的书', status: 'waiting', stage: 'source', message: '等待正文', error: '' }
+        }
+      }
+    }
+  }));
+  const { adapter } = fixture();
+  adapter.loadBatch = async (_owner, _isOwner, batchId) => {
+    if (batchId === 'deleted-batch') throw new Error('not found');
+    return fixture().batch;
+  };
+  const warnings = [];
+  const controller = createBatchFactoryAutomationController({
+    adapter, statePath, pollMs: 60_000, recoveryEnabled: false,
+    logger: { error() {}, warn(...args) { warnings.push(args); } }
+  });
+
+  await controller.tick();
+  await wait();
+
+  assert.equal(controller.status({ owner: 'user', batchId: 'deleted-batch' }).state, 'idle');
+  assert.equal(Object.keys(JSON.parse(fs.readFileSync(statePath, 'utf8')).jobs).length, 0);
+  assert.equal(warnings.length, 1);
 });
 
 test('server reconciliation saves a completed giant OCR result without a browser being open', async () => {

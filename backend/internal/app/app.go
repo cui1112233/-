@@ -41,7 +41,7 @@ func Build(ctx context.Context, cfg config.Config, db *sql.DB, register func(*ht
 		}
 	}
 	compiler := &batchfactoryv11.PromptCompilerService{Store: store}
-	videoRegistry := batchfactoryv11.NewMemoryVideoProviderRegistry()
+	videoRegistry := batchfactoryv11.NewMySQLVideoProviderRegistry(db, batchfactoryv11.DeriveVideoProviderEncryptionKey(cfg.BridgeSecret))
 	localExecutorService := localexecutor.NewService(localexecutor.NewMySQLStore(db), nil)
 	giantMaterialExecutorService := giantmaterialexecutor.NewService(giantmaterialexecutor.NewMySQLStore(db), nil)
 	if _, err := giantMaterialExecutorService.ConsolidateExecutors(ctx); err != nil {

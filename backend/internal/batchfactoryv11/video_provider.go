@@ -57,6 +57,18 @@ func (r *MemoryVideoProviderRegistry) Put(_ context.Context, owner string, cfg V
 	if owner == "" {
 		return fmt.Errorf("%w: owner is required", ErrInvalid)
 	}
+	var err error
+	cfg, err = normalizeVideoProviderConfig(cfg)
+	if err != nil {
+		return err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.values[owner+"\x00"+cfg.Provider] = cfg
+	return nil
+}
+
+func normalizeVideoProviderConfig(cfg VideoProviderConfig) (VideoProviderConfig, error) {
 	cfg.Provider = normalizeVideoProvider(cfg.Provider)
 	switch cfg.Provider {
 	case VideoProviderPersonalAPI:
@@ -66,7 +78,7 @@ func (r *MemoryVideoProviderRegistry) Put(_ context.Context, owner string, cfg V
 		}
 		cfg.APIKey = strings.TrimSpace(cfg.APIKey)
 		if cfg.APIKey == "" {
-			return fmt.Errorf("%w: personal video API key is required", ErrInvalid)
+			return VideoProviderConfig{}, fmt.Errorf("%w: personal video API key is required", ErrInvalid)
 		}
 		if strings.TrimSpace(cfg.CreateURL) == "" {
 			cfg.CreateURL = DefaultPersonalVideoCreateURL
@@ -86,7 +98,7 @@ func (r *MemoryVideoProviderRegistry) Put(_ context.Context, owner string, cfg V
 	case VideoProviderAutoDLH3:
 		cfg.APIKey = strings.TrimSpace(cfg.APIKey)
 		if cfg.APIKey == "" {
-			return fmt.Errorf("%w: AutoDL H3 API key is required", ErrInvalid)
+			return VideoProviderConfig{}, fmt.Errorf("%w: AutoDL H3 API key is required", ErrInvalid)
 		}
 		cfg.Model = strings.TrimSpace(cfg.Model)
 		if cfg.Model == "" {
@@ -100,12 +112,12 @@ func (r *MemoryVideoProviderRegistry) Put(_ context.Context, owner string, cfg V
 		}
 		cfg.WorkflowID = strings.TrimSpace(cfg.WorkflowID)
 		if cfg.WorkflowID != "" && !validAutoDLH3WorkflowID(cfg.WorkflowID) {
-			return fmt.Errorf("%w: AutoDL H3 workflow id is invalid", ErrInvalid)
+			return VideoProviderConfig{}, fmt.Errorf("%w: AutoDL H3 workflow id is invalid", ErrInvalid)
 		}
 	case VideoProviderYFAISeedance:
 		cfg.APIKey = strings.TrimSpace(cfg.APIKey)
 		if cfg.APIKey == "" {
-			return fmt.Errorf("%w: YFAI Seedance API key is required", ErrInvalid)
+			return VideoProviderConfig{}, fmt.Errorf("%w: YFAI Seedance API key is required", ErrInvalid)
 		}
 		cfg.Model = strings.TrimSpace(cfg.Model)
 		if cfg.Model == "" {
@@ -115,12 +127,9 @@ func (r *MemoryVideoProviderRegistry) Put(_ context.Context, owner string, cfg V
 			cfg.CreateURL = "https://yf.token6688.com"
 		}
 	default:
-		return fmt.Errorf("%w: unsupported video provider", ErrInvalid)
+		return VideoProviderConfig{}, fmt.Errorf("%w: unsupported video provider", ErrInvalid)
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.values[owner+"\x00"+cfg.Provider] = cfg
-	return nil
+	return cfg, nil
 }
 
 func (r *MemoryVideoProviderRegistry) Resolve(_ context.Context, owner, provider string) (VideoProviderConfig, error) {
