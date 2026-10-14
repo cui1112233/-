@@ -347,7 +347,7 @@ func (s *ProductionService) SubmitBookProductionWithOptions(ctx context.Context,
 			continue
 		}
 		for _, task := range prior.Tasks {
-			if !options.Force && (task.Status == ProductionQueued || task.Status == ProductionRunning || task.Status == ProductionSucceeded) {
+			if !options.Force && strings.TrimSpace(task.ProviderTaskID) != "" && (task.Status == ProductionQueued || task.Status == ProductionRunning || task.Status == ProductionSucceeded) {
 				blockedVideos[fmt.Sprintf("%s#v%d", task.VideoID, task.OpeningVariantIndex)] = true
 			}
 		}

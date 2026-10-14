@@ -70,6 +70,27 @@ func TestRepeatedProductionRequestReturnsSameDurableJob(t *testing.T) {
 	}
 }
 
+func TestProductionResubmitsQueuedTaskWithoutProviderReceipt(t *testing.T) {
+	store, batch, book, video := seedCompiledVideo(t)
+	_, err := store.CreateProductionJob(context.Background(), ProductionJob{
+		Owner: "alice", BatchID: batch.ID, BookID: book.ID, RequestID: "interrupted-request", DirectorRevisionID: book.DirectorRevision.ID,
+		Tasks: []ProductionTask{{VideoID: video.ID, Status: ProductionQueued, Attempt: 1, FinalPromptHash: "interrupted", CompiledPrompt: "prompt"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter := &recordingProductionAdapter{ref: ProviderTaskRef{ProviderTaskID: "provider-recovered", State: ProductionQueued}}
+	service := &ProductionService{Store: store, Compiler: &PromptCompilerService{Store: store}, Adapter: adapter, Enabled: true, Model: FrozenVideoModel{ID: "video-model-a", MaxDuration: 15}}
+
+	job, err := service.SubmitBookProduction(context.Background(), "alice", batch.ID, book.ID, "recovery-request")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if adapter.calls != 1 || len(job.Tasks) != 1 || job.Tasks[0].ProviderTaskID != "provider-recovered" {
+		t.Fatalf("adapter calls=%d job=%+v", adapter.calls, job)
+	}
+}
+
 func TestProductionStatusPersistsCompilerHashAndMedia(t *testing.T) {
 	store, batch, book, _ := seedCompiledVideo(t)
 	adapter := &recordingProductionAdapter{ref: ProviderTaskRef{State: "succeeded", ProviderTaskID: "provider-1", MediaURL: "https://media.example/video.mp4"}}

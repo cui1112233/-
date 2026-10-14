@@ -563,6 +563,35 @@ test('a running VIDEO task with an unavailable provider error stops instead of w
   assert.equal(submissions, 0);
 });
 
+test('a queued VIDEO without a provider receipt is submitted again instead of waiting forever', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-missing-video-receipt-'));
+  const { batch, adapter } = fixture();
+  const book = batch.books[0];
+  book.assetRecords = [{ id: 'a1', kind: 'character' }];
+  book.directorRevision = { id: 'd1' };
+  book.videos = [{ id: 'video-1', label: 'VIDEO01', visualPrompt: '提示词' }];
+  adapter.getProductionStatus = async () => ({
+    batchId: batch.id,
+    jobs: [{
+      id: 'p-missing-receipt',
+      bookId: book.id,
+      tasks: [{ id: 't-missing-receipt', videoId: 'video-1', status: 'queued', providerTaskId: '' }]
+    }]
+  });
+  let submissions = 0;
+  adapter.runStage = async ({ stage }) => { if (stage === 'video') submissions += 1; };
+  const controller = createBatchFactoryAutomationController({ adapter, statePath: path.join(directory, 'state.json'), pollMs: 60_000, logger: { error() {} } });
+
+  await controller.start({ owner: 'user', batchId: batch.id, runMode: 'video_no_submit' });
+  await controller.tick();
+  await wait();
+
+  const status = controller.status({ owner: 'user', batchId: batch.id });
+  assert.equal(submissions, 1);
+  assert.equal(status.books[0].status, 'waiting');
+  assert.equal(status.books[0].stage, 'video');
+});
+
 test('a transient merge failure retries only that book after its backoff', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-auto-test-'));
   const { batch, adapter } = fixture();
@@ -1056,9 +1085,9 @@ test('books waiting on external conditions do not block later books whose videos
     readyBook('book-4', 'video-4')
   ];
   const production = { batchId: batch.id, jobs: [
-    { bookId: 'book-2', tasks: [{ videoId: 'video-2', status: 'running' }] },
-    { bookId: 'book-3', tasks: [{ videoId: 'video-3', status: 'running' }] },
-    { bookId: 'book-4', tasks: [{ videoId: 'video-4', status: 'running' }] }
+    { bookId: 'book-2', tasks: [{ videoId: 'video-2', status: 'running', providerTaskId: 'provider-2' }] },
+    { bookId: 'book-3', tasks: [{ videoId: 'video-3', status: 'running', providerTaskId: 'provider-3' }] },
+    { bookId: 'book-4', tasks: [{ videoId: 'video-4', status: 'running', providerTaskId: 'provider-4' }] }
   ] };
   const merge = { batchId: batch.id, jobs: [] };
   const summaries = new Map(['book-2', 'book-3', 'book-4'].map(id => [id, { bookId: id, runs: [{ stage: 'assets', status: 'succeeded' }, { stage: 'director', status: 'succeeded' }] }]));
