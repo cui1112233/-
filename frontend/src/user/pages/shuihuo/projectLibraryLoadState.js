@@ -42,5 +42,7 @@ export function projectLibraryRefreshResult({ previousProjects, water, batch, ba
 
   const waterProjects = projectsFromWater(water);
   const batchProjects = batchProjectsFrom(batchesFromResult(batch));
-  return { projects: [...waterProjects, ...batchProjects], batchProjects, error: '' };
+  const batchIds = new Set(batchProjects.map(project => String(project.batchId || project.id)));
+  const distinctWaterProjects = waterProjects.filter(project => !batchIds.has(String(project.id)));
+  return { projects: [...distinctWaterProjects, ...batchProjects], batchProjects, error: '' };
 }

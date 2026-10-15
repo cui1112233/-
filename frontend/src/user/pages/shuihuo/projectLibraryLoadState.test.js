@@ -32,3 +32,14 @@ test('replaces the list only after every library source has returned a fresh res
   ]);
   assert.equal(result.error, '');
 });
+
+test('keeps the batch workbench when the Go compatibility list also returns that batch', () => {
+  const batchProject = { id: 'batch:batch-1', batchId: 'batch-1', source: 'batch_factory_v11', name: '批量作品' };
+  const result = projectLibraryRefreshResult({
+    previousProjects: [],
+    water: fulfilled({ projects: [{ id: 'batch-1', name: '批量作品' }, { id: 'water-1', name: '独立作品' }] }),
+    batch: fulfilled({ batches: [{ id: 'batch-1' }] }),
+    batchProjectsFrom: () => [batchProject]
+  });
+  assert.deepEqual(result.projects, [{ id: 'water-1', name: '独立作品' }, batchProject]);
+});
