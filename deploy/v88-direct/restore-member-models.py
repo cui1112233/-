@@ -1,0 +1,70 @@
+#!/usr/bin/env python3
+"""Project original team model grants into the active Go config store."""
+import argparse
+import datetime
+import json
+from pathlib import Path
+import subprocess
+
+
+def project(catalog, scopes):
+    return [m for m in catalog if m.get('kind') in scopes]
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('users', nargs='+')
+    parser.add_argument('--apply', action='store_true')
+    args = parser.parse_args()
+    root = Path('/var/lib/docker/volumes/v88-public_v88_data/_data')
+    profiles = {p['username']: p for p in json.loads((root / 'system/member-profiles.json').read_text())}
+    container = 'qiantie-unified-mysql'
+    cfg = json.loads(subprocess.check_output(['docker', 'inspect', container]))[0]
+    env = dict(x.split('=', 1) for x in cfg['Config']['Env'] if '=' in x)
+
+    def sql(query):
+        result = subprocess.run(['docker', 'exec', '-i', '-e', 'MYSQL_PWD=' + env['MYSQL_ROOT_PASSWORD'],
+                                 container, 'mysql', '-uroot', '-N', '-B', 'qiantie_v88'],
+                                input=query, text=True, capture_output=True)
+        if result.returncode:
+            raise RuntimeError('Database operation failed; private diagnostics suppressed')
+        return result.stdout
+
+    def literal(value):
+        return "CONVERT(X'" + value.encode().hex() + "' USING utf8mb4)"
+
+    changes = []
+    for user in args.users:
+        profile = profiles[user]
+        manager = profile['boundTo']
+        assert manager and profile['apiEnabled'] and profile['role'] == 'member'
+        catalog = json.loads((root / 'users' / manager / 'api-config.json').read_text())['modelCatalog']
+        expected = project(catalog, profile['apiScopes'])
+        assert expected, 'No originally granted models'
+        rows = sql('SELECT config_json FROM batch_factory_v11_shuihuo_configs WHERE owner_username=' + literal(user)).splitlines()
+        current = json.loads(rows[0]) if rows else {}
+        existing = current.get('modelCatalog')
+        assert not existing or existing == expected, 'Conflicting current model catalog; refusing replacement'
+        current['modelCatalog'] = expected
+        changes.append((user, current))
+        print(json.dumps({'user': user, 'manager': manager, 'models': len(expected), 'apply': args.apply}))
+    if not args.apply:
+        return
+    backup = Path('/opt/qiantie/backups/automation') / ('models-' + datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ'))
+    backup.mkdir(mode=0o700, parents=True, exist_ok=False)
+    with (backup / 'configs-before.sql').open('xb') as output:
+        result = subprocess.run(['docker', 'exec', '-e', 'MYSQL_PWD=' + env['MYSQL_ROOT_PASSWORD'], container,
+                                 'mysqldump', '-uroot', '--single-transaction', '--no-tablespaces',
+                                 'qiantie_v88', 'batch_factory_v11_shuihuo_configs'], stdout=output, stderr=subprocess.PIPE)
+        assert result.returncode == 0, 'Backup failed'
+    statements = ['START TRANSACTION;']
+    for user, config in changes:
+        statements.append('INSERT INTO batch_factory_v11_shuihuo_configs(owner_username,config_json,revision,created_at,updated_at) VALUES(' +
+                          literal(user) + ',' + literal(json.dumps(config, ensure_ascii=False)) + ',1,NOW(6),NOW(6)) ON DUPLICATE KEY UPDATE config_json=VALUES(config_json),revision=revision+1,updated_at=NOW(6);')
+    statements.append('COMMIT;')
+    sql('\n'.join(statements))
+    print('Original team model projections restored; private backup:', backup)
+
+
+if __name__ == '__main__':
+    main()
