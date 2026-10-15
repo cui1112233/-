@@ -1,6 +1,33 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import * as states from './batchFactoryBookState.js';
 import { batchFactoryBatchProgress, batchFactoryBookState, batchFactoryBookTimeline, batchFactoryNovelTableRow, batchFactoryVideoProgress, batchFactoryVisibleError } from './batchFactoryBookState.js';
+
+test('confirmed upload receipts reconcile stale automation failures without changing the server ledger', () => {
+  assert.equal(typeof states.batchFactoryAutomationView, 'function');
+  const ledger = { state: 'failed', lastError: 'old failure', counts: { total: 3, failed: 3, ready: 0 }, books: [
+    { bookId: 'a', status: 'failed', stage: 'video', error: 'old failure', retryRequested: true },
+    { bookId: 'b', status: 'failed', stage: 'assets', error: 'real failure' },
+    { bookId: 'c', status: 'failed', stage: 'video', error: 'not confirmed' }
+  ] };
+  const books = [
+    { id: 'a', sourceMetadata: { websiteSubmitStatus: 'uploaded', websiteSubmitReceipt: { status: 'confirmed', remoteId: '246035' } } },
+    { id: 'b' },
+    { id: 'c', sourceMetadata: { websiteSubmitStatus: 'submitted', websiteSubmitReceipt: { status: 'pending', remoteId: '246036' } } }
+  ];
+  const view = states.batchFactoryAutomationView(ledger, books);
+  assert.equal(view.books[0].message, '上传成功 · 已回读确认（246035）');
+  assert.equal(view.books[0].error, '');
+  assert.equal(view.books[0].retryRequested, false);
+  assert.equal(view.books[1].error, 'real failure');
+  assert.equal(view.books[2].status, 'failed');
+  assert.deepEqual(view.counts, { total: 3, uploaded: 1, ready: 1, failed: 2, blocked: 0, pending: 0, running: 0 });
+  assert.equal(ledger.books[0].error, 'old failure');
+  assert.equal(ledger.counts.failed, 3);
+  const completed = states.batchFactoryAutomationView({ ...ledger, books: [ledger.books[0]] }, [books[0]]);
+  assert.equal(completed.state, 'completed');
+  assert.equal(completed.lastError, '');
+});
 
 test('translates provider payment failures into an actionable status without exposing HTTP codes', () => {
   const message = batchFactoryVisibleError('YFAI Seedance returned HTTP 402');

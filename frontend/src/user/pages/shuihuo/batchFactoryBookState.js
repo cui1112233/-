@@ -1,5 +1,31 @@
 function taskState(task) { return String(task?.status || '').trim().toLowerCase(); }
 
+// Display reconciliation only: keep the historical automation ledger intact.
+export function batchFactoryAutomationView(automation, books = []) {
+  if (!automation || !Array.isArray(automation.books)) return automation;
+  const currentBooks = new Map(books.map(book => [book.id, book]));
+  let uploaded = 0;
+  const rows = automation.books.map(row => {
+    const metadata = currentBooks.get(row.bookId)?.sourceMetadata;
+    const receipt = metadata?.websiteSubmitReceipt;
+    if (metadata?.websiteSubmitStatus !== 'uploaded' || receipt?.status !== 'confirmed' || !String(receipt?.remoteId || '').trim()) return row;
+    uploaded += 1;
+    return { ...row, stage: 'uploaded', status: 'ready', error: '', retryRequested: false, retryAt: null,
+      message: `上传成功 · 已回读确认（${receipt.remoteId}）` };
+  });
+  if (!uploaded) return automation;
+  const counts = { total: rows.length, uploaded, ready: 0, failed: 0, blocked: 0, pending: 0, running: 0 };
+  for (const row of rows) {
+    const status = taskState(row);
+    if (Object.hasOwn(counts, status) && !['total', 'uploaded'].includes(status)) counts[status] += 1;
+    else counts.pending += 1;
+  }
+  const allUploaded = uploaded === rows.length;
+  return { ...automation, books: rows, counts,
+    state: allUploaded ? 'completed' : automation.state,
+    lastError: allUploaded ? '' : automation.lastError };
+}
+
 // Provider responses are retained by the server for diagnosis, but raw HTTP
 // responses are not useful instructions for a production user.
 export function batchFactoryVisibleError(error) {

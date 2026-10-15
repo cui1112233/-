@@ -93,7 +93,7 @@ import { textToSpeech } from '../../../shared/api/tts';
 import { BatchFactoryUnifiedSettingsModal } from './BatchFactoryUnifiedSettingsModal';
 import { BatchFactoryBookSettingsModal } from './BatchFactoryBookSettingsModal';
 import { BatchFactoryGiantMaterialPendingProgress } from './BatchFactoryGiantMaterialPendingProgress';
-import { batchFactoryBatchProgress, batchFactoryBookState, batchFactoryBookTimeline, batchFactoryNovelTableRow, batchFactoryVideoProgress, batchFactoryVisibleError } from './batchFactoryBookState';
+import { batchFactoryAutomationView, batchFactoryBatchProgress, batchFactoryBookState, batchFactoryBookTimeline, batchFactoryNovelTableRow, batchFactoryVideoProgress, batchFactoryVisibleError } from './batchFactoryBookState';
 import { batchFactoryCleanSourceText, batchFactoryPreviewText, batchFactoryProductionText, contentRangeLinesForBook, sourceTextAfterViralAdoption } from './batchFactoryContentRange';
 import { batchMediaCounts as runtimeBatchMediaCounts, resolveBookProductionText as runtimeResolveBookProductionText } from './batchFactoryRuntimeLogic';
 import { downloadProductionContent } from './batchFactoryContentDownload.js';
@@ -2423,8 +2423,9 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
   const productionCapability = capability(capabilities, 'production.submit');
 	const cancelCapability = capability(capabilities, 'production.cancel');
   const mergeCapability = capability(capabilities, 'merge.run');
-  const automationState = String(automationStatus?.state || 'idle');
-  const automationCounts = automationStatus?.counts || { total: 0, ready: 0, running: 0, pending: 0, failed: 0, blocked: 0 };
+  const automationView = batchFactoryAutomationView(automationStatus, books);
+  const automationState = String(automationView?.state || 'idle');
+  const automationCounts = automationView?.counts || { total: 0, ready: 0, running: 0, pending: 0, failed: 0, blocked: 0 };
   const automationActive = automationState === 'running' || automationState === 'scheduled';
 
   async function refreshBatch() {
@@ -3103,7 +3104,11 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
       if (key === 'start') result = await startBatchAutomation(batch.id, { presetId: automationPresetID, runMode: automationRunMode, scheduledAt: scheduledAt || undefined, concurrency: normalizeAutomationConcurrency(automationConcurrency) });
       else if (key === 'pause') result = await pauseBatchAutomation(batch.id);
       else if (key === 'resume') result = await resumeBatchAutomation(batch.id);
-      else if (key === 'retry') result = await retryBatchAutomation(batch.id);
+      else if (key === 'retry') {
+        const retryBookIds = (automationView?.books || []).filter(book => ['failed', 'blocked'].includes(book.status)).map(book => book.bookId);
+        if (!retryBookIds.length) return;
+        result = await retryBatchAutomation(batch.id, retryBookIds);
+      }
       else if (key === 'cancel') result = await cancelBatchAutomation(batch.id);
       const next = resultData(result, 'automation');
       setAutomationStatus(next || automationStatus);
@@ -3231,7 +3236,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
     { key: 'merge', label: '合并当前主 VIDEO', disabled: !mergeCapability.available, title: mergeCapability.reason }
   ];
   const automationStartBlocked = !books.length;
-  const automationRetryQueued = (automationStatus?.books || []).filter(book => book?.retryRequested === true).length;
+  const automationRetryQueued = (automationView?.books || []).filter(book => book?.retryRequested === true).length;
   const automationMenuItems = [
     { key: 'start', label: '开始定时', disabled: automationActive || automationStartBlocked },
     { key: 'pause', label: '暂停自动化', disabled: !automationActive },
@@ -3391,7 +3396,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
     </Modal>
 
     <BatchFactoryUnifiedSettingsModal open={unifiedSettingsOpen} batch={batch} onClose={() => setUnifiedSettingsOpen(false)} onSaved={saveSettings} />
-    <Modal title="任务 / 日志" open={logsOpen} onCancel={() => setLogsOpen(false)} footer={<Button onClick={() => loadRuntimeStatus()}>刷新状态</Button>} width={860}><BatchLogs books={books} automationStatus={automationStatus} productionStatus={productionStatus} mergeStatus={mergeStatus} error={logsError} /></Modal>
+    <Modal title="任务 / 日志" open={logsOpen} onCancel={() => setLogsOpen(false)} footer={<Button onClick={() => loadRuntimeStatus()}>刷新状态</Button>} width={860}><BatchLogs books={books} automationStatus={automationView} productionStatus={productionStatus} mergeStatus={mergeStatus} error={logsError} /></Modal>
     <Modal title="自动生产" open={automationStartOpen} onCancel={() => setAutomationStartOpen(false)} width={620} destroyOnClose footer={<Space><Button onClick={() => setAutomationStartOpen(false)}>取消</Button><Button loading={automationBusy === 'start'} onClick={() => runAutomationAction('start', { immediate: true })}>立即执行</Button><Button type="primary" loading={automationBusy === 'start'} onClick={() => runAutomationAction('start')}>保存定时任务</Button></Space>}>
       <Space direction="vertical" size={14} style={{ width: '100%' }}>
         <label className="batch-factory-engine-field"><span><b>自动化预设</b></span><Select value={automationPresetID || undefined} onChange={setAutomationPresetID} placeholder="选择已保存预设" options={automationPresets.map(item => ({ value: item.id, label: `${item.name} · v${item.version}` }))} style={{ width: '100%' }} /></label>
