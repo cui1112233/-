@@ -26,7 +26,7 @@ def main():
 
     def sql(query):
         result = subprocess.run(['docker', 'exec', '-i', '-e', 'MYSQL_PWD=' + env['MYSQL_ROOT_PASSWORD'],
-                                 container, 'mysql', '-uroot', '-N', '-B', 'qiantie_v88'],
+                                 container, 'mysql', '--default-character-set=utf8mb4', '--raw', '-uroot', '-N', '-B', 'qiantie_v88'],
                                 input=query, text=True, capture_output=True)
         if result.returncode:
             raise RuntimeError('Database operation failed; private diagnostics suppressed')
