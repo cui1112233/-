@@ -11,6 +11,7 @@ import tarfile
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--apply', action='store_true')
+parser.add_argument('--restore-profile-scopes', action='store_true')
 args = parser.parse_args()
 system = Path('/var/lib/docker/volumes/v88-public_v88_data/_data/system')
 container = 'qiantie-unified-mysql'
@@ -76,6 +77,36 @@ for record in missing:
                       'active,created_at,updated_at) VALUES (' + ','.join(values) + ');')
 statements.append('COMMIT;')
 mysql('\n'.join(statements))
+if args.restore_profile_scopes:
+    # The active Go member reader consumes these two profile fields, while
+    # the retained Node store derives them from team-grants.json. Preserve
+    # that original ledger and project exactly its existing grants.
+    profile_file = system / 'member-profiles.json'
+    profiles = json.loads(profile_file.read_text())
+    grants = json.loads((system / 'team-grants.json').read_text())
+    scopes = {}
+    for grant in grants:
+        if grant.get('capability') == 'api:use':
+            scope = grant['scope']
+            assert scope in ('text', 'image', 'tts', 'video', '*')
+            scopes.setdefault(grant['subject'], set()).add(scope)
+    by_name = {profile['username']: profile for profile in profiles}
+    assert set(scopes).issubset(by_name), 'Missing original member profile'
+    for name, expected in scopes.items():
+        profile = by_name[name]
+        assert profile.get('role') == 'member' and profile.get('boundTo')
+        current = set(profile.get('apiScopes') or [])
+        assert not current or current == expected, 'Conflicting current scopes'
+        profile['apiScopes'] = sorted(expected)
+        profile['apiEnabled'] = bool(expected)
+    temporary = profile_file.with_name('member-profiles.restore-tmp')
+    with temporary.open('x') as output:
+        json.dump(profiles, output, ensure_ascii=False, indent=2)
+        output.flush()
+        os.fsync(output.fileno())
+    os.replace(temporary, profile_file)
+    print(json.dumps({'memberScopeProjectionsRestored': len(scopes),
+                      'originalGrantLedgerUnchanged': True}))
 for record in missing:
     verified = mysql('SELECT COUNT(*) FROM accounts WHERE username=' + literal(record['username'])
                      + ' AND BINARY password_hash=BINARY ' + literal(record['passwordHash'])
