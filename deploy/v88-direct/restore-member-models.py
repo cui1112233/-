@@ -17,6 +17,7 @@ def main():
     parser.add_argument('users', nargs='+')
     parser.add_argument('--apply', action='store_true')
     parser.add_argument('--legacy-reader-projection', action='store_true')
+    parser.add_argument('--automation-text-model', default='')
     args = parser.parse_args()
     root = Path('/var/lib/docker/volumes/v88-public_v88_data/_data')
     profiles = {p['username']: p for p in json.loads((root / 'system/member-profiles.json').read_text())}
@@ -68,6 +69,20 @@ def main():
                           literal(user) + ',' + literal(json.dumps(config, ensure_ascii=False)) + ',1,NOW(6),NOW(6)) ON DUPLICATE KEY UPDATE config_json=VALUES(config_json),revision=revision+1,updated_at=NOW(6);')
     statements.append('COMMIT;')
     sql('\n'.join(statements))
+    if args.automation_text_model:
+        with (backup / 'workshop-configs-before.sql').open('xb') as output:
+            result = subprocess.run(['docker', 'exec', '-e', 'MYSQL_PWD=' + env['MYSQL_ROOT_PASSWORD'], container,
+                                     'mysqldump', '-uroot', '--single-transaction', '--no-tablespaces',
+                                     'qiantie_v88', 'novel_fetch_workshop_configs'], stdout=output, stderr=subprocess.PIPE)
+            assert result.returncode == 0, 'Workshop config backup failed'
+        for user, config, _, _ in changes:
+            assert any(m.get('id') == args.automation_text_model and m.get('kind') == 'text' for m in config['modelCatalog'])
+            # The deployed automation provider resolves from this store rather
+            # than the book settings. Keep original snake_case fields intact.
+            sql('UPDATE novel_fetch_workshop_configs SET settings_json=JSON_SET(settings_json,' +
+                "'$.textModelId'," + literal(args.automation_text_model) + ",'$.modelCatalog',CAST(" +
+                literal(json.dumps(config['modelCatalog'], ensure_ascii=False)) +
+                ' AS JSON)),updated_at=NOW(6) WHERE owner_username=' + literal(user))
     if args.legacy_reader_projection:
         # Current Go dynamic-provider fallback reads this legacy file directly,
         # bypassing the original Node readConfig team-owner resolution.
