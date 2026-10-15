@@ -3,6 +3,7 @@
 import argparse
 import datetime
 import json
+import os
 from pathlib import Path
 import subprocess
 
@@ -15,6 +16,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('users', nargs='+')
     parser.add_argument('--apply', action='store_true')
+    parser.add_argument('--legacy-reader-projection', action='store_true')
     args = parser.parse_args()
     root = Path('/var/lib/docker/volumes/v88-public_v88_data/_data')
     profiles = {p['username']: p for p in json.loads((root / 'system/member-profiles.json').read_text())}
@@ -46,7 +48,10 @@ def main():
         existing = current.get('modelCatalog')
         assert not existing or existing == expected, 'Conflicting current model catalog; refusing replacement'
         current['modelCatalog'] = expected
-        changes.append((user, current))
+        legacy_path = root / 'users' / user / 'api-config.json'
+        legacy = json.loads(legacy_path.read_text())
+        assert not legacy.get('modelCatalog') or legacy['modelCatalog'] == expected, 'Conflicting legacy catalog'
+        changes.append((user, current, legacy_path, legacy))
         print(json.dumps({'user': user, 'manager': manager, 'models': len(expected), 'apply': args.apply}))
     if not args.apply:
         return
@@ -58,11 +63,26 @@ def main():
                                  'qiantie_v88', 'batch_factory_v11_shuihuo_configs'], stdout=output, stderr=subprocess.PIPE)
         assert result.returncode == 0, 'Backup failed'
     statements = ['START TRANSACTION;']
-    for user, config in changes:
+    for user, config, legacy_path, legacy in changes:
         statements.append('INSERT INTO batch_factory_v11_shuihuo_configs(owner_username,config_json,revision,created_at,updated_at) VALUES(' +
                           literal(user) + ',' + literal(json.dumps(config, ensure_ascii=False)) + ',1,NOW(6),NOW(6)) ON DUPLICATE KEY UPDATE config_json=VALUES(config_json),revision=revision+1,updated_at=NOW(6);')
     statements.append('COMMIT;')
     sql('\n'.join(statements))
+    if args.legacy_reader_projection:
+        # Current Go dynamic-provider fallback reads this legacy file directly,
+        # bypassing the original Node readConfig team-owner resolution.
+        for user, config, legacy_path, legacy in changes:
+            original = legacy_path.read_bytes()
+            (backup / (user + '-api-config-before.json')).write_bytes(original)
+            os.chmod(backup / (user + '-api-config-before.json'), 0o600)
+            legacy['modelCatalog'] = config['modelCatalog']
+            temporary = legacy_path.with_name('api-config.team-projection-tmp')
+            with temporary.open('x') as output:
+                os.chmod(temporary, 0o600)
+                json.dump(legacy, output, ensure_ascii=False, indent=2)
+                output.flush()
+                os.fsync(output.fileno())
+            os.replace(temporary, legacy_path)
     print('Original team model projections restored; private backup:', backup)
 
 
