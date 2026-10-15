@@ -25,3 +25,27 @@ func TestRuntimeBuildInfoReportsInjectedReleaseSHA(t *testing.T) {
 		t.Fatalf("body = %#v, want go-api with injected SHA", body)
 	}
 }
+
+func TestWechatMiniProgramSessionRouteReportsExplicitUnavailableState(t *testing.T) {
+	handler := NewRouter(RouterOptions{BridgeSecret: "test-secret"})
+	req := httptest.NewRequest(http.MethodPost, "/api/wechat-miniprogram/session", nil)
+	res := httptest.NewRecorder()
+
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d when WeChat authentication is not configured", res.Code, http.StatusServiceUnavailable)
+	}
+}
+
+func TestWechatMiniProgramSessionLookupRejectsMissingBearerToken(t *testing.T) {
+	handler := NewRouter(RouterOptions{BridgeSecret: "test-secret"})
+	req := httptest.NewRequest(http.MethodGet, "/api/wechat-miniprogram/session", nil)
+	res := httptest.NewRecorder()
+
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d when WeChat authentication is not configured", res.Code, http.StatusServiceUnavailable)
+	}
+}

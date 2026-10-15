@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"qiantie/backend/internal/miniprogramauth"
 )
 
 const (
@@ -32,10 +34,11 @@ type BridgeUserResolver interface {
 }
 
 type BridgeAuth struct {
-	Secret  string
-	Now     func() time.Time
-	MaxSkew time.Duration
-	Users   BridgeUserResolver
+	Secret      string
+	Now         func() time.Time
+	MaxSkew     time.Duration
+	Users       BridgeUserResolver
+	MiniProgram *miniprogramauth.Service
 }
 
 func canonicalBridgePayload(username, issuedAt, isOwner, method, pathname string) string {
@@ -58,6 +61,17 @@ func SignBridgeRequest(req *http.Request, username string, isOwner bool, issuedA
 }
 
 func (a BridgeAuth) authenticate(req *http.Request) (BridgeIdentity, error) {
+	if token := bearerToken(req.Header.Get("Authorization")); token != "" && a.MiniProgram != nil {
+		username, isOwner, err := a.MiniProgram.Authenticate(req.Context(), token)
+		if err == nil {
+			if a.Users != nil {
+				if err := a.Users.ResolveBridgeUser(req.Context(), username, isOwner); err != nil {
+					return BridgeIdentity{}, fmt.Errorf("resolve bridge user: %w", err)
+				}
+			}
+			return BridgeIdentity{Username: username, IsOwner: isOwner}, nil
+		}
+	}
 	if strings.TrimSpace(a.Secret) == "" {
 		return BridgeIdentity{}, errors.New("bridge secret is not configured")
 	}

@@ -12,6 +12,7 @@ import (
 	"qiantie/backend/internal/localartifact"
 	"qiantie/backend/internal/localexecutor"
 	"qiantie/backend/internal/mergeworker"
+	"qiantie/backend/internal/miniprogramauth"
 	"qiantie/backend/internal/novelfetchworkshop"
 )
 
@@ -35,6 +36,7 @@ type RouterOptions struct {
 	GiantMaterialResolver GiantMaterialResolver
 	LocalArtifacts        *localartifact.Store
 	MergeOutput           mergeworker.ObjectStore
+	MiniProgramAuth       *miniprogramauth.Service
 }
 
 func NewRouter(options RouterOptions) http.Handler {
@@ -81,7 +83,8 @@ func NewRouter(options RouterOptions) http.Handler {
 	root.HandleFunc("GET /api/runtime-build-info", func(w http.ResponseWriter, req *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"service": "go-api", "git_sha": options.ReleaseSHA})
 	})
-	auth := BridgeAuth{Secret: options.BridgeSecret, Now: options.Now, Users: options.Users}
+	auth := BridgeAuth{Secret: options.BridgeSecret, Now: options.Now, Users: options.Users, MiniProgram: options.MiniProgramAuth}
+	registerWechatMiniProgramRoutes(root, options.MiniProgramAuth)
 	root.Handle("/api/batch-factory/v11/", auth.Middleware(v11))
 	root.Handle("/api/batch-factory/v12/", auth.Middleware(v12))
 	RegisterLocalExecutorRoutes(root, auth, options.LocalExecutors)

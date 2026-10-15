@@ -13,6 +13,7 @@ import (
 	"qiantie/backend/internal/localartifact"
 	"qiantie/backend/internal/localexecutor"
 	"qiantie/backend/internal/mergeworker"
+	"qiantie/backend/internal/miniprogramauth"
 	"qiantie/backend/internal/novelfetchworkshop"
 	"qiantie/backend/internal/storage"
 	"strings"
@@ -25,6 +26,12 @@ func Build(ctx context.Context, cfg config.Config, db *sql.DB, register func(*ht
 	}
 	migrations := append(storage.AppMigrations(), storage.NovelFetchWorkshopMigrations()...)
 	if err := storage.RunMigrations(ctx, db, migrations); err != nil {
+		return nil, err
+	}
+	miniProgramAuth, err := miniprogramauth.New(miniprogramauth.Config{
+		AppID: cfg.WechatAppID, AppSecret: cfg.WechatAppSecret, Code2SessionURL: cfg.WechatCode2SessionURL, AccountsPath: cfg.WechatAccountsPath,
+	}, db)
+	if err != nil {
 		return nil, err
 	}
 	store := batchfactoryv11.NewReadbackMySQLStore(db)
@@ -134,5 +141,5 @@ func Build(ctx context.Context, cfg config.Config, db *sql.DB, register func(*ht
 			Key:     cfg.ExternalCredentialsKey,
 		}
 	}
-	return httpapi.NewRouter(httpapi.RouterOptions{BridgeSecret: cfg.BridgeSecret, ReleaseSHA: cfg.ReleaseSHA, Users: storage.BridgeUsers{DB: db}, Slice: cfg.Slice, Store: store, Director: director, Compiler: compiler, Production: production, Merge: merge, MergeOutput: mergeOutput, External: externalPublish, NovelFetchStore: novelFetchStore, LocalExecutors: localExecutorService, GiantMaterialExecutor: giantMaterialExecutorService, GiantMaterialResolver: giantMaterialResolver, LocalArtifacts: artifactStore, RegisterV11: register}), nil
+	return httpapi.NewRouter(httpapi.RouterOptions{BridgeSecret: cfg.BridgeSecret, ReleaseSHA: cfg.ReleaseSHA, Users: storage.BridgeUsers{DB: db}, Slice: cfg.Slice, Store: store, Director: director, Compiler: compiler, Production: production, Merge: merge, MergeOutput: mergeOutput, External: externalPublish, NovelFetchStore: novelFetchStore, LocalExecutors: localExecutorService, GiantMaterialExecutor: giantMaterialExecutorService, GiantMaterialResolver: giantMaterialResolver, LocalArtifacts: artifactStore, MiniProgramAuth: miniProgramAuth, RegisterV11: register}), nil
 }

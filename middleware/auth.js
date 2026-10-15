@@ -30,7 +30,10 @@ function checkRateLimit(ip) {
 function authenticateRequest(req) {
   const authHeader = req.headers['authorization'] || '';
   const match = authHeader.match(/^Bearer\s+(.+)$/i);
-  if (!match) return null;
+  // Mini-program session tokens are random 32-byte values hex-encoded by Go.
+  // Reject every other bearer format locally instead of turning invalid-token
+  // traffic into an internal network call.
+  if (!match || !/^[a-f0-9]{64}$/i.test(match[1])) return null;
   const runtime = getRuntime(req);
   const token = match[1];
   const storedSession = runtime.tokenMap.get(token);
@@ -51,13 +54,45 @@ function authenticateRequest(req) {
   }
 }
 
+async function authenticateMiniProgramRequest(req) {
+  const authHeader = req.headers['authorization'] || '';
+  const match = authHeader.match(/^Bearer\s+(.+)$/i);
+  if (!match) return null;
+  const runtime = getRuntime(req);
+  const base = String(process.env.QIANTIE_GO_BASE_URL || 'http://go-api:4000').replace(/\/$/, '');
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+  try {
+    const response = await fetch(`${base}/api/wechat-miniprogram/session`, {
+      headers: { Authorization: `Bearer ${match[1]}` },
+      signal: controller.signal
+    });
+    if (!response.ok) return null;
+    const body = await response.json();
+    const username = typeof body?.account?.username === 'string' ? body.account.username : '';
+    if (!username) return null;
+    const account = runtime.accountStore.getAccount(username);
+    if (!account || !account.active || account.pending === true) return null;
+    return { username: account.username, account, effectivePermissions: runtime.accountStore.effectivePermissions(account) };
+  } catch (_) {
+    // An unavailable Go API must fail closed, exactly like an unknown web token.
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function resolveAuthentication(req) {
+  return authenticateRequest(req) || await authenticateMiniProgramRequest(req);
+}
+
 function applyAuthentication(req, auth) {
   req.username = auth.username;
   req.auth = auth;
 }
 
-function apiAuth(req, res, next) {
-  const auth = authenticateRequest(req);
+async function apiAuth(req, res, next) {
+  const auth = await resolveAuthentication(req);
   if (!auth) {
     res.set('X-Qiantie-Auth-Failure', 'session');
     return res.status(401).json({ error: 'Unauthorized — invalid or expired token' });
@@ -66,8 +101,8 @@ function apiAuth(req, res, next) {
   next();
 }
 
-function optionalApiAuth(req, res, next) {
-  const auth = authenticateRequest(req);
+async function optionalApiAuth(req, res, next) {
+  const auth = await resolveAuthentication(req);
   if (auth) applyAuthentication(req, auth);
   next();
 }
@@ -103,4 +138,4 @@ function requireOwner(req, res, next) {
   next();
 }
 
-module.exports = { checkRateLimit, apiAuth, optionalApiAuth, requireCapability, requireOwner };
+module.exports = { checkRateLimit, apiAuth, optionalApiAuth, requireCapability, requireOwner, authenticateMiniProgramRequest };

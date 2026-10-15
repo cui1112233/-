@@ -17,6 +17,10 @@ services:
       # The Go API can be repaired independently during an emergency.  Normal
       # releases still use QIANTIE_RELEASE_SHA for both services.
       QIANTIE_RELEASE_SHA: ${QIANTIE_GO_RELEASE_SHA:-${QIANTIE_RELEASE_SHA}}
+      WECHAT_MINIPROGRAM_APP_ID: ${WECHAT_MINIPROGRAM_APP_ID:-}
+      WECHAT_MINIPROGRAM_APP_SECRET: ${WECHAT_MINIPROGRAM_APP_SECRET:-}
+      WECHAT_MINIPROGRAM_CODE2SESSION_URL: ${WECHAT_MINIPROGRAM_CODE2SESSION_URL:-https://api.weixin.qq.com/sns/jscode2session}
+      WECHAT_MINIPROGRAM_ACCOUNTS_PATH: /app/data/system/accounts.json
       # Service-side Qingyu credential for giant-material metadata resolution.
       # The value lives only in the protected production .env file.
       QINGYU_N8_ADMIN_TOKEN: ${QINGYU_N8_ADMIN_TOKEN:-}
@@ -43,6 +47,9 @@ services:
       QIANTIE_LOCAL_EXECUTOR_ARTIFACT_DIR: /data/local-executor-artifacts
     volumes:
       - go_api_artifacts:/data/local-executor-artifacts
+      # Reuse the existing web-account registry for the one-time mini-program
+      # binding check. The Go service never writes this legacy registry.
+      - v88_data:/app/data:ro
     expose:
       - "4000"
     networks:

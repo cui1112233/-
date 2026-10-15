@@ -61,9 +61,13 @@ func TestChecksumStableAcrossWhitespace(t *testing.T) {
 	}
 }
 
-func TestAppMigrationsIncludesV11AndV12Migrations(t *testing.T) {
+func TestAppMigrationsIncludesApplicationMigrations(t *testing.T) {
 	migrations := AppMigrations()
-	want := append(append(append(append([]Migration(nil), V11Migrations()...), V12Migrations()...), LocalExecutorMigrations()...), GiantMaterialExecutorMigrations()...)
+	want := append([]Migration(nil), V11Migrations()...)
+	want = append(want, V12Migrations()...)
+	want = append(want, LocalExecutorMigrations()...)
+	want = append(want, GiantMaterialExecutorMigrations()...)
+	want = append(want, WechatMiniProgramMigrations()...)
 	if len(migrations) != len(want) {
 		t.Fatalf("AppMigrations length=%d, want %d", len(migrations), len(want))
 	}

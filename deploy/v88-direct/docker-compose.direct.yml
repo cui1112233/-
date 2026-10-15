@@ -17,12 +17,18 @@ services:
     environment:
       # 覆盖镜像里烧录的旧 SHA，让 /api/build-info 反映直传版本。
       QIANTIE_RELEASE_SHA: ${DIRECT_RELEASE_SHA}
+      WECHAT_MINIPROGRAM_APP_ID: ${WECHAT_MINIPROGRAM_APP_ID:-}
+      WECHAT_MINIPROGRAM_APP_SECRET: ${WECHAT_MINIPROGRAM_APP_SECRET:-}
+      WECHAT_MINIPROGRAM_CODE2SESSION_URL: ${WECHAT_MINIPROGRAM_CODE2SESSION_URL:-https://api.weixin.qq.com/sns/jscode2session}
+      WECHAT_MINIPROGRAM_ACCOUNTS_PATH: /app/data/system/accounts.json
     volumes:
       # Go 单二进制直传，只读挂载到镜像内入口路径。
       - /opt/qiantie/v88/direct/current/go/qiantie:/qiantie:ro
       # 合成成品持久卷沿用主 compose 声明，这里显式重复一次以防基础
       # compose 版本较旧缺少该挂载。
       - go_api_artifacts:/data/local-executor-artifacts
+      # Read-only access is enough to verify a one-time mini-program binding.
+      - v88_data:/app/data:ro
     healthcheck:
       test: ["CMD", "/qiantie", "healthcheck"]
       interval: 2s
@@ -43,3 +49,6 @@ volumes:
   go_api_artifacts:
     external: true
     name: v88-public_go_api_artifacts
+  v88_data:
+    external: true
+    name: v88-public_v88_data
