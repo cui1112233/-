@@ -1,4 +1,8 @@
 services:
   nginx:
+    # This instance already has the yzcm.site TLS server and certificate mount.
+    # Keep HTTPS reachable when recreating its ingress container.
+    ports:
+      - "443:443"
     volumes:
       - /opt/qiantie/v88/direct/staging/cover-563920d2c126f492797ad2f6e4e99bcd84aae3cd/frontend:/var/www/qiantie-cover:ro
