@@ -21,3 +21,13 @@
 回退：恢复 rollback-时间戳/nginx.conf 到原 nginx.conf，
 使用既有 docker-compose.yml 和 docker-compose.direct.yml 仅重建 nginx，
 不再传入本次 docker-compose.cover-recovery.yml。无需修改后端或数据。
+
+## 已完成的公网验收
+
+- 2026-10-15 05:16 UTC 激活，配置来源提交 d4ba5024；页面前端标识精确为 563920d2c126f492797ad2f6e4e99bcd84aae3cd。
+- 回退目录：上述 staging 目录下的 rollback-20261015T051600Z。
+- 新建隔离浏览器会话，无预览拦截，账号重新登录成功；会话接口返回 200。
+- 公网显示 10 张作品卡片；9 个有成片批次的封面视频均 readyState=4、尺寸 496x864，已定位到 0.001 秒首帧。
+- 空的新建批次显示“暂无可用封面”，本次浏览器验收未发现失败的 API 响应。
+- Nginx 已通过配置验证；Go/MySQL 容器标识与发布前一致，Go 健康、二进制哈希未变化。
+- 注意：本次仅恢复作品库封面与去重，不代表之前等待供应商回执的视频生产任务均已完成。
