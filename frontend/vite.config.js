@@ -2,6 +2,7 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
+import { readFileSync } from 'node:fs';
 import { normalizeGiantMaterialId, normalizeGiantMaterialResponse } from './src/user/pages/giantMaterialTest.js';
 import { extractScrollText, validateMaterial } from '../lib/giant-material/scroll-extractor.mjs';
 
@@ -160,8 +161,20 @@ const giantMaterialTestApi = {
   }
 };
 
+const homeVideoAsset = {
+  name: 'home-video-asset',
+  apply: 'build',
+  generateBundle() {
+    this.emitFile({
+      type: 'asset',
+      fileName: 'assets/home-hero.mp4',
+      source: readFileSync(resolve(rootDir, '../public/assets/home-hero.mp4'))
+    });
+  }
+};
+
 export default defineConfig({
-  plugins: [react(), adminRouteEntry, giantMaterialTestApi],
+  plugins: [react(), adminRouteEntry, giantMaterialTestApi, homeVideoAsset],
   assetsInclude: ['**/*.glb'],
   build: {
     rollupOptions: {
