@@ -1,4 +1,5 @@
-import { apiRequest } from './client.js';
+import { apiRequest, getToken } from './client.js';
+import { recoverInitialSourceFailure } from './batchFactoryAutomationRecovery.js';
 
 // The module name remains for import compatibility while the production
 // workbench has moved to the V12 public contract.
@@ -487,8 +488,34 @@ export function resumeBatchAutomation(batchId) {
   return apiRequest(bf11Path(`batches/${id(batchId)}/automation/resume`), { method: 'POST', body: body({}) });
 }
 
+const automationRetries = new Map();
 export function retryBatchAutomation(batchId, bookIds = []) {
-  return apiRequest(bf11Path(`batches/${id(batchId)}/automation/retry`), { method: 'POST', body: body({ bookIds }) });
+  const session = getToken();
+  const existing = automationRetries.get(batchId);
+  if (existing?.session === session) return existing.pending;
+  const guarded = fn => (...args) => {
+    if (getToken() !== session) throw new Error('登录账号已变化，请在当前账号重新操作。');
+    return fn(...args);
+  };
+  const pending = (async () => {
+    try {
+      return await apiRequest(bf11Path(`batches/${id(batchId)}/automation/retry`), { method: 'POST', body: body({ bookIds }) });
+    } catch (error) {
+      if (error?.status !== 404 || error.message !== 'not found') throw error;
+      return recoverInitialSourceFailure(batchId, bookIds, {
+        loadBatch: guarded(() => apiRequest(bf11Path(`batches/${id(batchId)}`), { cache: 'no-store' })),
+        loadAutomation: guarded(() => getBatchAutomationStatus(batchId)),
+        loadStages: guarded(bookId => apiRequest(bf11Path(`batches/${id(batchId)}/books/${id(bookId)}/stages`), { cache: 'no-store' })),
+        loadProduction: guarded(() => getProductionStatus(batchId, { cache: 'no-store' })),
+        loadMerges: guarded(() => getMergeStatus(batchId, { cache: 'no-store' })),
+        start: guarded(payload => startBatchAutomation(batchId, payload))
+      });
+    }
+  })().finally(() => {
+    if (automationRetries.get(batchId)?.pending === pending) automationRetries.delete(batchId);
+  });
+  automationRetries.set(batchId, { session, pending });
+  return pending;
 }
 
 export function cancelBatchAutomation(batchId) {

@@ -4,6 +4,66 @@ import * as batchFactoryV11 from './batchFactoryV11.js';
 
 const { bf11Path, bf11ScopePath } = batchFactoryV11;
 
+test('retry authentication failure never invokes recovery or start', async t => {
+  const originalFetch = globalThis.fetch;
+  const originalLocalStorage = globalThis.localStorage;
+  globalThis.localStorage = { getItem() { return ''; } };
+  const requests = [];
+  globalThis.fetch = async path => {
+    requests.push(path);
+    return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, headers: { 'content-type': 'application/json' } });
+  };
+  t.after(() => { globalThis.fetch = originalFetch; globalThis.localStorage = originalLocalStorage; });
+  await assert.rejects(batchFactoryV11.retryBatchAutomation('unauthorized-batch', ['one']), { status: 401 });
+  assert.deepEqual(requests, ['/api/batch-factory/v12/batches/unauthorized-batch/automation/retry']);
+});
+
+test('retry recovers a source-empty first run once and preserves the original automation settings', async t => {
+  const originalFetch = globalThis.fetch;
+  const originalLocalStorage = globalThis.localStorage;
+  const requests = [];
+  const automation = { id: 'failed-run', batchId: 'b1', state: 'failed', preset: { id: 'original-preset' }, runMode: 'full_submit', concurrency: 2,
+    books: [{ bookId: 'one', status: 'failed', stage: 'audio_planning', error: '正文没有可测量的生产行' }] };
+  globalThis.localStorage = { getItem() { return ''; } };
+  globalThis.fetch = async (path, options = {}) => {
+    requests.push({ path, method: options.method || 'GET', body: options.body });
+    let status = 200; let data;
+    if (path.endsWith('/automation/retry')) { status = 404; data = { error: 'not found' }; }
+    else if (path.endsWith('/automation')) data = { automation };
+    else if (path.endsWith('/stages')) data = { runs: [] };
+    else if (path.endsWith('/status') || path.endsWith('/merge-status')) data = { batchId: 'b1', jobs: [] };
+    else if (path.endsWith('/automation/start')) data = { automation: { id: 'recovered-run', state: 'running' } };
+    else data = { batch: { id: 'b1', books: [{ id: 'one', sourceText: '正文已补齐', videos: [], assets: {} }] } };
+    return new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json' } });
+  };
+  t.after(() => { globalThis.fetch = originalFetch; globalThis.localStorage = originalLocalStorage; });
+  const [a, b] = await Promise.all([batchFactoryV11.retryBatchAutomation('b1', ['one']), batchFactoryV11.retryBatchAutomation('b1', ['one'])]);
+  assert.equal(a.automation.id, 'recovered-run');
+  assert.deepEqual(b, a);
+  assert.deepEqual(requests.filter(r => r.method === 'POST').map(r => r.path), ['/api/batch-factory/v12/batches/b1/automation/retry', '/api/batch-factory/v12/batches/b1/automation/start']);
+  assert.deepEqual(JSON.parse(requests.at(-1).body), { presetId: 'original-preset', runMode: 'full_submit', concurrency: 2, autoPublish: false });
+});
+
+test('account switch aborts old recovery and never reuses its pending promise', async t => {
+  const originalFetch = globalThis.fetch; const originalLocalStorage = globalThis.localStorage;
+  let token = 'account-a'; let release; const requests = [];
+  globalThis.localStorage = { getItem: () => token };
+  globalThis.fetch = async path => {
+    requests.push(path);
+    if (requests.length === 1) await new Promise(resolve => { release = resolve; });
+    return new Response(JSON.stringify({ error: 'not found' }), { status: 404, headers: { 'content-type': 'application/json' } });
+  };
+  t.after(() => { globalThis.fetch = originalFetch; globalThis.localStorage = originalLocalStorage; });
+  const old = batchFactoryV11.retryBatchAutomation('switch-batch', ['one']);
+  token = 'account-b';
+  const newer = batchFactoryV11.retryBatchAutomation('switch-batch', ['one']);
+  assert.notEqual(old, newer);
+  const oldRejected = assert.rejects(old, /登录账号已变化/);
+  const newRejected = assert.rejects(newer);
+  release(); await Promise.all([oldRejected, newRejected]);
+  assert.equal(requests.some(path => path.endsWith('/start')), false);
+});
+
 test('Batch Factory UI requests the V12 API namespace', () => {
 	assert.equal(bf11Path('/capabilities'), '/api/batch-factory/v12/capabilities');
 	assert.equal(bf11Path('batches'), '/api/batch-factory/v12/batches');
