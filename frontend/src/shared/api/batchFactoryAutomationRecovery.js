@@ -1,5 +1,10 @@
 const refusal = () => new Error('此任务已有生产记录或失败原因已变化，已停止整批重启以避免重复生成。');
 const value = (response, key) => response?.[key] ?? response?.data?.[key];
+const fingerprint = input => JSON.stringify(input, (key, item) => {
+  if (key === 'books' && Array.isArray(item)) return [...item].sort((a, b) => String(a.bookId ?? a.id).localeCompare(String(b.bookId ?? b.id)));
+  if (item && typeof item === 'object' && !Array.isArray(item)) return Object.fromEntries(Object.keys(item).sort().map(name => [name, item[name]]));
+  return item;
+});
 
 // Narrow recovery for the Go runtime's failed-job lookup defect. Never restart
 // a batch with completed assets, stage runs or media; those need native retry.
@@ -35,7 +40,7 @@ export async function recoverInitialSourceFailure(batchId, selectedIDs, io) {
     const status = result?.data ?? result;
     if (status?.batchId !== batchId || !Array.isArray(status.jobs) || status.jobs.length) throw refusal();
   }
-  return { response, automation, snapshot: JSON.stringify({ automation, batch }) };
+  return { response, automation, snapshot: fingerprint({ automation, batch }) };
   };
   const first = await validate();
   if (!first.snapshot) return first;
@@ -47,7 +52,7 @@ export async function recoverInitialSourceFailure(batchId, selectedIDs, io) {
   const finalAutomation = value(finalResponse, 'automation');
   if (finalAutomation?.batchId !== batchId) throw refusal();
   if (['running', 'scheduled'].includes(finalAutomation.state)) return finalResponse;
-  if (JSON.stringify(finalAutomation) !== JSON.stringify(automation)) throw refusal();
+  if (fingerprint(finalAutomation) !== fingerprint(automation)) throw refusal();
   return io.start({ presetId: automation.preset.id, runMode: automation.runMode,
     concurrency: automation.concurrency, autoPublish: automation.autoPublish === true });
 }

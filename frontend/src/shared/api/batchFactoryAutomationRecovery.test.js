@@ -18,6 +18,16 @@ test('restores only a source-empty failure before any paid stage using the origi
   assert.deepEqual(f.starts, [{ presetId: 'preset-1', runMode: 'full_submit', concurrency: 2, autoPublish: true }]);
 });
 
+test('ignores server map ordering while comparing unchanged snapshots', async () => {
+  const f = fixture();
+  f.batch.books.push({ ...structuredClone(f.batch.books[0]), id: 'two' });
+  f.automation.books.push({ ...f.automation.books[0], bookId: 'two' });
+  let reads = 0;
+  f.io.loadAutomation = async () => ({ automation: { ...f.automation, books: ++reads % 2 ? [...f.automation.books] : [...f.automation.books].reverse() } });
+  await recoverInitialSourceFailure('b1', ['one', 'two'], f.io);
+  assert.equal(f.starts.length, 1);
+});
+
 test('refuses changed failure rows, late assets and independent production or merge jobs', async () => {
   for (const mode of ['row', 'asset', 'stage', 'production', 'merge', 'unavailable']) {
     const f = fixture(); let reads = 0;
