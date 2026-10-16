@@ -3241,6 +3241,25 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
       message.warning(`提示词已保存，但自动生产未能恢复：${error?.message || '请检查自动化状态'}`);
     }
   }
+  async function onBookAssetsSaved(book) {
+    // Asset edits change the inputs used by the compiled VIDEO prompts. Keep
+    // the save action end-to-end: refresh the book, recompile its prompts,
+    // then let the server automation continue from the missing stage.
+    await refreshBatch();
+    if (!batch?.id || !book?.id) return;
+    const latest = resultData(await getBatch(batch.id), 'batch');
+    const currentBook = (latest?.books || []).find(item => item.id === book.id) || book;
+    await runBookStageAction(currentBook, 'director', 'compile');
+    if (!['paused', 'needs_attention'].includes(automationState)) return;
+    try {
+      const result = await resumeBatchAutomation(batch.id);
+      const next = resultData(result, 'automation');
+      setAutomationStatus(next || automationStatus);
+      message.success('资产已保存并重新编译，整批自动生产已恢复。');
+    } catch (error) {
+      message.warning(`资产已保存并重新编译，但自动生产未能恢复：${error?.message || '请检查自动化状态'}`);
+    }
+  }
   async function previewChangeImpact(patch) {
     try { const impact = await getChangeImpact(batch.id, { patch, expectedRevision: Number(batch?.settingsState?.revision || 0) }); return { ok: true, impact: resultData(impact, 'impact') }; } catch (error) { return { ok: false, message: error?.message || '无法读取配置影响' }; }
   }
@@ -3369,7 +3388,7 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
       </Space>
     </Modal>
     <BatchFactoryBookSettingsModal open={Boolean(configTarget)} batch={batch} book={configTarget?.book} activeRegion={configTarget?.region} onClose={() => setConfigTarget(null)} onSaved={refreshAfterBookSettingsSaved} onOpenBookAssets={book => setAssetBook(book)} />
-    <Modal title={assetBook ? `人物场景预设 · ${assetBook.title}` : '人物场景预设'} open={Boolean(assetBook)} onCancel={() => setAssetBook(null)} footer={null} width="min(1440px, calc(100vw - 48px))" className="batch-factory-assets-modal">{assetBook ? <AssetEditor book={assetBook} batchId={batch?.id} onSaved={refreshBatch} onGenerate={async textModelId => { await refreshAssetPresetSnapshot(assetBook); await runBookStageAction(assetBook, 'assets', 'missing', '', textModelId); }} onRegenerate={async textModelId => { await refreshAssetPresetSnapshot(assetBook); await runBookStageAction(assetBook, 'assets', 'force', '', textModelId); }} onRetry={textModelId => retryLastFailedStage(assetBook, '', textModelId)} assetRules={effectiveBookAssetRules(batch, assetBook)} onAssetPromptChange={async selection => { const bookPromptConfig = assetBook?.settingsState?.patch?.aiPromptConfig || {}; const assetRules = effectiveBookAssetRules(batch, assetBook); await saveBookOverrideWithRetry(batch.id, assetBook.id, assetBook.revision, { patch: { aiPromptConfig: { ...bookPromptConfig, assets: { ...assetRules, extraction: selection, scope: 'custom', bookIds: [assetBook.id] } } } }); await refreshBatch(); }} canGenerate={runCapability.available} generateReason={runCapability.reason} generating={actionBusy === stageActionKey('assets', assetBook.id)} engineSettings={effectiveBookSettings(batch, assetBook)} /> : null}</Modal>
+    <Modal title={assetBook ? `人物场景预设 · ${assetBook.title}` : '人物场景预设'} open={Boolean(assetBook)} onCancel={() => setAssetBook(null)} footer={null} width="min(1440px, calc(100vw - 48px))" className="batch-factory-assets-modal">{assetBook ? <AssetEditor book={assetBook} batchId={batch?.id} onSaved={() => onBookAssetsSaved(assetBook)} onGenerate={async textModelId => { await refreshAssetPresetSnapshot(assetBook); await runBookStageAction(assetBook, 'assets', 'missing', '', textModelId); }} onRegenerate={async textModelId => { await refreshAssetPresetSnapshot(assetBook); await runBookStageAction(assetBook, 'assets', 'force', '', textModelId); }} onRetry={textModelId => retryLastFailedStage(assetBook, '', textModelId)} assetRules={effectiveBookAssetRules(batch, assetBook)} onAssetPromptChange={async selection => { const bookPromptConfig = assetBook?.settingsState?.patch?.aiPromptConfig || {}; const assetRules = effectiveBookAssetRules(batch, assetBook); await saveBookOverrideWithRetry(batch.id, assetBook.id, assetBook.revision, { patch: { aiPromptConfig: { ...bookPromptConfig, assets: { ...assetRules, extraction: selection, scope: 'custom', bookIds: [assetBook.id] } } } }); await refreshBatch(); }} canGenerate={runCapability.available} generateReason={runCapability.reason} generating={actionBusy === stageActionKey('assets', assetBook.id)} engineSettings={effectiveBookSettings(batch, assetBook)} /> : null}</Modal>
 	<Modal title={promptBook ? `分镜卡（视频提示词） · ${promptBook.title}` : '分镜卡（视频提示词）'} open={Boolean(promptBook)} onCancel={() => { setPromptBook(null); setPromptVideoId(''); }} footer={null} width={900} className="batch-factory-prompt-modal">{promptBook ? <PromptPanel book={promptBook} batch={batch} batchId={batch?.id} settingsRevision={batch?.settingsState?.revision} initialVideoId={promptVideoId} onSaved={onPromptSaved} onCompile={() => runBookStageAction(promptBook, 'director', 'compile')} onRegenerate={() => runBookStageAction(promptBook, 'director', 'force')} onRegenerateVisual={() => runBookStageAction(promptBook, 'visual', 'force')} onRetry={videoId => retryLastFailedStage(promptBook, videoId)} onGenerateVideo={videoId => runBookStageAction(promptBook, 'video', 'missing', videoId)} onGenerateVisual={() => setAssetBook(promptBook)} regenerating={actionBusy === stageActionKey('director', promptBook.id) || actionBusy === stageActionKey('video', promptBook.id) || actionBusy === stageActionKey('retry', promptBook.id)} productionAvailable={productionCapability.available} productionReason={productionCapability.reason} /> : null}</Modal>
 	<Modal
       title={mediaBook ? `片段库 · ${mediaBook.title}` : '片段库'}
