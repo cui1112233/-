@@ -64,7 +64,7 @@ func TestH3ProductionSubmitsAndPersistsFrozenCompilationPromptAndTrace(t *testin
 	}
 }
 
-func TestH3VideoRetryReusesFailedTaskFrozenCompilation(t *testing.T) {
+func TestH3VideoRetryUsesNewerCompilationAfterPromptEdit(t *testing.T) {
 	ctx := context.Background()
 	store, batch, book := seedH3DirectorRevision(t)
 	document := *book.DirectorRevision.Output.H3Director
@@ -102,8 +102,8 @@ func TestH3VideoRetryReusesFailedTaskFrozenCompilation(t *testing.T) {
 	if _, err := stages.RetryLastFailed(ctx, "alice", batch.ID, book.ID, "h3-retry-2", ""); err != nil {
 		t.Fatal(err)
 	}
-	if len(adapter.prompts) != 2 || adapter.prompts[1].CompilationID != first.Compilation.ID || adapter.prompts[1].CompiledPrompt != first.Compilation.Compilation.Segments[0].CompiledPrompt {
-		t.Fatalf("retry did not preserve failed compilation: %#v", adapter.prompts)
+	if len(adapter.prompts) != 2 || adapter.prompts[1].CompilationID != second.Compilation.ID || adapter.prompts[1].CompiledPrompt != second.Compilation.Compilation.Segments[0].CompiledPrompt {
+		t.Fatalf("retry did not use the newer edited compilation: %#v", adapter.prompts)
 	}
 }
 

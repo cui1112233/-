@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 )
 
@@ -255,6 +256,7 @@ func (s *BookStageService) usesUnifiedDirectorFlow(batch Batch, book Book) bool 
 
 // RetryLastFailed reruns only the most recently failed stage recorded for this book.
 func (s *BookStageService) RetryLastFailed(ctx context.Context, owner, batchID, bookID, requestID, videoID string) (BookStageSummary, error) {
+	log.Printf("v12 retry-last-failed batch=%s book=%s", batchID, bookID)
 	summary, err := s.Summary(ctx, owner, batchID, bookID)
 	if err != nil {
 		return BookStageSummary{}, err
@@ -272,16 +274,29 @@ func (s *BookStageService) RetryLastFailed(ctx context.Context, owner, batchID, 
 	frozenCompilationID := ""
 	if summary.LastFailed.Stage == BookStageVideo {
 		frozenCompilationID = s.latestFailedH3CompilationID(ctx, owner, batchID, bookID, videoID)
-		// A video failure caused by incomplete opening variants is recoverable
-		// only after the opening stage is regenerated. Keep this as one user
-		// action: repair the optional model output first, then submit video with
-		// the fresh variant revision. Other video failures retain normal retry.
-		if strings.Contains(summary.LastFailed.ErrorMessage, "请先重试失败的换开头步骤") {
-			openingRequest := requestID + "-opening"
-			if _, openingErr := s.run(ctx, owner, batchID, bookID, BookStageOpening, StageModeForce, openingRequest, "", ""); openingErr != nil {
-				return s.Summary(ctx, owner, batchID, bookID)
+		batch, batchErr := s.Store.GetBatch(ctx, owner, batchID)
+		if batchErr == nil {
+			if book, bookErr := bookFromBatch(batch, bookID); bookErr == nil {
+				// A failed VIDEO must keep using the exact failed compilation when
+				// nothing changed.  Once the user saves a new prompt/opening, the
+				// H3 compiler persists a newer compilation; prefer that revision so
+				// an automatic retry actually submits the edited prompt instead of
+				// polling/submitting the old provider task again.
+				if repository, ok := s.Store.(H3Repository); ok && book.DirectorRevision != nil {
+					if latest, latestErr := repository.LatestH3VideoCompilation(ctx, owner, batchID, bookID, book.DirectorRevision.ID); latestErr == nil && latest.ID != "" && latest.ID != frozenCompilationID {
+						frozenCompilationID = latest.ID
+					}
+				}
+				openingEnabled := rawBool(ResolveSettings(batch.SettingsState.Patch, book.SettingsState.Patch), "openingEnabled", false)
+				needsOpeningRepair := openingEnabled || strings.Contains(summary.LastFailed.ErrorMessage, "换开头")
+				if needsOpeningRepair {
+					openingRequest := requestID + "-opening"
+					if _, openingErr := s.run(ctx, owner, batchID, bookID, BookStageOpening, StageModeForce, openingRequest, "", ""); openingErr != nil {
+						return s.Summary(ctx, owner, batchID, bookID)
+					}
+					return s.run(ctx, owner, batchID, bookID, BookStageVideo, StageModeForce, requestID, videoID, frozenCompilationID)
+				}
 			}
-			return s.run(ctx, owner, batchID, bookID, BookStageVideo, StageModeForce, requestID, videoID, frozenCompilationID)
 		}
 	}
 	return s.run(ctx, owner, batchID, bookID, summary.LastFailed.Stage, StageModeForce, requestID, videoID, frozenCompilationID)
