@@ -3231,12 +3231,13 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
   }
   async function onPromptSaved() {
     await refreshBatch();
-    if (!batch?.id || !['paused', 'needs_attention'].includes(automationState)) return;
+    if (!batch?.id) return;
     try {
       const failedBookIds = (automationBooks || [])
         .filter(item => ['failed', 'blocked'].includes(String(item?.status || '').toLowerCase()))
         .map(item => item.bookId)
         .filter(Boolean);
+      if (!failedBookIds.length && !['paused', 'needs_attention'].includes(automationState)) return;
       const result = failedBookIds.length
         ? await retryBatchAutomation(batch.id, failedBookIds)
         : await resumeBatchAutomation(batch.id);
