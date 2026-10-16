@@ -272,6 +272,17 @@ func (s *BookStageService) RetryLastFailed(ctx context.Context, owner, batchID, 
 	frozenCompilationID := ""
 	if summary.LastFailed.Stage == BookStageVideo {
 		frozenCompilationID = s.latestFailedH3CompilationID(ctx, owner, batchID, bookID, videoID)
+		// A video failure caused by incomplete opening variants is recoverable
+		// only after the opening stage is regenerated. Keep this as one user
+		// action: repair the optional model output first, then submit video with
+		// the fresh variant revision. Other video failures retain normal retry.
+		if strings.Contains(summary.LastFailed.ErrorMessage, "请先重试失败的换开头步骤") {
+			openingRequest := requestID + "-opening"
+			if _, openingErr := s.run(ctx, owner, batchID, bookID, BookStageOpening, StageModeForce, openingRequest, "", ""); openingErr != nil {
+				return s.Summary(ctx, owner, batchID, bookID)
+			}
+			return s.run(ctx, owner, batchID, bookID, BookStageVideo, StageModeForce, requestID, videoID, frozenCompilationID)
+		}
 	}
 	return s.run(ctx, owner, batchID, bookID, summary.LastFailed.Stage, StageModeForce, requestID, videoID, frozenCompilationID)
 }
