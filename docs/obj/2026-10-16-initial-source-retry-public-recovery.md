@@ -34,3 +34,9 @@ batch_fc3d375cd6cf3e4996281e30952e7edb 原失败任务 go-auto-17921404473100811
 回读 state=running、failed=0，沿用 2开头批量 preset、full_submit、concurrency=2。
 页面显示 1 本执行中、7 本待开始；首本 audio_planning 正在逐行生成配音并测量时长。
 这证明恢复请求成功且原生执行器已接管，尚非视频生成或上传完成证明。
+
+09:34 UTC 再次回读：首本 assets 和 director 的 stage runs 均 succeeded，
+视频提交被换开头完整性门拦截：换开头变体未全部生成，换开头1模型未输出该变体分段。
+第二本已进入 audio_planning；页面 1 异常、1 执行中、6 待开始，已有 2 分镜。
+该错误与初始 404 不同，未自动整批重放或伪记完成。
+截图：/private/tmp/shuihuo-retry-recovered-20261016.png。
