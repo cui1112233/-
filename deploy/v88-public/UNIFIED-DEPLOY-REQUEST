@@ -1,3 +1,3 @@
-release_sha=d4399f0c
-scope=deploy: read server automation state before automatically requeueing corrected failed books
-requested_at=2026-10-17T07:30:00+08:00
+release_sha=fbdb23ac69684ba116447830850d166f81f14e66
+scope=deploy: retry edited H3 prompt with latest compilation and continue automatic batch queue
+requested_at=2026-10-17T07:05:00+08:00
