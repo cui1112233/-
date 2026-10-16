@@ -34,6 +34,7 @@ test('public Compose renders V88 and isolated Shuihuo DNS-only request chains', 
   assert.equal(services['shuihuo-compat'].environment.QIANTIE_ADDR, ':4100');
   assert.deepEqual(services.nginx.ports, [
     { mode: 'ingress', target: 80, published: '80', protocol: 'tcp' },
+    { mode: 'ingress', target: 443, published: '443', protocol: 'tcp' },
     { mode: 'ingress', target: 80, published: '3000', protocol: 'tcp' },
   ]);
   assert.equal(services['v88-node'].build, undefined);
@@ -45,6 +46,6 @@ test('public Nginx proxies application requests only through the Node service', 
   const nginx = fs.readFileSync(nginxFile, 'utf8');
 
   assert.match(nginx, /proxy_pass http:\/\/v88-node:3000;/);
-  assert.doesNotMatch(nginx, /proxy_pass http:\/\/go-api:4000;/);
+  assert.match(nginx, /location \^~ \/api\/wechat-miniprogram\/ \{[\s\S]*?proxy_pass http:\/\/go-api:4000;/);
   assert.doesNotMatch(nginx, /18081|172\.19\.|host\.docker\.internal/);
 });
