@@ -275,6 +275,9 @@ func (s *BookStageService) RetryLastFailed(ctx context.Context, owner, batchID, 
 		if !found {
 			return BookStageSummary{}, fmt.Errorf("%w: 当前小说没有失败步骤", ErrConflict)
 		}
+		if moderationRejected(failedTask.ErrorMessage) {
+			return s.runWithOptions(ctx, owner, batchID, bookID, BookStageVideo, StageModeForce, requestID, failedTask.VideoID, failedTask.CompilationID, true)
+		}
 		return s.run(ctx, owner, batchID, bookID, BookStageVideo, StageModeForce, requestID, failedTask.VideoID, failedTask.CompilationID)
 	}
 	if strings.TrimSpace(videoID) == "" && summary.LastFailed.Stage == BookStageVideo {

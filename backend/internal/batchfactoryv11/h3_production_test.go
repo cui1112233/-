@@ -147,7 +147,7 @@ func TestH3VideoRetryFindsAnAsyncProviderFailureWithoutFailedStageRun(t *testing
 	ctx := context.Background()
 	store, batch, book := seedH3DirectorRevision(t)
 	document := *book.DirectorRevision.Output.H3Director
-	if _, err := store.SaveSettings(ctx, "alice", ScopeRef{Kind: ScopeBatch, BatchID: batch.ID}, SettingsUpdate{Patch: SettingsPatch{"videoModelId": rawSetting(t, "yd2.0-mini")}, ExpectedRevision: batch.Revision}); err != nil {
+	if _, err := store.SaveSettings(ctx, "alice", ScopeRef{Kind: ScopeBatch, BatchID: batch.ID}, SettingsUpdate{Patch: SettingsPatch{"videoModelId": rawSetting(t, "yd2.0-mini"), "imageUrls": rawSetting(t, []string{"https://images.example/risky.png"})}, ExpectedRevision: batch.Revision}); err != nil {
 		t.Fatal(err)
 	}
 	seedH3AudioMeasurement(t, store, batch, book, document)
@@ -177,7 +177,7 @@ func TestH3VideoRetryFindsAnAsyncProviderFailureWithoutFailedStageRun(t *testing
 	}
 	failed := jobs[0].Tasks[0]
 	failed.Status = ProductionFailed
-	failed.ErrorMessage = "provider rejected after submit"
+	failed.ErrorMessage = "内容不符合平台规范，请调整提示词或图片后重试"
 	if _, err := store.UpdateProductionTask(ctx, "alice", jobs[0].ID, failed.ID, failed); err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +188,7 @@ func TestH3VideoRetryFindsAnAsyncProviderFailureWithoutFailedStageRun(t *testing
 	if _, err := stages.RetryLastFailed(ctx, "alice", batch.ID, book.ID, "h3-async-retry", videoID); err != nil {
 		t.Fatalf("retry async provider failure=%v", err)
 	}
-	if len(adapter.prompts) != 2 || adapter.prompts[1].CompilationID != compiled.Compilation.ID || adapter.prompts[1].CompiledPrompt != compiled.Compilation.Compilation.Segments[0].CompiledPrompt {
+	if len(adapter.prompts) != 2 || adapter.prompts[1].CompilationID != compiled.Compilation.ID || adapter.prompts[1].CompiledPrompt != compiled.Compilation.Compilation.Segments[0].CompiledPrompt || len(adapter.prompts[1].ReferenceImageURLs) != 0 {
 		t.Fatalf("retry did not preserve async failed compilation: %#v", adapter.prompts)
 	}
 }
