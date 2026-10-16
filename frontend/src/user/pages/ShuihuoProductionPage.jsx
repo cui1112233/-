@@ -7,8 +7,9 @@ import { projectLibraryRefreshResult } from './shuihuo/projectLibraryLoadState';
 import { ProjectsView } from './shuihuo/ProjectsView';
 import { AssetsView } from './shuihuo/AssetsView';
 import { confirmSegmentation, createProject, deleteProject, getProductionHealth, getProject, listModels, listProjects, paragraphSegmentation, replaceProjectSource, smartSegmentation } from '../../shared/api/shuihuoProduction';
-import { appendNovelFetchIntake, classifyFetchedBatchMetadata, createBatchFromIntake, createManualIntake, deleteBatchFactoryProject, getBatch, getIntake, listBatchSummaries, startBatchAutomation } from '../../shared/api/batchFactoryV11';
+import { appendNovelFetchIntake, classifyFetchedBatchMetadata, createBatchFromIntake, createManualIntake, deleteBatchFactoryProject, getBatch, getBatchAutomationStatus, getIntake, listAutomationPresets, listBatchSummaries, startBatchAutomation } from '../../shared/api/batchFactoryV11';
 import { BATCH_FACTORY_ACTIVE_BATCH_STORAGE_KEY, novelFetchIntakeBooks, pendingNovelFetchIntakeId } from './shuihuo/batchFactoryNovelFetchHandoff';
+import { ensureBatchAutomationStarted } from './shuihuo/batchFactoryAutomationStart.js';
 import './shuihuo-production.css';
 
 const modelNames = { text: '文本模型', image: '图片模型', video: '视频模型', audio: '配音模型' };
@@ -230,6 +231,18 @@ export function ShuihuoProductionPage({ openBatchOnLoad = false }) {
       clearHandoffQuery();
       await refreshProjects();
     };
+    const startImportedBatch = async batch => {
+      if (!batch?.id) return;
+      try {
+        await ensureBatchAutomationStarted(batch.id, {
+          getStatus: getBatchAutomationStatus,
+          listPresets: listAutomationPresets,
+          start: startBatchAutomation
+        });
+      } catch (error) {
+        message.warning(`批量已登记，但自动生产未启动：${error?.message || '请检查自动化预设'}`);
+      }
+    };
     const join = async () => {
       try {
         const [intakeResult, currentBatchId] = await Promise.all([
@@ -243,7 +256,9 @@ export function ShuihuoProductionPage({ openBatchOnLoad = false }) {
           const created = await createBatchFromIntake(intakeId, {
             title: incoming.length === 1 ? `小说获取·${incoming[0]?.title || '新批量'}` : `小说获取·${incoming.length || 0}本`
           });
-          await openImportedBatch(created?.batch || created);
+          const imported = created?.batch || created;
+          await startImportedBatch(imported);
+          await openImportedBatch(imported);
           message.success('小说获取内容已登记到新批量');
           return;
         }
@@ -255,7 +270,9 @@ export function ShuihuoProductionPage({ openBatchOnLoad = false }) {
         const duplicates = incoming.filter(book => existingSourceKeys.has(sourceKey(book)));
         const append = async () => {
           const updated = await appendNovelFetchIntake(batch.id, intakeId);
-          await openImportedBatch(updated?.batch || updated);
+          const imported = updated?.batch || updated;
+          await startImportedBatch(imported);
+          await openImportedBatch(imported);
           message.success(duplicates.length ? `小说获取内容已登记；同书城同 Book ID 的 ${duplicates.length} 本内容已跳过` : '小说获取内容已登记到当前批量');
         };
         await append();

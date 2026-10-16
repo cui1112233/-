@@ -7,13 +7,16 @@ import {
   createBatchFromIntake,
   createManualIntake,
   getBatch,
+  getBatchAutomationStatus,
   getIntake,
   listBatchSummaries,
+  listAutomationPresets,
   startBatchAutomation
 } from '../../shared/api/batchFactoryV11';
 import { BatchFactoryNovelList } from './shuihuo/BatchFactoryNovelList';
 import { BatchFactoryCreateModal } from './shuihuo/BatchFactoryCreateModal';
 import { batchFactoryBatchFromResponse } from './shuihuo/batchFactoryProjects';
+import { ensureBatchAutomationStarted } from './shuihuo/batchFactoryAutomationStart.js';
 import {
   BATCH_FACTORY_ACTIVE_BATCH_STORAGE_KEY,
   novelFetchIntakeBooks,
@@ -97,6 +100,15 @@ export default function BatchFactoryWorkbenchPage() {
     const finish = async result => {
       const batch = asBatch(result);
       if (cancelled) return;
+      try {
+        await ensureBatchAutomationStarted(batch.id, {
+          getStatus: getBatchAutomationStatus,
+          listPresets: listAutomationPresets,
+          start: startBatchAutomation
+        });
+      } catch (error) {
+        message.warning(`批量已登记，但自动生产未启动：${error?.message || '请检查自动化预设'}`);
+      }
       localStorage.setItem(BATCH_FACTORY_ACTIVE_BATCH_STORAGE_KEY, batch.id);
       setActiveBatch(batch);
       clearHandoffQuery();

@@ -40,6 +40,15 @@ test('manual batch creation in the public Shuihuo page starts detached publish-m
   assert.match(page, /await classifyFetchedBatchMetadata\(batch\.id\)/);
 });
 
+test('Novel Fetch handoff starts full automation after creating or appending a batch', () => {
+  const page = fs.readFileSync(pagePath, 'utf8');
+
+  assert.match(page, /ensureBatchAutomationStarted/);
+  assert.match(page, /getBatchAutomationStatus/);
+  assert.match(page, /listAutomationPresets/);
+  assert.match(page, /startImportedBatch\(imported\)/);
+});
+
 test('Novel Fetch handoff never offers a same-batch duplicate override', () => {
   const page = fs.readFileSync(pagePath, 'utf8');
 
