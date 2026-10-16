@@ -179,6 +179,13 @@ test('reloads book and durable stage status after a failed stage', () => {
   assert.match(source, /message\.error\(error\?\.message \|\| '当前小说阶段执行失败'\);/);
 });
 
+test('resumes paused automation after saving a corrected video prompt', () => {
+  assert.match(source, /async function onPromptSaved\(\)/);
+  assert.match(source, /\['paused', 'needs_attention'\]\.includes\(automationState\)/);
+  assert.match(source, /resumeBatchAutomation\(batch\.id\)/);
+  assert.match(source, /onSaved=\{onPromptSaved\}/);
+});
+
 test('retries a single-book settings save once against the latest revision', () => {
   assert.match(bookSettingsSource, /getBatch, listSystemPresetCatalog, saveBookOverride/);
   assert.match(bookSettingsSource, /async function saveOverrideWithLatestRevision/);
