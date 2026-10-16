@@ -182,8 +182,15 @@ test('reloads book and durable stage status after a failed stage', () => {
 test('resumes paused automation after saving a corrected video prompt', () => {
   assert.match(source, /async function onPromptSaved\(\)/);
   assert.match(source, /\['paused', 'needs_attention'\]\.includes\(automationState\)/);
+  assert.match(source, /retryBatchAutomation\(batch\.id, failedBookIds\)/);
   assert.match(source, /resumeBatchAutomation\(batch\.id\)/);
   assert.match(source, /onSaved=\{onPromptSaved\}/);
+});
+
+test('requeues the corrected asset book instead of merely resuming a terminal job', () => {
+  assert.match(source, /async function onBookAssetsSaved\(book\)/);
+  assert.match(source, /retryBatchAutomation\(batch\.id, \[book\.id\]\)/);
+  assert.match(source, /onSaved=\{\(\) => onBookAssetsSaved\(assetBook\)\}/);
 });
 
 test('retries a single-book settings save once against the latest revision', () => {

@@ -3233,10 +3233,16 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
     await refreshBatch();
     if (!batch?.id || !['paused', 'needs_attention'].includes(automationState)) return;
     try {
-      const result = await resumeBatchAutomation(batch.id);
+      const failedBookIds = (automationBooks || [])
+        .filter(item => ['failed', 'blocked'].includes(String(item?.status || '').toLowerCase()))
+        .map(item => item.bookId)
+        .filter(Boolean);
+      const result = failedBookIds.length
+        ? await retryBatchAutomation(batch.id, failedBookIds)
+        : await resumeBatchAutomation(batch.id);
       const next = resultData(result, 'automation');
       setAutomationStatus(next || automationStatus);
-      message.success('提示词已保存，自动生产已恢复，将从缺失步骤继续。');
+      message.success(failedBookIds.length ? '提示词已保存，失败小说已自动重新排队，整批会继续执行。' : '提示词已保存，自动生产已恢复，将从缺失步骤继续。');
     } catch (error) {
       message.warning(`提示词已保存，但自动生产未能恢复：${error?.message || '请检查自动化状态'}`);
     }
@@ -3252,10 +3258,10 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
     await runBookStageAction(currentBook, 'director', 'compile');
     if (!['paused', 'needs_attention'].includes(automationState)) return;
     try {
-      const result = await resumeBatchAutomation(batch.id);
+      const result = await retryBatchAutomation(batch.id, [book.id]);
       const next = resultData(result, 'automation');
       setAutomationStatus(next || automationStatus);
-      message.success('资产已保存并重新编译，整批自动生产已恢复。');
+      message.success('资产已保存并重新编译，当前失败小说已自动重新排队，整批会继续执行。');
     } catch (error) {
       message.warning(`资产已保存并重新编译，但自动生产未能恢复：${error?.message || '请检查自动化状态'}`);
     }
