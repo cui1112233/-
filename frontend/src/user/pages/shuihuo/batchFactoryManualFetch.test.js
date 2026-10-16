@@ -2,6 +2,24 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildManualBatchSubmission, hasFetchedManualSources, manualBookIDsFromInput, mergeGroupLines, upsertPlatformGroup, replacePlatformGroup, removePlatformGroup, totalGroupBookCount } from './batchFactoryManualFetch.js';
 
+test('missing group originals preserve books but block immediate or scheduled automation', () => {
+  for (const scheduledAt of ['', '2026-10-17T10:00:00.000Z']) {
+    const groups = [{ platformId: '4', inputText: '11010564805\n11010565547', sourceTextByBookId: { '11010564805': '已获取正文' } }];
+    const result = buildManualBatchSubmission({ groups, automationEnabled: true, autoPublishEnabled: true, runMode: 'full_submit', scheduledAt });
+    assert.deepEqual(result.groups, groups);
+    assert.equal(result.automationEnabled, false);
+    assert.equal(result.autoPublishEnabled, false);
+    assert.equal(result.scheduledAt, '');
+  }
+});
+
+test('complete group originals preserve scheduled automation', () => {
+  const result = buildManualBatchSubmission({ groups: [{ platformId: '4', inputText: '11010564805', sourceTextByBookId: { '11010564805': '正文' } }], automationEnabled: true, runMode: 'full_submit', scheduledAt: '2026-10-17T10:00:00.000Z' });
+  assert.equal(result.automationEnabled, true);
+  assert.equal(result.autoPublishEnabled, true);
+  assert.equal(result.scheduledAt, '2026-10-17T10:00:00.000Z');
+});
+
 test('collects each numeric Book ID once from a manual novel list', () => {
   assert.deepEqual(manualBookIDsFromInput('100000000001\t书A\n100000000002  书B\n100000000001\t重复'), ['100000000001', '100000000002']);
 });

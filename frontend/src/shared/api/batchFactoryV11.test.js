@@ -85,7 +85,7 @@ test('batch factory direct fetch uses its native V12 endpoint', async t => {
   assert.equal(calls[0].path, '/api/batch-factory/v12/fetch-originals');
   assert.equal(calls[0].options.method, 'POST');
   assert.deepEqual(JSON.parse(calls[0].options.body), {
-    platform: '15',
+    platform: 15,
     bookIds: ['2084012035524801698'],
     maxTxt: 4000
   });

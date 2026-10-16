@@ -17,12 +17,14 @@ export function hasFetchedManualSources(bookIds, sourceTextByBookId) {
 }
 
 export function buildManualBatchSubmission({ title, scheduledAt = '', automationEnabled = false, autoPublishEnabled = false, automationConcurrency = 2, runMode = '', ...input }) {
-  const enabled = automationEnabled === true;
+  const missingGroupSources = Array.isArray(input.groups) && input.groups.some(group =>
+    !hasFetchedManualSources(manualBookIDsFromInput(group.inputText), group.sourceTextByBookId));
+  const enabled = automationEnabled === true && !missingGroupSources;
   const normalizedRunMode = String(runMode || '').trim();
   return {
     ...input,
     title: String(title || '').trim(),
-    scheduledAt: String(scheduledAt || ''),
+    scheduledAt: missingGroupSources ? '' : String(scheduledAt || ''),
     runMode: normalizedRunMode,
     automationEnabled: enabled,
     autoPublishEnabled: enabled && (autoPublishEnabled === true || normalizedRunMode === 'full_submit'),

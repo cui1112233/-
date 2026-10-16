@@ -156,7 +156,7 @@ export function createBatch(payload) {
 }
 
 export function fetchDirectOriginals(payload) {
-  return apiRequest(bf11Path('fetch-originals'), { method: 'POST', body: body(payload) });
+  return apiRequest(bf11Path('fetch-originals'), { method: 'POST', body: body({ ...payload, platform: Number(payload?.platform) }) });
 }
 
 export function fetchBookOriginal(batchId, bookId) {

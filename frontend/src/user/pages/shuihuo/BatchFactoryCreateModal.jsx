@@ -638,9 +638,9 @@ export function BatchFactoryCreateModal({ open, onCancel, onCreated, onBatchUpda
       }));
       reset();
       if (failedPlatforms.length > 0) {
-        message.warning(`${fetchedCount}/${totalCount} 本已抓到正文；以下书城抓取失败：${failedPlatforms.join('、')}。失败的书已在列表中标红，可单独重试`);
+        message.warning(`${fetchedCount}/${totalCount} 本已抓到正文；以下书城抓取失败：${failedPlatforms.join('、')}。书目已保留，自动生产暂未启动；请补齐正文后再启动`);
       } else if (fetchedCount < totalCount) {
-        message.warning(`${fetchedCount}/${totalCount} 本已抓到正文，其余书将在列表中标红，可单独重试`);
+        message.warning(`${fetchedCount}/${totalCount} 本已抓到正文。书目已保留，自动生产暂未启动；请补齐正文后再启动`);
       }
     } catch (error) {
       message.error(normalizedError(error, '新建批量失败'));
