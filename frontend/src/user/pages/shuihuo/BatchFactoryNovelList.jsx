@@ -56,6 +56,7 @@ import {
   getDraft,
   getBatchRuntimeSummary,
   listAutomationPresets,
+  getBatchAutomationStatus,
   startBatchAutomation,
   pauseBatchAutomation,
   resumeBatchAutomation,
@@ -3233,11 +3234,14 @@ export function BatchFactoryNovelList({ batch, onBack, onBatchChanged }) {
     await refreshBatch();
     if (!batch?.id) return;
     try {
-      const failedBookIds = (automationBooks || [])
+      const latestAutomation = resultData(await getBatchAutomationStatus(batch.id), 'automation');
+      const latestAutomationBooks = Array.isArray(latestAutomation?.books) ? latestAutomation.books : automationBooks;
+      const failedBookIds = latestAutomationBooks
         .filter(item => ['failed', 'blocked'].includes(String(item?.status || '').toLowerCase()))
         .map(item => item.bookId)
         .filter(Boolean);
-      if (!failedBookIds.length && !['paused', 'needs_attention'].includes(automationState)) return;
+      const latestAutomationState = String(latestAutomation?.state || automationState);
+      if (!failedBookIds.length && !['paused', 'needs_attention'].includes(latestAutomationState)) return;
       const result = failedBookIds.length
         ? await retryBatchAutomation(batch.id, failedBookIds)
         : await resumeBatchAutomation(batch.id);

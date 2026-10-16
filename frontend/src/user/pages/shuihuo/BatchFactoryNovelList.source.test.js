@@ -181,8 +181,10 @@ test('reloads book and durable stage status after a failed stage', () => {
 
 test('resumes paused automation after saving a corrected video prompt', () => {
   assert.match(source, /async function onPromptSaved\(\)/);
+  assert.match(source, /getBatchAutomationStatus\(batch\.id\)/);
+  assert.match(source, /latestAutomationBooks/);
   assert.match(source, /\['paused', 'needs_attention'\]\.includes\(automationState\)/);
-  assert.match(source, /if \(!failedBookIds\.length && !\['paused', 'needs_attention'\]\.includes\(automationState\)\) return;/);
+  assert.match(source, /if \(!failedBookIds\.length && !\['paused', 'needs_attention'\]\.includes\(latestAutomationState\)\) return;/);
   assert.match(source, /retryBatchAutomation\(batch\.id, failedBookIds\)/);
   assert.match(source, /resumeBatchAutomation\(batch\.id\)/);
   assert.match(source, /onSaved=\{onPromptSaved\}/);
