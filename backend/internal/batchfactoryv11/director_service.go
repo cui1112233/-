@@ -388,11 +388,7 @@ func (s *DirectorService) RunAssetExtraction(ctx context.Context, owner, batchID
 	if err != nil {
 		return nil, err
 	}
-	completion, err := s.Provider.Complete(ctx, TextCompletionRequest{SystemPrompt: contract.SystemPrompt, UserPrompt: contract.UserPrompt, Temperature: contract.Temperature, MaxTokens: contract.MaxTokens})
-	if err != nil {
-		return nil, err
-	}
-	raw, err := ParseDirectorJSON(completion)
+	_, raw, err := s.completeJSONWithRepair(ctx, contract)
 	if err != nil {
 		return nil, retryableModelOutputError(err)
 	}
@@ -444,6 +440,38 @@ func (s *DirectorService) RunAssetExtraction(ctx context.Context, owner, batchID
 	return persisted, nil
 }
 
+// completeJSONWithRepair retries one malformed or truncated JSON response with
+// a larger bounded output budget. Provider/network failures still return
+// immediately and remain subject to the normal stage retry policy.
+func (s *DirectorService) completeJSONWithRepair(ctx context.Context, contract PromptContract) (string, json.RawMessage, error) {
+	request := TextCompletionRequest{SystemPrompt: contract.SystemPrompt, UserPrompt: contract.UserPrompt, Temperature: contract.Temperature, MaxTokens: contract.MaxTokens}
+	completion, err := s.Provider.Complete(ctx, request)
+	if err != nil {
+		return "", nil, err
+	}
+	raw, parseErr := ParseDirectorJSON(completion)
+	if parseErr == nil {
+		return completion, raw, nil
+	}
+	repair := request
+	repair.SystemPrompt = strings.TrimSpace(request.SystemPrompt) + "\n\n上一响应未通过 JSON 校验。请忽略上一响应，只根据同一输入重新输出一个完整、可解析的 JSON 对象；禁止 Markdown、解释、截断和额外字段。"
+	if repair.MaxTokens < 8000 {
+		repair.MaxTokens = 8000
+	}
+	repaired, repairErr := s.Provider.Complete(ctx, repair)
+	if repairErr != nil {
+		if errors.Is(repairErr, ErrUnavailable) {
+			return "", nil, parseErr
+		}
+		return "", nil, repairErr
+	}
+	repairedRaw, repairedParseErr := ParseDirectorJSON(repaired)
+	if repairedParseErr != nil {
+		return "", nil, parseErr
+	}
+	return repaired, repairedRaw, nil
+}
+
 // RunOpeningVariants generates alternative VIDEO01 openings. It silently
 // returns no variants when the feature is off, the book has fewer than two
 // storyboards, or the director output is not SD-direct; callers treat an empty
@@ -489,11 +517,10 @@ func (s *DirectorService) RunOpeningVariants(ctx context.Context, owner, batchID
 		return nil, err
 	}
 	contract := BuildOpeningVariantsContract(book, first, followUps, meta, variantCount, snapshot.MaxVideoDuration)
-	text, err := s.Provider.Complete(ctx, TextCompletionRequest{SystemPrompt: contract.SystemPrompt, UserPrompt: contract.UserPrompt, Temperature: contract.Temperature, MaxTokens: contract.MaxTokens, DisableJSONResponse: true})
+	_, variants, err := s.completeOpeningVariantsWithRepair(ctx, contract, snapshot.MaxVideoDuration, first.DurationSec, variantCount)
 	if err != nil {
 		return nil, err
 	}
-	variants := parseOpeningVariants(text, snapshot.MaxVideoDuration, first.DurationSec, variantCount)
 	merged, err := s.saveOpeningVariants(ctx, owner, batchID, bookID, book.Videos[0].ID, variants)
 	if err != nil {
 		return nil, err
@@ -502,6 +529,44 @@ func (s *DirectorService) RunOpeningVariants(ctx context.Context, owner, batchID
 		return merged, err
 	}
 	return merged, nil
+}
+
+func (s *DirectorService) completeOpeningVariantsWithRepair(ctx context.Context, contract PromptContract, maxVideoDuration, originalDuration, variantCount int) (string, []OpeningVariant, error) {
+	request := TextCompletionRequest{SystemPrompt: contract.SystemPrompt, UserPrompt: contract.UserPrompt, Temperature: contract.Temperature, MaxTokens: contract.MaxTokens, DisableJSONResponse: true}
+	completion, err := s.Provider.Complete(ctx, request)
+	if err != nil {
+		return "", nil, err
+	}
+	variants := parseOpeningVariants(completion, maxVideoDuration, originalDuration, variantCount)
+	if openingVariantSuccessCount(variants) > 0 {
+		return completion, variants, nil
+	}
+	repair := request
+	repair.SystemPrompt = strings.TrimSpace(request.SystemPrompt) + fmt.Sprintf("\n\n上一次响应没有通过换开头格式校验。请忽略上一次响应，基于同一输入重新输出全部 %d 个变体。只允许使用以下格式，禁止任何解释、Markdown、JSON 或省略号：\n===VARIANT 1===\n时长：X秒\n完整视频提示词正文\n……\n===VARIANT %d===\n时长：X秒\n完整视频提示词正文\n标记必须连续、独占一行，正文不能为空，X 必须是 1-%d 的整数。", variantCount, variantCount, maxVideoDuration)
+	if repair.MaxTokens < 10000 {
+		repair.MaxTokens = 10000
+	}
+	repaired, repairErr := s.Provider.Complete(ctx, repair)
+	if repairErr != nil {
+		return completion, variants, nil
+	}
+	repairedVariants := parseOpeningVariants(repaired, maxVideoDuration, originalDuration, variantCount)
+	for i := range variants {
+		if variants[i].Status == "success" {
+			repairedVariants[i] = variants[i]
+		}
+	}
+	return repaired, repairedVariants, nil
+}
+
+func openingVariantSuccessCount(variants []OpeningVariant) int {
+	count := 0
+	for _, variant := range variants {
+		if variant.Status == "success" && strings.TrimSpace(variant.Prompt) != "" {
+			count++
+		}
+	}
+	return count
 }
 
 func requireSuccessfulOpeningVariants(variants []OpeningVariant, variantCount int) error {

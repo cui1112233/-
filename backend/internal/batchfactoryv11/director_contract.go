@@ -340,13 +340,14 @@ func BuildOpeningVariantsContract(book Book, first DirectorVideo, followUps []Di
 		system = strings.TrimSpace(`你是短剧开场变体导演。为分镜一生成多个画面感更强、且能自然衔接分镜二的开场变体提示词；人物、场景、剧情走向与时长协议必须与原分镜一致。每个变体用 ===VARIANT N=== 分段，首行为 时长：X秒。`)
 	}
 	system += fmt.Sprintf("\n\n【本次任务】需要变体数量：%d。单段时长上限：%d 秒。", variantCount, maxVideoDuration)
-	system += `
+	system += fmt.Sprintf(`
 
-【机器输出格式（必须严格遵守）】
-每个变体必须独占一个分段；标记必须单独一行，下一行必须是时长，随后必须是非空正文。不要把“时长”写在标记同一行，不要输出额外说明。示例：
-===VARIANT 1===
-时长：10秒
-可直接替换的分镜一提示词正文`
+【输出协议（最高优先级，必须严格遵守）】
+只输出完整结果，不要解释、标题、Markdown、代码围栏或 JSON。必须输出全部 %d 个变体，编号连续 1 到 %d，不能省略任何编号。每个变体必须严格占用以下三段结构：
+===VARIANT N===
+时长：X秒
+完整视频提示词正文
+其中标记必须独占一行，下一行必须是“时长：X秒”，正文从第三行开始且不能为空；X 必须是 1 到 %d 的整数。即使内容困难，也不能改变格式。`, variantCount, variantCount, maxVideoDuration)
 	var user strings.Builder
 	user.WriteString("小说标题：" + book.Title + "\n\n")
 	// 原分镜一与后续分镜统一走 storyboardVideoPrompt：SD 直出时它返回整段
@@ -433,7 +434,11 @@ func BuildAssetExtractionContract(book Book, snapshot DirectorSnapshot) (PromptC
 【批量工厂统一返回契约】
 在同一个合法 JSON 对象中返回 characters、scenes、props 三个数组。characters 的每项必须同时返回 name 与 prompt；prompt 必须是该人物可直接用于图片和视频一致性的完整详细外形，而不是简短标签。scenes 与 props 的每项也必须同时有非空 name 与 prompt。不得返回第二份外形结果、不得要求后续逐人调用。`
 	}
-	return PromptContract{SystemPrompt: system, UserPrompt: string(payload), Temperature: 0.2, MaxTokens: 4000}, nil
+	maxTokens := 4000
+	if h3Selected {
+		maxTokens = 8000
+	}
+	return PromptContract{SystemPrompt: system, UserPrompt: string(payload), Temperature: 0.2, MaxTokens: maxTokens}, nil
 }
 
 func BuildDirectorContract(book Book, hook HookRevision, snapshot DirectorSnapshot) (PromptContract, error) {

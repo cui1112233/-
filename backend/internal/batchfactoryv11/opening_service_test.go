@@ -239,7 +239,7 @@ func TestBuildOpeningVariantsContractAppendsCanonicalOutputFormat(t *testing.T) 
 		3,
 		10,
 	)
-	if !strings.Contains(contract.SystemPrompt, "===VARIANT 1===\n时长：10秒\n可直接替换的分镜一提示词正文") {
+	if !strings.Contains(contract.SystemPrompt, "===VARIANT N===\n时长：X秒\n完整视频提示词正文") || !strings.Contains(contract.SystemPrompt, "必须输出全部 3 个变体") {
 		t.Fatalf("contract missing canonical machine format:\n%s", contract.SystemPrompt)
 	}
 }
