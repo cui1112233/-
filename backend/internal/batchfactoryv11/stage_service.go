@@ -155,6 +155,10 @@ func (s *BookStageService) Run(ctx context.Context, owner, batchID, bookID strin
 }
 
 func (s *BookStageService) run(ctx context.Context, owner, batchID, bookID string, stage BookStage, mode StageMode, requestID, videoID, frozenCompilationID string) (BookStageSummary, error) {
+	return s.runWithOptions(ctx, owner, batchID, bookID, stage, mode, requestID, videoID, frozenCompilationID, false)
+}
+
+func (s *BookStageService) runWithOptions(ctx context.Context, owner, batchID, bookID string, stage BookStage, mode StageMode, requestID, videoID, frozenCompilationID string, stripReferenceImages bool) (BookStageSummary, error) {
 	if !validBookStage(stage) {
 		return BookStageSummary{}, ErrInvalid
 	}
@@ -227,13 +231,13 @@ func (s *BookStageService) run(ctx context.Context, owner, batchID, bookID strin
 		}
 		if mode == StageModeMissing {
 			var job ProductionJob
-			job, err = s.Production.SubmitBookProductionWithOptions(ctx, owner, batchID, bookID, requestID, provider, ProductionOptions{VideoID: videoID, CompilationID: frozenCompilationID})
+			job, err = s.Production.SubmitBookProductionWithOptions(ctx, owner, batchID, bookID, requestID, provider, ProductionOptions{VideoID: videoID, CompilationID: frozenCompilationID, StripReferenceImages: stripReferenceImages})
 			if err == nil {
 				err = immediateVideoProviderFailure(job)
 			}
 		} else {
 			var job ProductionJob
-			job, err = s.Production.SubmitBookProductionWithOptions(ctx, owner, batchID, bookID, requestID, provider, ProductionOptions{Force: true, VideoID: videoID, CompilationID: frozenCompilationID})
+			job, err = s.Production.SubmitBookProductionWithOptions(ctx, owner, batchID, bookID, requestID, provider, ProductionOptions{Force: true, VideoID: videoID, CompilationID: frozenCompilationID, StripReferenceImages: stripReferenceImages})
 			if err == nil {
 				err = immediateVideoProviderFailure(job)
 			}
@@ -248,6 +252,11 @@ func (s *BookStageService) run(ctx context.Context, owner, batchID, bookID strin
 		return BookStageSummary{}, summaryErr
 	}
 	return summary, err
+}
+
+func moderationRejected(message string) bool {
+	message = strings.ToLower(strings.TrimSpace(message))
+	return strings.Contains(message, "内容不符合平台规范") || strings.Contains(message, "content policy") || strings.Contains(message, "content moderation") || strings.Contains(message, "safety policy")
 }
 
 func (s *BookStageService) usesUnifiedDirectorFlow(batch Batch, book Book) bool {
@@ -272,7 +281,9 @@ func (s *BookStageService) RetryLastFailed(ctx context.Context, owner, batchID, 
 		videoID = summary.LastFailed.InputRevision
 	}
 	frozenCompilationID := ""
+	stripReferenceImages := false
 	if summary.LastFailed.Stage == BookStageVideo {
+		stripReferenceImages = moderationRejected(summary.LastFailed.ErrorMessage)
 		frozenCompilationID = s.latestFailedH3CompilationID(ctx, owner, batchID, bookID, videoID)
 		batch, batchErr := s.Store.GetBatch(ctx, owner, batchID)
 		if batchErr == nil {
@@ -294,12 +305,12 @@ func (s *BookStageService) RetryLastFailed(ctx context.Context, owner, batchID, 
 					if _, openingErr := s.run(ctx, owner, batchID, bookID, BookStageOpening, StageModeForce, openingRequest, "", ""); openingErr != nil {
 						return s.Summary(ctx, owner, batchID, bookID)
 					}
-					return s.run(ctx, owner, batchID, bookID, BookStageVideo, StageModeForce, requestID, videoID, frozenCompilationID)
+					return s.runWithOptions(ctx, owner, batchID, bookID, BookStageVideo, StageModeForce, requestID, videoID, frozenCompilationID, stripReferenceImages)
 				}
 			}
 		}
 	}
-	return s.run(ctx, owner, batchID, bookID, summary.LastFailed.Stage, StageModeForce, requestID, videoID, frozenCompilationID)
+	return s.runWithOptions(ctx, owner, batchID, bookID, summary.LastFailed.Stage, StageModeForce, requestID, videoID, frozenCompilationID, stripReferenceImages)
 }
 
 func (s *BookStageService) latestFailedH3CompilationID(ctx context.Context, owner, batchID, bookID, videoID string) string {

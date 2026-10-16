@@ -124,6 +124,11 @@ type ProductionOptions struct {
 	Force         bool
 	VideoID       string
 	CompilationID string
+	// StripReferenceImages is used only for a bounded retry after a provider
+	// moderation rejection. The frozen prompt and compilation remain the same;
+	// the retry deliberately removes image inputs that may have triggered the
+	// provider's visual safety check.
+	StripReferenceImages bool
 }
 
 type h3CompilationPromptResolver interface {
@@ -419,6 +424,13 @@ func (s *ProductionService) SubmitBookProductionWithOptions(ctx context.Context,
 		}
 		if compileErr != nil {
 			return compileErr
+		}
+		if options.StripReferenceImages {
+			prompt.ReferenceImageURLs = nil
+			prompt.DowngradedAssetIDs = nil
+			prompt.EffectiveSettings.Values = clonePatch(prompt.EffectiveSettings.Values)
+			prompt.EffectiveSettings.Values["imageUrls"] = json.RawMessage(`[]`)
+			prompt.EffectiveSettings.Values["referenceImages"] = json.RawMessage(`[]`)
 		}
 		selectedModel := rawString(prompt.EffectiveSettings.Values, "videoModelId", "")
 		if !VideoModelMatchesProviderModel(selectedModel, model.ID, provider) {

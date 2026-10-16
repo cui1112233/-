@@ -107,6 +107,42 @@ func TestH3VideoRetryUsesNewerCompilationAfterPromptEdit(t *testing.T) {
 	}
 }
 
+func TestH3ModerationRetryStripsReferenceImagesWithoutChangingFrozenPrompt(t *testing.T) {
+	ctx := context.Background()
+	store, batch, book := seedH3DirectorRevision(t)
+	if _, err := store.SaveSettings(ctx, "alice", ScopeRef{Kind: ScopeBatch, BatchID: batch.ID}, SettingsUpdate{
+		Patch:            SettingsPatch{"videoModelId": rawSetting(t, "yd2.0-mini"), "imageUrls": rawSetting(t, []string{"https://images.example/risky.png"})},
+		ExpectedRevision: batch.Revision,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	document := *book.DirectorRevision.Output.H3Director
+	seedH3AudioMeasurement(t, store, batch, book, document)
+	compiled, err := (&H3KernelService{Store: store}).Compile(ctx, "alice", batch.ID, book.ID, H3KernelCompileRequest{
+		DirectorRevisionID: book.DirectorRevision.ID,
+		AudioAssetID:       "audio-1",
+		Preset:             completeH3CompileInput(document, H3CanonicalTimeline{}).Preset,
+		Switches:           H3PromptSwitches{SmartUnified: true, BaseSetup: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter := &recordingProductionAdapter{ref: ProviderTaskRef{State: ProductionQueued, ProviderTaskID: "provider-safe-retry"}}
+	service := &ProductionService{Store: store, Compiler: &PromptCompilerService{Store: store}, Adapter: adapter, Enabled: true, Model: FrozenVideoModel{ID: "yd2.0-mini", MaxDuration: 10}}
+	if _, err := service.SubmitBookProductionWithOptions(ctx, "alice", batch.ID, book.ID, "h3-moderation-retry", VideoProviderPersonalAPI, ProductionOptions{CompilationID: compiled.Compilation.ID, StripReferenceImages: true}); err != nil {
+		t.Fatal(err)
+	}
+	if len(adapter.prompts) != 1 || len(adapter.prompts[0].ReferenceImageURLs) != 0 {
+		t.Fatalf("reference images were not stripped: %#v", adapter.prompts)
+	}
+	if got := string(adapter.prompts[0].EffectiveSettings.Values["imageUrls"]); got != "[]" {
+		t.Fatalf("imageUrls=%s", got)
+	}
+	if adapter.prompts[0].CompiledPrompt != compiled.Compilation.Compilation.Segments[0].CompiledPrompt {
+		t.Fatal("moderation retry changed the frozen prompt")
+	}
+}
+
 func TestH3VideoRetryFindsAnAsyncProviderFailureWithoutFailedStageRun(t *testing.T) {
 	ctx := context.Background()
 	store, batch, book := seedH3DirectorRevision(t)
