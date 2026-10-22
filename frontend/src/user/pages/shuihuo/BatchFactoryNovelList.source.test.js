@@ -424,6 +424,11 @@ test('shows the submitted H3 prompt while keeping its editable director copy sep
 	assert.match(source, /setVideoPrompt\(compiledPrompt \|\| displayPrompt \|\| segment\.compiled_prompt\)/);
 });
 
+test('makes the edit action persist the changed storyboard prompt', () => {
+	assert.match(source, /onClick=\{editing \? savePrompt : async \(\) => \{/);
+	assert.match(source, /\{editing \? '保存' : '编辑'\}/);
+});
+
 test('defers compiled prompt reads until the user opens the prompt editor', () => {
   assert.match(source, /function useCompiledVideoPrompt\(batchId, book, video, settingsRevision = 0, \{ enabled = true \} = \{\}\)/);
   assert.match(source, /if \(!enabled \|\| !batchId \|\| !book\?\.id \|\| !video\?\.id\)/);

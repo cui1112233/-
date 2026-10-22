@@ -1133,8 +1133,8 @@ function PromptPanel({ book, batch, batchId, settingsRevision, initialVideoId = 
       <div className="batch-factory-prompt-modal-actions">
         <Button type="primary" loading={saving} disabled={!editing || !selectedVideo} onClick={savePrompt}>保存</Button>
         <Tooltip title={promptKind === 'visual' ? '按当前小说原文重新生成画面提示词。' : '按当前小说原文重新生成导演分镜，并重编最终 VIDEO 提示词；不会提交视频生成任务。'}><Button icon={promptKind === 'visual' ? <ReloadOutlined /> : null} loading={regenerating} disabled={regenerating || !regenerateCurrentPrompt} onClick={regenerateCurrentPrompt}>{promptKind === 'visual' ? '重新生成画面提示词' : '重新生成导演分镜'}</Button></Tooltip>
-        <Button onClick={async () => {
-          if (!editing && promptKind === 'video') {
+        <Button onClick={editing ? savePrompt : async () => {
+          if (promptKind === 'video') {
             if (book?.directorRevision?.output?.h3_director || book?.directorRevision?.output?.h3Director) {
               try {
                 const trace = await getH3Trace(batchId, book.id);
@@ -1145,8 +1145,8 @@ function PromptPanel({ book, batch, batchId, settingsRevision, initialVideoId = 
               } catch (error) { message.error(error?.message || '读取分镜失败'); return; }
             } else setVideoPrompt(submittedVideoPrompt);
           }
-          setEditing(value => !value);
-        }}>{editing ? '完成编辑' : '编辑'}</Button>
+          setEditing(true);
+        }}>{editing ? '保存' : '编辑'}</Button>
         {promptKind === 'visual' ? <Button onClick={() => onGenerateVisual?.(selectedVideo?.id)}>生成图片</Button> : <Tooltip title={productionAvailable ? '为当前分镜生成视频候选版本。' : productionReason}><Button disabled={!productionAvailable || regenerating} loading={regenerating} onClick={() => onGenerateVideo?.(selectedVideo?.id)}>生成视频</Button></Tooltip>}
         {promptKind === 'video' && selectedIndex === 0 && engineSettings.openingEnabled === true ? <Button onClick={() => setOpeningVariantsOpen(true)}>查看换开头提示词</Button> : null}
         {promptKind === 'video' ? <Button onClick={openH3Trace}>查看 H3 Trace</Button> : null}
