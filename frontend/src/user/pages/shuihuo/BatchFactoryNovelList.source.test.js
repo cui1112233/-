@@ -421,6 +421,7 @@ test('shows the submitted H3 prompt while keeping its editable director copy sep
 	assert.match(source, /editing \? videoPrompt : submittedVideoPrompt/);
 	assert.doesNotMatch(source, /displayPrompt \|\| response\?\.finalPrompt\?\.compiledPrompt/);
 	assert.match(source, /const activeLabel = promptKind === 'visual' \? '画面提示词' : '分镜视频提示词';/);
+	assert.match(source, /setVideoPrompt\(compiledPrompt \|\| displayPrompt \|\| segment\.compiled_prompt\)/);
 });
 
 test('defers compiled prompt reads until the user opens the prompt editor', () => {

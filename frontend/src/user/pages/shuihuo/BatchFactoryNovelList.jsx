@@ -1141,7 +1141,7 @@ function PromptPanel({ book, batch, batchId, settingsRevision, initialVideoId = 
                 const segment = trace?.compilation?.compilation?.segments?.[selectedIndex];
                 if (!segment) throw new Error('分镜编译记录缺失');
                 setPromptEditTrace(trace);
-                setVideoPrompt(segment.compiled_prompt);
+                setVideoPrompt(compiledPrompt || displayPrompt || segment.compiled_prompt);
               } catch (error) { message.error(error?.message || '读取分镜失败'); return; }
             } else setVideoPrompt(submittedVideoPrompt);
           }
