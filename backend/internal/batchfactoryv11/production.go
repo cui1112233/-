@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 type ProductionState string
@@ -260,7 +261,11 @@ func productionError(err error) string {
 	// multibyte characters never exceed it and the INSERT never fails with
 	// Error 1406 (Data too long), which used to cause an infinite retry loop.
 	if len(message) > 200 {
-		return message[:200] + "..."
+		limit := 200
+		for limit > 0 && !utf8.RuneStart(message[limit]) {
+			limit--
+		}
+		return message[:limit] + "..."
 	}
 	return message
 }

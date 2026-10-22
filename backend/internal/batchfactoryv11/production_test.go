@@ -3,7 +3,9 @@ package batchfactoryv11
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 type recordingProductionAdapter struct {
@@ -26,6 +28,17 @@ type countingPromptResolver struct {
 type recordingProductionPoller struct {
 	calls int
 	ref   ProviderTaskRef
+}
+
+func TestProductionErrorTruncatesOnRuneBoundary(t *testing.T) {
+	message := "x" + strings.Repeat("错", 80)
+	got := productionError(errors.New(message))
+	if len(got) > 240 {
+		t.Fatalf("error length=%d, want at most 240 bytes", len(got))
+	}
+	if !utf8.ValidString(got) {
+		t.Fatalf("truncated error is not valid UTF-8: %q", got)
+	}
 }
 
 func (p *recordingProductionPoller) Poll(context.Context, FrozenVideoModel, ProviderTaskRef) (ProviderTaskRef, error) {
