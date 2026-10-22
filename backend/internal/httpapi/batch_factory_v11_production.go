@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"errors"
+	"log"
 	"net/http"
 	"strings"
 
@@ -166,6 +167,7 @@ func registerProductionRoutes(mux *http.ServeMux, service *batchfactoryv11.Produ
 		}
 		status, err := service.GetBatchStatus(r.Context(), owner, r.PathValue("batchId"))
 		if err != nil {
+			log.Printf("batch factory production status failed: batch=%q owner=%q error=%v", r.PathValue("batchId"), owner, err)
 			writeStoreError(w, err)
 			return
 		}
