@@ -11,6 +11,7 @@ const {
   routeV12UpstreamPath,
   rewriteV12PathForLegacyRead,
   rejectLegacyV11Mutations,
+  applyVerified121PublishCapability,
   createBatchFactoryV12Router
 } = require('./batch-factory-v12');
 const { refillMissingBatchFactoryBookSource: refillSharedBatchFactoryBookSource, backfillBatchFactoryBook121Metadata } = require('../lib/batch-factory-v11/source-refill');
@@ -499,6 +500,63 @@ test('keeps native H3 director, audio, compile and trace requests in the V12 nam
     routeV12UpstreamPath('/api/batch-factory/v12/batches/batch-1/books/book-1/stages/director'),
     '/api/batch-factory/v11/batches/batch-1/books/book-1/stages/director'
   );
+});
+
+test('opens the video-management publishing capability only after the Node-owned session probe finds an organization', () => {
+  const capabilities = applyVerified121PublishCapability({
+    'batch.read': { available: true },
+    'publish.121': { available: false, reason: '121 视频发布未启用：尚未验证 MP4 提交接口、回执与回读' },
+    'publish.yadi': { available: false, reason: 'Yadi is not enabled' }
+  }, { organizations: [{ id: 'org-1', name: '验证组织' }] });
+
+  assert.deepEqual(capabilities['publish.121'], { available: true });
+  assert.deepEqual(capabilities['publish.yadi'], { available: false, reason: 'Yadi is not enabled' });
+});
+
+test('keeps video-management publishing unavailable when the Node-owned session probe has no organization', () => {
+  const capabilities = applyVerified121PublishCapability({
+    'publish.121': { available: false, reason: '121 视频发布未启用：尚未验证 MP4 提交接口、回执与回读' }
+  }, { organizations: [] });
+
+  assert.deepEqual(capabilities['publish.121'], {
+    available: false,
+    reason: '视频管理系统登录会话或组织目录暂不可用'
+  });
+});
+
+test('V12 capability route preserves Go capabilities but exposes video management after the Node session probe succeeds', async () => {
+  const app = express();
+  app.use((req, _res, next) => {
+    req.username = 'verified-user';
+    req.auth = { account: { isOwner: false } };
+    next();
+  });
+  app.use('/api/batch-factory/v12', createBatchFactoryV12Router({
+    goBaseUrl: 'http://go.test',
+    bridgeSecret: 'test-secret',
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({
+        'batch.read': { available: true },
+        'publish.121': { available: false, reason: 'legacy Go config is disabled' },
+        'publish.yadi': { available: false, reason: 'Yadi is not enabled' }
+      })
+    }),
+    publish121Readiness: async () => ({ organizations: [{ id: 'org-1', name: '验证组织' }] })
+  }));
+  const server = await new Promise(resolve => {
+    const value = app.listen(0, '127.0.0.1', () => resolve(value));
+  });
+  try {
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/batch-factory/v12/capabilities`);
+    assert.equal(response.status, 200);
+    const capabilities = await response.json();
+    assert.deepEqual(capabilities['publish.121'], { available: true });
+    assert.deepEqual(capabilities['publish.yadi'], { available: false, reason: 'Yadi is not enabled' });
+  } finally {
+    await new Promise(resolve => server.close(resolve));
+  }
 });
 
 test('maps all enabled script constraint layers into automated H3 compilation', () => {

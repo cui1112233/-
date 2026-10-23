@@ -7,6 +7,7 @@ const {
   sanitizeAutomationPresetConfig,
   validateBatchFactoryModelPatch,
   redactBatchFactorySystemPromptBodies,
+  listBatchFactory121Organizations,
   v11JSONRequest
 } = require('./batch-factory-v11');
 const { createMySQLWorkshopStore } = require('../lib/novel-fetch-workshop/mysql-store');
@@ -18,6 +19,19 @@ const { readConfig } = require('../lib/shared');
 
 const V12_BASE = '/api/batch-factory/v12';
 const V11_BASE = '/api/batch-factory/v11';
+const PUBLISH_121_UNAVAILABLE_REASON = '视频管理系统登录会话或组织目录暂不可用';
+
+// Go remains the source for the broad V11 capability map.  The actual 121
+// publisher, however, is owned by Node and authenticated through its browser
+// session bridge, so only this one capability is decided from that live check.
+function applyVerified121PublishCapability(capabilities, readiness = {}) {
+  const merged = { ...(capabilities && typeof capabilities === 'object' ? capabilities : {}) };
+  const organizations = Array.isArray(readiness?.organizations) ? readiness.organizations : [];
+  merged['publish.121'] = organizations.length
+    ? { available: true }
+    : { available: false, reason: PUBLISH_121_UNAVAILABLE_REASON };
+  return merged;
+}
 
 // V12 owns the public API namespace. During the one-time batch upgrade window
 // it adapts durable V11 records through the existing, tested V11 service
@@ -235,6 +249,47 @@ function createBatchFactoryV12Router(options = {}) {
   // 浏览器运行摘要每 5 秒轮询一次；将相同账号/批量的昂贵聚合读取限为 15 秒一次，
   // 避免多个页面或抽屉同时打开时把小规格公网机的 Go/MySQL 打满。
   const runtimeSummaryTTL = 15_000;
+  const publish121Readiness = typeof options.publish121Readiness === 'function'
+    ? options.publish121Readiness
+    : req => listBatchFactory121Organizations(req, options);
+  const publish121ReadyCache = new Map();
+  const publish121ReadyCacheMs = Number.isFinite(Number(options.publish121ReadyCacheMs))
+    ? Math.max(0, Number(options.publish121ReadyCacheMs))
+    : 45_000;
+  const loadVerified121Readiness = async req => {
+    const username = String(req.username || '').trim();
+    const cached = publish121ReadyCache.get(username);
+    if (cached && cached.expiresAt > Date.now()) return cached.readiness;
+    try {
+      const readiness = await publish121Readiness(req);
+      if (Array.isArray(readiness?.organizations) && readiness.organizations.length) {
+        publish121ReadyCache.set(username, { readiness, expiresAt: Date.now() + publish121ReadyCacheMs });
+      }
+      return readiness;
+    } catch (_) {
+      // This endpoint must never advertise a third-party publisher that the
+      // current account cannot actually reach.  Fail closed without caching
+      // the failure so a fresh login is available immediately.
+      return { organizations: [] };
+    }
+  };
+  router.get('/capabilities', async (req, res) => {
+    try {
+      const account = { username: req.username, isOwner: req.auth?.account?.isOwner === true };
+      const capabilities = await v11JSONRequest({
+        ...account,
+        method: 'GET',
+        pathname: `${V11_BASE}/capabilities`,
+        goBaseUrl: options.goBaseUrl,
+        bridgeSecret: options.bridgeSecret,
+        fetchImpl: options.fetchImpl,
+        now: options.now
+      });
+      return res.json(applyVerified121PublishCapability(capabilities, await loadVerified121Readiness(req)));
+    } catch (error) {
+      return res.status(Number(error?.status) || 400).json({ error: error?.message || '读取批量工厂能力失败' });
+    }
+  });
   router.get('/batches/summary', async (req, res) => {
     try {
       const account = { username: req.username, isOwner: req.auth?.account?.isOwner === true };
@@ -487,6 +542,7 @@ module.exports = {
   batchFactoryBatchListSummary,
   classifyBatchFactoryBooks,
   cleanBatchFactorySourceText,
+  applyVerified121PublishCapability,
   fetchBatchFactoryOriginals,
   buildGiantBatchCreatePayload,
   refillMissingBatchFactoryBookSource,
