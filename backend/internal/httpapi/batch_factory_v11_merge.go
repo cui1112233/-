@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -25,6 +26,28 @@ type mergeSubmitInput struct {
 	Speed                float64 `json:"speed"`
 	TTSSpeed             float64 `json:"ttsSpeed"`
 	AudioDurationSeconds float64 `json:"audioDurationSeconds"`
+}
+
+func mergeMediaPath(batchID, artifactID string) string {
+	return "/api/batch-factory/v11/batches/" + batchID + "/merge-media/" + artifactID
+}
+
+func isRemoteMergeOutput(output string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(output))
+	if err != nil || parsed.Host == "" {
+		return false
+	}
+	return parsed.Scheme == "https" || parsed.Scheme == "http" || parsed.Scheme == "tos"
+}
+
+// Keep storage URLs server-side. Native mini-program downloads can only use
+// WeChat-approved domains, while this route is authenticated and serves the
+// same stored object through the product API origin.
+func mergeJobForClient(batchID string, job batchfactoryv11.MergeJob) batchfactoryv11.MergeJob {
+	if job.Status == batchfactoryv11.MergeSucceeded && isRemoteMergeOutput(job.OutputURL) && strings.TrimSpace(job.ID) != "" {
+		job.OutputURL = mergeMediaPath(batchID, job.ID)
+	}
+	return job
 }
 
 func registerMergeRoutes(mux *http.ServeMux, service *batchfactoryv11.MergeService, files *localartifact.Store, output mergeworker.ObjectStore, remote mergeworker.ObjectReader) {
@@ -134,6 +157,9 @@ func registerMergeRoutes(mux *http.ServeMux, service *batchfactoryv11.MergeServi
 			writeStoreError(w, err)
 			return
 		}
+		for index := range jobs {
+			jobs[index] = mergeJobForClient(r.PathValue("batchId"), jobs[index])
+		}
 		writeJSON(w, http.StatusOK, map[string]any{"batchId": r.PathValue("batchId"), "jobs": jobs})
 	})
 	mux.HandleFunc("GET /api/batch-factory/v11/batches/{batchId}/merge-media/{artifactId}", func(w http.ResponseWriter, r *http.Request) {
@@ -153,10 +179,14 @@ func registerMergeRoutes(mux *http.ServeMux, service *batchfactoryv11.MergeServi
 			writeStoreError(w, err)
 			return
 		}
-		expectedOutput := "/api/batch-factory/v11/batches/" + batchID + "/merge-media/" + artifactID
+		expectedOutput := mergeMediaPath(batchID, artifactID)
 		found := false
 		for _, job := range jobs {
 			if job.Status == batchfactoryv11.MergeSucceeded && strings.TrimSpace(job.OutputURL) == expectedOutput {
+				found = true
+				break
+			}
+			if job.Status == batchfactoryv11.MergeSucceeded && job.ID == artifactID && isRemoteMergeOutput(job.OutputURL) {
 				found = true
 				break
 			}

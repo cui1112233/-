@@ -3,6 +3,7 @@ package httpapi
 import (
 	"bytes"
 	"context"
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -21,6 +22,21 @@ func (fn mergeOutputFunc) PutMerged(ctx context.Context, taskID, path string) (s
 }
 
 var _ mergeworker.ObjectStore = mergeOutputFunc(nil)
+
+type mergeOutputReader struct {
+	put  mergeOutputFunc
+	open func(context.Context, string) (io.ReadCloser, error)
+}
+
+func (r mergeOutputReader) PutMerged(ctx context.Context, taskID, path string) (string, error) {
+	return r.put(ctx, taskID, path)
+}
+
+func (r mergeOutputReader) Open(ctx context.Context, taskID string) (io.ReadCloser, error) {
+	return r.open(ctx, taskID)
+}
+
+var _ mergeworker.ObjectReader = mergeOutputReader{}
 
 type productionHTTPAdapter struct{ calls int }
 
@@ -108,7 +124,7 @@ func TestSliceFiveMergeRouteIsIdempotentAndOwnerScoped(t *testing.T) {
 		t.Fatalf("book merge=%d %s calls=%d", bookMerge.Code, bookMerge.Body.String(), mergeAdapter.calls)
 	}
 	status := signedJSONRequest(t, api, now, "alice", http.MethodGet, "/api/batch-factory/v11/batches/"+batch.ID+"/merge-status", nil)
-	if status.Code != http.StatusOK || !strings.Contains(status.Body.String(), "merged.mp4") {
+	if status.Code != http.StatusOK || !strings.Contains(status.Body.String(), "/merge-media/") || strings.Contains(status.Body.String(), "https://media.example/merged.mp4") {
 		t.Fatalf("status=%d body=%s", status.Code, status.Body.String())
 	}
 	other := signedJSONRequest(t, api, now, "bob", http.MethodGet, "/api/batch-factory/v11/batches/"+batch.ID+"/merge-status", nil)
@@ -143,6 +159,38 @@ func TestSliceFiveServesOnlyTheOwnersLocalMergedArtifact(t *testing.T) {
 	other := signedJSONRequest(t, api, now, "bob", http.MethodGet, path, nil)
 	if other.Code != http.StatusNotFound {
 		t.Fatalf("other status=%d body=%s", other.Code, other.Body.String())
+	}
+}
+
+func TestSliceFiveProxiesHistoricalCDNMergeMediaForMiniProgram(t *testing.T) {
+	now := time.Unix(1700000000, 0)
+	store := batchfactoryv11.NewMemoryStore()
+	batch, err := store.CreateBatch(context.Background(), "alice", batchfactoryv11.CreateBatchInput{Title: "b", Books: []batchfactoryv11.CreateBookInput{{Title: "k", SourceText: "正文"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := store.CreateMergeJob(context.Background(), batchfactoryv11.MergeJob{Owner: "alice", BatchID: batch.ID, RequestID: "cdn-media", Status: batchfactoryv11.MergeSucceeded, OutputURL: "https://cdn.token6688.com/batch-merged/final.mp4", CreatedAt: now, UpdatedAt: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	opened := ""
+	remote := mergeOutputReader{
+		put: mergeOutputFunc(func(context.Context, string, string) (string, error) { return "", nil }),
+		open: func(_ context.Context, taskID string) (io.ReadCloser, error) {
+			opened = taskID
+			return io.NopCloser(strings.NewReader("0000ftypisom-proxied-merged-video")), nil
+		},
+	}
+	merge := &batchfactoryv11.MergeService{Store: store, Enabled: true}
+	api := NewRouter(RouterOptions{BridgeSecret: "secret", Now: func() time.Time { return now }, Slice: 5, Store: store, Merge: merge, MergeOutput: remote})
+	proxyPath := "/api/batch-factory/v11/batches/" + batch.ID + "/merge-media/" + job.ID
+	status := signedJSONRequest(t, api, now, "alice", http.MethodGet, "/api/batch-factory/v11/batches/"+batch.ID+"/merge-status", nil)
+	if status.Code != http.StatusOK || strings.Contains(status.Body.String(), "cdn.token6688.com") || !strings.Contains(status.Body.String(), proxyPath) {
+		t.Fatalf("status=%d body=%s", status.Code, status.Body.String())
+	}
+	media := signedJSONRequest(t, api, now, "alice", http.MethodGet, proxyPath, nil)
+	if media.Code != http.StatusOK || !strings.Contains(media.Body.String(), "ftyp") || opened != job.ID {
+		t.Fatalf("media=%d body=%q opened=%q want=%q", media.Code, media.Body.String(), opened, job.ID)
 	}
 }
 
