@@ -129,6 +129,61 @@ func TestAutoDLH3VideoAdapterReportsSafeProviderRejection(t *testing.T) {
 	}
 }
 
+func TestAutoDLH3VideoAdapterReportsSafeHTTP403Rejection(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"error":{"message":"This token autodl-secret does not have permission to access ComfyUI APIs","type":"permission_denied"}}`))
+	}))
+	defer server.Close()
+
+	adapter := &AutoDLH3VideoAdapter{
+		CreateURL:   server.URL + "/api/v1/comfyui/comfyui_workflow/{workflow}",
+		TasksURL:    server.URL + "/api/v1/comfyui/comfyui_workflow/result/{id}",
+		APIKey:      "autodl-secret",
+		Model:       AutoDLH3Model,
+		Client:      server.Client(),
+		ValidateURL: func(raw string) (*url.URL, error) { return url.Parse(raw) },
+	}
+
+	_, err := adapter.Submit(context.Background(), FrozenVideoModel{ID: AutoDLH3Model, MaxDuration: 15}, FinalPrompt{CompiledPrompt: "镜头推进"})
+	if err == nil {
+		t.Fatal("Submit() error = nil")
+	}
+	got := err.Error()
+	if !strings.Contains(got, "HTTP 403") || !strings.Contains(got, "permission_denied") || !strings.Contains(got, "does not have permission") || !strings.Contains(got, "[redacted]") || strings.Contains(got, "autodl-secret") {
+		t.Fatalf("unexpected error: %q", got)
+	}
+}
+
+func TestAutoDLH3VideoAdapterReportsSafeHTTP403RejectionWhenPolling(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Fatalf("method=%s, want GET", r.Method)
+		}
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"error":{"message":"This token autodl-secret does not have permission to access ComfyUI APIs","type":"permission_denied"}}`))
+	}))
+	defer server.Close()
+
+	adapter := &AutoDLH3VideoAdapter{
+		CreateURL:   server.URL + "/api/v1/comfyui/comfyui_workflow/{workflow}",
+		TasksURL:    server.URL + "/api/v1/comfyui/comfyui_workflow/result/{id}",
+		APIKey:      "autodl-secret",
+		Model:       AutoDLH3Model,
+		Client:      server.Client(),
+		ValidateURL: func(raw string) (*url.URL, error) { return url.Parse(raw) },
+	}
+
+	_, err := adapter.Poll(context.Background(), FrozenVideoModel{ID: AutoDLH3Model}, ProviderTaskRef{ProviderTaskID: "h3-task-1"})
+	if err == nil {
+		t.Fatal("Poll() error = nil")
+	}
+	got := err.Error()
+	if !strings.Contains(got, "HTTP 403") || !strings.Contains(got, "permission_denied") || !strings.Contains(got, "does not have permission") || !strings.Contains(got, "[redacted]") || strings.Contains(got, "autodl-secret") {
+		t.Fatalf("unexpected error: %q", got)
+	}
+}
+
 func TestAutoDLH3VideoAdapterUsesReferenceWorkflowAndPollsResult(t *testing.T) {
 	var requests []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -157,6 +157,9 @@ func (a *AutoDLH3VideoAdapter) Submit(ctx context.Context, model FrozenVideoMode
 	request.Header.Set("Authorization", strings.TrimSpace(a.APIKey))
 	reply, err := a.doJSON(request)
 	if err != nil {
+		if rejection := autoDLH3ProviderRejection(reply, a.APIKey); rejection != "" {
+			return ProviderTaskRef{}, fmt.Errorf("%w: %s", err, rejection)
+		}
 		return ProviderTaskRef{}, err
 	}
 	taskID := firstVideoValue(reply, "task_id", "taskId", "id")
@@ -174,7 +177,7 @@ func (a *AutoDLH3VideoAdapter) Submit(ctx context.Context, model FrozenVideoMode
 // arbitrary and must never leak the configured credential into task history.
 func autoDLH3ProviderRejection(reply []byte, apiKey string) string {
 	parts := make([]string, 0, 3)
-	if code := autoDLH3SafeDetail(firstVideoValue(reply, "code", "error_code"), apiKey); code != "" {
+	if code := autoDLH3SafeDetail(firstVideoValue(reply, "code", "error_code", "type"), apiKey); code != "" {
 		parts = append(parts, "code="+code)
 	}
 	if message := autoDLH3SafeDetail(firstVideoValue(reply, "msg", "message", "error", "detail"), apiKey); message != "" {
@@ -250,6 +253,9 @@ func (a *AutoDLH3VideoAdapter) Poll(ctx context.Context, _ FrozenVideoModel, tas
 	request.Header.Set("Authorization", strings.TrimSpace(a.APIKey))
 	reply, err := a.doJSON(request)
 	if err != nil {
+		if rejection := autoDLH3ProviderRejection(reply, a.APIKey); rejection != "" {
+			return ProviderTaskRef{}, fmt.Errorf("%w: %s", err, rejection)
+		}
 		return ProviderTaskRef{}, err
 	}
 	state := autoDLH3State(firstVideoValue(reply, "status", "state"))
@@ -319,7 +325,7 @@ func (a *AutoDLH3VideoAdapter) doJSON(request *http.Request) ([]byte, error) {
 		return nil, fmt.Errorf("read AutoDL H3 provider response")
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return nil, fmt.Errorf("AutoDL H3 provider returned HTTP %d", response.StatusCode)
+		return body, fmt.Errorf("AutoDL H3 provider returned HTTP %d", response.StatusCode)
 	}
 	return body, nil
 }
