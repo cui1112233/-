@@ -13,12 +13,13 @@ import (
 )
 
 const (
-	AutoDLH3Model              = "minimax-h3-video"
-	AutoDLH3NoImageWorkflow    = "minimax_h3_lightx2v_no_pic"
-	AutoDLH3ReferenceWorkflow  = "minimax_h3_lightx2v_v5_15s"
-	DefaultAutoDLH3CreateURL   = "https://autodl.art/api/v1/comfyui/comfyui_workflow/{workflow}"
-	DefaultAutoDLH3TasksURL    = "https://autodl.art/api/v1/comfyui/comfyui_workflow/result/{id}"
-	MaxAutoDLH3ReferenceImages = 9
+	AutoDLH3Model                    = "minimax-h3-video"
+	AutoDLH3NoImageWorkflow          = "minimax_h3_lightx2v_no_pic"
+	AutoDLH3ReferenceWorkflow        = "minimax_h3_lightx2v_v5_15s"
+	DefaultAutoDLH3ReferenceImageURL = "https://tvmao-public.tos-cn-beijing.volces.com/tapnow/empty.png"
+	DefaultAutoDLH3CreateURL         = "https://autodl.art/api/v1/comfyui/comfyui_workflow/{workflow}"
+	DefaultAutoDLH3TasksURL          = "https://autodl.art/api/v1/comfyui/comfyui_workflow/result/{id}"
+	MaxAutoDLH3ReferenceImages       = 9
 )
 
 // AutoDLH3VideoAdapter implements the two-step ComfyUI workflow API. The
@@ -108,6 +109,10 @@ func (a *AutoDLH3VideoAdapter) Submit(ctx context.Context, model FrozenVideoMode
 	if len(images) == 0 {
 		images = rawStrings(values, "referenceImages")
 	}
+	workflow := strings.TrimSpace(a.WorkflowID)
+	if len(images) == 0 && workflow != "" && workflow != AutoDLH3NoImageWorkflow {
+		images = []string{DefaultAutoDLH3ReferenceImageURL}
+	}
 	if len(images) > MaxAutoDLH3ReferenceImages {
 		return ProviderTaskRef{}, fmt.Errorf("AutoDL H3 supports at most %d reference images", MaxAutoDLH3ReferenceImages)
 	}
@@ -122,7 +127,6 @@ func (a *AutoDLH3VideoAdapter) Submit(ctx context.Context, model FrozenVideoMode
 		}
 		images[index] = parsed.String()
 	}
-	workflow := strings.TrimSpace(a.WorkflowID)
 	if workflow == "" {
 		workflow = AutoDLH3NoImageWorkflow
 		if len(images) > 0 {

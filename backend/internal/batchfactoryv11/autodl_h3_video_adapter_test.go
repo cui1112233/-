@@ -27,11 +27,12 @@ func TestAutoDLH3VideoAdapterUsesTextWorkflowWhenNoReferenceImages(t *testing.T)
 	defer server.Close()
 
 	adapter := &AutoDLH3VideoAdapter{
-		CreateURL: server.URL + "/api/v1/comfyui/comfyui_workflow/{workflow}",
-		TasksURL:  server.URL + "/api/v1/comfyui/comfyui_workflow/result/{id}",
-		APIKey:    "autodl-secret",
-		Model:     AutoDLH3Model,
-		Client:    server.Client(),
+		CreateURL:  server.URL + "/api/v1/comfyui/comfyui_workflow/{workflow}",
+		TasksURL:   server.URL + "/api/v1/comfyui/comfyui_workflow/result/{id}",
+		APIKey:     "autodl-secret",
+		Model:      AutoDLH3Model,
+		WorkflowID: AutoDLH3NoImageWorkflow,
+		Client:     server.Client(),
 		ValidateURL: func(raw string) (*url.URL, error) {
 			return url.Parse(raw)
 		},
@@ -101,6 +102,40 @@ func TestAutoDLH3VideoAdapterUsesConfiguredWorkflowID(t *testing.T) {
 	}
 	if received["resolution"] != "768p竖" {
 		t.Fatalf("resolution=%q, want 768p竖", received["resolution"])
+	}
+}
+
+func TestAutoDLH3VideoAdapterSuppliesTransparentReferenceForConfiguredImageWorkflow(t *testing.T) {
+	const workflowID = "minimax_h3_zm_u24"
+	var received map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		wantPath := "/api/v1/comfyui/comfyui_workflow/" + workflowID
+		if r.Method != http.MethodPost || r.URL.Path != wantPath {
+			t.Fatalf("request=%s %s, want POST %s", r.Method, r.URL.Path, wantPath)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&received); err != nil {
+			t.Fatal(err)
+		}
+		_, _ = w.Write([]byte(`{"code":"Success","data":{"task_id":"h3-transparent-reference","status":"QUEUED"}}`))
+	}))
+	defer server.Close()
+
+	adapter := &AutoDLH3VideoAdapter{
+		CreateURL:   server.URL + "/api/v1/comfyui/comfyui_workflow/{workflow}",
+		TasksURL:    server.URL + "/api/v1/comfyui/comfyui_workflow/result/{id}",
+		APIKey:      "autodl-secret",
+		Model:       AutoDLH3Model,
+		WorkflowID:  workflowID,
+		Client:      server.Client(),
+		ValidateURL: func(raw string) (*url.URL, error) { return url.Parse(raw) },
+	}
+
+	_, err := adapter.Submit(context.Background(), FrozenVideoModel{ID: AutoDLH3Model, MaxDuration: 15}, FinalPrompt{CompiledPrompt: "镜头推进"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if received["ref_image_0"] != "https://tvmao-public.tos-cn-beijing.volces.com/tapnow/empty.png" {
+		t.Fatalf("payload=%+v", received)
 	}
 }
 
@@ -207,11 +242,12 @@ func TestAutoDLH3VideoAdapterUsesReferenceWorkflowAndPollsResult(t *testing.T) {
 	defer server.Close()
 
 	adapter := &AutoDLH3VideoAdapter{
-		CreateURL: server.URL + "/api/v1/comfyui/comfyui_workflow/{workflow}",
-		TasksURL:  server.URL + "/api/v1/comfyui/comfyui_workflow/result/{id}",
-		APIKey:    "autodl-secret",
-		Model:     AutoDLH3Model,
-		Client:    server.Client(),
+		CreateURL:  server.URL + "/api/v1/comfyui/comfyui_workflow/{workflow}",
+		TasksURL:   server.URL + "/api/v1/comfyui/comfyui_workflow/result/{id}",
+		APIKey:     "autodl-secret",
+		Model:      AutoDLH3Model,
+		WorkflowID: "minimax_h3_zm_u24",
+		Client:     server.Client(),
 		ValidateURL: func(raw string) (*url.URL, error) {
 			return url.Parse(raw)
 		},
@@ -236,7 +272,7 @@ func TestAutoDLH3VideoAdapterUsesReferenceWorkflowAndPollsResult(t *testing.T) {
 	if result.State != ProductionSucceeded || result.MediaURL != "https://media.example/h3.mp4" {
 		t.Fatalf("result=%+v", result)
 	}
-	if len(requests) != 2 || !strings.Contains(requests[0], "minimax_h3_lightx2v_v5_15s") {
+	if len(requests) != 2 || !strings.Contains(requests[0], "minimax_h3_zm_u24") {
 		t.Fatalf("requests=%v", requests)
 	}
 }
